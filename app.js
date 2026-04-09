@@ -7065,7 +7065,7 @@ function reopenDual(id){
 
 function dhDeletePair(mid){
   if(!confirm('Delete this pair?'))return;
-  fbRemove('matches/'+mid);toast('Pair deleted');renderDuals();
+  fbRemove('gamedays/'+mid);toast('Pair deleted');renderDuals();
 }
 
 // ── DUAL SCORESHEET UPLOAD ──────────────────────────────────
