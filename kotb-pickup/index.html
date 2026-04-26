@@ -8,6 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/ratings.js"></script>
+<script src="/identity.js"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -174,6 +175,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <span class="sync off" id="sync" title="Connecting..."></span>
     </div>
     <div class="event-title" id="event-title" style="display:none;"></div>
+    <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
   </div>
   <div class="tabs" id="hdr-tabs" style="display:none;">
     <button class="tab" data-tab="roster">Roster</button>
@@ -307,7 +309,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
             <tbody id="rbody"></tbody>
           </table>
         </div>
-        <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. Persistent across all leagues + pickups. <a href="/admin-ratings.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Ratings</a></p>
+        <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. Persistent across all leagues + pickups. <a href="/admin-ratings.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Ratings</a> · <a href="/admin-players.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Players</a></p>
       </div>
     </div>
 
@@ -484,6 +486,10 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
+}
+function openProfile(){
+  if(window.Identity) Identity.openProfile({ db });
+  else toast('Profile module not loaded yet, refresh the page');
 }
 function pickTab(t){
   tab = t;

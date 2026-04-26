@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="/ratings.js"></script>
+<script src="/identity.js"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -183,6 +184,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <button class="side-btn on" id="btn-k" onclick="switchSide('kings')">Kings</button>
         <button class="side-btn" id="btn-q" onclick="switchSide('queens')">Queens</button>
       </div>
+      <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
     </div>
   </div>
   <div class="tabs">
@@ -358,7 +360,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <tbody id="rbody"></tbody>
         </table>
       </div>
-      <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. One rating per name across leagues + pickup. <a href="/admin-ratings.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Ratings</a></p>
+      <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. One rating per name across leagues + pickup. <a href="/admin-ratings.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Ratings</a> · <a href="/admin-players.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Players</a></p>
     </div>
   </div>
 
@@ -612,6 +614,10 @@ function setSS(on){
   const d=$('sync');
   d.className='sync '+(on?'on':'off');
   d.title=on?'Connected':'Offline';
+}
+function openProfile(){
+  if(window.Identity) Identity.openProfile({ db });
+  else toast('Profile module not loaded yet, refresh the page');
 }
 
 // ─── SIDE / TAB ───

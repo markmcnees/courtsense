@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Manage Players · Tally KotB</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<style>
+:root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',sans-serif;background:var(--sand);color:#111827;padding:18px;line-height:1.5;}
+.wrap{max-width:880px;margin:0 auto;}
+h1{font-family:'Bebas Neue';font-size:28px;letter-spacing:3px;color:var(--primary);margin-bottom:6px;}
+.sub{color:var(--gray);font-size:13px;margin-bottom:18px;}
+.card{background:var(--white);border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);}
+h2{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);margin-bottom:10px;}
+p{font-size:14px;margin-bottom:8px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border-radius:8px;border:none;font-family:'Bebas Neue';font-size:12px;letter-spacing:1.2px;cursor:pointer;min-height:36px;}
+.btn-p{background:var(--primary);color:#fff;}
+.btn-d{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-a{background:var(--accent);color:#1a1a1a;}
+.btn-w{width:100%;}
+.btn-lg{padding:13px 20px;font-size:14px;min-height:48px;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px;line-height:1.55;}
+.inp{width:100%;padding:11px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:14px;color:#111827;background:var(--white);}
+.inp:focus{outline:none;border-color:var(--primary);}
+.lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
+
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);text-align:left;padding:8px;border-bottom:2px solid var(--gray-lighter);}
+td{padding:10px 8px;border-bottom:1px solid var(--gray-lighter);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr.blocked td{background:#fef2f2;}
+.actions{display:flex;gap:6px;flex-wrap:wrap;}
+.search{margin-bottom:12px;}
+.email{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;}
+.tag{display:inline-block;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:2px 6px;border-radius:4px;}
+.tag.notif-on{background:#d1fae5;color:#065f46;}
+.tag.notif-off{background:var(--gray-lighter);color:var(--gray);}
+.tag.muted{background:#fef3c7;color:#92400e;}
+.tag.blocked{background:#fee2e2;color:#b91c1c;}
+
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center;padding:16px;}
+.overlay.on{display:flex;}
+.modal{background:var(--white);border-radius:16px;padding:22px 18px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.14);}
+.mtitle{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+.mclose{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gray);padding:6px 8px;}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:13px 24px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+.sync{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-left:8px;vertical-align:middle;}
+.sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;}
+
+#pin-screen{max-width:340px;margin:60px auto 0;text-align:center;}
+#pin-screen h1{margin-bottom:14px;}
+.log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:#0f172a;color:#bae6fd;border-radius:8px;padding:10px;margin-top:10px;max-height:140px;overflow-y:auto;white-space:pre-wrap;}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="pin-screen">
+  <h1>Manage Players <span id="sync" class="sync"></span></h1>
+  <div class="card">
+    <p style="margin-bottom:14px;">Admin tool. Enter PIN to continue.</p>
+    <input class="inp" id="pin-input" type="password" placeholder="PIN" autocomplete="off" onkeypress="if(event.key==='Enter')checkPin()">
+    <div id="pin-err" style="color:var(--loss);font-size:13px;font-weight:700;margin-top:8px;min-height:18px;"></div>
+    <button class="btn btn-p btn-lg btn-w" style="margin-top:10px;" onclick="checkPin()">Unlock</button>
+  </div>
+</div>
+
+<div class="wrap" id="main-screen" style="display:none;">
+  <h1>Manage Players <span id="sync2" class="sync"></span></h1>
+  <p class="sub">Player profiles under tally_kotb_pickup/players/. Block, unblock, or clear bad email addresses.</p>
+
+  <div class="warn">
+    <strong>Visibility:</strong> emails are visible only here. Other players never see anyone's email. Blocked players cannot receive invites or in-app banners regardless of their personal notification settings.
+  </div>
+
+  <div class="card">
+    <h2>All Profiles (<span id="count">0</span>)</h2>
+    <input class="inp search" id="search" placeholder="Filter by name or email..." oninput="renderList()">
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="rbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Activity Log</h2>
+    <div class="log" id="log">Idle.</div>
+  </div>
+</div>
+
+<!-- BLOCK MODAL -->
+<div class="overlay" id="block-modal">
+  <div class="modal" style="max-width:440px;">
+    <div class="mtitle"><span>Block Player</span><button class="mclose" onclick="closeModal('block-modal')">✕</button></div>
+    <p id="block-msg" style="font-size:14px;margin-bottom:14px;"></p>
+    <div class="lbl">Reason (optional, shown to the player)</div>
+    <input class="inp" id="block-reason" placeholder="Spamming invites, etc." style="margin-bottom:14px;">
+    <p style="font-size:12px;color:var(--loss);font-weight:600;margin-bottom:14px;">This clears their email and prevents re-add. They can still see the apps but cannot receive invites.</p>
+    <button class="btn btn-d btn-lg btn-w" onclick="doBlock()">Block</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('block-modal')">Cancel</button>
+  </div>
+</div>
+
+<!-- CLEAR EMAIL MODAL -->
+<div class="overlay" id="clear-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="mtitle"><span>Clear Email</span><button class="mclose" onclick="closeModal('clear-modal')">✕</button></div>
+    <p id="clear-msg" style="font-size:14px;margin-bottom:14px;"></p>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:14px;">For fixing typos or stale addresses. The player can re-add a new email anytime.</p>
+    <button class="btn btn-p btn-lg btn-w" onclick="doClearEmail()">Clear Email</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('clear-modal')">Cancel</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const ADMIN_PIN = '8675';
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const ROOT = 'tally_kotb_pickup/players';
+
+let db = null;
+let PLAYERS = {};
+let actionKey = null;
+
+const $ = id => document.getElementById(id);
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
+function closeModal(id){ $(id).classList.remove('on'); }
+function logLine(m){ const el=$('log'); el.textContent = (el.textContent==='Idle.'?'':el.textContent+'\n')+m; el.scrollTop = el.scrollHeight; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+(function init(){
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+  db.ref('.info/connected').on('value', s=>{
+    const on = s.val()===true;
+    $('sync').classList.toggle('on', on);
+    $('sync2').classList.toggle('on', on);
+  });
+  setTimeout(()=>{ const i=$('pin-input'); if(i)i.focus(); }, 100);
+})();
+
+function checkPin(){
+  const v = ($('pin-input').value||'').trim();
+  if(v !== ADMIN_PIN){ $('pin-err').textContent = 'Wrong PIN'; return; }
+  $('pin-err').textContent = '';
+  $('pin-screen').style.display = 'none';
+  $('main-screen').style.display = 'block';
+  loadPlayers();
+}
+
+function loadPlayers(){
+  db.ref(ROOT).on('value', snap=>{
+    PLAYERS = snap.val()||{};
+    renderList();
+  }, err=>{ console.error(err); toast("Couldn't read player profiles"); });
+}
+
+function recordsArray(){
+  return Object.entries(PLAYERS||{}).map(([key, p])=>({
+    key,
+    name: (p && p.name) || key,
+    email: (p && p.email) || '',
+    notificationsEnabled: p && p.notificationsEnabled !== false,
+    muteUntil: p && p.muteUntil || null,
+    blocked: !!(p && p.blocked),
+    blockedReason: p && p.blockedReason || null,
+    blockedAt: p && p.blockedAt || null,
+    updatedAt: p && p.updatedAt || 0
+  })).sort((a,b)=>{
+    if(a.blocked !== b.blocked) return a.blocked ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function renderList(){
+  const filter = ($('search').value||'').toLowerCase().trim();
+  const all = recordsArray().filter(r => !filter || r.name.toLowerCase().includes(filter) || (r.email||'').toLowerCase().includes(filter));
+  $('count').textContent = all.length;
+  if(!all.length){
+    $('rbody').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--gray);padding:18px;">No profiles yet. Players get listed here once they save a profile.</td></tr>';
+    return;
+  }
+  const now = Date.now();
+  $('rbody').innerHTML = all.map(r=>{
+    const muted = r.muteUntil && r.muteUntil > now;
+    const muteStr = muted ? 'muted to '+new Date(r.muteUntil).toLocaleDateString() : '';
+    let tags = '';
+    if(r.blocked) tags += `<span class="tag blocked">BLOCKED</span> `;
+    if(!r.blocked && r.notificationsEnabled) tags += `<span class="tag notif-on">NOTIFY</span> `;
+    if(!r.blocked && !r.notificationsEnabled) tags += `<span class="tag notif-off">SILENT</span> `;
+    if(muted) tags += `<span class="tag muted">${esc(muteStr)}</span> `;
+    let actionBtns = '';
+    if(r.blocked){
+      actionBtns += `<button class="btn btn-g" onclick="doUnblock('${esc(r.key)}')">Unblock</button>`;
+    } else {
+      if(r.email) actionBtns += `<button class="btn btn-g" onclick="openClearEmail('${esc(r.key)}')">Clear Email</button>`;
+      actionBtns += `<button class="btn btn-d" onclick="openBlock('${esc(r.key)}')">Block</button>`;
+    }
+    const reasonLine = r.blocked && r.blockedReason ? `<div style="font-size:11px;color:var(--gray);margin-top:2px;">${esc(r.blockedReason)}</div>` : '';
+    return `<tr class="${r.blocked?'blocked':''}">
+      <td><strong>${esc(r.name)}</strong>${reasonLine}<div style="font-size:11px;color:var(--gray);margin-top:2px;">key: ${esc(r.key)}</div></td>
+      <td class="email">${esc(r.email || '-')}</td>
+      <td>${tags||'<span class="tag notif-off">NO PROFILE</span>'}</td>
+      <td><div class="actions">${actionBtns}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function openBlock(key){
+  const p = PLAYERS[key]; if(!p) return;
+  actionKey = key;
+  $('block-msg').textContent = 'Block '+(p.name||key)+'? Their email will be cleared and they will not receive invites.';
+  $('block-reason').value = '';
+  $('block-modal').classList.add('on');
+}
+
+async function doBlock(){
+  const key = actionKey; if(!key) return;
+  const p = PLAYERS[key]; if(!p) return;
+  const reason = ($('block-reason').value||'').trim() || null;
+  logLine('Blocking '+(p.name||key)+(reason?' ('+reason+')':''));
+  try{
+    await db.ref(ROOT+'/'+key).update({
+      blocked: true,
+      blockedReason: reason,
+      blockedAt: Date.now(),
+      email: null,
+      notificationsEnabled: false,
+      updatedAt: Date.now()
+    });
+    closeModal('block-modal');
+    logLine('  blocked.');
+    toast('Blocked');
+  }catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't block");
+  }
+}
+
+async function doUnblock(key){
+  const p = PLAYERS[key]; if(!p) return;
+  if(!confirm('Unblock '+(p.name||key)+'? They will be able to add an email and receive invites again.')) return;
+  logLine('Unblocking '+(p.name||key));
+  try{
+    await db.ref(ROOT+'/'+key).update({
+      blocked: false,
+      blockedReason: null,
+      blockedAt: null,
+      updatedAt: Date.now()
+    });
+    logLine('  unblocked.');
+    toast('Unblocked');
+  }catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't unblock");
+  }
+}
+
+function openClearEmail(key){
+  const p = PLAYERS[key]; if(!p) return;
+  actionKey = key;
+  $('clear-msg').textContent = 'Clear email for '+(p.name||key)+'? Current address: '+(p.email||'-');
+  $('clear-modal').classList.add('on');
+}
+
+async function doClearEmail(){
+  const key = actionKey; if(!key) return;
+  const p = PLAYERS[key]; if(!p) return;
+  logLine('Clearing email for '+(p.name||key));
+  try{
+    await db.ref(ROOT+'/'+key).update({ email: null, updatedAt: Date.now() });
+    closeModal('clear-modal');
+    logLine('  email cleared.');
+    toast('Email cleared');
+  }catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't clear");
+  }
+}
+</script>
+</body>
+</html>
