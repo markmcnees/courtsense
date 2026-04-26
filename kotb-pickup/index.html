@@ -189,11 +189,123 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- LIST VIEW -->
   <div class="pane" id="view-list">
-    <div style="display:flex;gap:8px;margin-bottom:14px;">
-      <button class="btn btn-a" style="flex:1;" onclick="startNewEvent()">＋ New Pickup Event</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn btn-a" style="flex:1;min-width:160px;" onclick="startNewInvite()">📅 Schedule a Pickup</button>
       <button class="btn btn-g" onclick="openGroupsModal()">👥 Groups</button>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-g btn-w" onclick="startNewEvent()">＋ New Pickup Tournament</button>
+    </div>
+    <div id="invite-list"></div>
     <div id="event-list"></div>
+  </div>
+
+  <!-- INVITE SETUP VIEW -->
+  <div class="pane" id="view-invite-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Schedule a Pickup</span></div>
+      <div class="fg">
+        <label class="lbl">Event Name</label>
+        <input class="inp" id="iv-name" placeholder="Saturday Pickup">
+      </div>
+      <div class="fg">
+        <label class="lbl">Date</label>
+        <input class="inp" id="iv-date" type="date">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Start</label>
+          <input class="inp" id="iv-start" type="time" value="09:00">
+        </div>
+        <div>
+          <label class="lbl">End</label>
+          <input class="inp" id="iv-end" type="time" value="11:00">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Location</label>
+        <input class="inp" id="iv-loc" placeholder="Tom Brown Park">
+      </div>
+      <div class="fg">
+        <label class="lbl">Notes (optional)</label>
+        <textarea class="inp" id="iv-desc" rows="3" placeholder="Bring water and sunscreen"></textarea>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Slots</label>
+          <input class="inp" id="iv-slots" type="number" min="2" max="32" value="8">
+        </div>
+        <div>
+          <label class="lbl">RSVP Deadline</label>
+          <input class="inp" id="iv-deadline" type="datetime-local">
+          <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Recurring</div>
+      <label style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
+        <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
+        <span style="font-size:14px;font-weight:600;">Repeat this event</span>
+      </label>
+      <div id="iv-rec-fields" style="display:none;margin-top:10px;">
+        <div class="row2">
+          <div>
+            <label class="lbl">Frequency</label>
+            <select class="inp" id="iv-rec-freq">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Total occurrences</label>
+            <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Eligibility</div>
+      <div class="fg">
+        <label class="lbl">Who's invited?</label>
+        <select class="inp" id="iv-elig-mode" onchange="renderEligibilityFields()">
+          <option value="open">Open to all</option>
+          <option value="ratingMin">Rating minimum</option>
+          <option value="ratingRange">Rating range</option>
+          <option value="group">Specific group</option>
+        </select>
+      </div>
+      <div id="iv-elig-fields"></div>
+
+      <div class="fg" style="margin-top:14px;">
+        <label class="lbl">Always invite (overrides up)</label>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
+        </div>
+        <div id="iv-inc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+      </div>
+
+      <div class="fg" style="margin-top:14px;">
+        <label class="lbl">Never invite (overrides down)</label>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <input class="inp" id="iv-exc-search" placeholder="Search players..." oninput="renderExclude()" style="flex:1;">
+        </div>
+        <div id="iv-exc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+      </div>
+
+      <div id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
+    </div>
+
+    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
+  </div>
+
+  <!-- INVITE DETAIL VIEW -->
+  <div class="pane" id="view-invite-detail">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div id="iv-detail-body"></div>
   </div>
 
   <!-- SETUP VIEW -->
@@ -435,7 +547,7 @@ let activeEvent = null;
 let tab = 'score';
 let liveRound = 1;
 const lscore = {};
-let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{} };
+let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invites:{} };
 let leagueKings  = {};
 let leagueQueens = {};
 let _pendingRoundsUpdate = null;
@@ -474,6 +586,7 @@ function initFB(){
       D.player_history = v.player_history||{};
       D.ratings        = v.ratings||{};
       D.groups         = v.groups||{};
+      D.invites        = v.invites||{};
       if(_pendingRoundsUpdate && Date.now()-_pendingRoundsUpdate.ts<8000){
         const eid = _pendingRoundsUpdate.eventId;
         if(D.events[eid]) D.events[eid].rounds = _pendingRoundsUpdate.rounds;
@@ -511,6 +624,8 @@ function showView(v){
   $('view-list').classList.toggle('on',  v==='list');
   $('view-setup').classList.toggle('on', v==='setup');
   $('view-event').classList.toggle('on', v==='event');
+  $('view-invite-setup').classList.toggle('on',  v==='invite-setup');
+  $('view-invite-detail').classList.toggle('on', v==='invite-detail');
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
   refreshAll();
@@ -518,6 +633,7 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
+  if(view==='invite-setup' || view==='invite-detail'){ backToList(); return; }
 }
 function openProfile(){
   if(window.Identity) Identity.openProfile({ db });
@@ -530,9 +646,11 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list')        renderEventList();
+  if(view==='list'){ renderInviteList(); renderEventList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
+  else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
+  else if(view==='invite-detail'){ renderInviteDetail(); }
 }
 function refreshTab(t){
   if(t==='roster'){ renderEventRoster(); renderLateQuick(); renderBanner('roster'); }
@@ -1818,6 +1936,562 @@ function deleteGroup(id){
   fbDel('groups/'+id);
   toast('Deleted');
   setTimeout(()=>renderGroupsList(), 250);
+}
+
+// PICKUP INVITES (RSVP-based)
+let activeInvite = null;
+let inviteEditId = null;
+let inviteIncSelected = new Set();
+let inviteExcSelected = new Set();
+
+function backToList(){
+  activeInvite = null;
+  inviteEditId = null;
+  setupState = null;
+  showView('list');
+}
+
+function fmtTime(t){
+  if(!t) return '';
+  const [h,m] = String(t).split(':');
+  if(h==null) return t;
+  const hr = parseInt(h);
+  const mer = hr>=12?'pm':'am';
+  const h12 = ((hr+11)%12)+1;
+  return h12+(m&&m!=='00'?':'+m:'')+mer;
+}
+function fmtDateTime(ts){
+  if(!ts) return '';
+  return new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+}
+function defaultDeadlineISO(date, startTime){
+  if(!date || !startTime) return '';
+  const start = new Date(date+'T'+startTime+':00');
+  const dl = new Date(start.getTime() - 2*60*60*1000);
+  // Format for datetime-local input: YYYY-MM-DDTHH:MM
+  const pad = n => String(n).padStart(2,'0');
+  return dl.getFullYear()+'-'+pad(dl.getMonth()+1)+'-'+pad(dl.getDate())+'T'+pad(dl.getHours())+':'+pad(dl.getMinutes());
+}
+
+// ELIGIBILITY RESOLVER
+function resolveInviteEligibility(invite){
+  const e = invite && invite.eligibility ? invite.eligibility : {};
+  const players = D.players_profiles || {}; // not used yet; profiles live under players/
+  const allProfiles = D.players || {};      // shadowed below by direct read
+  return computeEligible(e);
+}
+
+function profilesActiveNow(){
+  const now = Date.now();
+  // Profiles live under tally_kotb_pickup/players which is NOT in our listener.
+  // We snapshot via an out-of-band cache populated when the invite form / detail loads.
+  const map = window._profilesCache || {};
+  return Object.values(map).filter(p =>
+    p && p.name && !p.blocked &&
+    p.notificationsEnabled !== false &&
+    !(p.muteUntil && p.muteUntil > now)
+  );
+}
+
+function computeEligible(e){
+  e = e || {};
+  const profiles = profilesActiveNow();
+  let pool;
+  if(e.baseMode === 'ratingMin'){
+    const min = +e.ratingMin || 0;
+    pool = profiles.filter(p => {
+      const r = (D.ratings||{})[Identity.nameKey(p.name)];
+      return r && (r.rating||0) >= min;
+    });
+  } else if(e.baseMode === 'ratingRange'){
+    const min = +e.ratingMin || 0, max = +e.ratingMax || 9999;
+    pool = profiles.filter(p => {
+      const r = (D.ratings||{})[Identity.nameKey(p.name)];
+      const rt = r && r.rating || 0;
+      return rt >= min && rt <= max;
+    });
+  } else if(e.baseMode === 'group'){
+    const g = (D.groups||{})[e.groupId];
+    if(!g) return [];
+    const profileNames = new Set(profiles.map(p=>Identity.nameKey(p.name)));
+    pool = (g.members||[]).filter(name => profileNames.has(Identity.nameKey(name))).map(name => {
+      // Map back to profile's name casing for consistency
+      const p = profiles.find(p => Identity.nameKey(p.name)===Identity.nameKey(name));
+      return p || { name };
+    });
+  } else {
+    pool = profiles.slice(); // open
+  }
+  let names = pool.map(p => p.name);
+  // includeList overrides up
+  (e.includeList||[]).forEach(n => { if(!names.some(x=>Identity.nameKey(x)===Identity.nameKey(n))) names.push(n); });
+  // excludeList overrides down
+  const excSet = new Set((e.excludeList||[]).map(n=>Identity.nameKey(n)));
+  names = names.filter(n => !excSet.has(Identity.nameKey(n)));
+  return names.sort((a,b)=>a.localeCompare(b));
+}
+
+async function ensureProfilesLoaded(){
+  if(window._profilesCacheTs && Date.now()-window._profilesCacheTs < 30000) return;
+  if(!db) return;
+  const snap = await db.ref('tally_kotb_pickup/players').once('value');
+  window._profilesCache = snap.val() || {};
+  window._profilesCacheTs = Date.now();
+}
+
+// LIST: Upcoming Pickups
+function renderInviteList(){
+  const cont = $('invite-list'); if(!cont) return;
+  const now = Date.now();
+  const all = Object.values(D.invites||{}).filter(i => i && i.id && i.status !== 'cancelled');
+  // Mark past events as past
+  const upcoming = all.filter(i => {
+    const start = i.date && i.startTime ? new Date(i.date+'T'+i.startTime+':00').getTime() : 0;
+    return !start || start > now - 4*60*60*1000; // include events that started up to 4 hours ago
+  }).sort((a,b)=>{
+    const ta = new Date(a.date+'T'+(a.startTime||'00:00')+':00').getTime();
+    const tb = new Date(b.date+'T'+(b.startTime||'00:00')+':00').getTime();
+    return ta - tb;
+  });
+
+  if(!upcoming.length){
+    cont.innerHTML = '';
+    return;
+  }
+
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+
+  let h = `<div class="ctitle"><span class="bar"></span>Upcoming Pickups (${upcoming.length})</div>`;
+  h += upcoming.map(i => {
+    const rsvps = i.rsvps || {};
+    const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
+    const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
+    const myRsvp = myKey ? rsvps[myKey] : null;
+    const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
+    const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    let badge = '';
+    if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
+    else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
+    return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="flex:1;">
+          <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
+          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}</div>
+          <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||8} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
+        </div>
+        ${badge}
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = h;
+}
+
+// SETUP / EDIT
+function startNewInvite(){
+  inviteEditId = null;
+  inviteIncSelected = new Set();
+  inviteExcSelected = new Set();
+  ensureProfilesLoaded().then(()=>{
+    showView('invite-setup');
+    setTimeout(()=>{
+      $('iv-su-title').textContent = 'Schedule a Pickup';
+      $('iv-save-btn').textContent = 'Schedule Pickup';
+      const today = td();
+      $('iv-name').value = 'Pickup, '+new Date(today+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      $('iv-date').value = today;
+      $('iv-start').value = '09:00';
+      $('iv-end').value = '11:00';
+      $('iv-loc').value = '';
+      $('iv-desc').value = '';
+      $('iv-slots').value = 8;
+      $('iv-deadline').value = defaultDeadlineISO(today, '09:00');
+      $('iv-rec').checked = false;
+      toggleRecurring();
+      $('iv-elig-mode').value = 'open';
+      ['iv-date','iv-start'].forEach(id => {
+        $(id).addEventListener('change', ()=>{ $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value); }, { once:false });
+      });
+      renderEligibilityFields();
+      renderInclude(); renderExclude();
+      updateInvitePreview();
+    }, 0);
+  });
+}
+
+function startEditInvite(id){
+  const i = (D.invites||{})[id]; if(!i) return;
+  inviteEditId = id;
+  inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
+  inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
+  ensureProfilesLoaded().then(()=>{
+    showView('invite-setup');
+    setTimeout(()=>{
+      $('iv-su-title').textContent = 'Edit Pickup';
+      $('iv-save-btn').textContent = 'Save Changes';
+      $('iv-name').value = i.name || '';
+      $('iv-date').value = i.date || td();
+      $('iv-start').value = i.startTime || '09:00';
+      $('iv-end').value = i.endTime || '11:00';
+      $('iv-loc').value = i.location || '';
+      $('iv-desc').value = i.description || '';
+      $('iv-slots').value = i.slots || 8;
+      $('iv-deadline').value = i.rsvpDeadline ? new Date(i.rsvpDeadline).toISOString().slice(0,16) : defaultDeadlineISO(i.date, i.startTime);
+      $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
+      toggleRecurring();
+      const e = i.eligibility || {};
+      $('iv-elig-mode').value = e.baseMode || 'open';
+      renderEligibilityFields(e);
+      renderInclude(); renderExclude();
+      updateInvitePreview();
+    }, 0);
+  });
+}
+
+function toggleRecurring(){
+  const on = $('iv-rec').checked;
+  $('iv-rec-fields').style.display = on ? 'block' : 'none';
+}
+
+function renderEligibilityFields(prefill){
+  const mode = $('iv-elig-mode').value;
+  const fields = $('iv-elig-fields');
+  let h = '';
+  if(mode === 'ratingMin'){
+    h = `<div class="fg"><label class="lbl">Minimum rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1500}" oninput="updateInvitePreview()"></div>`;
+  } else if(mode === 'ratingRange'){
+    h = `<div class="row2">
+      <div><label class="lbl">Min rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1400}" oninput="updateInvitePreview()"></div>
+      <div><label class="lbl">Max rating</label><input class="inp" id="iv-r-max" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMax) || 1800}" oninput="updateInvitePreview()"></div>
+    </div>`;
+  } else if(mode === 'group'){
+    const groups = Object.values(D.groups||{}).filter(g=>g&&g.name).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!groups.length){
+      h = '<p style="font-size:13px;color:var(--gray);">No saved groups yet. <a href="#" onclick="event.preventDefault();openGroupsModal();" style="color:var(--primary);">Create one</a> first.</p>';
+    } else {
+      const sel = (prefill && prefill.groupId) || groups[0].id;
+      h = `<div class="fg"><label class="lbl">Group</label><select class="inp" id="iv-r-group" onchange="updateInvitePreview()">${groups.map(g=>`<option value="${escapeHTML(g.id)}" ${g.id===sel?'selected':''}>${escapeHTML(g.name)} (${(g.members||[]).length})</option>`).join('')}</select></div>`;
+    }
+  }
+  fields.innerHTML = h;
+  updateInvitePreview();
+}
+
+function getCurrentEligibilitySpec(){
+  const mode = $('iv-elig-mode').value;
+  const e = { baseMode: mode };
+  if(mode === 'ratingMin'){
+    e.ratingMin = parseFloat($('iv-r-min')?.value) || 0;
+  } else if(mode === 'ratingRange'){
+    e.ratingMin = parseFloat($('iv-r-min')?.value) || 0;
+    e.ratingMax = parseFloat($('iv-r-max')?.value) || 9999;
+  } else if(mode === 'group'){
+    e.groupId = $('iv-r-group')?.value || null;
+  }
+  e.includeList = [...inviteIncSelected];
+  e.excludeList = [...inviteExcSelected];
+  return e;
+}
+
+function updateInvitePreview(){
+  const e = getCurrentEligibilitySpec();
+  const eligible = computeEligible(e);
+  $('iv-elig-preview').textContent = eligible.length+' player'+(eligible.length===1?'':'s')+' currently eligible'+(eligible.length?': '+eligible.slice(0,8).join(', ')+(eligible.length>8?', +'+(eligible.length-8)+' more':''):'.');
+}
+
+function renderInclude(){
+  const q = ($('iv-inc-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(D.ratings||{}).filter(r=>r&&r.name).map(r=>r.name).sort((a,b)=>a.localeCompare(b));
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  if(!filtered.length){ $('iv-inc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  $('iv-inc-list').innerHTML = filtered.map(name=>{
+    const checked = inviteIncSelected.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleIncMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+function renderExclude(){
+  const q = ($('iv-exc-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(D.ratings||{}).filter(r=>r&&r.name).map(r=>r.name).sort((a,b)=>a.localeCompare(b));
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  if(!filtered.length){ $('iv-exc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  $('iv-exc-list').innerHTML = filtered.map(name=>{
+    const checked = inviteExcSelected.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'#fee2e2':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+function toggleIncMember(name, isChecked){
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) inviteIncSelected.add(decoded); else inviteIncSelected.delete(decoded);
+  updateInvitePreview();
+}
+function toggleExcMember(name, isChecked){
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) inviteExcSelected.add(decoded); else inviteExcSelected.delete(decoded);
+  updateInvitePreview();
+}
+
+function buildInviteRecord(){
+  const name = ($('iv-name').value||'').trim() || 'Pickup';
+  const date = $('iv-date').value || td();
+  const startTime = $('iv-start').value || '09:00';
+  const endTime = $('iv-end').value || '';
+  const location = ($('iv-loc').value||'').trim();
+  const description = ($('iv-desc').value||'').trim();
+  const slots = Math.max(2, parseInt($('iv-slots').value)||8);
+  const dl = $('iv-deadline').value;
+  const rsvpDeadline = dl ? new Date(dl).getTime() : (date && startTime ? new Date(date+'T'+startTime+':00').getTime() - 2*60*60*1000 : null);
+  const eligibility = getCurrentEligibilitySpec();
+  const me = window.Identity ? Identity.getCurrent() : null;
+  return { name, date, startTime, endTime, location, description, slots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous' };
+}
+
+async function saveInvite(){
+  const base = buildInviteRecord();
+  if(!base.date){ toast('Pick a date'); return; }
+
+  const recurring = $('iv-rec').checked;
+  const recFreq   = $('iv-rec-freq').value;
+  const recCount  = Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
+
+  if(inviteEditId){
+    // Update existing record (only this occurrence)
+    const existing = (D.invites||{})[inviteEditId] || {};
+    const merged = {
+      ...existing,
+      ...base,
+      id: inviteEditId,
+      status: existing.status || 'open',
+      updatedAt: Date.now()
+    };
+    fbSet('invites/'+inviteEditId, merged);
+    toast('Saved');
+    activeInvite = inviteEditId;
+    inviteEditId = null;
+    showView('invite-detail');
+    return;
+  }
+
+  const recurringGroupId = recurring ? gi('rg') : null;
+  const occurrences = recurring ? recCount : 1;
+  const stepDays = recFreq === 'biweekly' ? 14 : 7;
+  const startDate = new Date(base.date+'T12:00:00');
+  const updates = {};
+  let firstId = null;
+  for(let n=0; n<occurrences; n++){
+    const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
+    const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const id = gi('inv');
+    if(!firstId) firstId = id;
+    const dl = base.startTime ? new Date(iso+'T'+base.startTime+':00').getTime() - 2*60*60*1000 : null;
+    const rec = {
+      ...base,
+      id,
+      date: iso,
+      rsvpDeadline: n===0 ? base.rsvpDeadline : dl,
+      status: 'open',
+      recurringGroupId,
+      createdAt: Date.now(),
+      rsvps: {}
+    };
+    updates['tally_kotb_pickup/invites/'+id] = rec;
+  }
+  try {
+    await db.ref().update(updates);
+    toast(occurrences>1 ? occurrences+' pickups scheduled ✓' : 'Pickup scheduled ✓');
+    activeInvite = firstId;
+    showView('invite-detail');
+  } catch(err){
+    console.error(err);
+    toast("Couldn't schedule");
+  }
+}
+
+// DETAIL + RSVP
+function openInviteDetail(id){
+  if(!(D.invites||{})[id]){ toast('Pickup not found'); return; }
+  activeInvite = id;
+  ensureProfilesLoaded().then(()=>showView('invite-detail'));
+}
+
+function renderInviteDetail(){
+  const cont = $('iv-detail-body'); if(!cont) return;
+  const i = (D.invites||{})[activeInvite];
+  if(!i){ cont.innerHTML = '<p>Pickup not found.</p>'; return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed').sort((a,b)=>(a.position||0)-(b.position||0));
+  const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist').sort((a,b)=>(a.position||0)-(b.position||0));
+  const declined = Object.values(rsvps).filter(r => r.status==='declined');
+  const myRsvp = myKey ? rsvps[myKey] : null;
+  const slotsLeft = Math.max(0, (i.slots||8) - confirmed.length);
+  const now = Date.now();
+  const dt = i.date && i.startTime ? new Date(i.date+'T'+i.startTime+':00').getTime() : 0;
+  const isPast = dt && dt < now - 4*60*60*1000;
+  const isCancelled = i.status === 'cancelled';
+  const deadlinePassed = i.rsvpDeadline && i.rsvpDeadline < now;
+
+  const dateStr = i.date ? new Date(i.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'}) : '';
+  const eligibility = i.eligibility || {};
+  const eligDesc = (() => {
+    if(eligibility.baseMode === 'ratingMin') return `Rating ${eligibility.ratingMin}+`;
+    if(eligibility.baseMode === 'ratingRange') return `Rating ${eligibility.ratingMin} to ${eligibility.ratingMax}`;
+    if(eligibility.baseMode === 'group'){
+      const g = (D.groups||{})[eligibility.groupId];
+      return 'Group: '+(g ? g.name : 'unknown');
+    }
+    return 'Open to all';
+  })();
+
+  let actionHTML = '';
+  if(isCancelled){
+    actionHTML = '<div style="background:#fee2e2;color:#7f1d1d;border-radius:10px;padding:12px;text-align:center;font-weight:700;">Pickup cancelled.</div>';
+  } else if(isPast){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
+  } else if(!myKey){
+    actionHTML = '<button class="btn btn-p btn-w" onclick="openProfile()">Pick your name to RSVP</button>';
+  } else if(myRsvp && myRsvp.status==='confirmed'){
+    actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
+      <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
+  } else if(myRsvp && myRsvp.status==='waitlist'){
+    actionHTML = `<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're on the waitlist (#${myRsvp.position||'?'}).</div>
+      <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
+  } else {
+    if(deadlinePassed){
+      actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">RSVP deadline has passed.</div>';
+    } else {
+      const label = slotsLeft > 0 ? `Opt In (${slotsLeft} slot${slotsLeft===1?'':'s'} left)` : 'Join Waitlist';
+      actionHTML = `<button class="btn btn-p btn-w" onclick="optInInvite()">${label}</button>`;
+    }
+  }
+
+  let h = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+      <div style="flex:1;">
+        <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
+        <div style="font-size:13px;color:var(--gray);margin-top:4px;">${dateStr}</div>
+        <div style="font-size:13px;margin-top:2px;">${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}</div>
+        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}</div>`:''}
+      </div>
+      ${isCancelled?'<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>':''}
+    </div>
+    ${i.description?`<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:10px;padding:10px 12px;background:var(--sand);border-radius:8px;">${escapeHTML(i.description)}</div>`:''}
+    <div style="font-size:12px;color:var(--gray);margin-top:10px;">
+      ${eligDesc} · Hosted by ${escapeHTML(i.hostName||'Anonymous')}${i.rsvpDeadline?' · RSVP by '+fmtDateTime(i.rsvpDeadline):''}
+    </div>
+  </div>
+
+  <div class="card">${actionHTML}</div>
+
+  <div class="card">
+    <div class="ctitle"><span class="bar"></span>Confirmed (${confirmed.length}/${i.slots||8})</div>
+    ${confirmed.length ? confirmed.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <span class="rnk">${idx+1}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+    </div>`).join('') : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No one confirmed yet.</p>'}
+  </div>
+
+  ${waitlist.length ? `<div class="card">
+    <div class="ctitle"><span class="bar"></span>Waitlist (${waitlist.length})</div>
+    ${waitlist.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <span class="rnk" style="color:var(--gray);">#${idx+1}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+    </div>`).join('')}
+  </div>` : ''}
+
+  ${declined.length ? `<div class="card" style="opacity:.7;">
+    <div class="ctitle"><span class="bar"></span>Dropped (${declined.length})</div>
+    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)).join(', ')}</div>
+  </div>` : ''}
+
+  <div class="card">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
+      ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
+    </div>
+  </div>`;
+
+  cont.innerHTML = h;
+}
+
+async function optInInvite(){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(!me){ toast('Pick your name first'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+  const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
+  const slotsLeft = (i.slots||8) - confirmed.length;
+  const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
+  const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
+  const path = 'tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+me.key;
+  await db.ref(path).set({
+    name: me.name,
+    status,
+    position,
+    respondedAt: Date.now()
+  });
+  toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
+}
+
+async function dropOutInvite(){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(!me) return;
+  const rsvps = i.rsvps || {};
+  const myRsvp = rsvps[me.key]; if(!myRsvp) return;
+  const wasConfirmed = myRsvp.status === 'confirmed';
+
+  // Mark me as declined
+  const path = 'tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+me.key;
+  await db.ref(path).update({ status: 'declined', respondedAt: Date.now() });
+
+  // If I was confirmed, promote first waitlister and renumber
+  if(wasConfirmed){
+    const fresh = (await db.ref('tally_kotb_pickup/invites/'+activeInvite+'/rsvps').once('value')).val() || {};
+    const waitlist = Object.entries(fresh).filter(([,r])=>r.status==='waitlist').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+    const promotedKey = waitlist[0] ? waitlist[0][0] : null;
+    const updates = {};
+    // Renumber confirmed
+    const confirmed = Object.entries(fresh).filter(([k,r])=>r.status==='confirmed' && k!==me.key).sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+    confirmed.forEach(([k,r],idx)=>{ updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k+'/position'] = idx+1; });
+    if(promotedKey){
+      updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+promotedKey+'/status'] = 'confirmed';
+      updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+promotedKey+'/position'] = confirmed.length+1;
+      // Renumber remaining waitlist
+      waitlist.slice(1).forEach(([k,r],idx)=>{ updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k+'/position'] = idx+1; });
+      // Queue waitlist promotion email (Phase 5 will drain it)
+      const promoted = fresh[promotedKey];
+      if(promoted && promoted.name){
+        const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        updates['tally_kotb_pickup/email_queue/'+eid] = {
+          type: 'waitlist_promotion',
+          to: null, // resolved by Worker via player profile
+          data: { playerName: promoted.name, inviteId: activeInvite },
+          createdAt: Date.now(),
+          status: 'queued'
+        };
+      }
+    }
+    await db.ref().update(updates);
+  }
+  toast('Dropped out');
+}
+
+async function cancelInvite(){
+  if(!confirm('Cancel this pickup? Everyone confirmed or waitlisted will see it as cancelled.')) return;
+  await db.ref('tally_kotb_pickup/invites/'+activeInvite+'/status').set('cancelled');
+  toast('Cancelled');
 }
 
 // BOOT
