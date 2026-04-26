@@ -36,6 +36,10 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .side-btn{padding:7px 18px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:2px;cursor:pointer;transition:all .2s;color:rgba(255,255,255,.55);background:transparent;}
 .side-btn.on{background:var(--accent);color:#1a1a1a;}
 
+.hdr-right{display:flex;align-items:center;gap:8px;}
+.pickup-btn{display:inline-flex;align-items:center;padding:7px 14px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;text-decoration:none;background:var(--accent);color:#1a1a1a;transition:all .2s;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.2);}
+.pickup-btn:active{transform:scale(.95);background:#b8902f;}
+
 .tabs{display:flex;gap:1px;overflow-x:auto;scrollbar-width:none;padding:0 0 0 0;}
 .tabs::-webkit-scrollbar{display:none;}
 .tab{flex:1;padding:11px 4px 10px;text-align:center;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;color:rgba(255,255,255,.5);cursor:pointer;border-radius:8px 8px 0 0;transition:all .2s;border:none;background:transparent;white-space:nowrap;min-width:60px;}
@@ -172,9 +176,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       Tally KotB
       <span class="sync off" id="sync" title="Connecting..."></span>
     </div>
-    <div class="side-toggle">
-      <button class="side-btn on" id="btn-k" onclick="switchSide('kings')">Kings</button>
-      <button class="side-btn" id="btn-q" onclick="switchSide('queens')">Queens</button>
+    <div class="hdr-right">
+      <a class="pickup-btn" href="https://courtsense.app/kotb-pickup" target="_blank" rel="noopener" title="Launch one-day pickup tournament">Pickup Kings</a>
+      <div class="side-toggle">
+        <button class="side-btn on" id="btn-k" onclick="switchSide('kings')">Kings</button>
+        <button class="side-btn" id="btn-q" onclick="switchSide('queens')">Queens</button>
+      </div>
     </div>
   </div>
   <div class="tabs">
