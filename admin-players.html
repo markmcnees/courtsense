@@ -7,6 +7,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/ratings.js"></script>
+<script src="/identity.js"></script>
 <style>
 :root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -81,6 +83,12 @@ tr.blocked td{background:#fef2f2;}
   </div>
 
   <div class="card">
+    <h2>Pending Registrations (<span id="pending-count">0</span>)</h2>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Public submissions from <a href="/kotb-pickup/join" target="_blank" rel="noopener" style="color:var(--primary);">/kotb-pickup/join</a>. Approve to create their player + rating record. Reject to dismiss.</p>
+    <div id="pending-list"></div>
+  </div>
+
+  <div class="card">
     <h2>All Profiles (<span id="count">0</span>)</h2>
     <input class="inp search" id="search" placeholder="Filter by name or email..." oninput="renderList()">
     <div style="overflow-x:auto;">
@@ -126,6 +134,22 @@ tr.blocked td{background:#fef2f2;}
   </div>
 </div>
 
+<!-- REJECT REGISTRATION MODAL -->
+<div class="overlay" id="reject-modal">
+  <div class="modal" style="max-width:440px;">
+    <div class="mtitle"><span>Reject Registration</span><button class="mclose" onclick="closeModal('reject-modal')">✕</button></div>
+    <p id="reject-msg" style="font-size:14px;margin-bottom:14px;"></p>
+    <div class="lbl">Reason (optional, internal note)</div>
+    <input class="inp" id="reject-reason" placeholder="Why?" style="margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <input type="checkbox" id="reject-send-email" style="width:18px;height:18px;">
+      <label for="reject-send-email" style="font-size:14px;cursor:pointer;">Send polite decline email (queued for next email run)</label>
+    </div>
+    <button class="btn btn-d btn-lg btn-w" onclick="doReject()">Reject</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('reject-modal')">Cancel</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -139,11 +163,17 @@ const FB_CFG = {
   messagingSenderId: "937804799976",
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
-const ROOT = 'tally_kotb_pickup/players';
+const ROOT          = 'tally_kotb_pickup/players';
+const PENDING_ROOT  = 'tally_kotb_pickup/pending_registrations';
+const RATINGS_ROOT  = 'tally_kotb_pickup/ratings';
+const EMAIL_QUEUE   = 'tally_kotb_pickup/email_queue';
 
 let db = null;
 let PLAYERS = {};
+let PENDING = {};
+let RATINGS_KEYS = {};
 let actionKey = null;
+let rejectId  = null;
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
@@ -175,7 +205,212 @@ function loadPlayers(){
   db.ref(ROOT).on('value', snap=>{
     PLAYERS = snap.val()||{};
     renderList();
+    renderPending();
   }, err=>{ console.error(err); toast("Couldn't read player profiles"); });
+  db.ref(PENDING_ROOT).on('value', snap=>{
+    PENDING = snap.val()||{};
+    renderPending();
+  }, err=>{ console.error(err); toast("Couldn't read pending registrations"); });
+  db.ref(RATINGS_ROOT).once('value').then(snap=>{
+    const v = snap.val()||{};
+    RATINGS_KEYS = {};
+    Object.keys(v).forEach(k=>{ RATINGS_KEYS[k] = true; });
+    renderPending();
+  }).catch(err=>console.warn('ratings keys read failed', err));
+}
+
+function nameKey(n){ return String(n||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_'); }
+
+function renderPending(){
+  const cont = $('pending-list'); if(!cont) return;
+  const all = Object.values(PENDING||{}).filter(r => r && r.status==='pending')
+    .sort((a,b)=>(a.submittedAt||0)-(b.submittedAt||0));
+  $('pending-count').textContent = all.length;
+  if(!all.length){
+    cont.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No pending submissions.</p>';
+    return;
+  }
+  cont.innerHTML = all.map(r=>{
+    const k = nameKey(r.name);
+    const dupePlayer = !!PLAYERS[k];
+    const dupeRating = !!RATINGS_KEYS[k];
+    const dupe = dupePlayer || dupeRating;
+    const subDate = r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+    const tvName = r.truvolleyName ? encodeURIComponent(r.truvolleyName) : '';
+    return `<div style="border:1px solid var(--gray-lighter);border-radius:12px;padding:14px;margin-bottom:12px;background:#fafaf7;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
+        <div>
+          <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--primary);">${esc(r.name)}</div>
+          <div style="font-size:12px;color:var(--gray);margin-top:2px;">submitted ${esc(subDate)}</div>
+        </div>
+        <span class="tag" style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">PENDING</span>
+      </div>
+      <div style="font-size:13px;line-height:1.6;margin-bottom:10px;">
+        <div><strong>Email:</strong> <span class="email">${esc(r.email||'-')}</span></div>
+        ${r.phone ? `<div><strong>Phone:</strong> ${esc(r.phone)}</div>` : ''}
+        ${r.truvolleyName ? `<div><strong>TruVolley:</strong> ${esc(r.truvolleyName)}</div>` : '<div style="color:var(--gray);">No TruVolley name provided</div>'}
+        ${r.referrer ? `<div><strong>Referrer:</strong> ${esc(r.referrer)}</div>` : ''}
+        <div style="color:var(--gray);">Notifications opt-in: ${r.notificationsOptIn !== false ? 'yes' : 'no'}</div>
+      </div>
+      ${dupe ? `<div style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;"><strong>⚠ Name already exists</strong> ${dupePlayer?'as a profile':''}${dupePlayer&&dupeRating?' and ':''}${dupeRating?'as a rating':''}. Review before approving so you don't clobber existing data.</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        <a class="btn btn-g" href="https://truvolley.com/ratings${tvName?'?q='+tvName:''}" target="_blank" rel="noopener">Look up TruVolley</a>
+        <a class="btn btn-g" href="https://volleyballlife.com" target="_blank" rel="noopener">VolleyballLife</a>
+        <button class="btn btn-g" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Mapping reference</button>
+        <div style="display:none;flex-basis:100%;background:var(--white);border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;font-size:12px;margin-top:6px;">
+          <strong style="font-family:'Bebas Neue';letter-spacing:1px;color:var(--primary);">TruVolley → Glicko-2 starting rating</strong>
+          <table style="width:100%;margin-top:6px;font-size:12px;">
+            <tr style="color:var(--gray);"><td>0 to 2 (recreational)</td><td>1300 / RD 300</td></tr>
+            <tr><td>2 to 4 (rec regular)</td><td>1450 / RD 250</td></tr>
+            <tr style="color:var(--gray);"><td>4 to 6 (BB-A)</td><td>1600 / RD 200</td></tr>
+            <tr><td>6 to 8 (competitive A)</td><td>1800 / RD 150</td></tr>
+            <tr style="color:var(--gray);"><td>8 to 10 (open)</td><td>2000 / RD 150</td></tr>
+            <tr><td>10+ (pro)</td><td>2200+ / RD 100</td></tr>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="flex:1;min-width:120px;">
+          <div class="lbl">Starting Rating</div>
+          <input class="inp" type="number" min="0" max="3000" step="10" id="approve-rating-${r.id}" value="1500">
+        </div>
+        <div style="flex:1;min-width:120px;">
+          <div class="lbl">Starting RD</div>
+          <input class="inp" type="number" min="30" max="500" step="10" id="approve-rd-${r.id}" value="350">
+        </div>
+        ${dupeRating ? '<div style="flex-basis:100%;font-size:11px;color:var(--gray);">Existing rating record found. Approve will preserve their current rating instead of writing these starters.</div>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="background:var(--win);color:#fff;flex:1;" onclick="doApprove('${esc(r.id)}')">✓ Approve</button>
+        <button class="btn btn-d" style="flex:1;" onclick="openReject('${esc(r.id)}')">✕ Reject</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function doApprove(id){
+  const r = (PENDING||{})[id];
+  if(!r){ toast('Registration not found'); return; }
+  if(r.status !== 'pending'){ toast('Already reviewed by '+(r.reviewedBy||'someone')); return; }
+  const ratingVal = parseFloat($('approve-rating-'+id)?.value);
+  const rdVal     = parseFloat($('approve-rd-'+id)?.value);
+  if(!isFinite(ratingVal) || !isFinite(rdVal)){ toast('Bad rating or RD value'); return; }
+
+  const k = nameKey(r.name);
+  if(!k){ toast('Name normalizes to empty'); return; }
+
+  const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
+  logLine('Approving '+r.name+' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')');
+
+  // Re-check status server-side to avoid double processing.
+  try {
+    const fresh = (await db.ref(PENDING_ROOT+'/'+id).once('value')).val();
+    if(!fresh){ toast('Registration was deleted'); return; }
+    if(fresh.status !== 'pending'){ toast('Already reviewed by '+(fresh.reviewedBy||'someone')); return; }
+  } catch(e){ console.error(e); }
+
+  // Build atomic multi-update
+  const now = Date.now();
+  const updates = {};
+  // Player profile
+  updates[ROOT+'/'+k+'/name']                  = r.name;
+  updates[ROOT+'/'+k+'/email']                 = r.email || null;
+  updates[ROOT+'/'+k+'/phone']                 = r.phone || null;
+  updates[ROOT+'/'+k+'/notificationsEnabled']  = r.notificationsOptIn !== false;
+  updates[ROOT+'/'+k+'/blocked']               = false;
+  updates[ROOT+'/'+k+'/updatedAt']             = now;
+  // Rating record (only if not already existing, to preserve history)
+  const ratingExists = !!RATINGS_KEYS[k];
+  if(!ratingExists){
+    updates[RATINGS_ROOT+'/'+k+'/name']           = r.name;
+    updates[RATINGS_ROOT+'/'+k+'/rating']         = ratingVal;
+    updates[RATINGS_ROOT+'/'+k+'/rd']             = rdVal;
+    updates[RATINGS_ROOT+'/'+k+'/volatility']     = 0.06;
+    updates[RATINGS_ROOT+'/'+k+'/gamesPlayed']    = 0;
+    updates[RATINGS_ROOT+'/'+k+'/peakRating']     = ratingVal;
+    updates[RATINGS_ROOT+'/'+k+'/peakRatingDate'] = null;
+    updates[RATINGS_ROOT+'/'+k+'/lastUpdated']    = now;
+    updates[RATINGS_ROOT+'/'+k+'/seededFromRegistration'] = id;
+  }
+  // Mark pending row as approved
+  updates[PENDING_ROOT+'/'+id+'/status']        = 'approved';
+  updates[PENDING_ROOT+'/'+id+'/reviewedAt']    = now;
+  updates[PENDING_ROOT+'/'+id+'/reviewedBy']    = reviewer;
+  updates[PENDING_ROOT+'/'+id+'/appliedRating'] = ratingVal;
+  updates[PENDING_ROOT+'/'+id+'/appliedRD']     = rdVal;
+  updates[PENDING_ROOT+'/'+id+'/preservedExistingRating'] = ratingExists;
+  // Queue welcome email for the eventual Worker (Phase 5) to drain.
+  const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  updates[EMAIL_QUEUE+'/'+eid] = {
+    type: 'welcome',
+    to: r.email || null,
+    data: { name: r.name },
+    relatedRegistration: id,
+    createdAt: now,
+    status: 'queued'
+  };
+
+  try {
+    await db.ref().update(updates);
+    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' welcome email queued.');
+    toast('Approved ✓');
+  } catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't approve");
+  }
+}
+
+function openReject(id){
+  const r = (PENDING||{})[id]; if(!r) return;
+  rejectId = id;
+  $('reject-msg').textContent = 'Reject '+r.name+'?';
+  $('reject-reason').value = '';
+  $('reject-send-email').checked = false;
+  $('reject-modal').classList.add('on');
+}
+
+async function doReject(){
+  const id = rejectId; if(!id) return;
+  const r = (PENDING||{})[id]; if(!r) return;
+  const reason = ($('reject-reason').value||'').trim() || null;
+  const sendEmail = !!$('reject-send-email').checked;
+  const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
+
+  logLine('Rejecting '+r.name+(reason?' ('+reason+')':'')+(sendEmail?' [decline email queued]':''));
+  try {
+    const fresh = (await db.ref(PENDING_ROOT+'/'+id).once('value')).val();
+    if(!fresh){ toast('Registration was deleted'); return; }
+    if(fresh.status !== 'pending'){ toast('Already reviewed by '+(fresh.reviewedBy||'someone')); return; }
+  } catch(e){ console.error(e); }
+
+  const now = Date.now();
+  const updates = {};
+  updates[PENDING_ROOT+'/'+id+'/status']         = 'rejected';
+  updates[PENDING_ROOT+'/'+id+'/reviewedAt']     = now;
+  updates[PENDING_ROOT+'/'+id+'/reviewedBy']     = reviewer;
+  updates[PENDING_ROOT+'/'+id+'/rejectionNote']  = reason;
+  if(sendEmail && r.email){
+    const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    updates[EMAIL_QUEUE+'/'+eid] = {
+      type: 'decline',
+      to: r.email,
+      data: { name: r.name },
+      relatedRegistration: id,
+      createdAt: now,
+      status: 'queued'
+    };
+  }
+  try {
+    await db.ref().update(updates);
+    closeModal('reject-modal');
+    logLine('  rejected.');
+    toast('Rejected');
+  } catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't reject");
+  }
 }
 
 function recordsArray(){

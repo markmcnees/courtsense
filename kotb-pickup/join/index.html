@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Join KotB Pickup</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<style>
+:root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;min-height:100%;background:var(--sand);font-family:'Barlow',sans-serif;color:#111827;line-height:1.55;}
+
+.hdr{background:linear-gradient(150deg,var(--dark) 0%,var(--primary) 100%);padding:18px 16px;color:#fff;}
+.hdr-inner{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:10px;}
+.hdr h1{font-family:'Bebas Neue';font-size:22px;letter-spacing:3px;color:var(--accent);}
+.hdr p{font-size:13px;opacity:.85;margin-left:auto;}
+.content{max-width:560px;margin:0 auto;padding:18px 14px 60px;}
+.card{background:var(--white);border-radius:14px;padding:18px 16px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);}
+h2{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);margin-bottom:8px;}
+p{font-size:14px;margin-bottom:8px;}
+.lead{font-size:14px;color:#374151;margin-bottom:14px;line-height:1.55;}
+
+.fg{margin-bottom:14px;}
+.lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:6px;}
+.req{color:var(--loss);}
+.inp,textarea.inp{width:100%;padding:12px 14px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:#111827;background:var(--white);min-height:48px;}
+.inp:focus,textarea.inp:focus{outline:none;border-color:var(--primary);}
+textarea.inp{min-height:80px;resize:vertical;}
+.help{font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;}
+.help a{color:var(--primary);font-weight:600;cursor:pointer;text-decoration:underline;background:none;border:none;padding:0;font-family:inherit;font-size:inherit;}
+
+.toggle{display:flex;align-items:center;gap:10px;padding:10px 0;}
+.toggle input{width:18px;height:18px;}
+.toggle label{font-size:14px;font-weight:600;cursor:pointer;}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:14px 22px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;min-height:50px;}
+.btn-p{background:var(--primary);color:#fff;}
+.btn-p:active{filter:brightness(.9);}
+.btn-w{width:100%;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+
+.honeypot{position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;}
+
+.err{color:var(--loss);font-size:13px;font-weight:600;min-height:18px;margin-bottom:8px;}
+
+.thanks{display:none;}
+.thanks.on{display:block;}
+.thanks .checkmark{font-size:48px;text-align:center;color:var(--win);margin-bottom:10px;}
+.thanks h2{text-align:center;}
+.thanks p{text-align:center;color:#374151;}
+
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center;padding:16px;}
+.overlay.on{display:flex;}
+.modal{background:var(--white);border-radius:16px;padding:22px 18px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.14);}
+.mtitle{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;}
+.mclose{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gray);}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:13px 24px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <span style="font-size:22px;">👑</span>
+    <h1>Join KotB Pickup</h1>
+  </div>
+</div>
+
+<div class="content">
+
+  <div class="card" id="form-card">
+    <h2>Get on the pickup list</h2>
+    <p class="lead">Submit this form and we'll add you to the pickup notification list. You'll get an email when an event opens up that you're eligible for. Quick to fill out.</p>
+
+    <form id="signup-form" onsubmit="return submitForm(event)">
+
+      <div class="fg">
+        <label class="lbl" for="f-name">Name <span class="req">*</span></label>
+        <input class="inp" id="f-name" required placeholder="First and last">
+      </div>
+
+      <div class="fg">
+        <label class="lbl" for="f-email">Email <span class="req">*</span></label>
+        <input class="inp" id="f-email" type="email" required placeholder="you@example.com">
+        <div class="help">Used for pickup invites and 24-hour reminders. Only the admin can see it.</div>
+      </div>
+
+      <div class="fg">
+        <label class="lbl" for="f-phone">Phone (optional)</label>
+        <input class="inp" id="f-phone" type="tel" placeholder="850-555-1234">
+      </div>
+
+      <div class="fg">
+        <label class="lbl" for="f-truvolley">TruVolley name (optional)</label>
+        <input class="inp" id="f-truvolley" placeholder="Same as it appears on TruVolley">
+        <div class="help">If you've played sanctioned beach tournaments, your TruVolley rating helps us seed you accurately. <button type="button" class="link-btn" onclick="$('tv-modal').classList.add('on')">What's TruVolley?</button></div>
+      </div>
+
+      <div class="fg">
+        <label class="lbl" for="f-referrer">How did you hear about us? (optional)</label>
+        <input class="inp" id="f-referrer" placeholder="Friend's name, found us online, etc.">
+      </div>
+
+      <div class="fg">
+        <div class="toggle">
+          <input type="checkbox" id="f-notif" checked>
+          <label for="f-notif">Email me about upcoming pickup events</label>
+        </div>
+      </div>
+
+      <div class="honeypot" aria-hidden="true">
+        <label>Website (leave blank)</label>
+        <input type="text" id="f-honeypot" tabindex="-1" autocomplete="off">
+      </div>
+
+      <div class="err" id="form-err"></div>
+
+      <button type="submit" class="btn btn-p btn-w" id="submit-btn">Submit</button>
+    </form>
+  </div>
+
+  <div class="card thanks" id="thanks-card">
+    <div class="checkmark">✓</div>
+    <h2>You're on the list</h2>
+    <p style="margin-top:10px;">Thanks for signing up. The admin reviews new registrations and you'll get an email when you're approved. Usually within a day or two.</p>
+    <p style="margin-top:14px;font-size:13px;color:var(--gray);">You can close this page now.</p>
+  </div>
+
+</div>
+
+<style>.link-btn{color:var(--primary);font-weight:600;cursor:pointer;text-decoration:underline;background:none;border:none;padding:0;font-family:inherit;font-size:inherit;}</style>
+
+<div class="overlay" id="tv-modal" onclick="if(event.target===this)closeTv()">
+  <div class="modal">
+    <div class="mtitle"><span>What's TruVolley?</span><button class="mclose" onclick="closeTv()">✕</button></div>
+    <p style="font-size:14px;line-height:1.6;color:#374151;margin-bottom:10px;">TruVolley is a public beach volleyball rating system. If you've played sanctioned tournaments (USAV, AVP Next, p1440, etc.), there's likely a profile under your name with a numeric rating.</p>
+    <p style="font-size:14px;line-height:1.6;color:#374151;margin-bottom:10px;">Sharing your TruVolley name lets us seed your starting rating in this app close to where you actually play, so the first few games don't whiplash your standings.</p>
+    <p style="font-size:14px;line-height:1.6;color:#374151;">Don't worry if you don't have one. Most players start at 1500 and the system figures it out fast.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+let db = null;
+const $ = id => document.getElementById(id);
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
+function closeTv(){ $('tv-modal').classList.remove('on'); }
+
+(function init(){
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+})();
+
+function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+
+function submitForm(e){
+  if(e) e.preventDefault();
+  const errEl = $('form-err');
+  errEl.textContent = '';
+
+  // Honeypot: if filled, silently pretend it succeeded (bots get a fake thanks page).
+  const honey = ($('f-honeypot').value||'').trim();
+  if(honey){
+    showThanks();
+    return false;
+  }
+
+  const name      = ($('f-name').value||'').trim();
+  const email     = ($('f-email').value||'').trim();
+  const phone     = ($('f-phone').value||'').trim();
+  const truvolley = ($('f-truvolley').value||'').trim();
+  const referrer  = ($('f-referrer').value||'').trim();
+  const notif     = !!$('f-notif').checked;
+
+  if(!name){ errEl.textContent = 'Add your name.'; $('f-name').focus(); return false; }
+  if(!email){ errEl.textContent = 'Add your email.'; $('f-email').focus(); return false; }
+  if(!/^\S+@\S+\.\S+$/.test(email)){ errEl.textContent = 'That email looks off, try again.'; $('f-email').focus(); return false; }
+
+  $('submit-btn').disabled = true;
+  $('submit-btn').textContent = 'Submitting...';
+
+  const id = gi('reg');
+  const now = Date.now();
+  const record = {
+    id,
+    name,
+    email,
+    phone: phone || null,
+    truvolleyName: truvolley || null,
+    referrer: referrer || null,
+    notificationsOptIn: notif,
+    status: 'pending',
+    submittedAt: now,
+    reviewedAt: null,
+    reviewedBy: null,
+    rejectionNote: null
+  };
+  // Queue admin-notification email so the eventual Worker can drain it.
+  const eid = 'em'+now.toString(36)+Math.random().toString(36).slice(2,5);
+  const updates = {};
+  updates['tally_kotb_pickup/pending_registrations/'+id] = record;
+  updates['tally_kotb_pickup/email_queue/'+eid] = {
+    type: 'admin_new_registration',
+    data: { name, email, truvolleyName: truvolley || null, referrer: referrer || null },
+    relatedRegistration: id,
+    createdAt: now,
+    status: 'queued'
+  };
+
+  db.ref().update(updates)
+    .then(()=>{ showThanks(); })
+    .catch(err=>{
+      console.error(err);
+      errEl.textContent = "Couldn't submit, try again in a minute.";
+      $('submit-btn').disabled = false;
+      $('submit-btn').textContent = 'Submit';
+    });
+
+  return false;
+}
+
+function showThanks(){
+  $('form-card').style.display = 'none';
+  $('thanks-card').classList.add('on');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+</script>
+</body>
+</html>
