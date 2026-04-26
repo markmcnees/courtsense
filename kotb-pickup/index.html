@@ -2422,7 +2422,7 @@ function renderInviteDetail(){
   cont.innerHTML = h;
 }
 
-async function optInInvite(){
+function optInInvite(){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const me = window.Identity ? Identity.getCurrent() : null;
   if(!me){ toast('Pick your name first'); return; }
@@ -2434,17 +2434,19 @@ async function optInInvite(){
   const slotsLeft = (i.slots||8) - confirmed.length;
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
-  const path = 'tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+me.key;
-  await db.ref(path).set({
-    name: me.name,
-    status,
-    position,
-    respondedAt: Date.now()
-  });
+  const newRsvp = { name: me.name, status, position, respondedAt: Date.now() };
+
+  // Optimistic local update so UI reflects state immediately
+  if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+  D.invites[activeInvite].rsvps[me.key] = newRsvp;
+  renderInviteDetail();
+
+  // Fire-and-forget persist; the listener will reconcile if anything diverged
+  fbSet('invites/'+activeInvite+'/rsvps/'+me.key, newRsvp);
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
 }
 
-async function dropOutInvite(){
+function dropOutInvite(){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const me = window.Identity ? Identity.getCurrent() : null;
   if(!me) return;
@@ -2452,45 +2454,64 @@ async function dropOutInvite(){
   const myRsvp = rsvps[me.key]; if(!myRsvp) return;
   const wasConfirmed = myRsvp.status === 'confirmed';
 
-  // Mark me as declined
-  const path = 'tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+me.key;
-  await db.ref(path).update({ status: 'declined', respondedAt: Date.now() });
+  // Build full new RSVP map (cheap to recompute, easier than per-field updates).
+  const newRsvps = {};
+  Object.entries(rsvps).forEach(([k,r])=>{ newRsvps[k] = { ...r }; });
+  newRsvps[me.key].status = 'declined';
+  newRsvps[me.key].respondedAt = Date.now();
+  newRsvps[me.key].position = null;
 
-  // If I was confirmed, promote first waitlister and renumber
+  let promotedName = null;
   if(wasConfirmed){
-    const fresh = (await db.ref('tally_kotb_pickup/invites/'+activeInvite+'/rsvps').once('value')).val() || {};
-    const waitlist = Object.entries(fresh).filter(([,r])=>r.status==='waitlist').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-    const promotedKey = waitlist[0] ? waitlist[0][0] : null;
-    const updates = {};
-    // Renumber confirmed
-    const confirmed = Object.entries(fresh).filter(([k,r])=>r.status==='confirmed' && k!==me.key).sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-    confirmed.forEach(([k,r],idx)=>{ updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k+'/position'] = idx+1; });
-    if(promotedKey){
-      updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+promotedKey+'/status'] = 'confirmed';
-      updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+promotedKey+'/position'] = confirmed.length+1;
-      // Renumber remaining waitlist
-      waitlist.slice(1).forEach(([k,r],idx)=>{ updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k+'/position'] = idx+1; });
-      // Queue waitlist promotion email (Phase 5 will drain it)
-      const promoted = fresh[promotedKey];
-      if(promoted && promoted.name){
-        const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-        updates['tally_kotb_pickup/email_queue/'+eid] = {
-          type: 'waitlist_promotion',
-          to: null, // resolved by Worker via player profile
-          data: { playerName: promoted.name, inviteId: activeInvite },
-          createdAt: Date.now(),
-          status: 'queued'
-        };
-      }
+    const remainingConfirmed = Object.entries(newRsvps)
+      .filter(([k,r])=>r.status==='confirmed')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+    const waitlist = Object.entries(newRsvps)
+      .filter(([k,r])=>r.status==='waitlist')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+
+    // Renumber confirmed 1..N
+    remainingConfirmed.forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
+
+    // Promote first waitlister
+    if(waitlist.length){
+      const [topKey] = waitlist[0];
+      newRsvps[topKey].status = 'confirmed';
+      newRsvps[topKey].position = remainingConfirmed.length + 1;
+      promotedName = newRsvps[topKey].name;
+      // Renumber remaining waitlist 1..M-1
+      waitlist.slice(1).forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
     }
-    await db.ref().update(updates);
   }
+
+  // Optimistic local update + immediate render
+  D.invites[activeInvite].rsvps = newRsvps;
+  renderInviteDetail();
+
+  // Persist as a single multi-update so all renumbers land atomically
+  const updates = {};
+  Object.entries(newRsvps).forEach(([k,r])=>{
+    updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k] = r;
+  });
+  if(promotedName){
+    const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    updates['tally_kotb_pickup/email_queue/'+eid] = {
+      type: 'waitlist_promotion',
+      to: null,
+      data: { playerName: promotedName, inviteId: activeInvite },
+      createdAt: Date.now(),
+      status: 'queued'
+    };
+  }
+  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
   toast('Dropped out');
 }
 
-async function cancelInvite(){
+function cancelInvite(){
   if(!confirm('Cancel this pickup? Everyone confirmed or waitlisted will see it as cancelled.')) return;
-  await db.ref('tally_kotb_pickup/invites/'+activeInvite+'/status').set('cancelled');
+  D.invites[activeInvite].status = 'cancelled';
+  renderInviteDetail();
+  fbSet('invites/'+activeInvite+'/status', 'cancelled');
   toast('Cancelled');
 }
 
