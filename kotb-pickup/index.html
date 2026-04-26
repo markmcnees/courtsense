@@ -1994,61 +1994,105 @@ function defaultDeadlineISO(date, startTime){
 }
 
 // ELIGIBILITY RESOLVER
-function resolveInviteEligibility(invite){
-  const e = invite && invite.eligibility ? invite.eligibility : {};
-  const players = D.players_profiles || {}; // not used yet; profiles live under players/
-  const allProfiles = D.players || {};      // shadowed below by direct read
-  return computeEligible(e);
-}
+//
+// Two distinct concepts, kept separate on purpose:
+//
+//   ELIGIBILITY (event creation): who is allowed to RSVP for this event?
+//     Union of (ratings, profiles, league Kings, league Queens) deduped by
+//     normalized name. The only subtractive filter is admin-blocked, since a
+//     blocked player has been formally removed from the community. Notification
+//     preferences (email opt-in, mute, no email on file) DO NOT affect
+//     eligibility. A player without an email can still find the event in the
+//     pickup app and RSVP themselves.
+//
+//   NOTIFICATION REACH (Phase 5 send code): of the eligible set, who do we
+//     actually email or banner? Answered by notifiableForInvite() below. Phase
+//     5 Worker code MUST call notifiableForInvite, never re-implement the
+//     filtering on its own. If the order of operations inverts there, the
+//     "Open to all = 7 players" bug comes right back.
 
-function profilesActiveNow(){
-  const now = Date.now();
-  // Profiles live under tally_kotb_pickup/players which is NOT in our listener.
-  // We snapshot via an out-of-band cache populated when the invite form / detail loads.
-  const map = window._profilesCache || {};
-  return Object.values(map).filter(p =>
-    p && p.name && !p.blocked &&
-    p.notificationsEnabled !== false &&
-    !(p.muteUntil && p.muteUntil > now)
-  );
+// Build {nameKey -> displayName} of every player the system knows about,
+// deduped, with admin-blocked profiles excluded. Inactive league players are
+// skipped by default; hosts can override per-event with the include list.
+function allKnownPlayerNames(){
+  const byKey = {};
+  const blocked = new Set();
+  Object.values(window._profilesCache||{}).forEach(p=>{
+    if(!p || !p.name) return;
+    const k = Identity.nameKey(p.name);
+    if(p.blocked){ blocked.add(k); return; }
+    byKey[k] = p.name;
+  });
+  Object.values(D.ratings||{}).forEach(r=>{
+    if(!r || !r.name) return;
+    const k = Identity.nameKey(r.name);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = r.name;
+  });
+  Object.values(leagueKings||{}).forEach(p=>{
+    if(!p || !p.name || p.active===false) return;
+    const k = Identity.nameKey(p.name);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = p.name;
+  });
+  Object.values(leagueQueens||{}).forEach(p=>{
+    if(!p || !p.name || p.active===false) return;
+    const k = Identity.nameKey(p.name);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = p.name;
+  });
+  return byKey;
 }
 
 function computeEligible(e){
   e = e || {};
-  const profiles = profilesActiveNow();
-  let pool;
+  const allByKey = allKnownPlayerNames();
+  let names;
   if(e.baseMode === 'ratingMin'){
     const min = +e.ratingMin || 0;
-    pool = profiles.filter(p => {
-      const r = (D.ratings||{})[Identity.nameKey(p.name)];
-      return r && (r.rating||0) >= min;
-    });
+    names = Object.entries(allByKey)
+      .filter(([k]) => { const r=(D.ratings||{})[k]; return r && (r.rating||0) >= min; })
+      .map(([,n]) => n);
   } else if(e.baseMode === 'ratingRange'){
     const min = +e.ratingMin || 0, max = +e.ratingMax || 9999;
-    pool = profiles.filter(p => {
-      const r = (D.ratings||{})[Identity.nameKey(p.name)];
-      const rt = r && r.rating || 0;
-      return rt >= min && rt <= max;
-    });
+    names = Object.entries(allByKey)
+      .filter(([k]) => { const r=(D.ratings||{})[k]; const rt=(r&&r.rating)||0; return rt>=min && rt<=max; })
+      .map(([,n]) => n);
   } else if(e.baseMode === 'group'){
     const g = (D.groups||{})[e.groupId];
     if(!g) return [];
-    const profileNames = new Set(profiles.map(p=>Identity.nameKey(p.name)));
-    pool = (g.members||[]).filter(name => profileNames.has(Identity.nameKey(name))).map(name => {
-      // Map back to profile's name casing for consistency
-      const p = profiles.find(p => Identity.nameKey(p.name)===Identity.nameKey(name));
-      return p || { name };
-    });
+    names = (g.members||[])
+      .map(n => { const k = Identity.nameKey(n); return allByKey[k] || null; })
+      .filter(Boolean);
   } else {
-    pool = profiles.slice(); // open
+    names = Object.values(allByKey);
   }
-  let names = pool.map(p => p.name);
-  // includeList overrides up
-  (e.includeList||[]).forEach(n => { if(!names.some(x=>Identity.nameKey(x)===Identity.nameKey(n))) names.push(n); });
+  // includeList overrides up: even if not in any source, an explicit invite stands
+  (e.includeList||[]).forEach(n => {
+    if(!names.some(x => Identity.nameKey(x)===Identity.nameKey(n))) names.push(n);
+  });
   // excludeList overrides down
-  const excSet = new Set((e.excludeList||[]).map(n=>Identity.nameKey(n)));
+  const excSet = new Set((e.excludeList||[]).map(n => Identity.nameKey(n)));
   names = names.filter(n => !excSet.has(Identity.nameKey(n)));
-  return names.sort((a,b)=>a.localeCompare(b));
+  return names.sort((a,b) => a.localeCompare(b));
+}
+
+// Phase 5 entry point: who actually receives email/banner notifications?
+// Filters the eligible set down to profiles with notifications enabled, not
+// muted, with an email on file. Worker code should call only this function.
+function notifiableForInvite(invite){
+  const eligible = computeEligible((invite && invite.eligibility) || {});
+  const profiles = window._profilesCache || {};
+  const now = Date.now();
+  return eligible.filter(name => {
+    const p = profiles[Identity.nameKey(name)];
+    if(!p) return false;
+    if(p.blocked) return false;
+    if(p.notificationsEnabled === false) return false;
+    if(p.muteUntil && p.muteUntil > now) return false;
+    if(!p.email) return false;
+    return true;
+  });
 }
 
 async function ensureProfilesLoaded(){
@@ -2234,7 +2278,26 @@ function getCurrentEligibilitySpec(){
 function updateInvitePreview(){
   const e = getCurrentEligibilitySpec();
   const eligible = computeEligible(e);
-  $('iv-elig-preview').textContent = eligible.length+' player'+(eligible.length===1?'':'s')+' currently eligible'+(eligible.length?': '+eligible.slice(0,8).join(', ')+(eligible.length>8?', +'+(eligible.length-8)+' more':''):'.');
+  const count = eligible.length;
+  let source;
+  if(e.baseMode === 'ratingMin')        source = ' (rating '+(e.ratingMin||0)+'+)';
+  else if(e.baseMode === 'ratingRange') source = ' (rating '+(e.ratingMin||0)+' to '+(e.ratingMax||9999)+')';
+  else if(e.baseMode === 'group'){
+    const g = (D.groups||{})[e.groupId];
+    source = ' from group: '+(g ? g.name : '?');
+  } else {
+    source = ' from league + pickup rosters';
+  }
+  let text = count+' player'+(count===1?'':'s')+' currently eligible'+source;
+  if(count){
+    const PREVIEW_N = 3;
+    const head = eligible.slice(0, PREVIEW_N).join(', ');
+    const rest = count - PREVIEW_N;
+    text += ': '+head+(rest>0 ? ', and '+rest+' other'+(rest===1?'':'s')+'.' : '.');
+  } else {
+    text += '.';
+  }
+  $('iv-elig-preview').textContent = text;
 }
 
 function renderInclude(){
