@@ -551,7 +551,12 @@ let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invit
 let leagueKings  = {};
 let leagueQueens = {};
 let _pendingRoundsUpdate = null;
+let _pendingInviteOverrides = {}; // inviteId -> { ts, apply: (invite)=>void }
 let sortK = { key:'diff', dir:'desc' };
+
+function pendInviteOverride(invId, applyFn){
+  _pendingInviteOverrides[invId] = { ts: Date.now(), apply: applyFn };
+}
 
 let setupState = null;
 
@@ -591,6 +596,14 @@ function initFB(){
         const eid = _pendingRoundsUpdate.eventId;
         if(D.events[eid]) D.events[eid].rounds = _pendingRoundsUpdate.rounds;
       }
+      // Re-apply any pending optimistic invite overrides so the listener's
+      // wholesale D.invites replace doesn't clobber a just-clicked RSVP.
+      const now = Date.now();
+      Object.keys(_pendingInviteOverrides).forEach(invId=>{
+        const o = _pendingInviteOverrides[invId];
+        if(now - o.ts > 10000){ delete _pendingInviteOverrides[invId]; return; }
+        if(D.invites[invId]) o.apply(D.invites[invId]);
+      });
       refreshAll();
     }, e=>{console.error(e);setSS(false);});
     db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
@@ -2439,6 +2452,10 @@ function optInInvite(){
   // Optimistic local update so UI reflects state immediately
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
   D.invites[activeInvite].rsvps[me.key] = newRsvp;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.rsvps) inv.rsvps = {};
+    inv.rsvps[me.key] = newRsvp;
+  });
   renderInviteDetail();
 
   // Fire-and-forget persist; the listener will reconcile if anything diverged
@@ -2486,6 +2503,7 @@ function dropOutInvite(){
 
   // Optimistic local update + immediate render
   D.invites[activeInvite].rsvps = newRsvps;
+  pendInviteOverride(activeInvite, inv => { inv.rsvps = newRsvps; });
   renderInviteDetail();
 
   // Persist as a single multi-update so all renumbers land atomically
@@ -2510,6 +2528,7 @@ function dropOutInvite(){
 function cancelInvite(){
   if(!confirm('Cancel this pickup? Everyone confirmed or waitlisted will see it as cancelled.')) return;
   D.invites[activeInvite].status = 'cancelled';
+  pendInviteOverride(activeInvite, inv => { inv.status = 'cancelled'; });
   renderInviteDetail();
   fbSet('invites/'+activeInvite+'/status', 'cancelled');
   toast('Cancelled');
