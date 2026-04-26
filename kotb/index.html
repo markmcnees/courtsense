@@ -8,6 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="/ratings.js"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -188,6 +189,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <button class="tab on" data-tab="standings">Standings</button>
     <button class="tab" data-tab="score">Score</button>
     <button class="tab" data-tab="planner">Planner</button>
+    <button class="tab" data-tab="ratings">Ratings</button>
   </div>
 </div>
 
@@ -340,7 +342,41 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div id="live-courts"></div>
   </div>
 
+  <!-- RATINGS -->
+  <div class="pane" id="pane-ratings">
+    <div id="ratings-header"></div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="overflow-x:auto;">
+        <table class="tbl" id="rtbl">
+          <thead><tr>
+            <th style="width:28px;padding-left:14px;">#</th>
+            <th>Player</th>
+            <th data-rsort="rating" class="sorted">Rating</th>
+            <th data-rsort="rd">RD</th>
+            <th data-rsort="gamesPlayed">GP</th>
+          </tr></thead>
+          <tbody id="rbody"></tbody>
+        </table>
+      </div>
+      <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. One rating per name across leagues + pickup.</p>
+    </div>
+  </div>
+
 </div><!-- /content -->
+
+<!-- HOW RATINGS WORK MODAL -->
+<div class="overlay" id="how-modal" onclick="if(event.target===this)closeModal('how-modal')">
+  <div class="modal" style="border-radius:20px 20px 0 0;max-width:420px;margin:0 auto;">
+    <div class="mtitle"><span>How Ratings Work</span><button class="mclose" onclick="closeModal('how-modal')">✕</button></div>
+    <div style="font-size:14px;line-height:1.55;color:var(--black);padding:0 4px 8px;">
+      <p style="margin-bottom:10px;">Every player starts at <strong>1500</strong>. Win games and your rating climbs; lose and it dips.</p>
+      <p style="margin-bottom:10px;">The number next to your rating is your <strong>RD</strong> (rating deviation). Lower RD means the system is more confident in your rating.</p>
+      <p style="margin-bottom:10px;">New players have RD around 350 and move a lot in their first few games. As you play more, RD shrinks and your rating gets steadier.</p>
+      <p style="margin-bottom:10px;">Beating someone way above you is a bigger jump than beating someone at your level. Blowouts count for more than nail-biters.</p>
+      <p>Ratings persist across seasons forever. Subs do not earn rating changes.</p>
+    </div>
+  </div>
+</div>
 
 <!-- PIN MODAL -->
 <div class="overlay" id="pin-modal" onclick="if(event.target===this)closeModal('pin-modal')">
@@ -421,7 +457,8 @@ const lscore = {};
 
 let D = {
   kings:  {config:{}, players:{}, weeks:{}, results:{}},
-  queens: {config:{}, players:{}, weeks:{}, results:{}}
+  queens: {config:{}, players:{}, weeks:{}, results:{}},
+  ratings: {}
 };
 
 // ─── HELPERS ───
@@ -564,6 +601,10 @@ function initFB(){
       });
       refreshAll();
     }, e=>{console.error(e);setSS(false);});
+    db.ref('tally_kotb_pickup/ratings').on('value', snap=>{
+      D.ratings = snap.val()||{};
+      if(tab==='ratings') refreshTab('ratings');
+    }, e=>console.warn('ratings read failed', e));
     db.ref('.info/connected').on('value',s=>setSS(s.val()===true));
   }catch(e){console.error(e);setSS(false);}
 }
@@ -612,15 +653,23 @@ function initTabs(){
       renderStandings();
     });
   });
+  document.querySelectorAll('#rtbl th[data-rsort]').forEach(th=>{
+    th.style.cursor='pointer';
+    th.addEventListener('click',()=>{
+      if(ratingSort.key===th.dataset.rsort){ratingSort.dir=ratingSort.dir==='asc'?'desc':'asc';}
+      else{ratingSort={key:th.dataset.rsort,dir:'desc'};}
+      renderRatings();
+    });
+  });
   $('cfg-start').value=td();
 }
 
 function refreshAll(){fillWeekSels();refreshTab(tab);}
 function refreshTab(t){
   if(t==='standings') renderStandings();
-
   else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();}
   else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();}
+  else if(t==='ratings'){renderRatings();renderRatingsHeader();}
 }
 
 // ─── STATS ───
@@ -690,31 +739,193 @@ function renderStandings(){
 
 function showPH(pid){
   const player=gP(pid);if(!player)return;
-  const ph=partnerHistory(pid);
-  const entries=Object.entries(ph).sort((a,b)=>b[1].gp-a[1].gp);
-  $('ph-title').textContent=player.name+' — Partners';
-  if(!entries.length){
-    $('ph-body').innerHTML='<p style="color:var(--gray);font-size:14px;padding:8px 0;">No games recorded yet.</p>';
+  showPlayerRatingDetail(player.name);
+}
+
+function showPlayerRatingDetail(name){
+  if(!name) return;
+  const k = window.Ratings ? Ratings.nameKey(name) : '';
+  const rec = (D.ratings||{})[k] || {};
+  const rating = rec.rating ?? 1500;
+  const rd = rec.rd ?? 350;
+  const gp = rec.gamesPlayed || 0;
+  const peak = rec.peakRating ?? rating;
+  const history = rec.history ? Object.values(rec.history) : [];
+  history.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+  const wins = history.filter(h=>h.won).length;
+  const losses = history.length - wins;
+
+  const partnerAgg = {};
+  history.forEach(h=>{
+    const pn = h.partner; if(!pn) return;
+    if(!partnerAgg[pn]) partnerAgg[pn] = { gp:0, w:0, l:0, pf:0, pa:0 };
+    partnerAgg[pn].gp++;
+    partnerAgg[pn].pf += (h.score||0);
+    partnerAgg[pn].pa += (h.opponentScore||0);
+    if(h.won) partnerAgg[pn].w++; else partnerAgg[pn].l++;
+  });
+  const partnerRows = Object.entries(partnerAgg).sort((a,b)=>b[1].gp-a[1].gp || (b[1].w-b[1].l)-(a[1].w-a[1].l));
+
+  function ratingOf(nm){ const kk = Ratings.nameKey(nm); return (D.ratings||{})[kk]?.rating ?? 1500; }
+  let bestWin = null, worstLoss = null;
+  history.forEach(h=>{
+    const opps = [h.opponent1, h.opponent2].filter(Boolean);
+    if(!opps.length) return;
+    const oppRatings = opps.map(ratingOf);
+    const oppPeak = Math.max(...oppRatings), oppWeak = Math.min(...oppRatings);
+    if(h.won && (!bestWin || oppPeak > bestWin.r)) bestWin = { r:oppPeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
+    if(!h.won && (!worstLoss || oppWeak < worstLoss.r)) worstLoss = { r:oppWeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
+  });
+
+  const recent = history.slice(0, 20);
+  const chartH = 90, chartW = 320, pad = 6;
+  let chartHTML;
+  if(history.length<2){
+    chartHTML = `<p style="font-size:12px;color:var(--gray);text-align:center;padding:18px 0;">Need at least 2 games for a chart.</p>`;
   } else {
-    $('ph-body').innerHTML=`<table style="width:100%;border-collapse:collapse;">
-      <thead><tr style="font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);">
-        <th style="padding:8px 0;text-align:left;">Partner</th>
-        <th style="padding:8px;text-align:center;">GP</th>
-        <th style="padding:8px;text-align:center;">W</th>
-        <th style="padding:8px;text-align:center;">L</th>
-        <th style="padding:8px;text-align:center;">+/-</th>
-      </tr></thead>
-      <tbody>${entries.map(([id,s])=>`
-        <tr style="border-top:1px solid var(--sand-border);font-size:14px;">
-          <td style="padding:12px 0;font-weight:700;">${pN(id)}</td>
-          <td style="padding:12px;text-align:center;color:var(--gray);">${s.gp}</td>
-          <td style="padding:12px;text-align:center;" class="win">${s.w}</td>
-          <td style="padding:12px;text-align:center;" class="loss">${s.l}</td>
-          <td style="padding:12px;text-align:center;" class="${pmc(s.pf-s.pa)}">${pm(s.pf-s.pa)}</td>
-        </tr>`).join('')}
-      </tbody></table>`;
+    const sortedAsc = history.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+    const ratings = sortedAsc.map(h=>h.ratingAfter);
+    const minR = Math.min(...ratings), maxR = Math.max(...ratings);
+    const span = Math.max(1, maxR - minR);
+    const xStep = (chartW - pad*2) / (sortedAsc.length-1);
+    const points = sortedAsc.map((h,i)=>{
+      const x = pad + i*xStep;
+      const y = pad + (1 - (h.ratingAfter - minR)/span) * (chartH - pad*2);
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    chartHTML = `<svg viewBox="0 0 ${chartW} ${chartH}" style="width:100%;height:${chartH}px;display:block;background:var(--sand);border-radius:8px;">
+      <polyline fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${points}"/>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray);margin-top:4px;"><span>${Math.round(minR)}</span><span>${sortedAsc.length} games</span><span>${Math.round(maxR)}</span></div>`;
   }
+  const sourceBadge = src => {
+    const map = { league_kings:['KINGS','#1a3a6b'], league_queens:['QUEENS','#6b21a8'], pickup:['PICKUP','#d4a843'] };
+    const v = map[src] || [src||'?', '#6b7280'];
+    return `<span style="font-family:'Bebas Neue';font-size:9px;letter-spacing:1px;background:${v[1]};color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;">${v[0]}</span>`;
+  };
+  const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  $('ph-title').textContent = name;
+  $('ph-body').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-family:'Bebas Neue';font-size:42px;line-height:1;color:var(--primary);">${Math.round(rating)}</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:2px;">± ${Math.round(rd)} · ${gp} game${gp===1?'':'s'} · peak ${Math.round(peak)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;"><span class="win">${wins}W</span> · <span class="loss">${losses}L</span></div>
+        <div style="font-size:12px;color:var(--gray);">${gp>0 ? Math.round(wins/gp*100)+'% win rate' : ''}</div>
+      </div>
+    </div>
+    <div class="ctitle" style="margin-top:8px;"><span class="bar"></span>Rating Trend</div>
+    ${chartHTML}
+    <div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Recent Games</div>
+    ${recent.length ? `<div style="border-top:1px solid var(--sand-border);">${recent.map(h=>{
+      const dStr = h.timestamp ? new Date(h.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+      const partner = h.partner ? `with ${esc(h.partner)}` : 'solo';
+      const opps = [h.opponent1,h.opponent2].filter(Boolean).map(esc).join(' & ') || '?';
+      const change = (h.ratingChange||0);
+      const sign = change>=0?'+':'';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand-border);">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">${h.won?'✓':'✕'} ${h.score||0}-${h.opponentScore||0} ${sourceBadge(h.source)}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px;">${dStr} · ${partner} vs ${opps}</div>
+        </div>
+        <div style="font-family:'Bebas Neue';font-size:14px;color:${change>=0?'var(--win)':'var(--loss)'};min-width:48px;text-align:right;">${sign}${change.toFixed(1)}</div>
+      </div>`;
+    }).join('')}</div>` : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No rated games yet.</p>'}
+    ${(bestWin || worstLoss) ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Highlights</div>
+    ${bestWin ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Best Win</div>
+      <div style="font-weight:700;">vs ${esc(bestWin.opp)} (${Math.round(bestWin.r)})</div>
+      <div style="font-size:12px;color:var(--gray);">${bestWin.score} on ${new Date(bestWin.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+    </div>` : ''}
+    ${worstLoss ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Toughest Loss</div>
+      <div style="font-weight:700;">vs ${esc(worstLoss.opp)} (${Math.round(worstLoss.r)})</div>
+      <div style="font-size:12px;color:var(--gray);">${worstLoss.score} on ${new Date(worstLoss.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+    </div>` : ''}` : ''}
+    ${partnerRows.length ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Partners</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);">
+        <th style="padding:6px 0;text-align:left;">Partner</th>
+        <th style="padding:6px;text-align:center;">GP</th>
+        <th style="padding:6px;text-align:center;">W</th>
+        <th style="padding:6px;text-align:center;">L</th>
+        <th style="padding:6px;text-align:center;">+/-</th>
+      </tr></thead>
+      <tbody>${partnerRows.map(([nm,s])=>`
+        <tr style="border-top:1px solid var(--sand-border);font-size:13px;">
+          <td style="padding:10px 0;font-weight:700;">${esc(nm)}</td>
+          <td style="padding:10px;text-align:center;color:var(--gray);">${s.gp}</td>
+          <td style="padding:10px;text-align:center;" class="win">${s.w}</td>
+          <td style="padding:10px;text-align:center;" class="loss">${s.l}</td>
+          <td style="padding:10px;text-align:center;" class="${pmc(s.pf-s.pa)}">${pm(s.pf-s.pa)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : ''}
+  `;
   $('ph-modal').classList.add('on');
+}
+
+// RATINGS TAB
+let ratingSort = { key:'rating', dir:'desc' };
+function timeAgo(ts){
+  const d = Date.now() - ts;
+  if(d < 60*1000) return 'just now';
+  if(d < 60*60*1000) return Math.round(d/60000)+' min ago';
+  if(d < 24*60*60*1000) return Math.round(d/3600000)+' hr ago';
+  return Math.round(d/86400000)+' day'+(Math.round(d/86400000)===1?'':'s')+' ago';
+}
+function renderRatingsHeader(){
+  const cont = $('ratings-header'); if(!cont) return;
+  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
+  const total = all.length;
+  const avg = total ? Math.round(all.reduce((s,r)=>s+(r.rating||1500),0)/total) : 1500;
+  const lastTs = all.reduce((m,r)=>Math.max(m, r.lastUpdated||0), 0);
+  const ago = lastTs ? timeAgo(lastTs) : 'never';
+  cont.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:140px;">
+      <div style="font-family:'Bebas Neue';font-size:24px;color:var(--primary);">${total}</div>
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Players Ranked</div>
+    </div>
+    <div style="flex:1;min-width:140px;">
+      <div style="font-family:'Bebas Neue';font-size:24px;">${avg}</div>
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Avg Rating</div>
+    </div>
+    <div style="flex:1;min-width:140px;">
+      <div style="font-size:13px;font-weight:700;">Updated ${ago}</div>
+      <button class="btn btn-g btn-sm" style="margin-top:6px;" onclick="$('how-modal').classList.add('on')">ⓘ How ratings work</button>
+    </div>
+  </div>`;
+}
+function renderRatings(){
+  const tbody = $('rbody'); if(!tbody) return;
+  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
+  if(!all.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--gray);">No ratings yet. Run seed-ratings.html or score a game.</td></tr>';
+    return;
+  }
+  const k = ratingSort.key;
+  all.sort((a,b)=>{
+    const va = a[k]||0, vb = b[k]||0;
+    return ratingSort.dir==='asc' ? va-vb : vb-va;
+  });
+  const rc = ['r1','r2','r3'];
+  tbody.innerHTML = all.map((r,i)=>`
+    <tr onclick="showPlayerRatingDetail('${String(r.name).replace(/'/g,"\\'")}')" style="cursor:pointer;">
+      <td style="padding-left:14px;"><span class="rnk ${rc[i]||''}">${i+1}</span></td>
+      <td class="pname">${r.name}</td>
+      <td style="font-family:'Bebas Neue';font-size:18px;color:var(--primary);">${Math.round(r.rating||1500)}</td>
+      <td style="font-size:12px;color:var(--gray);">± ${Math.round(r.rd||350)}</td>
+      <td class="gp">${r.gamesPlayed||0}</td>
+    </tr>`).join('');
+  document.querySelectorAll('#rtbl th[data-rsort]').forEach(th=>{
+    const isSorted = th.dataset.rsort===ratingSort.key;
+    th.classList.toggle('sorted', isSorted);
+    const labels = { rating:'Rating', rd:'RD', gamesPlayed:'GP' };
+    th.textContent = (labels[th.dataset.rsort]||th.dataset.rsort) + (isSorted ? (ratingSort.dir==='asc'?' ▲':' ▼') : '');
+  });
 }
 
 // ─── ROSTER ───
@@ -1681,6 +1892,34 @@ function adj(idx,side,d){
 
 function setS(idx,side,v){if(!lscore[idx])lscore[idx]={us:0,them:0};lscore[idx][side]=Math.max(0,parseInt(v)||0);}
 
+function ratingsSourceForSide(){ return SIDE==='queens' ? 'league_queens' : 'league_kings'; }
+function namesForRatedTeam(team, subSlots){
+  const ss = new Set(subSlots||[]);
+  return (team||[])
+    .filter(idOrName => !ss.has(idOrName))
+    .map(idOrName => { const p = gP(idOrName); return p ? p.name : null; })
+    .filter(Boolean);
+}
+function applyRatingsLeague(gameId, t1, t2, s1, s2, subSlots){
+  if(!window.Ratings || !db) return;
+  const team1Names = namesForRatedTeam(t1, subSlots);
+  const team2Names = namesForRatedTeam(t2, subSlots);
+  if(!team1Names.length || !team2Names.length) return;
+  Ratings.applyGame({
+    db, dbRoot:'tally_kotb_pickup',
+    gameId, source: ratingsSourceForSide(),
+    ts: Date.now(), team1Names, team2Names, s1, s2
+  }).catch(err => console.warn('rating apply failed', err));
+}
+function reverseRatingsLeague(gameId, t1, t2, subSlots){
+  if(!window.Ratings || !db) return;
+  Ratings.reverseGame({
+    db, dbRoot:'tally_kotb_pickup', gameId,
+    team1Names: namesForRatedTeam(t1, subSlots),
+    team2Names: namesForRatedTeam(t2, subSlots)
+  }).catch(err => console.warn('rating reverse failed', err));
+}
+
 function saveScore(wid,round,court,t1s,t2s,idx){
   const s1=parseInt($('su-'+idx)?.value)||0;
   const s2=parseInt($('st-'+idx)?.value)||0;
@@ -1694,7 +1933,9 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   const subSlots=[...t1,...t2].filter(pid=>ov[pid]==='__SUB__');
   // Named subs (non-registered): store name string directly
   const namedSubs=[...t1,...t2].filter(pid=>ov[pid]&&ov[pid]!=='__SUB__').map(pid=>ov[pid]);
-  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:applyOv(t1),t2:applyOv(t2),s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
+  const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
+  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
+  applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots);
   lscore[idx]={us:0,them:0};
   toast((s1>s2?'Win':'Loss')+' · '+s1+'–'+s2+' saved ✓');
   const _sy=window.scrollY;
@@ -1709,8 +1950,10 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   const overrides=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+(idx||0)])||{};
   const resolveIds=team=>team.map(pid=>overrides[pid]?overrides[pid]:pid);
   const st1=resolveIds(t1),st2=resolveIds(t2);
-  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1:t1forfeit?10:15,s2:t1forfeit?15:10,isForfeit:true,ts:Date.now()});
-  toast('Forfeit recorded · 15–10');
+  const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
+  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()});
+  applyRatingsLeague(id, st1, st2, s1, s2, null);
+  toast('Forfeit recorded · 15-10');
   const _sf=window.scrollY;
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sf,behavior:'instant'});},400);
 }
@@ -1766,13 +2009,22 @@ function saveEditResult(){
   const s2=parseInt($('er-s2')?.value)||0;
   if(!t1.length||!t2.length){toast('Each team needs at least one player');return;}
   if(s1===s2){toast('Scores cannot be tied');return;}
+  reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
   fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:false});
+  applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null);
   $('edit-result-modal').classList.remove('on');
   toast('Result updated ✓');
   setTimeout(()=>{renderRoundPills();renderLiveCourts();},300);
 }
 
-function delResult(id){fbDel(SIDE+'/results/'+id);toast('Result cleared');const _sd=window.scrollY;setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sd,behavior:'instant'});},400);}
+function delResult(id){
+  const r=((D[SIDE]||{}).results||{})[id];
+  if(r) reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
+  fbDel(SIDE+'/results/'+id);
+  toast('Result cleared');
+  const _sd=window.scrollY;
+  setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sd,behavior:'instant'});},400);
+}
 
 // ─── ROSTER IMPORT ───
 function importRoster(input){

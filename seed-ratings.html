@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Seed Ratings · Tally KotB</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/ratings.js"></script>
+<style>
+:root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',sans-serif;background:var(--sand);color:#111827;padding:18px;line-height:1.55;}
+.wrap{max-width:760px;margin:0 auto;}
+h1{font-family:'Bebas Neue';font-size:28px;letter-spacing:3px;color:var(--primary);margin-bottom:6px;}
+.sub{color:var(--gray);font-size:13px;margin-bottom:18px;}
+.card{background:var(--white);border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);}
+h2{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);margin-bottom:10px;}
+p{font-size:14px;margin-bottom:8px;}
+ul{margin:8px 0 12px 18px;font-size:13px;}
+ul li{margin-bottom:3px;}
+.btn{display:inline-block;padding:13px 22px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;}
+.btn-p{background:var(--primary);color:#fff;}
+.btn-d{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px;}
+.log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#0f172a;color:#bae6fd;border-radius:10px;padding:14px;max-height:340px;overflow-y:auto;white-space:pre-wrap;}
+.bar{background:var(--gray-lighter);height:10px;border-radius:5px;overflow:hidden;margin:8px 0;}
+.bar > div{background:var(--primary);height:100%;transition:width .2s;}
+.stat{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--gray-lighter);}
+.stat:last-child{border-bottom:none;}
+.stat strong{color:var(--primary);}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;}
+th{font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);text-align:left;padding:6px 8px;border-bottom:2px solid var(--gray-lighter);}
+td{padding:6px 8px;border-bottom:1px solid var(--gray-lighter);}
+.sync{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-left:6px;}
+.sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Seed Ratings <span id="sync" class="sync"></span></h1>
+  <p class="sub">One-shot replay of all historical games to seed Glicko-2 ratings under tally_kotb_pickup/ratings.</p>
+
+  <div class="card">
+    <h2>What this does</h2>
+    <p>Reads every result from:</p>
+    <ul>
+      <li>tally_kotb/kings/results (current Kings season)</li>
+      <li>tally_kotb/queens/results (current Queens season)</li>
+      <li>tally_kotb/archive/*/{kings,queens}/results (all archived seasons)</li>
+      <li>tally_kotb_pickup/archive/*/results (any closed pickup events)</li>
+    </ul>
+    <p>Sorts every game chronologically by timestamp, replays each through the Glicko-2 module with the same per-player updates the live apps use, and writes final state to tally_kotb_pickup/ratings/.</p>
+    <div class="warn"><strong>Heads up:</strong> this overwrites any existing ratings under tally_kotb_pickup/ratings/. Only run it once, before you turn on live rating updates.</div>
+    <button class="btn btn-p" id="btn-load" onclick="loadAll()">Step 1: Load all games</button>
+  </div>
+
+  <div class="card" id="step2-card" style="display:none;">
+    <h2>Loaded</h2>
+    <div id="load-stats"></div>
+    <button class="btn btn-p" id="btn-replay" onclick="replayAll()">Step 2: Replay through Glicko-2</button>
+  </div>
+
+  <div class="card" id="step3-card" style="display:none;">
+    <h2>Final Ratings Preview</h2>
+    <div id="preview-stats"></div>
+    <table id="preview-table"><thead><tr><th>#</th><th>Player</th><th>Rating</th><th>RD</th><th>GP</th></tr></thead><tbody id="preview-body"></tbody></table>
+    <p style="margin-top:14px;color:var(--gray);font-size:12px;">Review the table. If anything looks wrong, walk away and refresh. Writing is the last step.</p>
+    <button class="btn btn-d" id="btn-write" onclick="confirmAndWrite()">Step 3: Write to Firebase</button>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div class="bar"><div id="bar-fill" style="width:0%"></div></div>
+    <div class="log" id="log">Idle.</div>
+  </div>
+</div>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const TARGET_ROOT = 'tally_kotb_pickup';
+
+let db = null;
+let games = [];           // collected games to replay (chronological)
+let ratingsByKey = {};    // built up by replay
+let historyByKey = {};    // key -> { gameId: entry }
+
+const $ = id => document.getElementById(id);
+function log(msg){
+  const el = $('log');
+  el.textContent = (el.textContent==='Idle.' ? '' : el.textContent + '\n') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function setBar(pct){ $('bar-fill').style.width = Math.max(0, Math.min(100, pct))+'%'; }
+
+(function init(){
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+  db.ref('.info/connected').on('value', s=>{
+    $('sync').classList.toggle('on', s.val()===true);
+  });
+})();
+
+// Resolve player name from a players-collection record (or pid string)
+function resolveName(pid, players){
+  if(!pid) return null;
+  const p = players && players[pid];
+  if(p && p.name) return String(p.name).trim();
+  // If it doesn't match a player, treat the value itself as a name string (sub or forfeit fill).
+  // Caller will decide whether to skip via subSlots.
+  return null;
+}
+
+function pushGames(arr, source, results, players){
+  Object.values(results||{}).forEach(r=>{
+    if(r.s1 == null || r.s2 == null) return;
+    if(r.s1 === r.s2) return;
+    const subSlots = new Set(r.subSlots||[]);
+    const t1 = (r.t1||[]).filter(pid => !subSlots.has(pid)).map(pid => resolveName(pid, players)).filter(Boolean);
+    const t2 = (r.t2||[]).filter(pid => !subSlots.has(pid)).map(pid => resolveName(pid, players)).filter(Boolean);
+    if(!t1.length || !t2.length) return;
+    const ts = r.ts || 0;
+    arr.push({
+      gameId: r.id || (source+'_'+(arr.length+1)),
+      ts,
+      source,
+      team1Names: t1,
+      team2Names: t2,
+      s1: r.s1, s2: r.s2
+    });
+  });
+}
+
+async function loadAll(){
+  $('btn-load').disabled = true;
+  log('Reading current Kings season...');
+  const kSnap = await db.ref('tally_kotb/kings').once('value');
+  const k = kSnap.val()||{};
+  pushGames(games, 'league_kings', k.results||{}, k.players||{});
+  log('  '+Object.keys(k.results||{}).length+' games, '+Object.keys(k.players||{}).length+' players');
+
+  log('Reading current Queens season...');
+  const qSnap = await db.ref('tally_kotb/queens').once('value');
+  const q = qSnap.val()||{};
+  pushGames(games, 'league_queens', q.results||{}, q.players||{});
+  log('  '+Object.keys(q.results||{}).length+' games, '+Object.keys(q.players||{}).length+' players');
+
+  log('Reading league archives...');
+  const archSnap = await db.ref('tally_kotb/archive').once('value');
+  const arch = archSnap.val()||{};
+  Object.entries(arch).forEach(([season, data])=>{
+    ['kings','queens'].forEach(side=>{
+      const sd = data && data[side];
+      if(!sd) return;
+      const before = games.length;
+      pushGames(games, 'league_'+side, sd.results||{}, sd.players||{});
+      log('  ['+season+'/'+side+']  +'+(games.length-before)+' games');
+    });
+  });
+
+  log('Reading pickup archives...');
+  const pSnap = await db.ref('tally_kotb_pickup/archive').once('value');
+  const parch = pSnap.val()||{};
+  Object.entries(parch).forEach(([eid, data])=>{
+    if(!data) return;
+    const before = games.length;
+    pushGames(games, 'pickup', data.results||{}, data.players||{});
+    log('  ['+eid+']  +'+(games.length-before)+' games');
+  });
+
+  // Sort chronologically. Games without ts go first (will get default 0).
+  games.sort((a,b)=>(a.ts||0)-(b.ts||0));
+
+  log('Total games to replay: '+games.length);
+  const uniqueNames = new Set();
+  games.forEach(g=>{
+    g.team1Names.concat(g.team2Names).forEach(n=>uniqueNames.add(n.toLowerCase()));
+  });
+
+  $('load-stats').innerHTML = `
+    <div class="stat"><span>Total games</span><strong>${games.length}</strong></div>
+    <div class="stat"><span>Distinct player names</span><strong>${uniqueNames.size}</strong></div>
+    <div class="stat"><span>Date range</span><strong>${games.length ? new Date(games[0].ts||0).toLocaleDateString() + ' to ' + new Date(games[games.length-1].ts||0).toLocaleDateString() : '-'}</strong></div>
+  `;
+  $('step2-card').style.display = 'block';
+  $('step2-card').scrollIntoView({behavior:'smooth'});
+}
+
+async function replayAll(){
+  $('btn-replay').disabled = true;
+  ratingsByKey = {};
+  historyByKey = {};
+  log('Replaying '+games.length+' games...');
+  for(let i=0; i<games.length; i++){
+    const g = games[i];
+    const histArr = Ratings.applyToMemory(ratingsByKey, g);
+    histArr.forEach(h=>{
+      if(!historyByKey[h.playerKey]) historyByKey[h.playerKey] = {};
+      historyByKey[h.playerKey][g.gameId] = h.entry;
+    });
+    if(i%50===0 || i===games.length-1){
+      setBar((i+1)/games.length*100);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  log('Replay complete.');
+  setBar(100);
+
+  const all = Object.values(ratingsByKey);
+  const ranked = all.slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
+  const total = all.length;
+  const avg = total ? Math.round(all.reduce((s,r)=>s+(r.rating||1500),0)/total) : 0;
+  const totalGames = all.reduce((s,r)=>s+(r.gamesPlayed||0), 0);
+  $('preview-stats').innerHTML = `
+    <div class="stat"><span>Players rated</span><strong>${total}</strong></div>
+    <div class="stat"><span>Avg rating</span><strong>${avg}</strong></div>
+    <div class="stat"><span>Total game-player rows</span><strong>${totalGames}</strong></div>
+    <div class="stat"><span>Top rating</span><strong>${ranked[0] ? Math.round(ranked[0].rating)+' ('+ranked[0].name+')' : '-'}</strong></div>
+  `;
+  $('preview-body').innerHTML = ranked.slice(0,30).map((r,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td><strong>${r.name||'?'}</strong></td>
+      <td><strong>${Math.round(r.rating||1500)}</strong></td>
+      <td>± ${Math.round(r.rd||350)}</td>
+      <td>${r.gamesPlayed||0}</td>
+    </tr>`).join('');
+  $('step3-card').style.display = 'block';
+  $('step3-card').scrollIntoView({behavior:'smooth'});
+}
+
+async function confirmAndWrite(){
+  if(!confirm("Write "+Object.keys(ratingsByKey).length+" players' ratings to tally_kotb_pickup/ratings/?\n\nThis OVERWRITES any existing data at that path. Run this only once.")) return;
+  $('btn-write').disabled = true;
+  log('Writing ratings to Firebase...');
+  // Build a single multi-update so it's atomic per player record.
+  const updates = {};
+  Object.entries(ratingsByKey).forEach(([k, rec])=>{
+    updates[TARGET_ROOT+'/ratings/'+k+'/name']           = rec.name;
+    updates[TARGET_ROOT+'/ratings/'+k+'/rating']         = rec.rating;
+    updates[TARGET_ROOT+'/ratings/'+k+'/rd']             = rec.rd;
+    updates[TARGET_ROOT+'/ratings/'+k+'/volatility']     = rec.volatility;
+    updates[TARGET_ROOT+'/ratings/'+k+'/gamesPlayed']    = rec.gamesPlayed;
+    updates[TARGET_ROOT+'/ratings/'+k+'/peakRating']     = rec.peakRating;
+    updates[TARGET_ROOT+'/ratings/'+k+'/peakRatingDate'] = rec.peakRatingDate;
+    updates[TARGET_ROOT+'/ratings/'+k+'/lastUpdated']    = rec.lastUpdated;
+  });
+  // Write rating rollups in chunks of ~250 keys to keep updates manageable.
+  await chunkUpdate(updates);
+  log('  ratings written: '+Object.keys(ratingsByKey).length+' players');
+
+  log('Writing history entries...');
+  let totalHistory = 0;
+  for(const [k, byGame] of Object.entries(historyByKey)){
+    const histUpdates = {};
+    Object.entries(byGame).forEach(([gameId, entry])=>{
+      histUpdates[TARGET_ROOT+'/ratings/'+k+'/history/'+gameId] = entry;
+      totalHistory++;
+    });
+    await chunkUpdate(histUpdates);
+    log('  ['+k+']  '+Object.keys(byGame).length+' history entries');
+  }
+  log('Done. Total history entries written: '+totalHistory);
+  log('Seeding complete. Live rating updates can now be turned on.');
+  alert('Seeding complete!\n\nPlayers: '+Object.keys(ratingsByKey).length+'\nHistory entries: '+totalHistory);
+}
+
+async function chunkUpdate(updates){
+  const keys = Object.keys(updates);
+  const SIZE = 500;
+  for(let i=0; i<keys.length; i+=SIZE){
+    const slice = {};
+    keys.slice(i, i+SIZE).forEach(k=>{ slice[k] = updates[k]; });
+    await db.ref().update(slice);
+  }
+}
+</script>
+</body>
+</html>
