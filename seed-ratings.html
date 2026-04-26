@@ -51,10 +51,11 @@ td{padding:6px 8px;border-bottom:1px solid var(--gray-lighter);}
       <li>tally_kotb/kings/results (current Kings season)</li>
       <li>tally_kotb/queens/results (current Queens season)</li>
       <li>tally_kotb/archive/*/{kings,queens}/results (all archived seasons)</li>
-      <li>tally_kotb_pickup/archive/*/results (any closed pickup events)</li>
+      <li>tally_kotb_pickup/events/*/results (active pickup events)</li>
+      <li>tally_kotb_pickup/archive/*/results (closed pickup events)</li>
     </ul>
-    <p>Sorts every game chronologically by timestamp, replays each through the Glicko-2 module with the same per-player updates the live apps use, and writes final state to tally_kotb_pickup/ratings/.</p>
-    <div class="warn"><strong>Heads up:</strong> this overwrites any existing ratings under tally_kotb_pickup/ratings/. Only run it once, before you turn on live rating updates.</div>
+    <p>Sorts every game chronologically by timestamp, replays each through the Glicko-2 module with the same per-player updates the live apps use, then clears tally_kotb_pickup/ratings/ and writes the fresh state.</p>
+    <div class="warn"><strong>Heads up:</strong> Step 3 deletes everything currently under tally_kotb_pickup/ratings/ before writing the new state. Existing live ratings will be replaced with the seeded ones.</div>
     <button class="btn btn-p" id="btn-load" onclick="loadAll()">Step 1: Load all games</button>
   </div>
 
@@ -169,6 +170,16 @@ async function loadAll(){
     });
   });
 
+  log('Reading active pickup events...');
+  const peSnap = await db.ref('tally_kotb_pickup/events').once('value');
+  const pevents = peSnap.val()||{};
+  Object.entries(pevents).forEach(([eid, data])=>{
+    if(!data) return;
+    const before = games.length;
+    pushGames(games, 'pickup', data.results||{}, data.players||{});
+    log('  [event '+eid+']  +'+(games.length-before)+' games');
+  });
+
   log('Reading pickup archives...');
   const pSnap = await db.ref('tally_kotb_pickup/archive').once('value');
   const parch = pSnap.val()||{};
@@ -176,7 +187,7 @@ async function loadAll(){
     if(!data) return;
     const before = games.length;
     pushGames(games, 'pickup', data.results||{}, data.players||{});
-    log('  ['+eid+']  +'+(games.length-before)+' games');
+    log('  [archive '+eid+']  +'+(games.length-before)+' games');
   });
 
   // Sort chronologically. Games without ts go first (will get default 0).
@@ -241,8 +252,16 @@ async function replayAll(){
 }
 
 async function confirmAndWrite(){
-  if(!confirm("Write "+Object.keys(ratingsByKey).length+" players' ratings to tally_kotb_pickup/ratings/?\n\nThis OVERWRITES any existing data at that path. Run this only once.")) return;
+  if(!confirm("Write "+Object.keys(ratingsByKey).length+" players' ratings to tally_kotb_pickup/ratings/?\n\nStep 3a CLEARS the existing ratings node first, then writes the freshly seeded state. Any rating drift from live games scored after the snapshot was loaded will be lost.")) return;
   $('btn-write').disabled = true;
+  log('Clearing existing tally_kotb_pickup/ratings...');
+  try{
+    await db.ref(TARGET_ROOT+'/ratings').remove();
+    log('  ratings node cleared.');
+  }catch(err){
+    log('  CLEAR FAILED: '+(err && err.message || err));
+    return;
+  }
   log('Writing ratings to Firebase...');
   // Build a single multi-update so it's atomic per player record.
   const updates = {};
