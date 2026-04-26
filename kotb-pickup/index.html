@@ -173,7 +173,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <span>👑</span>
       KotB Pickup
       <span class="sync off" id="sync" title="Connecting..."></span>
-      <span style="font-family:'Barlow';font-weight:400;font-size:10px;letter-spacing:0;color:rgba(255,255,255,.5);margin-left:6px;">v3.1</span>
+      <span style="font-family:'Barlow';font-weight:400;font-size:10px;letter-spacing:0;color:rgba(255,255,255,.5);margin-left:6px;">v3.2</span>
     </div>
     <div class="event-title" id="event-title" style="display:none;"></div>
     <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
@@ -527,6 +527,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
 <div class="toast" id="toast"></div>
 
+<div id="dbg-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;max-height:42vh;overflow-y:auto;background:rgba(15,23,42,.94);color:#bae6fd;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;padding:8px 10px 6px;z-index:9998;white-space:pre-wrap;line-height:1.4;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+    <strong style="color:#fde68a;">debug log</strong>
+    <button onclick="$('dbg-panel').style.display='none'" style="background:none;border:none;color:#bae6fd;cursor:pointer;font-size:14px;">✕</button>
+  </div>
+  <pre id="dbg-log" style="margin:0;color:inherit;font:inherit;"></pre>
+</div>
+
 <script>
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
@@ -600,11 +608,13 @@ function initFB(){
       // Re-apply any pending optimistic invite overrides so the listener's
       // wholesale D.invites replace doesn't clobber a just-clicked RSVP.
       const now = Date.now();
-      Object.keys(_pendingInviteOverrides).forEach(invId=>{
+      const overrideIds = Object.keys(_pendingInviteOverrides);
+      overrideIds.forEach(invId=>{
         const o = _pendingInviteOverrides[invId];
         if(now - o.ts > 10000){ delete _pendingInviteOverrides[invId]; return; }
         if(D.invites[invId]) o.apply(D.invites[invId]);
       });
+      if(typeof dbgLog === 'function' && overrideIds.length) dbgLog('listener fired, overrides reapplied', { count: overrideIds.length, view });
       refreshAll();
     }, e=>{console.error(e);setSS(false);});
     db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
@@ -2338,9 +2348,10 @@ function openInviteDetail(id){
 function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
-  if(!i){ cont.innerHTML = '<p>Pickup not found.</p>'; return; }
+  if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = me ? me.key : null;
+  if(typeof dbgLog === 'function') dbgLog('renderInviteDetail', { activeInvite, myKey, myStatus: myKey ? (i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status) : null });
   const rsvps = i.rsvps || {};
   const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed').sort((a,b)=>(a.position||0)-(b.position||0));
   const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist').sort((a,b)=>(a.position||0)-(b.position||0));
@@ -2436,12 +2447,23 @@ function renderInviteDetail(){
   cont.innerHTML = h;
 }
 
+function dbgLog(msg, data){
+  console.log('[KotB]', msg, data);
+  const dl = document.getElementById('dbg-log');
+  if(dl){
+    const t = new Date().toLocaleTimeString();
+    dl.textContent = t+' '+msg+(data?' '+JSON.stringify(data):'')+'\n'+dl.textContent;
+    if(dl.textContent.length > 4000) dl.textContent = dl.textContent.slice(0, 4000);
+  }
+}
+
 function optInInvite(){
-  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  dbgLog('optInInvite click', { activeInvite });
+  const i = (D.invites||{})[activeInvite]; if(!i){ dbgLog('  abort: no invite in D'); return; }
   const me = window.Identity ? Identity.getCurrent() : null;
-  if(!me){ toast('Pick your name first'); return; }
-  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
-  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+  if(!me){ dbgLog('  abort: no identity'); toast('Pick your name first'); return; }
+  if(i.status === 'cancelled'){ dbgLog('  abort: cancelled'); toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ dbgLog('  abort: deadline passed'); toast('RSVP deadline passed'); return; }
   const rsvps = i.rsvps || {};
   const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
   const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
@@ -2449,6 +2471,7 @@ function optInInvite(){
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
   const newRsvp = { name: me.name, status, position, respondedAt: Date.now() };
+  dbgLog('  building rsvp', { meKey: me.key, status, position });
 
   // Optimistic local update so UI reflects state immediately
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
@@ -2457,15 +2480,17 @@ function optInInvite(){
     if(!inv.rsvps) inv.rsvps = {};
     inv.rsvps[me.key] = newRsvp;
   });
+  dbgLog('  D mutated, calling render');
   renderInviteDetail();
+  dbgLog('  render returned, post-render rsvp', D.invites[activeInvite]?.rsvps?.[me.key]?.status);
 
   // Fire-and-forget persist; the listener will reconcile if anything diverged
   fbSet('invites/'+activeInvite+'/rsvps/'+me.key, newRsvp);
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
   // Defensive re-renders to win any unforeseen race with a stale listener fire
-  setTimeout(renderInviteDetail, 100);
-  setTimeout(renderInviteDetail, 500);
-  setTimeout(renderInviteDetail, 1500);
+  setTimeout(()=>{ dbgLog('  re-render @100ms'); renderInviteDetail(); }, 100);
+  setTimeout(()=>{ dbgLog('  re-render @500ms'); renderInviteDetail(); }, 500);
+  setTimeout(()=>{ dbgLog('  re-render @1500ms'); renderInviteDetail(); }, 1500);
 }
 
 function dropOutInvite(){
@@ -2566,6 +2591,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
   initFB();
   showView('list');
+  if(/[?&]debug=1/.test(location.search)){
+    $('dbg-panel').style.display = 'block';
+    dbgLog('debug mode enabled, v3.2');
+  }
 });
 </script>
 </body>
