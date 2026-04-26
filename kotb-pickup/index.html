@@ -189,7 +189,10 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- LIST VIEW -->
   <div class="pane" id="view-list">
-    <button class="btn btn-a btn-w" style="margin-bottom:14px;" onclick="startNewEvent()">＋ New Pickup Event</button>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-a" style="flex:1;" onclick="startNewEvent()">＋ New Pickup Event</button>
+      <button class="btn btn-g" onclick="openGroupsModal()">👥 Groups</button>
+    </div>
     <div id="event-list"></div>
   </div>
 
@@ -381,6 +384,34 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   </div>
 </div>
 
+<!-- GROUPS LIST MODAL -->
+<div class="overlay" id="groups-modal">
+  <div class="modal">
+    <div class="mtitle"><span>Saved Groups</span><button class="mclose" onclick="closeModal('groups-modal')">✕</button></div>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:14px;">Reusable lists for inviting people to events. Anyone can create or edit.</p>
+    <button class="btn btn-p btn-w" style="margin-bottom:14px;" onclick="openGroupEditor(null)">＋ New Group</button>
+    <div id="groups-list"></div>
+  </div>
+</div>
+
+<!-- GROUP EDITOR MODAL -->
+<div class="overlay" id="group-editor-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="ge-title">New Group</span><button class="mclose" onclick="closeModal('group-editor-modal')">✕</button></div>
+    <div class="fg">
+      <label class="lbl">Group Name</label>
+      <input class="inp" id="ge-name" placeholder="Saturday Regulars">
+    </div>
+    <div class="fg">
+      <label class="lbl">Members <span id="ge-mcount" style="color:var(--gray);font-weight:400;letter-spacing:0;text-transform:none;">(0 selected)</span></label>
+      <input class="inp" id="ge-search" placeholder="Search players..." oninput="renderGroupMembers()" style="margin-bottom:8px;">
+      <div id="ge-members" style="max-height:340px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+    </div>
+    <button class="btn btn-p btn-w" onclick="saveGroup()">Save Group</button>
+    <button class="btn btn-g btn-w" style="margin-top:8px;" onclick="closeModal('group-editor-modal')">Cancel</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -404,7 +435,7 @@ let activeEvent = null;
 let tab = 'score';
 let liveRound = 1;
 const lscore = {};
-let D = { events:{}, archive:{}, player_history:{}, ratings:{} };
+let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{} };
 let leagueKings  = {};
 let leagueQueens = {};
 let _pendingRoundsUpdate = null;
@@ -442,6 +473,7 @@ function initFB(){
       D.archive        = v.archive||{};
       D.player_history = v.player_history||{};
       D.ratings        = v.ratings||{};
+      D.groups         = v.groups||{};
       if(_pendingRoundsUpdate && Date.now()-_pendingRoundsUpdate.ts<8000){
         const eid = _pendingRoundsUpdate.eventId;
         if(D.events[eid]) D.events[eid].rounds = _pendingRoundsUpdate.rounds;
@@ -1671,6 +1703,121 @@ function viewArchive(id){
   </table>
   <p style="font-size:11px;color:var(--gray);margin-top:10px;">Tap a player for partner history.</p>`;
   $('arch-modal').classList.add('on');
+}
+
+// SAVED GROUPS
+let groupEditId = null;
+let groupEditMembers = new Set();
+
+function openGroupsModal(){
+  renderGroupsList();
+  $('groups-modal').classList.add('on');
+}
+
+function renderGroupsList(){
+  const groups = Object.values(D.groups||{}).filter(g=>g&&g.name)
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  if(!groups.length){
+    $('groups-list').innerHTML = '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No groups yet. Tap + New Group to create one.</p>';
+    return;
+  }
+  $('groups-list').innerHTML = groups.map(g=>{
+    const memberCount = (g.members||[]).length;
+    const memberPreview = (g.members||[]).slice(0,8).map(escapeHTML).join(', ') + (memberCount>8 ? ', +'+(memberCount-8)+' more' : '');
+    const creator = g.createdBy ? ' · created by '+escapeHTML(g.createdBy) : '';
+    return `<div style="border:1px solid var(--sand-border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--sand);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div style="flex:1;">
+          <div style="font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;color:var(--primary);">${escapeHTML(g.name)}</div>
+          <div style="font-size:12px;color:var(--gray);margin-top:2px;">${memberCount} member${memberCount===1?'':'s'}${creator}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-g btn-sm" onclick="openGroupEditor('${escapeHTML(g.id).replace(/'/g,"\\'")}')">Edit</button>
+          <button class="btn btn-d btn-sm" onclick="deleteGroup('${escapeHTML(g.id).replace(/'/g,"\\'")}')">Delete</button>
+        </div>
+      </div>
+      ${memberCount ? `<div style="font-size:12px;color:var(--gray);line-height:1.5;">${memberPreview}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openGroupEditor(id){
+  closeModal('groups-modal');
+  groupEditId = id || null;
+  if(id && D.groups[id]){
+    const g = D.groups[id];
+    $('ge-title').textContent = 'Edit Group';
+    $('ge-name').value = g.name || '';
+    groupEditMembers = new Set(g.members||[]);
+  } else {
+    $('ge-title').textContent = 'New Group';
+    $('ge-name').value = '';
+    groupEditMembers = new Set();
+  }
+  $('ge-search').value = '';
+  renderGroupMembers();
+  $('group-editor-modal').classList.add('on');
+  setTimeout(()=>$('ge-name').focus(), 50);
+}
+
+function renderGroupMembers(){
+  const q = ($('ge-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(D.ratings||{})
+    .filter(r=>r&&r.name)
+    .map(r=>r.name)
+    .sort((a,b)=>a.localeCompare(b));
+  // Include any currently-selected names that aren't in ratings (defensive)
+  groupEditMembers.forEach(m=>{ if(!allRated.includes(m)) allRated.push(m); });
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
+  if(!filtered.length){
+    $('ge-members').innerHTML = '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No players match.</p>';
+    return;
+  }
+  $('ge-members').innerHTML = filtered.map(name=>{
+    const checked = groupEditMembers.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleGroupMember('${safe}',this.checked)" style="width:18px;height:18px;flex-shrink:0;">
+      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+
+function toggleGroupMember(name, isChecked){
+  // Decode HTML entities that escapeHTML adds back
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) groupEditMembers.add(decoded);
+  else groupEditMembers.delete(decoded);
+  $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
+}
+
+function saveGroup(){
+  const name = ($('ge-name').value||'').trim();
+  if(!name){ toast('Group needs a name'); $('ge-name').focus(); return; }
+  const id = groupEditId || gi('grp');
+  const existing = D.groups[id];
+  const identity = (window.Identity && Identity.getCurrent && Identity.getCurrent());
+  const record = {
+    id,
+    name,
+    createdBy: existing && existing.createdBy ? existing.createdBy : (identity ? identity.name : 'Anonymous'),
+    createdAt: existing && existing.createdAt ? existing.createdAt : Date.now(),
+    members: [...groupEditMembers].sort(),
+    updatedAt: Date.now()
+  };
+  fbSet('groups/'+id, record);
+  closeModal('group-editor-modal');
+  toast(existing ? 'Group updated' : 'Group created');
+  setTimeout(()=>openGroupsModal(), 250);
+}
+
+function deleteGroup(id){
+  const g = D.groups[id]; if(!g) return;
+  if(!confirm('Delete "'+g.name+'"? This can\'t be undone.')) return;
+  fbDel('groups/'+id);
+  toast('Deleted');
+  setTimeout(()=>renderGroupsList(), 250);
 }
 
 // BOOT
