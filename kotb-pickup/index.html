@@ -173,7 +173,6 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <span>👑</span>
       KotB Pickup
       <span class="sync off" id="sync" title="Connecting..."></span>
-      <span style="font-family:'Barlow';font-weight:400;font-size:10px;letter-spacing:0;color:rgba(255,255,255,.5);margin-left:6px;">v3.5</span>
     </div>
     <div class="event-title" id="event-title" style="display:none;"></div>
     <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
@@ -2109,17 +2108,35 @@ function renderInviteList(){
 }
 
 // SETUP / EDIT
+let _userEditedTitle = false;
+
+function autoTitle(dateISO){
+  if(!dateISO) return 'Pickup';
+  return 'Pickup, '+new Date(dateISO+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function wireSetupListeners(){
+  $('iv-name').oninput = ()=>{ _userEditedTitle = true; };
+  const onDateOrStart = ()=>{
+    $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value);
+    if(!_userEditedTitle) $('iv-name').value = autoTitle($('iv-date').value);
+  };
+  $('iv-date').onchange = onDateOrStart;
+  $('iv-start').onchange = onDateOrStart;
+}
+
 function startNewInvite(){
   inviteEditId = null;
   inviteIncSelected = new Set();
   inviteExcSelected = new Set();
+  _userEditedTitle = false;
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
     setTimeout(()=>{
       $('iv-su-title').textContent = 'Schedule a Pickup';
       $('iv-save-btn').textContent = 'Schedule Pickup';
       const today = td();
-      $('iv-name').value = 'Pickup, '+new Date(today+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      $('iv-name').value = autoTitle(today);
       $('iv-date').value = today;
       $('iv-start').value = '09:00';
       $('iv-end').value = '11:00';
@@ -2130,9 +2147,7 @@ function startNewInvite(){
       $('iv-rec').checked = false;
       toggleRecurring();
       $('iv-elig-mode').value = 'open';
-      ['iv-date','iv-start'].forEach(id => {
-        $(id).addEventListener('change', ()=>{ $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value); }, { once:false });
-      });
+      wireSetupListeners();
       renderEligibilityFields();
       renderInclude(); renderExclude();
       updateInvitePreview();
@@ -2145,6 +2160,7 @@ function startEditInvite(id){
   inviteEditId = id;
   inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
   inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
+  _userEditedTitle = true; // existing title is whatever the host saved; do not auto-overwrite on date change
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
     setTimeout(()=>{
@@ -2162,6 +2178,7 @@ function startEditInvite(id){
       toggleRecurring();
       const e = i.eligibility || {};
       $('iv-elig-mode').value = e.baseMode || 'open';
+      wireSetupListeners();
       renderEligibilityFields(e);
       renderInclude(); renderExclude();
       updateInvitePreview();
@@ -2379,7 +2396,7 @@ function renderInviteDetail(){
   } else if(isPast){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
   } else if(!myKey){
-    actionHTML = '<button class="btn btn-p btn-w" onclick="openProfile()">Pick your name to RSVP</button>';
+    actionHTML = '<button class="btn btn-p btn-w" onclick="rsvpFlow()">RSVP to this Event</button>';
   } else if(myRsvp && myRsvp.status==='confirmed'){
     actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
       <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
@@ -2395,7 +2412,16 @@ function renderInviteDetail(){
     }
   }
 
-  let h = `<div class="card">
+  const promptCard = _showEmailPrompt ? `<div class="card" style="background:#fef3c7;border:1px solid #fde68a;">
+    <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:#92400e;margin-bottom:6px;">🏐 You're in!</div>
+    <div style="font-size:13px;color:#92400e;margin-bottom:12px;line-height:1.5;">Want email reminders for future pickups? You can add it now or skip.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-p btn-sm" onclick="emailPromptAdd()">Add email</button>
+      <button class="btn btn-g btn-sm" onclick="emailPromptSkip()">Skip</button>
+    </div>
+  </div>` : '';
+
+  let h = promptCard + `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
       <div style="flex:1;">
         <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
@@ -2444,23 +2470,70 @@ function renderInviteDetail(){
   cont.innerHTML = h;
 }
 
+// Cheap no-op in production. When ?debug=1 is set, the boot block enables the
+// panel and routes calls into the visible log.
+const _DEBUG = typeof location !== 'undefined' && /[?&]debug=1/.test(location.search);
 function dbgLog(msg, data){
-  console.log('[KotB]', msg, data);
+  if(!_DEBUG) return;
   const dl = document.getElementById('dbg-log');
-  if(dl){
-    const t = new Date().toLocaleTimeString();
-    dl.textContent = t+' '+msg+(data?' '+JSON.stringify(data):'')+'\n'+dl.textContent;
-    if(dl.textContent.length > 4000) dl.textContent = dl.textContent.slice(0, 4000);
+  if(!dl) return;
+  const t = new Date().toLocaleTimeString();
+  dl.textContent = t+' '+msg+(data?' '+JSON.stringify(data):'')+'\n'+dl.textContent;
+  if(dl.textContent.length > 4000) dl.textContent = dl.textContent.slice(0, 4000);
+}
+
+// First-time-user RSVP path: pick a name, then opt in. Profile setup deferred.
+let _showEmailPrompt = false;
+
+async function rsvpFlow(){
+  let identity = window.Identity ? Identity.getCurrent() : null;
+  const wasNew = !identity;
+  if(!identity){
+    if(!window.Identity){ toast('Identity module missing'); return; }
+    identity = await Identity.openPicker({ db, dismissable: true, addLabel: 'RSVP me in' });
+    if(!identity) return; // user dismissed
+  }
+  optInInvite();
+  // After RSVP succeeds, prompt brand-new users for an email once.
+  if(wasNew && db){
+    setTimeout(async ()=>{
+      try {
+        const snap = await db.ref('tally_kotb_pickup/players/'+identity.key).once('value');
+        const profile = snap.val() || {};
+        if(!profile.email && !profile.emailPromptDismissed){
+          _showEmailPrompt = true;
+          renderInviteDetail();
+        }
+      } catch(err){ console.warn('email prompt check failed', err); }
+    }, 600);
   }
 }
 
+function emailPromptAdd(){
+  const identity = window.Identity ? Identity.getCurrent() : null;
+  if(identity && db){
+    fbSet('players/'+identity.key+'/emailPromptDismissed', true);
+  }
+  _showEmailPrompt = false;
+  renderInviteDetail();
+  if(window.Identity) Identity.openProfile({ db });
+}
+
+function emailPromptSkip(){
+  const identity = window.Identity ? Identity.getCurrent() : null;
+  if(identity && db){
+    fbSet('players/'+identity.key+'/emailPromptDismissed', true);
+  }
+  _showEmailPrompt = false;
+  renderInviteDetail();
+}
+
 function optInInvite(){
-  dbgLog('optInInvite click', { activeInvite });
-  const i = (D.invites||{})[activeInvite]; if(!i){ dbgLog('  abort: no invite in D'); return; }
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
   const me = window.Identity ? Identity.getCurrent() : null;
-  if(!me){ dbgLog('  abort: no identity'); toast('Pick your name first'); return; }
-  if(i.status === 'cancelled'){ dbgLog('  abort: cancelled'); toast('Pickup is cancelled'); return; }
-  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ dbgLog('  abort: deadline passed'); toast('RSVP deadline passed'); return; }
+  if(!me){ toast('Pick your name first'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
   const rsvps = i.rsvps || {};
   const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
   const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
@@ -2468,26 +2541,18 @@ function optInInvite(){
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
   const newRsvp = { name: me.name, status, position, respondedAt: Date.now() };
-  dbgLog('  building rsvp', { meKey: me.key, status, position });
 
-  // Optimistic local update so UI reflects state immediately
+  // Optimistic local update so UI reflects state immediately.
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
   D.invites[activeInvite].rsvps[me.key] = newRsvp;
   pendInviteOverride(activeInvite, inv => {
     if(!inv.rsvps) inv.rsvps = {};
     inv.rsvps[me.key] = newRsvp;
   });
-  dbgLog('  D mutated, calling render');
   renderInviteDetail();
-  dbgLog('  render returned, post-render rsvp', D.invites[activeInvite]?.rsvps?.[me.key]?.status);
 
-  // Fire-and-forget persist; the listener will reconcile if anything diverged
   fbSet('invites/'+activeInvite+'/rsvps/'+me.key, newRsvp);
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
-  // Defensive re-renders to win any unforeseen race with a stale listener fire
-  setTimeout(()=>{ dbgLog('  re-render @100ms'); renderInviteDetail(); }, 100);
-  setTimeout(()=>{ dbgLog('  re-render @500ms'); renderInviteDetail(); }, 500);
-  setTimeout(()=>{ dbgLog('  re-render @1500ms'); renderInviteDetail(); }, 1500);
 }
 
 function dropOutInvite(){
@@ -2550,9 +2615,6 @@ function dropOutInvite(){
   }
   if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
   toast('Dropped out');
-  setTimeout(renderInviteDetail, 100);
-  setTimeout(renderInviteDetail, 500);
-  setTimeout(renderInviteDetail, 1500);
 }
 
 function cancelInvite(){
@@ -2562,9 +2624,6 @@ function cancelInvite(){
   renderInviteDetail();
   fbSet('invites/'+activeInvite+'/status', 'cancelled');
   toast('Cancelled');
-  setTimeout(renderInviteDetail, 100);
-  setTimeout(renderInviteDetail, 500);
-  setTimeout(renderInviteDetail, 1500);
 }
 
 // BOOT
@@ -2590,45 +2649,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
   showView('list');
   if(/[?&]debug=1/.test(location.search)){
     $('dbg-panel').style.display = 'block';
-    dbgLog('debug mode enabled, v3.5');
-    // Capture-phase listeners catch every event reaching the document.
-    function eventInfo(e){
+    dbgLog('debug mode enabled');
+    document.addEventListener('click', e=>{
       const t = e.target;
-      const tag = t && t.tagName;
       const text = ((t && t.textContent)||'').trim().slice(0,40);
-      const overlays = document.querySelectorAll('.idy-overlay').length;
-      const onclick = t && t.getAttribute && t.getAttribute('onclick');
-      return { tag, text, onclick, overlays };
-    }
-    ['click','touchstart','touchend','pointerdown','mousedown'].forEach(evt=>{
-      document.addEventListener(evt, e=>{ dbgLog(evt.toUpperCase(), eventInfo(e)); }, true);
-    });
-    window.addEventListener('error', e=>{
-      dbgLog('JS ERROR', { msg: e.message, src: e.filename+':'+e.lineno });
-    });
-    // Visual hit-test: red dashed border around every element with onclick.
-    const hitStyle = document.createElement('style');
-    hitStyle.textContent = '[onclick]{outline:1px dashed red !important;outline-offset:-1px;}.idy-overlay{outline:2px solid magenta !important;}';
-    document.head.appendChild(hitStyle);
-    // Watch for lingering overlays. Whenever an idy-overlay appears or disappears,
-    // log the count so we know if Save Profile leaves a ghost behind.
-    const overlayObserver = new MutationObserver(muts=>{
-      let added=0, removed=0;
-      muts.forEach(m=>{
-        m.addedNodes && m.addedNodes.forEach(n=>{ if(n.classList && n.classList.contains('idy-overlay')) added++; });
-        m.removedNodes && m.removedNodes.forEach(n=>{ if(n.classList && n.classList.contains('idy-overlay')) removed++; });
-      });
-      if(added||removed){
-        dbgLog('OVERLAY change', { added, removed, total: document.querySelectorAll('.idy-overlay').length });
-      }
-    });
-    overlayObserver.observe(document.body, { childList: true });
-    // Floating diagnostic button you can tap to verify clicks still work after profile save.
-    const probe = document.createElement('button');
-    probe.textContent = 'PROBE';
-    probe.style.cssText = 'position:fixed;bottom:14px;left:14px;z-index:9999;background:#fde68a;color:#000;border:2px solid #f59e0b;border-radius:8px;padding:10px 14px;font-weight:700;font-size:12px;';
-    probe.onclick = ()=>dbgLog('PROBE button click');
-    document.body.appendChild(probe);
+      dbgLog('click', { tag: t && t.tagName, text });
+    }, true);
   }
 });
 </script>

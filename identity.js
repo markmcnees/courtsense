@@ -132,7 +132,7 @@
                 <div class="meta">${Math.round(n.rating)} rating, ${n.gp} GP</div>
               </div>`).join('') : '<div class="idy-empty">No matches.</div>'}
           </div>
-          <button class="idy-btn idy-btn-p idy-btn-w" id="idy-add" style="margin-top:12px;">${f ? 'Use "'+escHTML(f)+'"' : 'Add as new player'}</button>
+          <button class="idy-btn idy-btn-p idy-btn-w" id="idy-add" style="margin-top:12px;">${opts.addLabel ? escHTML(opts.addLabel) : (f ? 'Use "'+escHTML(f)+'"' : 'Add yourself')}</button>
         `;
         if(modalCtl){
           modalCtl.overlay.querySelector('.idy-modal').innerHTML = html;
