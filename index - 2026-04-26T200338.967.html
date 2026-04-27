@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CourtSense — Team / League / Community Management</title>
+<meta name="description" content="A beach volleyball platform for teams, leagues, and players. Pick your path.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --teal:#3a8c91;
+  --teal-deep:#2a6e72;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --shadow:0 4px 16px rgba(15,35,71,0.08);
+  --shadow-hover:0 12px 32px rgba(15,35,71,0.18);
+  --radius:14px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  color:var(--ink);
+  background:var(--sand);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* ── MAIN ── */
+main{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:48px 24px 80px;
+  max-width:1100px;
+  margin:0 auto;
+  width:100%;
+}
+
+/* ── LOGO ── */
+.logo{
+  width:100%;
+  max-width:380px;
+  height:auto;
+  margin:0 auto 56px;
+  display:block;
+  animation:fadeIn 0.8s ease-out;
+}
+
+/* ── PILLARS ── */
+.pillars{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:clamp(8px, 1.5vw, 20px);
+  width:100%;
+  max-width:960px;
+  animation:fadeUp 0.8s 0.2s ease-out backwards;
+}
+.pillar{
+  background:var(--white);
+  border-radius:var(--radius);
+  padding:clamp(16px, 3vw, 36px) clamp(12px, 2.5vw, 28px);
+  text-align:center;
+  text-decoration:none;
+  color:inherit;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  position:relative;
+  box-shadow:var(--shadow);
+  transition:all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-top:4px solid transparent;
+  cursor:pointer;
+}
+.pillar.team{border-top-color:var(--navy);}
+.pillar.league{border-top-color:var(--gold);}
+.pillar.community{border-top-color:var(--teal);}
+.pillar:hover{
+  transform:translateY(-4px);
+  box-shadow:var(--shadow-hover);
+}
+.pillar h2{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(20px, 4vw, 32px);
+  letter-spacing:clamp(1px, 0.25vw, 2px);
+  color:var(--navy);
+  margin-bottom:clamp(8px, 1.5vw, 12px);
+  line-height:1;
+}
+.pillar p{
+  font-size:clamp(11px, 2.2vw, 15px);
+  line-height:1.45;
+  color:var(--ink-soft);
+  margin-bottom:clamp(14px, 2.5vw, 24px);
+  flex-grow:1;
+  max-width:240px;
+}
+.pillar .arrow{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(10px, 2vw, 14px);
+  letter-spacing:clamp(1px, 0.4vw, 2.5px);
+  padding:clamp(7px, 1.4vw, 10px) clamp(12px, 2.5vw, 22px);
+  border-radius:24px;
+  transition:all 0.2s ease;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  white-space:nowrap;
+}
+.pillar.team .arrow{background:var(--navy);color:var(--sand);}
+.pillar.league .arrow{background:var(--gold);color:var(--navy-deep);}
+.pillar.community .arrow{background:var(--teal);color:var(--white);}
+.pillar:hover .arrow{transform:translateX(2px);}
+.pillar .beta{
+  position:absolute;
+  top:clamp(8px, 1.5vw, 14px);
+  right:clamp(8px, 1.5vw, 14px);
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(8px, 1.5vw, 10px);
+  letter-spacing:1.5px;
+  padding:3px clamp(5px, 1vw, 8px);
+  border-radius:10px;
+  background:rgba(212,168,67,0.15);
+  color:#8a6a1a;
+}
+
+/* ── FOOTER ── */
+footer{
+  text-align:center;
+  padding:28px 24px;
+  font-size:13px;
+  color:var(--ink-soft);
+  opacity:0.7;
+}
+footer a{color:var(--navy);text-decoration:none;}
+footer a:hover{text-decoration:underline;}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn{
+  from{opacity:0;}
+  to{opacity:1;}
+}
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(16px);}
+  to{opacity:1;transform:translateY(0);}
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width:760px){
+  main{padding:32px 16px 60px;}
+  .logo{max-width:280px;margin-bottom:36px;}
+}
+@media (max-width:480px){
+  main{padding:24px 12px 50px;}
+  .logo{max-width:220px;margin-bottom:24px;}
+}
+</style>
+</head>
+<body>
+
+<main>
+  <img src="logo.png" alt="CourtSense.app — Team / League / Community Management" class="logo">
+
+  <div class="pillars">
+
+    <a href="https://markmcnees.github.io/leon-beach/demo.html" class="pillar team">
+      <span class="beta">Beta</span>
+      <h2>Team</h2>
+      <p>Manage a high school or college beach volleyball program.</p>
+      <span class="arrow">Manage Team →</span>
+    </a>
+
+    <a href="/kotb" class="pillar league">
+      <span class="beta">Beta</span>
+      <h2>League</h2>
+      <p>Run a city or club league or one-day tournament.</p>
+      <span class="arrow">Run a League →</span>
+    </a>
+
+    <a href="/kotb-pickup" class="pillar community">
+      <span class="beta">Beta</span>
+      <h2>Community</h2>
+      <p>Find a pickup game, partner, or training session.</p>
+      <span class="arrow">Get Connected →</span>
+    </a>
+
+  </div>
+</main>
+
+<footer>
+  Built in Tallahassee, FL · <a href="mailto:mark@markmcnees.com">mark@markmcnees.com</a>
+</footer>
+
+</body>
+</html>
