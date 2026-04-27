@@ -208,22 +208,29 @@ Same as HTML body (no styling difference). Plain text is the canonical form for 
 
 ## Template 5: Welcome
 
-Fires when admin approves a pending registration. Goes to the new player.
+Fires when admin approves a pending registration. Goes to the new player. Includes their generated CourtSense password (per D.40 auth model).
 
-**Subject:** `You're in. Welcome to CourtSense Pickup.`
+**Subject:** `You're in. Welcome to CourtSense.`
 
-**Preheader:** `Your account is approved. Browse upcoming pickup events.`
+**Preheader:** `Your account is approved. Your login details inside.`
 
 ### HTML body
 
 ```
 [navy accent bar]
 
-Welcome to CourtSense Pickup, {player_name}.
+Welcome to CourtSense, {player_name}.
 
 You're approved and active on the roster. From here on, you'll get email invites whenever a host adds you to a pickup event.
 
-[BUTTON: Browse upcoming events] → https://courtsense.app/kotb-pickup
+Your login details:
+
+Email: {player_email}
+Password: {generated_password}
+
+Save this email or write the password down somewhere safe. You can change your password from your profile after your first login.
+
+[BUTTON: Log in to CourtSense] → https://courtsense.app/community
 
 A few things worth knowing:
 
@@ -239,11 +246,18 @@ Built in Tallahassee · courtsense.app
 ### Plain-text fallback
 
 ```
-Welcome to CourtSense Pickup, {player_name}.
+Welcome to CourtSense, {player_name}.
 
 You're approved and active on the roster. From here on, you'll get email invites whenever a host adds you to a pickup event.
 
-Browse upcoming events: https://courtsense.app/kotb-pickup
+Your login details:
+
+Email: {player_email}
+Password: {generated_password}
+
+Save this email or write the password down somewhere safe. You can change your password from your profile after your first login.
+
+Log in to CourtSense: https://courtsense.app/community
 
 A few things worth knowing:
 
@@ -262,7 +276,7 @@ Built in Tallahassee · courtsense.app
 
 Fires when admin rejects a pending registration AND has the "send decline email" checkbox enabled. Reason field is optional; when blank, the reason line is omitted entirely (no acknowledgment that one is missing).
 
-**Subject:** `Update on your CourtSense Pickup application`
+**Subject:** `Update on your CourtSense application`
 
 **Preheader:** `Thanks for applying. An update on your application.`
 
@@ -273,7 +287,7 @@ Fires when admin rejects a pending registration AND has the "send decline email"
 
 Hi {applicant_name},
 
-Thanks so much for applying to CourtSense Pickup. Unfortunately we weren't able to approve your application at this time.
+Thanks so much for applying to CourtSense. Unfortunately we weren't able to approve your application at this time.
 
 {decline_reason}
 
@@ -289,7 +303,7 @@ Built in Tallahassee · courtsense.app
 
 Hi {applicant_name},
 
-Thanks so much for applying to CourtSense Pickup. Unfortunately we weren't able to approve your application at this time.
+Thanks so much for applying to CourtSense. Unfortunately we weren't able to approve your application at this time.
 
 We appreciate your interest and wish you the best.
 
@@ -301,7 +315,7 @@ Built in Tallahassee · courtsense.app
 ```
 Hi {applicant_name},
 
-Thanks so much for applying to CourtSense Pickup. Unfortunately we weren't able to approve your application at this time.
+Thanks so much for applying to CourtSense. Unfortunately we weren't able to approve your application at this time.
 
 {decline_reason}
 
@@ -315,7 +329,7 @@ Built in Tallahassee · courtsense.app
 ```
 Hi {applicant_name},
 
-Thanks so much for applying to CourtSense Pickup. Unfortunately we weren't able to approve your application at this time.
+Thanks so much for applying to CourtSense. Unfortunately we weren't able to approve your application at this time.
 
 We appreciate your interest and wish you the best.
 
@@ -362,6 +376,8 @@ Built in Tallahassee · courtsense.app
 | Token | Format | Example |
 |-------|--------|---------|
 | `{player_name}` | string | `Jane` |
+| `{player_email}` | string | `jane@example.com` |
+| `{generated_password}` | string, word-style memorable, generated at approval time per D.40 | `tigerbeach42`, `sandcourt19`, `palmtree87` |
 
 ### Decline tokens (Template 6)
 
@@ -379,6 +395,7 @@ Built in Tallahassee · courtsense.app
 - The waitlist promo writes synchronously inside the same transaction that promotes the player, so the email queue entry and the status flip can't get out of sync.
 - The decline template has two variants (with reason / without reason). Worker chooses based on `decline_reason` field presence.
 - Admin notification deep-links to `admin-players.html` with the registration ID as a query param so Mark lands on the right applicant without scrolling.
+- **Welcome template (T5) requires password generation upstream.** Per D.40, when admin clicks Approve in admin-players.html, a word-style memorable password (e.g., `tigerbeach42`) is generated and stored hashed in `tally_kotb_pickup/players/{playerId}/passwordHash`. The plaintext password is included in the welcome email queue payload as `generated_password`. After the email dispatches, the plaintext is discarded; only the hash remains in Firebase. Player can change password from profile after first login.
 - Per D.20, no SMS, no web push. In-app banner plus email is the full notification surface.
 - Rate limit per N.5: 5 invite-creates per host per minute. Reminder cron, waitlist promos, admin notifications, welcomes, and declines are system-triggered and not rate-limited.
 
@@ -409,7 +426,10 @@ Before flipping the Worker live:
 
 ### Welcome (Template 5)
 - [ ] Approve a test registration. Verify welcome email lands in the new player's inbox within 1 minute.
-- [ ] Verify "Browse upcoming events" button routes to `/kotb-pickup`.
+- [ ] Verify `{generated_password}` appears in plain text, formatted clearly.
+- [ ] Verify "Log in to CourtSense" button routes to `/community`.
+- [ ] Verify the generated password actually works to log in on /community.
+- [ ] Verify the plaintext password is NOT logged anywhere outside the email payload.
 
 ### Decline (Template 6)
 - [ ] Reject a test registration WITH a reason. Verify reason line appears.
