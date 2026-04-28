@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js"></script>
 <script src="/ratings.js"></script>
 <script src="/identity.js"></script>
 <style>
@@ -134,6 +135,18 @@ tr.blocked td{background:#fef2f2;}
   </div>
 </div>
 
+<!-- PASSWORD DISPLAY MODAL -->
+<div class="overlay" id="pw-modal">
+  <div class="modal" style="max-width:440px;">
+    <div class="mtitle"><span id="pw-title">New Password</span><button class="mclose" onclick="closeModal('pw-modal')">✕</button></div>
+    <p id="pw-msg" style="font-size:14px;margin-bottom:10px;"></p>
+    <div id="pw-display" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:22px;font-weight:700;background:var(--gray-lighter);border-radius:10px;padding:14px 16px;text-align:center;letter-spacing:1px;margin-bottom:12px;user-select:all;"></div>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:14px;line-height:1.5;">This is the only time the plaintext will be shown. Copy it now and text or email it to the player. We only store the hash.</p>
+    <button class="btn btn-p btn-lg btn-w" id="pw-copy" onclick="copyDisplayedPassword()">Copy Password</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('pw-modal')">Done</button>
+  </div>
+</div>
+
 <!-- REJECT REGISTRATION MODAL -->
 <div class="overlay" id="reject-modal">
   <div class="modal" style="max-width:440px;">
@@ -174,6 +187,25 @@ let PENDING = {};
 let RATINGS_KEYS = {};
 let actionKey = null;
 let rejectId  = null;
+
+// Word-style memorable passwords: [noun][noun][2-digit-number].
+// Cost 10 bcrypt hashing per D.40. Plaintext is shown to admin once (modal),
+// included in the welcome email payload, and never persisted otherwise.
+const PW_WORDS = ['sand','court','ball','beach','palm','sun','wave','shore','tiger','lion','wing','net','set','dig','ace','spike','block','serve','dink','roll','pass','sea','surf','dune','shell','reef','tide','foam','sky','breeze','salt','pier','bay','rain','swell','gull','kite','sail','drift','point','score','jump','dive','bump','line','side','dawn','cove','crab','reef'];
+function generatePassword(){
+  const a = PW_WORDS[Math.floor(Math.random()*PW_WORDS.length)];
+  const b = PW_WORDS[Math.floor(Math.random()*PW_WORDS.length)];
+  const n = 10 + Math.floor(Math.random()*90);
+  return a + b + n;
+}
+function bcryptLib(){
+  return (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt || null;
+}
+function hashPassword(pw){
+  const lib = bcryptLib();
+  if(!lib) throw new Error('bcryptjs not loaded');
+  return lib.hashSync(pw, 10);
+}
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
@@ -299,6 +331,12 @@ async function doApprove(id){
   const k = nameKey(r.name);
   if(!k){ toast('Name normalizes to empty'); return; }
 
+  if(!bcryptLib()){ toast('Password library still loading. Try again in a second.'); return; }
+  const plaintextPw = generatePassword();
+  let passwordHash;
+  try { passwordHash = hashPassword(plaintextPw); }
+  catch(err){ console.error(err); toast("Couldn't hash password"); return; }
+
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
   logLine('Approving '+r.name+' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')');
 
@@ -318,6 +356,7 @@ async function doApprove(id){
   updates[ROOT+'/'+k+'/phone']                 = r.phone || null;
   updates[ROOT+'/'+k+'/notificationsEnabled']  = r.notificationsOptIn !== false;
   updates[ROOT+'/'+k+'/blocked']               = false;
+  updates[ROOT+'/'+k+'/passwordHash']          = passwordHash;
   updates[ROOT+'/'+k+'/updatedAt']             = now;
   // Rating record (only if not already existing, to preserve history)
   const ratingExists = !!RATINGS_KEYS[k];
@@ -340,11 +379,17 @@ async function doApprove(id){
   updates[PENDING_ROOT+'/'+id+'/appliedRD']     = rdVal;
   updates[PENDING_ROOT+'/'+id+'/preservedExistingRating'] = ratingExists;
   // Queue welcome email for the eventual Worker (Phase 5) to drain.
+  // Plaintext password rides in the payload per D.40; the worker discards
+  // it after dispatch and only the hash remains in the player record.
   const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
   updates[EMAIL_QUEUE+'/'+eid] = {
     type: 'welcome',
     to: r.email || null,
-    data: { name: r.name },
+    data: {
+      player_name: r.name,
+      player_email: r.email || null,
+      generated_password: plaintextPw
+    },
     relatedRegistration: id,
     createdAt: now,
     status: 'queued'
@@ -352,8 +397,9 @@ async function doApprove(id){
 
   try {
     await db.ref().update(updates);
-    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' welcome email queued.');
+    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' password set, welcome email queued.');
     toast('Approved ✓');
+    showPasswordModal('Welcome password for '+r.name, plaintextPw, 'Email is queued. Save this as a backup in case the email never lands.');
   } catch(err){
     console.error(err);
     logLine('  FAILED: '+(err && err.message || err));
@@ -451,6 +497,7 @@ function renderList(){
     if(r.blocked){
       actionBtns += `<button class="btn btn-g" onclick="doUnblock('${esc(r.key)}')">Unblock</button>`;
     } else {
+      actionBtns += `<button class="btn btn-g" onclick="doResetPassword('${esc(r.key)}')">Reset Password</button>`;
       if(r.email) actionBtns += `<button class="btn btn-g" onclick="openClearEmail('${esc(r.key)}')">Clear Email</button>`;
       actionBtns += `<button class="btn btn-d" onclick="openBlock('${esc(r.key)}')">Block</button>`;
     }
@@ -521,6 +568,48 @@ function openClearEmail(key){
   actionKey = key;
   $('clear-msg').textContent = 'Clear email for '+(p.name||key)+'? Current address: '+(p.email||'-');
   $('clear-modal').classList.add('on');
+}
+
+async function doResetPassword(key){
+  const p = PLAYERS[key]; if(!p) return;
+  if(!confirm('Reset password for '+(p.name||key)+'? Their current password stops working immediately.')) return;
+  if(!bcryptLib()){ toast('Password library still loading. Try again in a second.'); return; }
+  const newPw = generatePassword();
+  let newHash;
+  try { newHash = hashPassword(newPw); }
+  catch(err){ console.error(err); toast("Couldn't hash password"); return; }
+  logLine('Resetting password for '+(p.name||key));
+  try{
+    await db.ref(ROOT+'/'+key).update({ passwordHash: newHash, updatedAt: Date.now() });
+    logLine('  password reset.');
+    toast('Password reset ✓');
+    showPasswordModal('New password for '+(p.name||key), newPw, 'Text or email this to the player. We only store the hash.');
+  }catch(err){
+    console.error(err);
+    logLine('  FAILED: '+(err && err.message || err));
+    toast("Couldn't reset password");
+  }
+}
+
+function showPasswordModal(title, plaintext, footnote){
+  $('pw-title').textContent = title || 'New Password';
+  $('pw-display').textContent = plaintext;
+  $('pw-msg').textContent = footnote || '';
+  $('pw-modal').classList.add('on');
+}
+
+function copyDisplayedPassword(){
+  const v = $('pw-display').textContent || '';
+  if(!v) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(()=>toast('Copied'), ()=>toast('Copy failed'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = v; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Copied'); }
+    catch(e){ toast('Copy failed'); }
+    finally { document.body.removeChild(ta); }
+  }
 }
 
 async function doClearEmail(){
