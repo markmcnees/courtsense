@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourtSense Community — Find your game.</title>
+<meta name="description" content="Pickup games, tournament partners, training partners, and coaches. Beach volleyball, organized.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="CourtSense Community">
+<meta property="og:description" content="Pickup games, tournament partners, training, and leagues. All in one place.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/community">
+<meta property="og:site_name" content="CourtSense">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CourtSense Community">
+<meta name="twitter:description" content="Pickup games, tournament partners, training, and leagues. All in one place.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/auth.js"></script>
+
+<style>
+:root{
+  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
+  --navy:#1a3a6b;--navy-deep:#0f2347;--accent:#d4a843;--teal:#3a8c91;
+  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--ink:#111827;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);
+  --shadow-lg:0 8px 32px rgba(0,0,0,0.14);
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{min-height:100%;background:var(--sand);font-family:'Barlow',sans-serif;color:var(--ink);line-height:1.5;}
+
+.hdr{background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.18);position:sticky;top:0;z-index:50;}
+.hdr-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.brand{display:flex;align-items:center;gap:10px;color:var(--accent);font-family:'Bebas Neue';font-size:20px;letter-spacing:2.5px;text-decoration:none;}
+.brand img{height:30px;width:auto;}
+.page-title{color:#fff;font-family:'Bebas Neue';font-size:18px;letter-spacing:2px;opacity:.85;}
+.profile-btn{display:none;background:rgba(255,255,255,.12);border:none;color:#fff;width:40px;height:40px;border-radius:20px;cursor:pointer;font-size:18px;align-items:center;justify-content:center;}
+.profile-btn.on{display:flex;}
+.login-link{display:flex;align-items:center;background:transparent;border:none;color:#fff;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;padding:8px 12px;border-radius:6px;}
+.login-link.on{background:rgba(255,255,255,.12);}
+.login-link.hidden{display:none;}
+
+main{max-width:1080px;margin:0 auto;padding:32px 18px 60px;}
+
+.hero{text-align:center;padding:24px 8px 18px;}
+.hero h1{font-family:'Bebas Neue';font-size:clamp(36px, 6vw, 56px);letter-spacing:2.5px;color:var(--navy);line-height:1;margin-bottom:10px;}
+.hero p{font-size:clamp(15px, 2vw, 18px);color:var(--gray);max-width:560px;margin:0 auto;}
+
+.gate{background:var(--sand-dark);border:1px solid var(--sand-border);border-radius:var(--radius);padding:18px 18px;margin:22px 0 28px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;box-shadow:var(--shadow);}
+.gate-text{flex:1;min-width:240px;font-size:14px;color:var(--ink);line-height:1.5;}
+.gate-text strong{color:var(--navy);}
+.gate a.cta{display:inline-flex;align-items:center;justify-content:center;background:var(--navy);color:#fff;text-decoration:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;padding:13px 22px;border-radius:24px;min-height:46px;white-space:nowrap;}
+.gate a.cta:active{filter:brightness(.9);}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;}
+@media (min-width:980px){.cards{grid-template-columns:repeat(5, 1fr);}}
+.card{background:var(--white);border-radius:var(--radius);padding:22px 18px;box-shadow:var(--shadow);border-top:4px solid var(--navy);position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;cursor:pointer;text-decoration:none;color:inherit;transition:transform .15s, box-shadow .2s;min-height:240px;}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);}
+.card.featured{border-top-color:var(--accent);background:linear-gradient(180deg, #fffbf2 0%, var(--white) 60%);}
+.card .icon{font-size:36px;margin-bottom:10px;line-height:1;}
+.card h2{font-family:'Bebas Neue';font-size:20px;letter-spacing:1.5px;color:var(--navy);margin-bottom:8px;line-height:1.1;}
+.card p{font-size:13px;color:var(--gray);line-height:1.5;flex-grow:1;}
+.card .arrow{display:inline-flex;align-items:center;gap:6px;background:var(--navy);color:#fff;font-family:'Bebas Neue';font-size:12px;letter-spacing:1.2px;padding:9px 16px;border-radius:20px;margin-top:14px;}
+.card.featured .arrow{background:var(--accent);color:var(--navy-deep);}
+.card.coming-soon{cursor:pointer;}
+.card .badge{position:absolute;top:12px;right:12px;background:rgba(212,168,67,0.18);color:#8a6a1a;font-family:'Bebas Neue';font-size:10px;letter-spacing:1.2px;padding:3px 8px;border-radius:10px;}
+
+footer{text-align:center;padding:28px 18px;font-size:13px;color:var(--gray);}
+footer a{color:var(--navy);text-decoration:none;}
+
+/* MODALS */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center;padding:16px;}
+.overlay.on{display:flex;}
+.modal{background:var(--white);border-radius:18px;padding:24px 20px 22px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg);}
+.mtitle{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--navy);margin-bottom:6px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.mclose{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gray);padding:6px 8px;margin:-6px -8px 0 0;}
+.mbody{font-size:14px;color:var(--ink);margin-bottom:14px;line-height:1.55;}
+.fg{margin-bottom:12px;}
+.lbl{display:block;font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;}
+.inp{width:100%;padding:12px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:14px;color:var(--ink);background:var(--white);min-height:46px;}
+.inp:focus{outline:none;border-color:var(--navy);}
+textarea.inp{min-height:88px;resize:vertical;}
+select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 18px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;min-height:48px;}
+.btn-p{background:var(--navy);color:#fff;}
+.btn-p:active{filter:brightness(.9);}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-w{width:100%;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.err{color:#dc2626;font-size:13px;font-weight:600;min-height:18px;margin-top:4px;}
+.success{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;border-radius:10px;padding:14px 16px;font-size:14px;text-align:center;margin-top:10px;}
+.fork{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px;}
+@media (min-width:520px){.fork{grid-template-columns:1fr 1fr;}}
+.fork button{padding:18px 14px;border-radius:14px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Barlow';font-size:15px;font-weight:700;cursor:pointer;text-align:left;line-height:1.4;color:var(--ink);}
+.fork button:hover{border-color:var(--navy);background:var(--gray-lighter);}
+.fork button .ftitle{display:block;font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;color:var(--navy);margin-bottom:4px;}
+.fork button .fsub{display:block;font-size:12px;color:var(--gray);font-weight:400;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:12px 22px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="brand">
+      <img src="/logo.png" alt="CourtSense" onerror="this.style.display='none'">
+      <span>CourtSense</span>
+    </a>
+    <span class="page-title">Community</span>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="login-link on" id="login-link" onclick="CourtSenseAuth.showLogin()">Log In</button>
+      <button class="profile-btn" id="profile-btn" onclick="openProfile()" title="My Profile">👤</button>
+    </div>
+  </div>
+</div>
+
+<main>
+
+  <section class="hero">
+    <h1>Find your game.</h1>
+    <p>Pickup games, tournament partners, training, and leagues. All in one place.</p>
+  </section>
+
+  <section class="gate" id="auth-gate">
+    <div class="gate-text">
+      <strong>Register with CourtSense</strong> to access games, partners, and coaches. Free, takes a minute.
+    </div>
+    <a class="cta" href="/kotb-pickup/join">Join CourtSense →</a>
+  </section>
+
+  <section class="cards">
+
+    <a class="card" href="/kotb-pickup">
+      <span class="icon">🏐</span>
+      <h2>Find a Game</h2>
+      <p>Browse upcoming pickup events and RSVP. First-come-first-served slots; auto-waitlist when full.</p>
+      <span class="arrow">Browse Pickups →</span>
+    </a>
+
+    <div class="card coming-soon" onclick="openModal('mod-tournament')">
+      <span class="badge">Coming Soon</span>
+      <span class="icon">🏆</span>
+      <h2>Find a Tournament Partner</h2>
+      <p>Match with players in your skill range looking for a partner for upcoming tournaments.</p>
+      <span class="arrow">Join Waitlist →</span>
+    </div>
+
+    <div class="card coming-soon" onclick="openModal('mod-training')">
+      <span class="badge">Coming Soon</span>
+      <span class="icon">💪</span>
+      <h2>Find a Training Partner</h2>
+      <p>Connect with players in your area who want to drill, practice, and improve together.</p>
+      <span class="arrow">Join Waitlist →</span>
+    </div>
+
+    <a class="card featured" href="/kotb-pickup/join">
+      <span class="icon">➕</span>
+      <h2>Join CourtSense</h2>
+      <p>New to the platform? Register here. Free, takes a minute.</p>
+      <span class="arrow">Get Started →</span>
+    </a>
+
+    <div class="card coming-soon" onclick="openCoachFork()">
+      <span class="badge">Coming Soon</span>
+      <span class="icon">🎯</span>
+      <h2>Find a Coach</h2>
+      <p>Connect with certified beach volleyball coaches in your area for lessons and skill development.</p>
+      <span class="arrow">Get on the List →</span>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  Built in Tallahassee · <a href="https://courtsense.app">courtsense.app</a>
+</footer>
+
+<!-- TOURNAMENT PARTNER WAITLIST -->
+<div class="overlay" id="mod-tournament">
+  <div class="modal">
+    <div class="mtitle"><span>We are currently building this feature.</span><button class="mclose" onclick="closeModal('mod-tournament')">✕</button></div>
+    <p class="mbody">The Tournament Partner Finder will help you connect with players in your skill range looking for a partner for upcoming tournaments. Drop your email and we'll let you know when it's live.</p>
+    <div id="tournament-form">
+      <div class="fg">
+        <label class="lbl" for="tp-email">Email</label>
+        <input class="inp" id="tp-email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="tp-skill">Skill range</label>
+        <select class="inp" id="tp-skill">
+          <option value="">— Select —</option>
+          <option value="BB">Beginner (BB)</option>
+          <option value="A">Intermediate (A)</option>
+          <option value="AA">Advanced (AA)</option>
+          <option value="Open">Expert (Open)</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="tp-city">City</label>
+        <input class="inp" id="tp-city" type="text" placeholder="Tallahassee" autocomplete="address-level2">
+      </div>
+      <div class="err" id="tp-err"></div>
+      <button class="btn btn-p btn-w" id="tp-submit" onclick="submitWaitlist('tournament_partner', ['tp-email','tp-skill','tp-city'], 'mod-tournament')">Add me to the list</button>
+    </div>
+    <div class="success" id="tp-success" style="display:none;">You're on the list. We'll be in touch.</div>
+  </div>
+</div>
+
+<!-- TRAINING PARTNER WAITLIST -->
+<div class="overlay" id="mod-training">
+  <div class="modal">
+    <div class="mtitle"><span>We are currently building this feature.</span><button class="mclose" onclick="closeModal('mod-training')">✕</button></div>
+    <p class="mbody">The Training Partner Finder will help you connect with players in your area who want to drill, practice, and improve together. Drop your email and we'll let you know when it's live.</p>
+    <div id="training-form">
+      <div class="fg">
+        <label class="lbl" for="tr-email">Email</label>
+        <input class="inp" id="tr-email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="tr-skill">Skill range</label>
+        <select class="inp" id="tr-skill">
+          <option value="">— Select —</option>
+          <option value="BB">Beginner (BB)</option>
+          <option value="A">Intermediate (A)</option>
+          <option value="AA">Advanced (AA)</option>
+          <option value="Open">Expert (Open)</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="tr-city">City</label>
+        <input class="inp" id="tr-city" type="text" placeholder="Tallahassee" autocomplete="address-level2">
+      </div>
+      <div class="err" id="tr-err"></div>
+      <button class="btn btn-p btn-w" id="tr-submit" onclick="submitWaitlist('training_partner', ['tr-email','tr-skill','tr-city'], 'mod-training')">Add me to the list</button>
+    </div>
+    <div class="success" id="tr-success" style="display:none;">You're on the list. We'll be in touch.</div>
+  </div>
+</div>
+
+<!-- FIND A COACH (TWO-SIDED) -->
+<div class="overlay" id="mod-coach-fork">
+  <div class="modal">
+    <div class="mtitle"><span>Find a Coach</span><button class="mclose" onclick="closeModal('mod-coach-fork')">✕</button></div>
+    <p class="mbody">Tell us which side of the court you're on.</p>
+    <div class="fork">
+      <button onclick="openCoachPlayer()">
+        <span class="ftitle">I'm looking for a coach</span>
+        <span class="fsub">Get notified when the directory goes live.</span>
+      </button>
+      <button onclick="openCoachProvider()">
+        <span class="ftitle">I'm a coach</span>
+        <span class="fsub">Apply for a founding listing.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="mod-coach-player">
+  <div class="modal">
+    <div class="mtitle"><span>We are currently building this feature.</span><button class="mclose" onclick="closeModal('mod-coach-player')">✕</button></div>
+    <p class="mbody">Find a Coach will help you connect with certified beach volleyball coaches in your area for lessons, drills, and skill development. Drop your email and we'll let you know when it's live.</p>
+    <div id="coach-player-form">
+      <div class="fg">
+        <label class="lbl" for="cp-email">Email</label>
+        <input class="inp" id="cp-email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="err" id="cp-err"></div>
+      <button class="btn btn-p btn-w" id="cp-submit" onclick="submitWaitlist('find_coach_player', ['cp-email'], 'mod-coach-player')">Add me to the list</button>
+    </div>
+    <div class="success" id="cp-success" style="display:none;">You're on the list. We'll be in touch.</div>
+  </div>
+</div>
+
+<div class="overlay" id="mod-coach-provider">
+  <div class="modal">
+    <div class="mtitle"><span>Get listed as a CourtSense coach.</span><button class="mclose" onclick="closeModal('mod-coach-provider')">✕</button></div>
+    <p class="mbody">We're building a directory to connect certified coaches with players looking for lessons. As part of our launch, founding coaches pay a one-time $50 listing fee for six months of access. Pricing will adjust as the platform grows; founding coaches get the first heads-up. Tell us about yourself and we'll reach out as we onboard our first cohort.</p>
+    <div id="coach-provider-form">
+      <div class="fg">
+        <label class="lbl" for="cv-name">Coach name</label>
+        <input class="inp" id="cv-name" type="text" placeholder="Your name" autocomplete="name">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cv-email">Email</label>
+        <input class="inp" id="cv-email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cv-phone">Phone</label>
+        <input class="inp" id="cv-phone" type="tel" placeholder="555-555-5555" autocomplete="tel">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cv-cert">Certifications / credentials</label>
+        <textarea class="inp" id="cv-cert" placeholder="e.g. USAV CAP Level II, former NCAA D1 player"></textarea>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cv-city">City</label>
+        <input class="inp" id="cv-city" type="text" placeholder="Tallahassee" autocomplete="address-level2">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cv-notes">Anything else you'd like us to know?</label>
+        <textarea class="inp" id="cv-notes" placeholder="Optional"></textarea>
+      </div>
+      <div class="err" id="cv-err"></div>
+      <button class="btn btn-p btn-w" id="cv-submit" onclick="submitCoachProvider()">Submit</button>
+    </div>
+    <div class="success" id="cv-success" style="display:none;">Thanks. We'll reach out as we onboard our first cohort.</div>
+  </div>
+</div>
+
+<!-- PROFILE / CHANGE PASSWORD -->
+<div class="overlay" id="mod-profile">
+  <div class="modal">
+    <div class="mtitle"><span id="profile-name">My Profile</span><button class="mclose" onclick="closeModal('mod-profile')">✕</button></div>
+    <p class="mbody" id="profile-email" style="font-size:13px;color:var(--gray);"></p>
+    <h3 style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--navy);margin:6px 0 10px;">Change Password</h3>
+    <div class="fg">
+      <label class="lbl" for="cp-current">Current password</label>
+      <input class="inp" id="cp-current" type="password" autocomplete="current-password">
+    </div>
+    <div class="fg">
+      <label class="lbl" for="cp-new">New password</label>
+      <input class="inp" id="cp-new" type="password" autocomplete="new-password">
+    </div>
+    <div class="fg">
+      <label class="lbl" for="cp-confirm">Confirm new password</label>
+      <input class="inp" id="cp-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div class="err" id="cp-pw-err"></div>
+    <button class="btn btn-p btn-w" onclick="doChangePassword()">Update Password</button>
+    <button class="btn btn-g btn-w" style="margin-top:8px;" onclick="doLogout()">Log Out</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const ROSTER_PATH = 'tally_kotb_pickup/players';
+const WAITLIST_ROOT = 'tally_kotb_pickup/waitlist';
+
+let db = null;
+
+const $ = id => document.getElementById(id);
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
+function openModal(id){ $(id).classList.add('on'); }
+function closeModal(id){ $(id).classList.remove('on'); }
+function openCoachFork(){ openModal('mod-coach-fork'); }
+function openCoachPlayer(){ closeModal('mod-coach-fork'); openModal('mod-coach-player'); }
+function openCoachProvider(){ closeModal('mod-coach-fork'); openModal('mod-coach-provider'); }
+
+function isEmail(s){ return /^\S+@\S+\.\S+$/.test(String(s||'').trim()); }
+
+// Generic waitlist submission for tournament_partner, training_partner, find_coach_player.
+// fieldIds: ordered ['email', 'skill', 'city'] or ['email'] for the player-side coach modal.
+async function submitWaitlist(kind, fieldIds, modalId){
+  const errEl = $(fieldIds[0].split('-')[0]+'-err');
+  const successId = fieldIds[0].split('-')[0]+'-success';
+  const formId = ({tp:'tournament-form',tr:'training-form',cp:'coach-player-form'})[fieldIds[0].split('-')[0]] || (fieldIds[0].split('-')[0]+'-form');
+  errEl.textContent = '';
+
+  const vals = {};
+  fieldIds.forEach(id => { vals[id.split('-').slice(1).join('-')] = ($(id).value||'').trim(); });
+
+  if(!isEmail(vals.email)){ errEl.textContent = 'Enter a valid email.'; return; }
+  if(fieldIds.includes(fieldIds[0].split('-')[0]+'-skill') && !vals.skill){ errEl.textContent = 'Select your skill range.'; return; }
+  if(fieldIds.includes(fieldIds[0].split('-')[0]+'-city') && !vals.city){ errEl.textContent = 'Enter your city.'; return; }
+
+  const btn = $(fieldIds[0].split('-')[0]+'-submit');
+  btn.disabled = true;
+  const payload = Object.assign({}, vals, { submittedAt: Date.now() });
+  try {
+    await db.ref(WAITLIST_ROOT+'/'+kind).push(payload);
+    if($(formId)) $(formId).style.display = 'none';
+    if($(successId)) $(successId).style.display = 'block';
+    setTimeout(()=>{
+      closeModal(modalId);
+      if($(formId)) $(formId).style.display = 'block';
+      if($(successId)) $(successId).style.display = 'none';
+      fieldIds.forEach(id => { if($(id)) $(id).value = ''; });
+    }, 3000);
+  } catch(e){
+    console.error(e);
+    errEl.textContent = "Couldn't save. Try again.";
+    btn.disabled = false;
+  }
+}
+
+async function submitCoachProvider(){
+  const err = $('cv-err'); err.textContent = '';
+  const name = ($('cv-name').value||'').trim();
+  const email = ($('cv-email').value||'').trim();
+  const phone = ($('cv-phone').value||'').trim();
+  const cert = ($('cv-cert').value||'').trim();
+  const city = ($('cv-city').value||'').trim();
+  const notes = ($('cv-notes').value||'').trim();
+
+  if(!name){ err.textContent = 'Add your name.'; return; }
+  if(!isEmail(email)){ err.textContent = 'Enter a valid email.'; return; }
+  if(!phone){ err.textContent = 'Add a phone number.'; return; }
+  if(!cert){ err.textContent = 'Add your certifications or credentials.'; return; }
+  if(!city){ err.textContent = 'Add your city.'; return; }
+
+  const btn = $('cv-submit');
+  btn.disabled = true;
+  const payload = { name, email, phone, certifications: cert, city, notes: notes || null, submittedAt: Date.now() };
+  try {
+    await db.ref(WAITLIST_ROOT+'/find_coach_provider').push(payload);
+    $('coach-provider-form').style.display = 'none';
+    $('cv-success').style.display = 'block';
+    setTimeout(()=>{
+      closeModal('mod-coach-provider');
+      $('coach-provider-form').style.display = 'block';
+      $('cv-success').style.display = 'none';
+      ['cv-name','cv-email','cv-phone','cv-cert','cv-city','cv-notes'].forEach(id => $(id).value = '');
+      btn.disabled = false;
+    }, 3000);
+  } catch(e){
+    console.error(e);
+    err.textContent = "Couldn't save. Try again.";
+    btn.disabled = false;
+  }
+}
+
+function openProfile(){
+  const p = window.CourtSenseAuth && CourtSenseAuth.currentPlayer();
+  if(!p){ CourtSenseAuth.showLogin(); return; }
+  $('profile-name').textContent = p.name || 'My Profile';
+  $('profile-email').textContent = p.email || '';
+  $('cp-current').value = $('cp-new').value = $('cp-confirm').value = '';
+  $('cp-pw-err').textContent = '';
+  openModal('mod-profile');
+}
+
+async function doChangePassword(){
+  const cur = $('cp-current').value;
+  const nw  = $('cp-new').value;
+  const cf  = $('cp-confirm').value;
+  const err = $('cp-pw-err');
+  err.textContent = '';
+  if(!cur || !nw){ err.textContent = 'Fill in both fields.'; return; }
+  if(nw.length < 6){ err.textContent = 'New password must be at least 6 characters.'; return; }
+  if(nw !== cf){ err.textContent = 'New passwords do not match.'; return; }
+  const ok = await CourtSenseAuth.changePassword(cur, nw);
+  if(!ok){ err.textContent = 'Current password is incorrect, or update failed.'; return; }
+  toast('Password updated');
+  closeModal('mod-profile');
+}
+
+function doLogout(){
+  closeModal('mod-profile');
+  CourtSenseAuth.logout();
+  $('profile-btn').classList.remove('on');
+}
+
+function setLoggedInChrome(loggedIn){
+  $('profile-btn').classList.toggle('on', !!loggedIn);
+  $('login-link').classList.toggle('hidden', !!loggedIn);
+}
+
+// BOOT
+document.addEventListener('DOMContentLoaded', () => {
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+
+  // v1: auth gate banner is always visible (per D.40). Cards work for
+  // everyone; logged-in players see the same banner (detection deferred
+  // to v2). /community does NOT force a login overlay; the welcome-email
+  // CTA points here for first-time login, so a "Log In" button in the
+  // header opens the overlay on demand.
+  CourtSenseAuth.init({
+    firebaseDb: db,
+    rosterPath: ROSTER_PATH,
+    autoShowLogin: false,
+    onLogin: () => setLoggedInChrome(true),
+    onLogout: () => setLoggedInChrome(false)
+  });
+
+  document.querySelectorAll('.overlay').forEach(o => {
+    o.addEventListener('click', e => { if(e.target === o) o.classList.remove('on'); });
+  });
+});
+</script>
+
+</body>
+</html>
