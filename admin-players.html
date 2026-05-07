@@ -579,11 +579,45 @@ async function doResetPassword(key){
   try { newHash = hashPassword(newPw); }
   catch(err){ console.error(err); toast("Couldn't hash password"); return; }
   logLine('Resetting password for '+(p.name||key));
+  const now = Date.now();
+  const email = (p.email || '').trim();
   try{
-    await db.ref(ROOT+'/'+key).update({ passwordHash: newHash, updatedAt: Date.now() });
+    await db.ref(ROOT+'/'+key).update({ passwordHash: newHash, updatedAt: now });
     logLine('  password reset.');
+
+    // Queue a welcome email best-effort. The hash write above already succeeded;
+    // a queue-write failure must NOT roll back the password reset.
+    let footnote;
+    if (email) {
+      const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+      const queueItem = {
+        type: 'welcome',
+        to: email,
+        data: {
+          player_name: p.name,
+          player_email: email,
+          generated_password: newPw
+        },
+        relatedRegistration: null,
+        createdAt: now,
+        status: 'queued'
+      };
+      try {
+        await db.ref(EMAIL_QUEUE+'/'+eid).set(queueItem);
+        logLine('  welcome email queued ('+eid+').');
+        footnote = 'Email is queued. Save this as a backup in case the email never lands.';
+      } catch(qErr) {
+        console.error('Welcome email queue write failed:', qErr);
+        logLine('  welcome email queue FAILED: '+(qErr && qErr.message || qErr));
+        footnote = 'Password reset, but the welcome email could not be queued. Send this password to the player manually.';
+      }
+    } else {
+      logLine('  no email on file; skipping welcome email queue.');
+      footnote = 'No email on file for this player. Password reset, but no welcome email sent. Add an email to their record before next reset.';
+    }
+
     toast('Password reset ✓');
-    showPasswordModal('New password for '+(p.name||key), newPw, 'Text or email this to the player. We only store the hash.');
+    showPasswordModal('New password for '+(p.name||key), newPw, footnote);
   }catch(err){
     console.error(err);
     logLine('  FAILED: '+(err && err.message || err));
