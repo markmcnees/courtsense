@@ -230,7 +230,7 @@ Password: {generated_password}
 
 Save this email or write the password down somewhere safe. You can change your password from your profile after your first login.
 
-[BUTTON: Log in to CourtSense] → https://courtsense.app/community
+[BUTTON: Log in to CourtSense] → https://courtsense.app/community/profile?firstTime=1
 
 A few things worth knowing:
 
@@ -257,7 +257,7 @@ Password: {generated_password}
 
 Save this email or write the password down somewhere safe. You can change your password from your profile after your first login.
 
-Log in to CourtSense: https://courtsense.app/community
+Log in to CourtSense: https://courtsense.app/community/profile?firstTime=1
 
 A few things worth knowing:
 
@@ -427,8 +427,8 @@ Before flipping the Worker live:
 ### Welcome (Template 5)
 - [ ] Approve a test registration. Verify welcome email lands in the new player's inbox within 1 minute.
 - [ ] Verify `{generated_password}` appears in plain text, formatted clearly.
-- [ ] Verify "Log in to CourtSense" button routes to `/community`.
-- [ ] Verify the generated password actually works to log in on /community.
+- [ ] Verify "Log in to CourtSense" button routes to `/community/profile?firstTime=1`.
+- [ ] Verify the generated password actually works to log in (auth overlay opens on /community/profile).
 - [ ] Verify the plaintext password is NOT logged anywhere outside the email payload.
 
 ### Decline (Template 6)

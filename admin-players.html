@@ -83,6 +83,10 @@ tr.blocked td{background:#fef2f2;}
     <strong>Visibility:</strong> emails are visible only here. Other players never see anyone's email. Blocked players cannot receive invites or in-app banners regardless of their personal notification settings.
   </div>
 
+  <div style="margin-bottom:14px;">
+    <button class="btn btn-p" onclick="openSendInvite()">+ Send Invite Link</button>
+  </div>
+
   <div class="card">
     <h2>Pending Registrations (<span id="pending-count">0</span>)</h2>
     <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Public submissions from <a href="/kotb-pickup/join" target="_blank" rel="noopener" style="color:var(--primary);">/kotb-pickup/join</a>. Approve to create their player + rating record. Reject to dismiss.</p>
@@ -147,6 +151,30 @@ tr.blocked td{background:#fef2f2;}
   </div>
 </div>
 
+<!-- SEND INVITE MODAL (input) -->
+<div class="overlay" id="invite-modal" onclick="if(event.target===this)closeModal('invite-modal')">
+  <div class="modal" style="max-width:440px;">
+    <div class="mtitle"><span>Send Invite Link</span><button class="mclose" onclick="closeModal('invite-modal')">✕</button></div>
+    <p style="font-size:14px;margin-bottom:14px;">Generate a single-use link you can text to a player. Their name will be pre-filled on the join form.</p>
+    <div class="lbl">Player name</div>
+    <input class="inp" id="invite-name" placeholder="First and last" autocomplete="off" style="margin-bottom:8px;" onkeypress="if(event.key==='Enter')doGenerateInvite()">
+    <div id="invite-err" style="color:var(--loss);font-size:13px;font-weight:700;margin-bottom:10px;min-height:18px;"></div>
+    <button class="btn btn-p btn-lg btn-w" id="invite-go" onclick="doGenerateInvite()">Generate invite link</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('invite-modal')">Cancel</button>
+  </div>
+</div>
+
+<!-- SEND INVITE RESULT MODAL -->
+<div class="overlay" id="invite-result-modal" onclick="if(event.target===this)closeModal('invite-result-modal')">
+  <div class="modal" style="max-width:480px;">
+    <div class="mtitle"><span>Invite Link Ready</span><button class="mclose" onclick="closeModal('invite-result-modal')">✕</button></div>
+    <p style="font-size:14px;margin-bottom:10px;">Link for <strong id="invite-result-name"></strong>. Single-use; expires after the first registration.</p>
+    <div id="invite-result-url" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--gray-lighter);border-radius:10px;padding:12px 14px;margin-bottom:12px;word-break:break-all;user-select:all;"></div>
+    <button class="btn btn-p btn-lg btn-w" onclick="copyInviteLink()">Copy Link</button>
+    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('invite-result-modal')">Done</button>
+  </div>
+</div>
+
 <!-- REJECT REGISTRATION MODAL -->
 <div class="overlay" id="reject-modal">
   <div class="modal" style="max-width:440px;">
@@ -180,6 +208,8 @@ const ROOT          = 'tally_kotb_pickup/players';
 const PENDING_ROOT  = 'tally_kotb_pickup/pending_registrations';
 const RATINGS_ROOT  = 'tally_kotb_pickup/ratings';
 const EMAIL_QUEUE   = 'tally_kotb_pickup/email_queue';
+const INVITES_ROOT  = 'tally_kotb_pickup/invites';
+const BASE_URL      = 'https://courtsense.app';
 
 let db = null;
 let PLAYERS = {};
@@ -645,6 +675,73 @@ function copyDisplayedPassword(){
     finally { document.body.removeChild(ta); }
   }
 }
+
+// 12 chars from 36 alphanumerics = ~62 bits of entropy. Crypto-quality
+// randomness; modulo-bias is acceptable for invite codes (not security tokens).
+function generateInviteCode(){
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const arr = new Uint8Array(12);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  let s = '';
+  for(let i=0;i<12;i++) s += chars[arr[i] % 36];
+  return s;
+}
+
+function openSendInvite(){
+  $('invite-name').value = '';
+  $('invite-err').textContent = '';
+  $('invite-modal').classList.add('on');
+  setTimeout(()=>$('invite-name').focus(), 50);
+}
+
+async function doGenerateInvite(){
+  const name = ($('invite-name').value||'').trim();
+  const errEl = $('invite-err');
+  errEl.textContent = '';
+  if(!name){ errEl.textContent = 'Add the player name.'; return; }
+
+  const btn = $('invite-go');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  const code = generateInviteCode();
+  const payload = { name, createdBy: 'mark', createdAt: Date.now(), used: false, usedAt: null, usedBy: null };
+  try {
+    await db.ref(INVITES_ROOT+'/'+code).set(payload);
+    const url = BASE_URL + '/kotb-pickup/join?invite=' + code;
+    closeModal('invite-modal');
+    $('invite-result-name').textContent = name;
+    $('invite-result-url').textContent = url;
+    $('invite-result-modal').classList.add('on');
+    logLine('Invite generated for '+name+': '+code);
+  } catch(err) {
+    console.error(err);
+    errEl.textContent = "Couldn't save the invite. Try again.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate invite link';
+  }
+}
+
+function copyInviteLink(){
+  const v = $('invite-result-url').textContent || '';
+  if(!v) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(()=>toast('Link copied'), ()=>toast('Copy failed'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = v; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Link copied'); }
+    catch(e){ toast('Copy failed'); }
+    finally { document.body.removeChild(ta); }
+  }
+}
+
+// Escape closes the invite modals (scoped to new modals only; existing modals unchanged).
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape') return;
+  if($('invite-modal').classList.contains('on')) closeModal('invite-modal');
+  else if($('invite-result-modal').classList.contains('on')) closeModal('invite-result-modal');
+});
 
 async function doClearEmail(){
   const key = actionKey; if(!key) return;
