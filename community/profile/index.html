@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Profile · CourtSense</title>
+<meta name="description" content="Tell us a bit about yourself so we can match you to the right games and partners.">
+<meta name="robots" content="noindex">
+
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/auth.js"></script>
+
+<style>
+:root{
+  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
+  --navy:#1a3a6b;--navy-deep:#0f2347;--accent:#d4a843;
+  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--ink:#111827;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);
+  --shadow-lg:0 8px 32px rgba(0,0,0,0.14);
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{min-height:100%;background:var(--sand);font-family:'Barlow',sans-serif;color:var(--ink);line-height:1.5;}
+
+.hdr{background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.18);position:sticky;top:0;z-index:50;}
+.hdr-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.brand{display:flex;align-items:center;gap:10px;color:var(--accent);font-family:'Bebas Neue';font-size:20px;letter-spacing:2.5px;text-decoration:none;}
+.brand img{height:30px;width:auto;}
+.page-title{color:#fff;font-family:'Bebas Neue';font-size:18px;letter-spacing:2px;opacity:.85;}
+.hdr-btn{background:rgba(255,255,255,.12);border:none;color:#fff;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;padding:8px 14px;border-radius:6px;min-height:36px;}
+.hdr-btn:active{background:rgba(255,255,255,.2);}
+
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
+
+.welcome{background:linear-gradient(180deg, #fffbf2 0%, var(--white) 80%);border:1px solid var(--sand-border);border-radius:var(--radius);padding:20px 20px;margin-bottom:18px;box-shadow:var(--shadow);}
+.welcome h2{font-family:'Bebas Neue';font-size:22px;letter-spacing:1.5px;color:var(--navy);margin-bottom:8px;}
+.welcome p{font-size:14px;color:var(--ink);line-height:1.55;margin-bottom:14px;}
+.welcome .skip-row{display:flex;gap:10px;flex-wrap:wrap;}
+
+.who{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--white);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow);flex-wrap:wrap;}
+.who .who-name{font-family:'Bebas Neue';font-size:22px;letter-spacing:1px;color:var(--navy);line-height:1.1;}
+.who .who-email{font-size:12px;color:var(--gray);margin-top:2px;}
+.who .rating{font-size:13px;color:var(--gray);text-align:right;}
+.who .rating strong{display:block;font-family:'Bebas Neue';font-size:20px;letter-spacing:1px;color:var(--navy);line-height:1;margin-bottom:2px;}
+
+.section{background:var(--white);border-radius:var(--radius);padding:18px 18px;margin-bottom:14px;box-shadow:var(--shadow);}
+.section h3{font-family:'Bebas Neue';font-size:15px;letter-spacing:1.5px;color:var(--navy);margin-bottom:4px;}
+.section .sub{font-size:12px;color:var(--gray);margin-bottom:14px;}
+
+.row{display:grid;grid-template-columns:1fr;gap:12px;}
+@media (min-width:560px){.row.two{grid-template-columns:1fr 1fr;}}
+
+.fg{margin-bottom:0;}
+.lbl{display:block;font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;}
+.inp{width:100%;padding:12px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;color:var(--ink);background:var(--white);min-height:46px;}
+.inp:focus{outline:none;border-color:var(--navy);}
+.inp.invalid{border-color:#dc2626;}
+select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+.help{font-size:12px;color:var(--gray);margin-top:4px;line-height:1.4;}
+
+.toggle{display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;}
+.toggle input{width:18px;height:18px;cursor:pointer;}
+.toggle .tlbl{font-size:14px;font-weight:600;color:var(--ink);}
+
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:14px 22px;border-radius:10px;border:none;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;cursor:pointer;min-height:50px;text-decoration:none;}
+.btn-p{background:var(--navy);color:#fff;}
+.btn-p:active{filter:brightness(.9);}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-w{flex:1;min-width:160px;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+
+.err{color:#dc2626;font-size:13px;font-weight:600;min-height:18px;margin-top:8px;}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:12px 22px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+
+.gated{display:none;}
+.gated.on{display:block;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/community" class="brand">
+      <img src="/logo.png" alt="CourtSense" onerror="this.style.display='none'">
+      <span>CourtSense</span>
+    </a>
+    <span class="page-title">My Profile</span>
+    <button class="hdr-btn" id="logout-btn" onclick="doLogout()" style="display:none;">Log Out</button>
+  </div>
+</div>
+
+<main class="gated" id="page">
+
+  <section class="welcome" id="welcome" style="display:none;">
+    <h2>Welcome to CourtSense.</h2>
+    <p>Tell us a bit about yourself to get matched into the right games and partners. All fields are optional and you can update them anytime.</p>
+    <div class="skip-row">
+      <button class="btn btn-g btn-w" id="skip-btn" onclick="doSkip()">Skip for now</button>
+    </div>
+  </section>
+
+  <section class="who">
+    <div>
+      <div class="who-name" id="who-name">—</div>
+      <div class="who-email" id="who-email"></div>
+    </div>
+    <div class="rating" id="who-rating">
+      <strong>—</strong>
+      <span>No rating yet</span>
+    </div>
+  </section>
+
+  <form id="profile-form" onsubmit="return doSave(event)">
+
+    <section class="section">
+      <h3>Cross-system IDs</h3>
+      <p class="sub">Help us seed your starting numbers from systems you already play in.</p>
+      <div class="row two">
+        <div class="fg">
+          <label class="lbl" for="f-truvolley">TruVolley ranking number</label>
+          <input class="inp" id="f-truvolley" inputmode="numeric" placeholder="e.g. 1750">
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-avp">AVP number</label>
+          <input class="inp" id="f-avp" placeholder="e.g. 12345">
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Skill &amp; location</h3>
+      <p class="sub">Used for matching to events in your area and skill range.</p>
+      <div class="row two">
+        <div class="fg">
+          <label class="lbl" for="f-skill">Skill level</label>
+          <select class="inp" id="f-skill">
+            <option value="">— Select —</option>
+            <option value="BB">Beginner (BB)</option>
+            <option value="A">Intermediate (A)</option>
+            <option value="AA">Advanced (AA)</option>
+            <option value="Open">Expert (Open)</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-zip">Zip code</label>
+          <input class="inp" id="f-zip" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" placeholder="32301">
+          <div class="help">5 digits. We use this for area-based event matching.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Physical</h3>
+      <p class="sub">Optional. Useful for partner matching once that ships.</p>
+      <div class="row two">
+        <div class="fg">
+          <label class="lbl" for="f-height">Height</label>
+          <input class="inp" id="f-height" placeholder="e.g. 6'2&quot;">
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-hand">Dominant hand</label>
+          <select class="inp" id="f-hand">
+            <option value="">— Select —</option>
+            <option value="Left">Left</option>
+            <option value="Right">Right</option>
+            <option value="Ambidextrous">Ambidextrous</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-reach">Standing reach</label>
+          <input class="inp" id="f-reach" placeholder="e.g. 8'">
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-block">Block jump touch</label>
+          <input class="inp" id="f-block" placeholder="e.g. 9'3&quot;">
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-approach">Approach jump touch</label>
+          <input class="inp" id="f-approach" placeholder="e.g. 9'5&quot;">
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Beach preferences</h3>
+      <p class="sub">Where do you usually play, and where do you actually want to play?</p>
+      <div class="row two">
+        <div class="fg">
+          <label class="lbl" for="f-usual-side">Usual side</label>
+          <select class="inp" id="f-usual-side">
+            <option value="">— Select —</option>
+            <option value="Left">Left</option>
+            <option value="Right">Right</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-pref-side">Preferred side</label>
+          <select class="inp" id="f-pref-side">
+            <option value="">— Select —</option>
+            <option value="Left">Left</option>
+            <option value="Right">Right</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-usual-def">Usual defense</label>
+          <select class="inp" id="f-usual-def">
+            <option value="">— Select —</option>
+            <option value="Block">Block</option>
+            <option value="Defend">Defend</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-pref-def">Preferred defense</label>
+          <select class="inp" id="f-pref-def">
+            <option value="">— Select —</option>
+            <option value="Block">Block</option>
+            <option value="Defend">Defend</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Other surfaces</h3>
+      <p class="sub">Background that helps coaches and partners understand your game.</p>
+      <label class="toggle">
+        <input type="checkbox" id="f-indoor">
+        <span class="tlbl">Indoor experience</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="f-grass">
+        <span class="tlbl">Grass experience</span>
+      </label>
+    </section>
+
+    <div class="err" id="form-err"></div>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-p btn-w" id="save-btn">Save Profile</button>
+      <a class="btn btn-g btn-w" href="/community">Done</a>
+    </div>
+  </form>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const ROSTER_PATH = 'tally_kotb_pickup/players';
+const RATINGS_PATH = 'tally_kotb_pickup/ratings';
+const WELCOMED_KEY = 'courtsenseProfileWelcomed';
+
+let db = null;
+let currentPid = null;
+
+const $ = id => document.getElementById(id);
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
+
+function readQuery(){
+  const p = new URLSearchParams(window.location.search);
+  return { firstTime: p.get('firstTime') === '1' };
+}
+
+function maybeShowWelcome(){
+  const { firstTime } = readQuery();
+  if(!firstTime) return;
+  let welcomed = false;
+  try { welcomed = localStorage.getItem(WELCOMED_KEY) === '1'; } catch(e){}
+  if(welcomed) {
+    stripFirstTimeParam();
+    return;
+  }
+  $('welcome').style.display = 'block';
+  stripFirstTimeParam();
+}
+
+function stripFirstTimeParam(){
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('firstTime');
+    const qs = url.searchParams.toString();
+    const newPath = url.pathname + (qs ? '?'+qs : '') + url.hash;
+    history.replaceState(null, '', newPath);
+  } catch(e){}
+}
+
+function doSkip(){
+  try { localStorage.setItem(WELCOMED_KEY, '1'); } catch(e){}
+  window.location.href = '/community';
+}
+
+function doLogout(){
+  CourtSenseAuth.logout();
+}
+
+function fillFromProfile(profile){
+  profile = profile || {};
+  $('f-truvolley').value   = profile.truvolleyRankingNumber || '';
+  $('f-avp').value         = profile.avpNumber || '';
+  $('f-skill').value       = profile.skillLevel || '';
+  $('f-zip').value         = profile.zipCode || '';
+  $('f-height').value      = profile.height || '';
+  $('f-hand').value        = profile.dominantHand || '';
+  $('f-reach').value       = profile.reach || '';
+  $('f-block').value       = profile.blockJumpTouch || '';
+  $('f-approach').value    = profile.approachJumpTouch || '';
+  $('f-usual-side').value  = profile.usualSide || '';
+  $('f-pref-side').value   = profile.preferredSide || '';
+  $('f-usual-def').value   = profile.usualDefense || '';
+  $('f-pref-def').value    = profile.preferredDefense || '';
+  $('f-indoor').checked    = !!profile.indoorExperience;
+  $('f-grass').checked     = !!profile.grassExperience;
+}
+
+function nullIfBlank(v){
+  const s = String(v == null ? '' : v).trim();
+  return s.length ? s : null;
+}
+
+function readForm(){
+  return {
+    truvolleyRankingNumber: nullIfBlank($('f-truvolley').value),
+    avpNumber:              nullIfBlank($('f-avp').value),
+    skillLevel:             nullIfBlank($('f-skill').value),
+    zipCode:                nullIfBlank($('f-zip').value),
+    height:                 nullIfBlank($('f-height').value),
+    dominantHand:           nullIfBlank($('f-hand').value),
+    reach:                  nullIfBlank($('f-reach').value),
+    blockJumpTouch:         nullIfBlank($('f-block').value),
+    approachJumpTouch:      nullIfBlank($('f-approach').value),
+    usualSide:              nullIfBlank($('f-usual-side').value),
+    preferredSide:          nullIfBlank($('f-pref-side').value),
+    usualDefense:           nullIfBlank($('f-usual-def').value),
+    preferredDefense:       nullIfBlank($('f-pref-def').value),
+    indoorExperience:       !!$('f-indoor').checked,
+    grassExperience:        !!$('f-grass').checked,
+    updatedAt:              Date.now()
+  };
+}
+
+function doSave(e){
+  if(e) e.preventDefault();
+  const errEl = $('form-err'); errEl.textContent = '';
+  $('f-zip').classList.remove('invalid');
+
+  if(!currentPid){ errEl.textContent = 'Not signed in.'; return false; }
+
+  const profile = readForm();
+  if(profile.zipCode && !/^[0-9]{5}$/.test(profile.zipCode)){
+    errEl.textContent = 'Zip code must be 5 digits.';
+    $('f-zip').classList.add('invalid');
+    $('f-zip').focus();
+    return false;
+  }
+
+  const stringFields = ['truvolleyRankingNumber','avpNumber','skillLevel','zipCode','height',
+                        'dominantHand','reach','blockJumpTouch','approachJumpTouch',
+                        'usualSide','preferredSide','usualDefense','preferredDefense'];
+  const hasInput = stringFields.some(k => profile[k] != null) || profile.indoorExperience || profile.grassExperience;
+  if(hasInput){
+    try { localStorage.setItem(WELCOMED_KEY, '1'); } catch(e){}
+    $('welcome').style.display = 'none';
+  }
+
+  // Fire-and-forget per spec. The page UX does not wait on the network.
+  db.ref(ROSTER_PATH+'/'+currentPid+'/profile').set(profile)
+    .catch(err => { console.error('profile save failed', err); toast("Couldn't save. Try again."); });
+
+  toast('Profile saved');
+  return false;
+}
+
+async function loadRating(pid){
+  try {
+    const snap = await db.ref(RATINGS_PATH+'/'+pid).once('value');
+    const r = snap.val();
+    if(r && typeof r.rating === 'number'){
+      $('who-rating').innerHTML = '<strong>'+Math.round(r.rating)+'</strong><span>'+(r.gamesPlayed||0)+' games</span>';
+    } else {
+      $('who-rating').innerHTML = '<strong>—</strong><span>No rating yet</span>';
+    }
+  } catch(e){
+    console.warn('rating read failed', e);
+  }
+}
+
+async function onLogin(player){
+  currentPid = player.id;
+  $('who-name').textContent = player.name || 'My Profile';
+  $('who-email').textContent = player.email || '';
+  $('logout-btn').style.display = 'inline-flex';
+  $('page').classList.add('on');
+
+  fillFromProfile(player.profile);
+  loadRating(player.id);
+  maybeShowWelcome();
+}
+
+function onLogout(){
+  currentPid = null;
+  $('page').classList.remove('on');
+  $('logout-btn').style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+  CourtSenseAuth.init({
+    firebaseDb: db,
+    rosterPath: ROSTER_PATH,
+    autoShowLogin: true,
+    onLogin,
+    onLogout
+  });
+});
+</script>
+</body>
+</html>

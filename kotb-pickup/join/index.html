@@ -42,6 +42,8 @@ textarea.inp{min-height:80px;resize:vertical;}
 .btn:disabled{opacity:.5;cursor:not-allowed;}
 
 .honeypot{position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;}
+.invited-note{font-size:13px;color:var(--win);font-weight:600;margin-top:6px;}
+.inp[readonly]{background:var(--gray-lighter);color:var(--gray);cursor:not-allowed;}
 
 .err{color:var(--loss);font-size:13px;font-weight:600;min-height:18px;margin-bottom:8px;}
 
@@ -81,6 +83,8 @@ textarea.inp{min-height:80px;resize:vertical;}
       <div class="fg">
         <label class="lbl" for="f-name">Name <span class="req">*</span></label>
         <input class="inp" id="f-name" required placeholder="First and last">
+        <!-- TODO: interpolate from invite.createdBy when admin role system exists. -->
+        <div class="invited-note" id="invited-note" style="display:none;">Invited by Mark.</div>
       </div>
 
       <div class="fg">
@@ -123,6 +127,11 @@ textarea.inp{min-height:80px;resize:vertical;}
     </form>
   </div>
 
+  <div class="card" id="invite-used-card" style="display:none;text-align:center;">
+    <h2 style="margin-bottom:10px;">Invite Already Used</h2>
+    <p style="font-size:14px;color:#374151;line-height:1.6;">This invite link has already been used. If you need a new one, reach out to Mark.</p>
+  </div>
+
   <div class="card thanks" id="thanks-card">
     <div class="checkmark">✓</div>
     <h2>You're on the list</h2>
@@ -163,9 +172,47 @@ function closeTv(){ $('tv-modal').classList.remove('on'); }
 (function init(){
   if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
   db = firebase.database();
+  initInvite();
 })();
 
 function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+
+const INVITES_ROOT = 'tally_kotb_pickup/invites';
+let inviteContext = null;
+
+// On load, if ?invite={code} is present, look it up and either prefill+lock the name,
+// or replace the form with an "already used" message. Missing or malformed codes
+// silently fall back to the normal form per spec.
+async function initInvite(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('invite');
+  if(!code) return;
+
+  // Hide the form during the lookup so the user doesn't see an unlocked name field.
+  $('form-card').style.visibility = 'hidden';
+  try {
+    const snap = await db.ref(INVITES_ROOT+'/'+code).once('value');
+    const invite = snap.val();
+    if(!invite || typeof invite.name !== 'string'){
+      $('form-card').style.visibility = 'visible';
+      return;
+    }
+    if(invite.used){
+      $('form-card').style.display = 'none';
+      $('invite-used-card').style.display = 'block';
+      return;
+    }
+    inviteContext = { code, name: invite.name };
+    $('f-name').value = invite.name;
+    $('f-name').readOnly = true;
+    $('invited-note').style.display = 'block';
+    $('form-card').style.visibility = 'visible';
+  } catch(e) {
+    // Network failure on lookup: fall back to the normal form rather than blocking.
+    console.warn('invite lookup failed', e);
+    $('form-card').style.visibility = 'visible';
+  }
+}
 
 function submitForm(e){
   if(e) e.preventDefault();
@@ -179,7 +226,7 @@ function submitForm(e){
     return false;
   }
 
-  const name      = ($('f-name').value||'').trim();
+  const name      = inviteContext ? inviteContext.name : ($('f-name').value||'').trim();
   const email     = ($('f-email').value||'').trim();
   const phone     = ($('f-phone').value||'').trim();
   const truvolley = ($('f-truvolley').value||'').trim();
@@ -220,6 +267,11 @@ function submitForm(e){
     createdAt: now,
     status: 'queued'
   };
+  if(inviteContext){
+    updates[INVITES_ROOT+'/'+inviteContext.code+'/used']   = true;
+    updates[INVITES_ROOT+'/'+inviteContext.code+'/usedAt'] = now;
+    updates[INVITES_ROOT+'/'+inviteContext.code+'/usedBy'] = id;
+  }
 
   db.ref().update(updates)
     .then(()=>{ showThanks(); })
