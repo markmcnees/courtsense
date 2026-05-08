@@ -217,6 +217,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
             <option value="">— Select —</option>
             <option value="Block">Block</option>
             <option value="Defend">Defend</option>
+            <option value="Split">Split</option>
           </select>
         </div>
         <div class="fg">
@@ -225,6 +226,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
             <option value="">— Select —</option>
             <option value="Block">Block</option>
             <option value="Defend">Defend</option>
+            <option value="Split">Split</option>
           </select>
         </div>
       </div>
@@ -250,6 +252,27 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <a class="btn btn-g btn-w" href="/community">Done</a>
     </div>
   </form>
+
+  <section class="section">
+    <h3>Change Password</h3>
+    <p class="sub">Update your CourtSense password.</p>
+    <div class="fg">
+      <label class="lbl" for="pw-current">Current password</label>
+      <input class="inp" id="pw-current" type="password" autocomplete="current-password">
+    </div>
+    <div class="fg">
+      <label class="lbl" for="pw-new">New password</label>
+      <input class="inp" id="pw-new" type="password" autocomplete="new-password">
+    </div>
+    <div class="fg">
+      <label class="lbl" for="pw-confirm">Confirm new password</label>
+      <input class="inp" id="pw-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div class="err" id="pw-err"></div>
+    <div class="actions">
+      <button type="button" class="btn btn-p btn-w" onclick="doChangePassword()">Change Password</button>
+    </div>
+  </section>
 
 </main>
 
@@ -387,6 +410,30 @@ function doSave(e){
 
   toast('Profile saved');
   return false;
+}
+
+async function doChangePassword(){
+  const cur = $('pw-current').value;
+  const nw  = $('pw-new').value;
+  const cf  = $('pw-confirm').value;
+  const err = $('pw-err');
+  err.textContent = '';
+  if(!cur || !nw || !cf){ err.textContent = 'Fill in all three fields.'; return; }
+  if(nw.length < 6){ err.textContent = 'New password must be at least 6 characters.'; return; }
+  if(nw !== cf){ err.textContent = 'New passwords do not match.'; return; }
+  if(nw === cur){ err.textContent = 'New password must be different from current password.'; return; }
+  const res = await CourtSenseAuth.changePassword(cur, nw);
+  if(!res.ok){
+    if(res.code === 'wrong_password')      err.textContent = 'Current password is incorrect';
+    else if(res.code === 'no_account')     err.textContent = 'Account state issue, contact admin';
+    else if(res.code === 'same_password')  err.textContent = 'New password must be different from current password.';
+    else                                   err.textContent = "Couldn't update password. Try again.";
+    return;
+  }
+  $('pw-current').value = '';
+  $('pw-new').value = '';
+  $('pw-confirm').value = '';
+  toast('Password updated');
 }
 
 async function loadRating(pid){

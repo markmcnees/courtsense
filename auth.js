@@ -8,7 +8,10 @@
  *   CourtSenseAuth.init({ firebaseDb, rosterPath, onLogin, onLogout })
  *   CourtSenseAuth.showLogin() / hideLogin() / currentPlayer()
  *   CourtSenseAuth.logout()
- *   CourtSenseAuth.changePassword(oldPw, newPw) -> Promise<bool>
+ *   CourtSenseAuth.changePassword(oldPw, newPw) -> Promise<{ok:true} | {ok:false, code}>
+ *     codes: 'wrong_password' | 'no_account' | 'same_password' | 'failed'
+ *     On ok:true the player's passwordHash + updatedAt are written and a
+ *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
  *
  * Storage: passwordHash lives at {rosterPath}/{playerId}/passwordHash.
  * Hashing happens in admin-players.html at approval time (cost 10).
@@ -245,25 +248,44 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
   }
 
   async function changePassword(oldPw, newPw){
-    if(!_currentPlayer) return false;
-    if(!oldPw || !newPw) return false;
-    if(newPw.length < 6) return false;
+    if(!_currentPlayer) return { ok:false, code:'no_account' };
+    if(!oldPw) return { ok:false, code:'wrong_password' };
+    if(!newPw || newPw.length < 6) return { ok:false, code:'failed' };
+    if(newPw === oldPw) return { ok:false, code:'same_password' };
     let bcrypt;
-    try { bcrypt = await loadBcrypt(); } catch(e) { return false; }
+    try { bcrypt = await loadBcrypt(); } catch(e) { return { ok:false, code:'failed' }; }
     let player;
     try {
       const snap = await _db.ref(_rosterPath + '/' + _currentPlayer.id).once('value');
       player = snap.val();
-    } catch(e) { return false; }
-    if(!player || !player.passwordHash) return false;
-    let ok = false;
-    try { ok = bcrypt.compareSync(oldPw, player.passwordHash); } catch(e) { return false; }
-    if(!ok) return false;
+    } catch(e) { return { ok:false, code:'failed' }; }
+    if(!player || !player.passwordHash) return { ok:false, code:'no_account' };
+    let verified = false;
+    try { verified = bcrypt.compareSync(oldPw, player.passwordHash); } catch(e) { return { ok:false, code:'failed' }; }
+    if(!verified) return { ok:false, code:'wrong_password' };
     let newHash;
-    try { newHash = bcrypt.hashSync(newPw, 10); } catch(e) { return false; }
-    try { await _db.ref(_rosterPath + '/' + _currentPlayer.id + '/passwordHash').set(newHash); }
-    catch(e) { return false; }
-    return true;
+    try { newHash = bcrypt.hashSync(newPw, 10); } catch(e) { return { ok:false, code:'failed' }; }
+
+    const now = Date.now();
+    const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
+    const updates = {};
+    updates[_rosterPath + '/' + _currentPlayer.id + '/passwordHash'] = newHash;
+    updates[_rosterPath + '/' + _currentPlayer.id + '/updatedAt'] = now;
+    updates['tally_kotb_pickup/email_queue/' + eid] = {
+      type: 'password_changed',
+      to: player.email || null,
+      data: {
+        player_name: player.name || null,
+        player_email: player.email || null,
+        changed_at_iso: new Date(now).toISOString()
+      },
+      relatedRegistration: null,
+      status: 'queued',
+      createdAt: now
+    };
+    try { await _db.ref().update(updates); }
+    catch(e) { return { ok:false, code:'failed' }; }
+    return { ok:true };
   }
 
   async function init(opts){
