@@ -12,6 +12,13 @@
  *     codes: 'wrong_password' | 'no_account' | 'same_password' | 'failed'
  *     On ok:true the player's passwordHash + updatedAt are written and a
  *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
+ *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel })
+ *     -> Promise<{ok:true, playerKey} | {ok:false, error}>
+ *     Self-serve community signup. Writes verified:false player record at
+ *     {rosterPath}/{snake_case_displayName}, queues a 'welcome' email with
+ *     generated_password:null (user picked their own), and sets sessionStorage
+ *     so the new player is logged in immediately. Phase D will add email
+ *     verification gating against the verified flag.
  *
  * Storage: passwordHash lives at {rosterPath}/{playerId}/passwordHash.
  * Hashing happens in admin-players.html at approval time (cost 10).
@@ -42,6 +49,34 @@
 
   function esc(s){
     return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // League auto-link helper. On createPlayer, scan the Tally KotB kings + queens
+  // rosters for a case-insensitive trimmed name match on the new signup's
+  // displayName. Returns { side, playerId } on match, null on no match or read
+  // failure. Hardcoded to the Tally KotB league for Phase A.5; multi-tenant
+  // matching via window.LEAGUE_CONFIG.dbRoot is deferred to a later phase.
+  async function findLeagueMatch(name){
+    const target = String(name == null ? '' : name).trim().toLowerCase();
+    if(!target) return null;
+    const sides = ['kings', 'queens'];
+    for(let i = 0; i < sides.length; i++){
+      const side = sides[i];
+      try {
+        const snap = await _db.ref('tally_kotb/' + side + '/players').once('value');
+        const players = snap.val() || {};
+        for(const pid in players){
+          const p = players[pid] || {};
+          const pname = String(p.name == null ? '' : p.name).trim().toLowerCase();
+          if(pname && pname === target){
+            return { side: side, playerId: pid };
+          }
+        }
+      } catch(e){
+        console.warn('CourtSenseAuth.createPlayer: league lookup failed for ' + side, e);
+      }
+    }
+    return null;
   }
 
   // bcryptjs is loaded lazily (login screens are rare; no need to ship it eagerly).
@@ -288,6 +323,119 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
     return { ok:true };
   }
 
+  // ── createPlayer: self-serve community signup ────────────────────────────
+  // Validates input, reserves a snake_case key under {rosterPath}, hashes the
+  // user-chosen password (cost 10), writes the player record with verified:false,
+  // queues a 'welcome' email (generated_password:null since the user picked it),
+  // and sets sessionStorage so the new account is immediately logged in.
+  async function createPlayer(opts){
+    const o = opts || {};
+    const email = String(o.email == null ? '' : o.email).trim();
+    const password = o.password == null ? '' : String(o.password);
+    const displayName = String(o.displayName == null ? '' : o.displayName).trim();
+    const city = String(o.city == null ? '' : o.city).trim();
+    const skillLevel = o.skillLevel == null ? '' : String(o.skillLevel);
+
+    if(!email) return { ok:false, error:'Email is required.' };
+    if(!/^\S+@\S+\.\S+$/.test(email)) return { ok:false, error:"That email doesn't look right." };
+    if(!password || password.length < 8) return { ok:false, error:'Password must be at least 8 characters.' };
+    if(!displayName) return { ok:false, error:'Display name is required.' };
+    if(displayName.length > 40) return { ok:false, error:'Display name must be 40 characters or fewer.' };
+    if(!city) return { ok:false, error:'City is required.' };
+    const VALID_SKILLS = ['Recreational','BB','A','AA','Open'];
+    if(VALID_SKILLS.indexOf(skillLevel) === -1) return { ok:false, error:'Pick a skill level.' };
+
+    if(!_db || !_rosterPath){
+      return { ok:false, error:'Auth not initialized. Reload the page.' };
+    }
+
+    // Snake-case key matches Ratings.nameKey convention: lowercase, strip
+    // Firebase-forbidden chars, collapse whitespace to underscore.
+    const playerKey = displayName.toLowerCase().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
+    if(!playerKey) return { ok:false, error:'Display name produces an invalid key. Use letters and numbers.' };
+
+    let existing;
+    try {
+      const snap = await _db.ref(_rosterPath + '/' + playerKey).once('value');
+      existing = snap.val();
+    } catch(e){
+      console.error('CourtSenseAuth.createPlayer: existence check failed', e);
+      return { ok:false, error:'Network error. Try again.' };
+    }
+    if(existing){
+      return { ok:false, error:'Display name already taken. Try a variation.' };
+    }
+
+    // League auto-link runs before bcrypt so we can write a single atomic
+    // update below. A read failure here returns null (not blocking) so signup
+    // still succeeds when the league roster is unreachable.
+    const leagueMatch = await findLeagueMatch(displayName);
+
+    let bcrypt;
+    try { bcrypt = await loadBcrypt(); }
+    catch(e){
+      console.error('CourtSenseAuth.createPlayer: bcrypt load failed', e);
+      return { ok:false, error:'Could not load signup. Refresh and try again.' };
+    }
+
+    let passwordHash;
+    try { passwordHash = bcrypt.hashSync(password, 10); }
+    catch(e){
+      console.error('CourtSenseAuth.createPlayer: hash failed', e);
+      return { ok:false, error:'Signup failed. Try again.' };
+    }
+
+    const now = Date.now();
+    const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
+    const emailLower = email.toLowerCase();
+    const playerRecord = {
+      email: emailLower,
+      passwordHash: passwordHash,
+      displayName: displayName,
+      name: displayName, // legacy field used by the login picker (auth.js displayNameOf)
+      city: city,
+      profile: { skillLevel: skillLevel },
+      leaguePlayerId: leagueMatch, // { side, playerId } if name matched a league roster, else null
+      verified: false,
+      createdAt: now,
+      updatedAt: now
+    };
+    const updates = {};
+    updates[_rosterPath + '/' + playerKey] = playerRecord;
+    updates['tally_kotb_pickup/email_queue/' + eid] = {
+      type: 'welcome',
+      to: emailLower,
+      data: {
+        player_name: displayName,
+        player_email: emailLower,
+        generated_password: null // user picked their own password during signup
+      },
+      relatedRegistration: null,
+      createdAt: now,
+      status: 'queued'
+    };
+
+    try { await _db.ref().update(updates); }
+    catch(e){
+      console.error('CourtSenseAuth.createPlayer: write failed', e);
+      return { ok:false, error:'Could not create account. Try again.' };
+    }
+
+    // Set session so the new account is immediately logged in.
+    try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId: playerKey, ts: now })); }
+    catch(e){ console.warn('CourtSenseAuth.createPlayer: sessionStorage write failed', e); }
+
+    _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
+    delete _currentPlayer.passwordHash;
+
+    if(typeof _onLogin === 'function'){
+      try { _onLogin(_currentPlayer); }
+      catch(e){ console.warn('CourtSenseAuth.createPlayer: onLogin handler threw', e); }
+    }
+
+    return { ok:true, playerKey: playerKey, autoLinked: leagueMatch !== null };
+  }
+
   async function init(opts){
     if(_initialized) return _currentPlayer;
     if(!opts || !opts.firebaseDb || !opts.rosterPath){
@@ -323,6 +471,7 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
     hideLogin,
     currentPlayer,
     logout,
-    changePassword
+    changePassword,
+    createPlayer
   };
 })(typeof window !== 'undefined' ? window : globalThis);
