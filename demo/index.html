@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+<body>
+<script>
+window.SCHOOL_CONFIG = {
+  schoolName:      'Sand Sharks',
+  shortName:       'Sharks',
+  abbrev:          'SHK',
+  displayName:     'Sand Sharks',
+  title:           'Sand Sharks Beach Volleyball — DEMO',
+  coachPin:        '1234',
+  defaultPw:       'Demo2026',
+  fbConfig:{apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'},
+  dbRoots:{matches:'demo_sand_sharks_matches',profiles:'demo_sand_sharks',passwords:'demo_sand_sharks_passwords'},
+  logo:            null,
+  logoAlt:         'Sharks',
+  colors:{primary:'#0077b6',primaryDark:'#005f92',primaryDeeper:'#023e8a',primaryLight:'#48cae4',primaryBg:'#caf0f8'},
+  aiProxyUrl:      'https://beach-volleyball-ai.markmcnees-479.workers.dev',
+  maxPrepsUrl:     'https://www.maxpreps.com/fl/tallahassee/leon-lions/beach-volleyball/',
+  courtsenseUrl:   '/quiz/',
+  myStandingsKey:  'Sand Sharks',
+  homeVenue:       'Demo Beach',
+  teamEmoji:       '🦈',
+  exportPrefix:    'demo_sand_sharks_',
+  legacyMigration: false,
+  demoMode:        true
+};
+</script>
+<script src="/app.js"></script>
+</body>
+</html>
