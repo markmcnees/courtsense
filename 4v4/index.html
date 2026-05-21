@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tally 4v4</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
+  --rec-primary:#0891b2;--rec-dark:#155e75;
+  --comp-primary:#dc2626;--comp-dark:#991b1b;
+  --accent:#d4a843;
+  --win:#059669;--loss:#dc2626;
+  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--black:#111827;
+  --primary:var(--rec-primary);--dark:var(--rec-dark);--light:#e0f7fa;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);--shadow-lg:0 8px 32px rgba(0,0,0,0.14);--radius:14px;
+}
+body.comp{--primary:var(--comp-primary);--dark:var(--comp-dark);--light:#fee2e2;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--sand);font-family:'Barlow',sans-serif;color:var(--black);}
+
+/* HEADER */
+.hdr{background:linear-gradient(150deg,var(--dark) 0%,var(--primary) 100%);padding:14px 16px 0;box-shadow:0 4px 20px rgba(0,0,0,0.25);position:relative;z-index:50;}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.brand{font-family:'Bebas Neue';font-size:20px;letter-spacing:3px;color:var(--accent);display:flex;align-items:center;gap:8px;}
+.sync{width:8px;height:8px;border-radius:50%;}
+.sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:blink 2s infinite;}
+.sync.off{background:#ef4444;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+.side-toggle{display:flex;background:rgba(0,0,0,.3);border-radius:24px;padding:3px;gap:2px;}
+.side-btn{padding:7px 18px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:2px;cursor:pointer;transition:all .2s;color:rgba(255,255,255,.55);background:transparent;}
+.side-btn.on{background:var(--accent);color:#1a1a1a;}
+
+.tabs{display:flex;gap:1px;overflow-x:auto;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{flex:1;padding:11px 4px 10px;text-align:center;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;color:rgba(255,255,255,.5);cursor:pointer;border-radius:8px 8px 0 0;transition:all .2s;border:none;background:transparent;white-space:nowrap;min-width:60px;}
+.tab.on{background:var(--sand);color:var(--primary);}
+
+/* LAYOUT */
+.content{padding:14px 12px;max-width:600px;margin:0 auto;}
+.pane{display:none;}.pane.on{display:block;}
+
+/* CARDS */
+.card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);}
+.ctitle{font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--primary);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.ctitle .bar{width:3px;height:16px;border-radius:2px;background:var(--primary);}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 20px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;transition:all .15s;min-height:48px;}
+.btn-p{background:var(--primary);color:#fff;}
+.btn-p:active{filter:brightness(.85);}
+.btn-a{background:var(--accent);color:#1a1a1a;}
+.btn-a:active{filter:brightness(.9);}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-d{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;}
+.btn-sm{padding:9px 14px;font-size:12px;min-height:40px;}
+.btn-w{width:100%;}
+
+/* FORMS */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
+.fg{margin-bottom:10px;}
+.lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
+.inp{width:100%;padding:13px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:var(--black);background:var(--white);min-height:48px;}
+.inp:focus{outline:none;border-color:var(--primary);}
+select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+
+/* MODAL */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:flex-end;justify-content:center;padding:0;}
+.overlay.on{display:flex;}
+.modal{background:var(--white);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-width:540px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow-lg);}
+.mtitle{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--primary);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
+.mclose{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gray);padding:10px 12px;margin:-10px -12px 0 0;}
+
+/* PIN */
+.pin-dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid var(--gray-light);background:transparent;transition:background .15s;}
+.pin-dot.filled{background:var(--primary);border-color:var(--primary);}
+.pin-btn{padding:16px 0;border-radius:12px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:24px;cursor:pointer;transition:all .12s;touch-action:manipulation;}
+.pin-btn:active{background:var(--primary);color:#fff;border-color:var(--primary);}
+
+/* MISC */
+.empty{text-align:center;padding:40px 20px;color:var(--gray);}
+.eico{font-size:40px;margin-bottom:10px;}
+.etxt{font-size:14px;line-height:1.6;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:13px 24px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+.stub-note{background:#fffbeb;border:1px solid #d4a843;border-radius:10px;padding:14px 16px;font-size:13px;color:#92400e;line-height:1.55;}
+
+/* TEAMS */
+.swatches{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2.5px solid transparent;transition:transform .12s;display:flex;align-items:center;justify-content:center;font-size:14px;}
+.swatch:active{transform:scale(.9);}
+.swatch.on{border-color:var(--black);box-shadow:0 0 0 2px var(--white) inset;}
+.swatch-none{background:var(--gray-lighter);color:var(--gray);font-weight:700;}
+.team-item{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--sand);border-radius:10px;border:1.5px solid var(--sand-border);margin-bottom:8px;}
+.team-color{width:14px;height:14px;border-radius:50%;flex-shrink:0;border:1.5px solid var(--white);box-shadow:0 0 0 1px var(--gray-light);}
+.team-color.empty{background:transparent;border:1.5px dashed var(--gray-light);box-shadow:none;}
+.team-body{flex:1;min-width:0;}
+.team-name{font-weight:700;font-size:15px;line-height:1.2;margin-bottom:2px;}
+.team-meta{font-size:12px;color:var(--gray);line-height:1.45;word-break:break-word;}
+.team-acts{display:flex;gap:6px;flex-shrink:0;}
+.team-empty{text-align:center;padding:24px 12px;color:var(--gray);font-size:13px;}
+.edit-banner{background:var(--light);border:1px solid var(--primary);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--primary);font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+
+/* SCHEDULE */
+.week-pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.wpill{padding:9px 14px;border-radius:24px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;cursor:pointer;min-height:40px;color:var(--gray);transition:all .12s;}
+.wpill.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+.wpill.past{color:var(--gray);border-color:var(--sand-border);}
+.week-card{background:var(--sand);border-radius:12px;border:1.5px solid var(--sand-border);padding:14px;margin-bottom:12px;}
+.week-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.week-label{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);}
+.week-date{font-size:12px;color:var(--gray);}
+.round-label{font-family:'Bebas Neue';font-size:11px;letter-spacing:1.5px;color:var(--gray);margin:10px 0 6px;}
+.match-row{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:10px 12px;background:var(--white);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--gray-light);font-size:13px;}
+.match-row.has-color-a{border-left-color:var(--team-a,var(--primary));}
+.match-tm{font-weight:700;line-height:1.25;display:flex;align-items:center;gap:6px;}
+.match-tm.right{justify-content:flex-end;text-align:right;}
+.match-vs{font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--gray);text-align:center;}
+.match-court{font-size:11px;color:var(--gray);margin-top:2px;font-weight:500;}
+.match-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.match-dot.empty{background:transparent;border:1.5px dashed var(--gray-light);}
+.match-result{font-size:11px;color:var(--win);font-weight:700;text-align:center;margin-top:2px;}
+.match-result.forf{color:#d97706;}
+.gen-block{display:flex;flex-direction:column;align-items:center;padding:20px 12px;color:var(--gray);font-size:13px;gap:12px;}
+.spin{width:28px;height:28px;border:3px solid var(--gray-light);border-top-color:var(--primary);border-radius:50%;animation:rot .8s linear infinite;}
+@keyframes rot{to{transform:rotate(360deg);}}
+.preview-banner{background:#d1fae5;border:1px solid #059669;border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.preview-banner-text{font-size:13px;color:#065f46;font-weight:600;line-height:1.45;}
+.warn-banner{background:#fef3c7;border:1px solid #d97706;border-radius:10px;padding:10px 12px;font-size:12px;color:#92400e;line-height:1.5;margin-bottom:10px;}
+.err-banner{background:#fee2e2;border:1px solid #dc2626;border-radius:10px;padding:12px 14px;font-size:13px;color:#991b1b;line-height:1.5;}
+
+/* SWAP BUTTON ON ADMIN MATCH ROW */
+.match-row{position:relative;}
+.match-row.adm{padding-right:46px;cursor:default;}
+.swap-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .12s;}
+.swap-btn:active{transform:translateY(-50%) scale(.9);}
+.swap-btn:hover{border-color:var(--primary);color:var(--primary);}
+
+/* SCORE ENTRY */
+.score-card{background:var(--white);border-radius:12px;border:1.5px solid var(--sand-border);padding:12px 14px;margin-bottom:10px;}
+.score-card.has-result{border-left:4px solid var(--win);}
+.score-card.forfeit{border-left:4px solid #d97706;}
+.score-head{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;}
+.score-tm{font-weight:700;font-size:14px;line-height:1.25;display:flex;align-items:center;gap:6px;}
+.score-tm.right{justify-content:flex-end;text-align:right;}
+.score-meta{font-size:11px;color:var(--gray);text-align:center;font-family:'Bebas Neue';letter-spacing:1px;}
+.score-result-line{margin-top:8px;padding-top:8px;border-top:1px dashed var(--sand-border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.score-result-text{font-size:13px;color:var(--win);font-weight:700;}
+.score-result-text.forf{color:#d97706;}
+.score-actions{display:flex;gap:6px;}
+.score-form{margin-top:10px;padding-top:10px;border-top:1px solid var(--sand-border);}
+.sets-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;}
+.set-block{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.set-lbl{font-family:'Bebas Neue';font-size:11px;letter-spacing:1.5px;color:var(--gray);}
+.set-row{display:grid;grid-template-columns:1fr 12px 1fr;gap:4px;align-items:center;width:100%;}
+.set-num{width:100%;padding:10px 4px;border:1.5px solid var(--gray-light);border-radius:8px;font-family:'Bebas Neue';font-size:22px;text-align:center;background:var(--white);color:var(--black);min-height:48px;}
+.set-num:focus{outline:none;border-color:var(--primary);background:var(--light);}
+.set-dash{text-align:center;color:var(--gray-light);font-family:'Bebas Neue';font-size:16px;}
+.forf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+.forf-btn{padding:11px 8px;background:#fffbeb;border:1.5px solid #d97706;color:#92400e;border-radius:10px;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;cursor:pointer;line-height:1.3;min-height:48px;}
+.forf-btn:active{filter:brightness(.92);}
+.score-form-actions{display:flex;gap:8px;}
+
+/* STANDINGS */
+.tbl{width:100%;border-collapse:collapse;}
+.tbl th{font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);padding:8px 6px;text-align:right;border-bottom:2px solid var(--sand-border);white-space:nowrap;}
+.tbl th:first-child,.tbl th:nth-child(2){text-align:left;}
+.tbl th:first-child{padding-left:14px;}
+.tbl td{padding:11px 6px;border-bottom:1px solid var(--sand-border);font-size:13px;vertical-align:middle;text-align:right;white-space:nowrap;}
+.tbl td:first-child,.tbl td:nth-child(2){text-align:left;}
+.tbl td:first-child{padding-left:14px;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:var(--light);cursor:pointer;}
+.rnk{font-family:'Bebas Neue';font-size:16px;min-width:22px;text-align:center;display:inline-block;}
+.rnk.r1{color:#d4a843;}
+.rnk.r2{color:#9ca3af;}
+.rnk.r3{color:#b45309;}
+.tname{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;}
+.pos{color:var(--win);font-weight:700;}
+.neg{color:var(--loss);font-weight:700;}
+.neu{color:var(--gray);}
+
+/* TEAM DETAIL */
+.td-match{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;}
+.td-match:last-child{border-bottom:none;}
+.td-week{font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);min-width:50px;}
+.td-opp{font-weight:600;}
+.td-res{font-weight:700;font-size:13px;}
+.td-res.w{color:var(--win);}
+.td-res.l{color:var(--loss);}
+.td-res.pending{color:var(--gray);font-weight:500;font-size:12px;}
+
+/* SWAP FORM */
+.swap-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+
+/* ADMIN CARD ORDER (scoped to .on so the pane respects .pane display rules) */
+#pane-admin.on{display:flex;flex-direction:column;}
+.card-admin-teams { order: 1; }
+.card-admin-roster{ order: 2; }
+.card-admin-sched { order: 3; }
+.card-admin-score { order: 4; }
+body.sched-locked .card-admin-score  { order: 1; }
+body.sched-locked .card-admin-sched  { order: 2; }
+body.sched-locked .card-admin-teams  { order: 3; }
+body.sched-locked .card-admin-roster { order: 4; }
+
+/* ADMIN LOCK SCREEN */
+.card-admin-lock{display:none;order:0;}
+body.admin-locked .card-admin-lock{display:block;}
+body.admin-locked .card-admin-teams,
+body.admin-locked .card-admin-roster,
+body.admin-locked .card-admin-sched,
+body.admin-locked .card-admin-score{display:none;}
+.lock-wrap{text-align:center;padding:24px 12px;}
+.lock-ico{font-size:42px;margin-bottom:10px;line-height:1;}
+.lock-title{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--primary);margin-bottom:6px;}
+.lock-msg{font-size:13px;color:var(--gray);margin-bottom:18px;line-height:1.55;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-top">
+    <div class="brand">
+      <span id="brand-ico">🏐</span>
+      Tally 4v4
+      <span class="sync off" id="sync" title="Connecting..."></span>
+    </div>
+    <div class="side-toggle">
+      <button class="side-btn on" id="btn-rec" onclick="switchDiv('rec')">Rec</button>
+      <button class="side-btn" id="btn-comp" onclick="switchDiv('comp')">Comp</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab on" data-tab="schedule">Schedule</button>
+    <button class="tab" data-tab="standings">Standings</button>
+    <button class="tab" data-tab="admin">Admin</button>
+  </div>
+</div>
+
+<div class="content">
+
+  <div class="pane on" id="pane-schedule">
+    <div id="pub-sched-host"></div>
+  </div>
+
+  <div class="pane" id="pane-standings">
+    <div id="standings-host"></div>
+  </div>
+
+  <div class="pane" id="pane-admin">
+
+    <div class="card card-admin-lock">
+      <div class="lock-wrap">
+        <div class="lock-ico">&#128274;</div>
+        <div class="lock-title">Admin Access</div>
+        <div class="lock-msg">Enter the admin PIN to access teams, schedule, and score entry.</div>
+        <button class="btn btn-p" style="min-width:180px;" onclick="promptAdminUnlock()">Enter PIN</button>
+      </div>
+    </div>
+
+    <div class="card card-admin-teams">
+      <div class="ctitle"><span class="bar"></span>Teams <span id="teams-count" style="font-size:13px;font-weight:400;color:var(--gray);margin-left:6px;"></span></div>
+
+      <div id="edit-banner" class="edit-banner" style="display:none;">
+        <span id="edit-banner-text">Editing team</span>
+        <button class="btn btn-g btn-sm" onclick="cancelEdit()">Cancel</button>
+      </div>
+
+      <div class="fg">
+        <label class="lbl">Team Name *</label>
+        <input class="inp" id="t-name" placeholder="Sand Vipers" maxlength="60">
+      </div>
+      <div class="fg">
+        <label class="lbl">Captain Name *</label>
+        <input class="inp" id="t-cap" placeholder="Jane Doe" maxlength="60">
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Captain Email</label>
+          <input class="inp" id="t-email" placeholder="jane@example.com" type="email" maxlength="120">
+        </div>
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Captain Phone</label>
+          <input class="inp" id="t-phone" placeholder="850-555-1234" type="tel" maxlength="30">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Team Color (optional)</label>
+        <div class="swatches" id="swatches"></div>
+      </div>
+      <button class="btn btn-p btn-w" id="t-save-btn" onclick="saveTeam()">+ Add Team</button>
+    </div>
+
+    <div class="card card-admin-roster">
+      <div class="ctitle"><span class="bar"></span>Roster</div>
+      <div id="teams-list"></div>
+    </div>
+
+    <div class="card card-admin-sched">
+      <div class="ctitle"><span class="bar"></span>Schedule Generation</div>
+      <div id="sched-status"></div>
+      <div class="row2">
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Season Start Date</label>
+          <input class="inp" id="sg-start" type="date" value="2026-06-08">
+        </div>
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Weeks</label>
+          <input class="inp" id="sg-weeks" type="number" min="1" max="20" value="8">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Courts</label>
+          <input class="inp" id="sg-courts" type="number" min="1" max="8" value="4">
+        </div>
+        <div class="fg" style="margin:0;">
+          <label class="lbl">Matches / Court / Night</label>
+          <input class="inp" id="sg-mpc" type="number" min="1" max="6" value="2">
+        </div>
+      </div>
+      <div id="sg-helper" style="font-size:12px;color:var(--gray);margin:4px 0 12px;line-height:1.5;"></div>
+      <button class="btn btn-a btn-w" id="sg-gen-btn" onclick="genSchedule()">&#129302; Generate Schedule</button>
+      <div id="sg-preview" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card card-admin-score">
+      <div class="ctitle"><span class="bar"></span>Score Entry</div>
+      <div id="se-host"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="overlay" id="pin-modal" onclick="if(event.target===this)closeModal('pin-modal')">
+  <div class="modal" style="border-radius:20px 20px 0 0;max-width:340px;margin:0 auto;">
+    <div class="mtitle"><span id="pin-modal-title">Admin PIN</span><button class="mclose" onclick="closeModal('pin-modal')">&#10005;</button></div>
+    <div style="text-align:center;padding:8px 0 16px;">
+      <div style="display:flex;justify-content:center;gap:10px;margin-bottom:20px;">
+        <span class="pin-dot" id="pd0"></span><span class="pin-dot" id="pd1"></span>
+        <span class="pin-dot" id="pd2"></span><span class="pin-dot" id="pd3"></span>
+      </div>
+      <div id="pin-error" style="color:var(--loss);font-size:13px;font-weight:700;min-height:18px;margin-bottom:10px;"></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto;">
+        <button class="pin-btn" onclick="pinTap('1')">1</button><button class="pin-btn" onclick="pinTap('2')">2</button><button class="pin-btn" onclick="pinTap('3')">3</button>
+        <button class="pin-btn" onclick="pinTap('4')">4</button><button class="pin-btn" onclick="pinTap('5')">5</button><button class="pin-btn" onclick="pinTap('6')">6</button>
+        <button class="pin-btn" onclick="pinTap('7')">7</button><button class="pin-btn" onclick="pinTap('8')">8</button><button class="pin-btn" onclick="pinTap('9')">9</button>
+        <button class="pin-btn" style="background:var(--gray-lighter);color:var(--gray);" onclick="pinTap('back')">&#9003;</button>
+        <button class="pin-btn" onclick="pinTap('0')">0</button>
+        <button class="pin-btn" style="background:var(--gray-lighter);color:var(--gray);font-size:11px;" onclick="pinTap('clear')">CLR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="swap-modal" onclick="if(event.target===this)closeModal('swap-modal')">
+  <div class="modal">
+    <div class="mtitle"><span>Edit Matchup</span><button class="mclose" onclick="closeModal('swap-modal')">&#10005;</button></div>
+    <div id="swap-body"></div>
+  </div>
+</div>
+
+<div class="overlay" id="team-modal" onclick="if(event.target===this)closeModal('team-modal')">
+  <div class="modal">
+    <div class="mtitle"><span id="team-modal-title">Team Detail</span><button class="mclose" onclick="closeModal('team-modal')">&#10005;</button></div>
+    <div id="team-modal-body"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// FIREBASE CONFIG
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const DB_ROOT = 'tally_4v4';
+const ADMIN_PIN = '8675';
+const AI_URL = 'https://leon-beach-ai.markmcnees-479.workers.dev';
+
+// STATE
+let db = null;
+let DIV = 'rec';
+let tab = 'schedule';
+let _pinAdminUntil = 0;
+const SESSION_PIN_MS = 60 * 60 * 1000;
+let D = {
+  rec:  {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}, archive:{}},
+  comp: {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}, archive:{}}
+};
+let _selectedWeek = null;
+let _previewBannerDismissed = false;
+let _seWeek = null;     // cached, per-DIV (synced with sessionStorage)
+let _seOpenId = null;   // cached, per-DIV (synced with sessionStorage)
+let _swapCtx = null;
+
+// PER-DIV SCORE ENTRY STATE
+function _seKeyWeek(){ return '4v4_se_week_' + DIV; }
+function _seKeyOpen(){ return '4v4_se_open_' + DIV; }
+function _seKeyDraft(mid){ return '4v4_se_' + DIV + '_' + mid; }
+
+function loadDivState(){
+  try{
+    const w = sessionStorage.getItem(_seKeyWeek());
+    _seWeek = w ? parseInt(w, 10) : null;
+    const o = sessionStorage.getItem(_seKeyOpen());
+    _seOpenId = o || null;
+  }catch(e){ _seWeek = null; _seOpenId = null; }
+}
+function setSeWeek(n){
+  _seWeek = n;
+  try{
+    if(n != null) sessionStorage.setItem(_seKeyWeek(), String(n));
+    else sessionStorage.removeItem(_seKeyWeek());
+  }catch(e){}
+}
+function setSeOpenId(id){
+  _seOpenId = id || null;
+  try{
+    if(id) sessionStorage.setItem(_seKeyOpen(), id);
+    else sessionStorage.removeItem(_seKeyOpen());
+  }catch(e){}
+}
+function saveDraft(mid){
+  if(!mid) return;
+  const sets = [];
+  for(let i=1;i<=3;i++){
+    const a = $('se-s'+i+'a');
+    const b = $('se-s'+i+'b');
+    sets.push({a: a ? a.value : '', b: b ? b.value : ''});
+  }
+  try{ sessionStorage.setItem(_seKeyDraft(mid), JSON.stringify({sets, opened: true})); }catch(e){}
+}
+function loadDraft(mid){
+  try{
+    const raw = sessionStorage.getItem(_seKeyDraft(mid));
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+function clearDraft(mid){
+  if(!mid) return;
+  try{ sessionStorage.removeItem(_seKeyDraft(mid)); }catch(e){}
+}
+function seDraftInput(mid){ saveDraft(mid); }
+
+// HELPERS
+const $ = id => document.getElementById(id);
+function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
+function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
+function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
+function closeModal(id){$(id).classList.remove('on');}
+
+// FIREBASE INIT
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+    setSS(true);
+    db.ref(DB_ROOT).on('value', snap=>{
+      const v = snap.val() || {};
+      ['rec','comp'].forEach(s=>{
+        const sv = v[s] || {};
+        D[s].config       = sv.config       || {};
+        D[s].teams        = sv.teams        || {};
+        D[s].schedule     = sv.schedule     || {};
+        D[s].scheduleMeta = sv.scheduleMeta || {};
+        D[s].results      = sv.results      || {};
+        D[s].archive      = sv.archive      || {};
+      });
+      refreshAll();
+    }, e => { console.error(e); setSS(false); });
+    db.ref('.info/connected').on('value', s => setSS(s.val()===true));
+  }catch(e){ console.error(e); setSS(false); }
+}
+function setSS(on){
+  const d = $('sync');
+  d.className = 'sync ' + (on?'on':'off');
+  d.title = on ? 'Connected' : 'Offline';
+}
+
+// DIVISION / TABS
+function switchDiv(s){
+  if(_swapCtx){ closeModal('swap-modal'); _swapCtx = null; }
+  DIV = s;
+  document.body.classList.toggle('comp', s==='comp');
+  $('btn-rec').classList.toggle('on', s==='rec');
+  $('btn-comp').classList.toggle('on', s==='comp');
+  _selectedWeek = null;
+  _previewBannerDismissed = false;
+  loadDivState();
+  refreshAll();
+}
+function initTabs(){
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.addEventListener('click',()=>{
+      const dest = t.dataset.tab;
+      if(dest === 'admin' && Date.now() > _pinAdminUntil){
+        _pinAction = 'admin';
+        _pinEntry = '';
+        updatePinDots();
+        $('pin-error').textContent = '';
+        $('pin-modal-title').textContent = 'Admin PIN';
+        $('pin-modal').classList.add('on');
+        window._pendingTab = t;
+        return;
+      }
+      activateTab(t);
+    });
+  });
+}
+function activateTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');
+  tab = t.dataset.tab;
+  $('pane-'+tab).classList.add('on');
+  refreshTab(tab);
+}
+
+// REFRESH
+function refreshAll(){ applyAdminOrder(); applyAdminLock(); refreshTab(tab); }
+function applyAdminOrder(){
+  const locked = !!(D[DIV] && D[DIV].scheduleMeta && D[DIV].scheduleMeta.locked);
+  document.body.classList.toggle('sched-locked', locked);
+}
+function refreshTab(which){
+  if(which === 'admin'){
+    applyAdminLock();
+    renderTeams();
+    renderScheduleGen();
+    renderScoreEntry();
+  }
+  if(which === 'schedule') renderPublicSchedule();
+  if(which === 'standings') renderStandings();
+}
+
+// TEAMS
+const TEAM_COLORS = [
+  {hex:'#1a3a6b', name:'Navy'},
+  {hex:'#0891b2', name:'Teal'},
+  {hex:'#047857', name:'Forest'},
+  {hex:'#d97706', name:'Amber'},
+  {hex:'#ea580c', name:'Sunset'},
+  {hex:'#dc2626', name:'Coral'},
+  {hex:'#db2777', name:'Pink'},
+  {hex:'#7c3aed', name:'Plum'},
+  {hex:'#475569', name:'Slate'}
+];
+let _teamColor = null;
+let _editingTeamId = null;
+
+function renderSwatches(){
+  const c = $('swatches');
+  if(!c) return;
+  const none = '<div class="swatch swatch-none'+(_teamColor===null?' on':'')+'" onclick="pickColor(null)" title="No color">&#216;</div>';
+  const rest = TEAM_COLORS.map(c =>
+    '<div class="swatch'+(_teamColor===c.hex?' on':'')+'" style="background:'+c.hex+'" onclick="pickColor(\''+c.hex+'\')" title="'+c.name+'"></div>'
+  ).join('');
+  c.innerHTML = none + rest;
+}
+function pickColor(hex){
+  _teamColor = hex;
+  renderSwatches();
+}
+
+function slugify(s){
+  return (s||'').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    .slice(0,32) || 'team';
+}
+function rand6(){ return Math.random().toString(36).slice(2,8); }
+
+function clearTeamForm(){
+  $('t-name').value = '';
+  $('t-cap').value = '';
+  $('t-email').value = '';
+  $('t-phone').value = '';
+  _teamColor = null;
+  _editingTeamId = null;
+  $('t-save-btn').textContent = '+ Add Team';
+  $('edit-banner').style.display = 'none';
+  renderSwatches();
+}
+function cancelEdit(){ clearTeamForm(); }
+
+function saveTeam(){
+  if(!requireAdmin('saveTeam')) return;
+  const name  = $('t-name').value.trim();
+  const cap   = $('t-cap').value.trim();
+  const email = $('t-email').value.trim();
+  const phone = $('t-phone').value.trim();
+  if(!name){ toast('Team name is required'); $('t-name').focus(); return; }
+  if(!cap){ toast('Captain name is required'); $('t-cap').focus(); return; }
+  if(email && !/^\S+@\S+\.\S+$/.test(email)){ toast('Captain email looks invalid'); $('t-email').focus(); return; }
+
+  const id = _editingTeamId || ('team_'+slugify(name)+'_'+rand6());
+  const team = {
+    id, name,
+    captainName:  cap,
+    captainEmail: email || '',
+    captainPhone: phone || '',
+    color:        _teamColor || ''
+  };
+  fbSet(DIV+'/teams/'+id, team);
+  toast(_editingTeamId ? 'Team updated' : 'Team added');
+  clearTeamForm();
+}
+
+function editTeam(id){
+  if(!requireAdmin('editTeam:'+id)) return;
+  const t = (D[DIV].teams||{})[id];
+  if(!t){ toast('Team not found'); return; }
+  _editingTeamId = id;
+  $('t-name').value  = t.name || '';
+  $('t-cap').value   = t.captainName || '';
+  $('t-email').value = t.captainEmail || '';
+  $('t-phone').value = t.captainPhone || '';
+  _teamColor = t.color || null;
+  renderSwatches();
+  $('t-save-btn').textContent = 'Save Changes';
+  $('edit-banner-text').textContent = 'Editing: '+(t.name||'team');
+  $('edit-banner').style.display = 'flex';
+  $('t-name').focus();
+  $('t-name').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function deleteTeam(id){
+  if(!requireAdmin('deleteTeam:'+id)) return;
+  const t = (D[DIV].teams||{})[id];
+  if(!t) return;
+  if(!confirm('Delete team "'+(t.name||'team')+'"? This cannot be undone.')) return;
+  fbDel(DIV+'/teams/'+id);
+  if(_editingTeamId === id) clearTeamForm();
+  toast('Team deleted');
+}
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+
+function renderTeams(){
+  const list = $('teams-list');
+  const count = $('teams-count');
+  if(!list || !count) return;
+  const teams = Object.values(D[DIV].teams||{})
+    .filter(t => t && t.id && t.name)
+    .sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  count.textContent = teams.length ? '('+teams.length+(teams.length===1?' team)':' teams)') : '';
+  if(!teams.length){
+    list.innerHTML = '<div class="team-empty">No teams yet. Add the first one above.</div>';
+    return;
+  }
+  list.innerHTML = teams.map(t => {
+    const color = t.color
+      ? '<span class="team-color" style="background:'+escapeHtml(t.color)+'"></span>'
+      : '<span class="team-color empty"></span>';
+    const meta = [];
+    meta.push('Captain: '+escapeHtml(t.captainName||'?'));
+    if(t.captainEmail) meta.push(escapeHtml(t.captainEmail));
+    if(t.captainPhone) meta.push(escapeHtml(t.captainPhone));
+    return '<div class="team-item">'
+      + color
+      + '<div class="team-body">'
+        + '<div class="team-name">'+escapeHtml(t.name)+'</div>'
+        + '<div class="team-meta">'+meta.join(' &middot; ')+'</div>'
+      + '</div>'
+      + '<div class="team-acts">'
+        + '<button class="btn btn-g btn-sm" onclick="editTeam(\''+t.id+'\')">Edit</button>'
+        + '<button class="btn btn-d btn-sm" onclick="deleteTeam(\''+t.id+'\')">Delete</button>'
+      + '</div>'
+    + '</div>';
+  }).join('');
+}
+
+// ADMIN SESSION GUARD
+function isAdminAuthed(){ return Date.now() < _pinAdminUntil; }
+function applyAdminLock(){ document.body.classList.toggle('admin-locked', !isAdminAuthed()); }
+function requireAdmin(actionId){
+  if(isAdminAuthed()) return true;
+  _pinAction = 'reauth';
+  _pinEntry = '';
+  updatePinDots();
+  $('pin-error').textContent = '';
+  $('pin-modal-title').textContent = 'Admin PIN';
+  $('pin-modal').classList.add('on');
+  toast('Session expired. Enter PIN to continue.');
+  return false;
+}
+function promptAdminUnlock(){
+  _pinAction = 'admin';
+  _pinEntry = '';
+  updatePinDots();
+  $('pin-error').textContent = '';
+  $('pin-modal-title').textContent = 'Admin PIN';
+  $('pin-modal').classList.add('on');
+  window._pendingTab = document.querySelector('.tab[data-tab="admin"]');
+}
+
+// SCHEDULE: SHARED
+function teamById(id){
+  if(!id) return null;
+  return (D[DIV].teams||{})[id] || null;
+}
+function teamLabel(id){
+  const t = teamById(id);
+  return t ? t.name : '(deleted team)';
+}
+function teamColor(id){
+  const t = teamById(id);
+  return t && t.color ? t.color : '';
+}
+function fmtDate(s){
+  if(!s) return '';
+  const d = new Date(s+'T12:00:00');
+  return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+}
+function addDays(yyyy_mm_dd, n){
+  const d = new Date(yyyy_mm_dd+'T12:00:00');
+  d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function buildScheduleDates(startDate, weeks){
+  const out = [];
+  for(let i=0;i<weeks;i++) out.push(addDays(startDate, i*7));
+  return out;
+}
+function todayYMD(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function currentWeekIndex(){
+  const sched = D[DIV].schedule || {};
+  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  if(!weeks.length) return null;
+  const today = todayYMD();
+  let best = weeks[0].week;
+  for(const w of weeks){
+    if(w.date <= today) best = w.week;
+  }
+  return best;
+}
+function resultsCount(){
+  return Object.keys(D[DIV].results||{}).length;
+}
+
+// SCHEDULE GENERATION (Admin)
+function renderScheduleGen(){
+  const teamCount = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id).length;
+  const helper = $('sg-helper');
+  const btn = $('sg-gen-btn');
+  const status = $('sched-status');
+  const meta = D[DIV].scheduleMeta || {};
+  const sched = D[DIV].schedule || {};
+  const hasSched = Object.keys(sched).length > 0;
+  const rCount = resultsCount();
+
+  if(helper){
+    if(teamCount < 4){
+      helper.innerHTML = '<strong>Need at least 4 teams to generate.</strong> Currently '+teamCount+' team'+(teamCount===1?'':'s')+' in '+(DIV==='rec'?'Rec':'Comp')+'.';
+    }else{
+      helper.innerHTML = teamCount+' teams in '+(DIV==='rec'?'Rec':'Comp')+'. AI will balance opponents and courts.';
+    }
+  }
+  if(btn){
+    btn.disabled = teamCount < 4;
+    btn.style.opacity = teamCount < 4 ? '.5' : '1';
+    btn.style.cursor = teamCount < 4 ? 'not-allowed' : 'pointer';
+    if(hasSched){
+      btn.textContent = '♻ Regenerate Schedule';
+    }else{
+      btn.innerHTML = '&#129302; Generate Schedule';
+    }
+  }
+  if(status){
+    if(hasSched){
+      const dt = meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : 'previously';
+      const lockNote = rCount > 0
+        ? ' <strong>'+rCount+' result'+(rCount===1?'':'s')+' recorded</strong>; regeneration will wipe them.'
+        : '';
+      status.innerHTML = '<div class="warn-banner">Schedule locked. Generated '+escapeHtml(dt)+'.'+lockNote+'</div>';
+    }else{
+      status.innerHTML = '';
+    }
+  }
+  renderAdminPreview();
+}
+
+async function genSchedule(){
+  if(!requireAdmin('genSchedule')) return;
+  const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name);
+  if(teams.length < 4){ toast('Need at least 4 teams'); return; }
+
+  const startDate = $('sg-start').value;
+  const weeks  = parseInt($('sg-weeks').value, 10);
+  const courts = parseInt($('sg-courts').value, 10);
+  const mpc    = parseInt($('sg-mpc').value, 10);
+  if(!startDate){ toast('Pick a start date'); return; }
+  if(!(weeks>=1 && weeks<=20)){ toast('Weeks must be 1 to 20'); return; }
+  if(!(courts>=1 && courts<=8)){ toast('Courts must be 1 to 8'); return; }
+  if(!(mpc>=1 && mpc<=6)){ toast('Matches per court must be 1 to 6'); return; }
+
+  const hasSched = Object.keys(D[DIV].schedule||{}).length > 0;
+  const rCount = resultsCount();
+  if(hasSched){
+    if(!confirm('This wipes the current schedule. Continue?')) return;
+    if(rCount > 0){
+      if(!confirm('This also wipes '+rCount+' recorded result'+(rCount===1?'':'s')+'. Continue?')) return;
+    }
+  }
+
+  const dates = buildScheduleDates(startDate, weeks);
+  const teamsSorted = teams.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const shortToId = {}, idToShort = {};
+  teamsSorted.forEach((t,i)=>{ const sid='T'+(i+1); shortToId[sid]=t.id; idToShort[t.id]=sid; });
+
+  const teamLines = teamsSorted.map((t,i)=>'T'+(i+1)+': '+t.name).join('\n');
+  const datesList = dates.map((d,i)=>'Week '+(i+1)+': '+d).join('\n');
+  const fullRR = teamsSorted.length * (teamsSorted.length-1) / 2;
+  const totalSlots = courts * mpc * weeks;
+  const matchesPerNight = courts * mpc;
+
+  const prompt = 'You are scheduling a 4v4 beach volleyball league.\n\n'
+    + 'Teams ('+teamsSorted.length+' total). Use these short IDs in your output:\n'
+    + teamLines + '\n\n'
+    + 'Season setup:\n'
+    + '- '+weeks+' weeks, one league night per week\n'
+    + '- '+courts+' courts available per night (numbered 1 to '+courts+')\n'
+    + '- '+mpc+' matches per court per night ('+mpc+' rounds; rounds numbered 1 to '+mpc+')\n'
+    + '- '+matchesPerNight+' matches per night, '+totalSlots+' total matchup slots across the season\n'
+    + '- Full round-robin for '+teamsSorted.length+' teams is '+fullRR+' unique matchups\n\n'
+    + 'Dates for each week (use exactly these):\n'
+    + datesList + '\n\n'
+    + 'Scheduling rules:\n'
+    + '1. Every team should play as many DISTINCT opponents as possible. Maximize unique pairings first.\n'
+    + '2. If total slots exceed the full round-robin, allow repeats but distribute them so no two teams face each other more than the minimum number of times.\n'
+    + '3. Within a single round on a single night, each team appears in at most one matchup.\n'
+    + '4. Across each night, distribute matches as evenly as possible across teams. Avoid any team playing zero matches on a night unless mathematically required by team count.\n'
+    + '5. Spread each team\'s appearances across the season; avoid loading too many matches onto one early week or one late week.\n'
+    + '6. Court numbers can repeat across rounds (court 1 round 1 and court 1 round 2 are different match slots).\n\n'
+    + 'Return ONLY a JSON array of weeks. No markdown fences, no preamble, no commentary, no trailing text.\n'
+    + 'Shape:\n'
+    + '[\n'
+    + '  {"week":1,"date":"'+dates[0]+'","matchups":[\n'
+    + '    {"teamAId":"T1","teamBId":"T2","court":1,"round":1},\n'
+    + '    {"teamAId":"T3","teamBId":"T4","court":2,"round":1}\n'
+    + '  ]},\n'
+    + '  ...\n'
+    + ']\n\n'
+    + 'Use ONLY the short IDs (T1 through T'+teamsSorted.length+') for teamAId and teamBId.\n'
+    + 'Every matchup must have all four fields: teamAId, teamBId, court, round.\n'
+    + 'teamAId and teamBId in the same matchup must be different.';
+
+  const preview = $('sg-preview');
+  preview.innerHTML = '<div class="gen-block"><div class="spin"></div><div>Generating schedule. This usually takes 10 to 30 seconds.</div></div>';
+
+  let parsed = null;
+  try{
+    const res = await fetch(AI_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{role:'user', content: prompt}]
+      })
+    });
+    const data = await res.json();
+    const text = (data.content||[]).map(c=>c.text||'').join('') || '';
+    try{
+      const clean = text.replace(/```json|```/g,'').trim();
+      const s = clean.indexOf('['), e = clean.lastIndexOf(']');
+      if(s<0 || e<0) throw new Error('no JSON array found');
+      parsed = JSON.parse(clean.slice(s, e+1));
+    }catch(pe){
+      console.error('parse error', pe, text);
+      preview.innerHTML = '<div class="err-banner">Could not parse AI response. It may have been cut off or malformed. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+      return;
+    }
+  }catch(err){
+    console.error(err);
+    preview.innerHTML = '<div class="err-banner">Network error contacting the AI service. Check your connection. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+    return;
+  }
+
+  if(!Array.isArray(parsed) || !parsed.length){
+    preview.innerHTML = '<div class="err-banner">AI returned an empty schedule. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+    return;
+  }
+
+  const scheduleOut = {};
+  let bad = false;
+  parsed.forEach(w=>{
+    if(!w || !w.week) return;
+    const wnum = parseInt(w.week, 10);
+    if(!(wnum>=1)) return;
+    const date = (typeof w.date === 'string' && w.date) ? w.date : (dates[wnum-1] || '');
+    const matchupsIn = Array.isArray(w.matchups) ? w.matchups : [];
+    const matchups = [];
+    matchupsIn.forEach(m=>{
+      if(!m) return;
+      const aShort = String(m.teamAId||'').trim();
+      const bShort = String(m.teamBId||'').trim();
+      const aId = shortToId[aShort];
+      const bId = shortToId[bShort];
+      const court = parseInt(m.court,10);
+      const round = parseInt(m.round,10);
+      if(!aId || !bId || aId===bId || !(court>=1) || !(round>=1)){ bad = true; return; }
+      matchups.push({
+        id: 'm_w'+wnum+'_r'+round+'_c'+court,
+        teamAId: aId,
+        teamBId: bId,
+        court: court,
+        round: round
+      });
+    });
+    scheduleOut[String(wnum)] = { week: wnum, date: date, matchups: matchups };
+  });
+
+  if(Object.keys(scheduleOut).length === 0){
+    preview.innerHTML = '<div class="err-banner">AI returned no valid weeks. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+    return;
+  }
+
+  _previewBannerDismissed = false;
+  await writeSchedule(scheduleOut, { startDate, weeks, courts, mpc, hadResults: rCount > 0 });
+  if(bad) toast('Schedule generated, some matchups were dropped (bad IDs).');
+  else    toast('Schedule generated.');
+}
+
+async function writeSchedule(scheduleObj, opts){
+  if(!db) return;
+  if(opts && opts.hadResults){
+    await db.ref(DB_ROOT+'/'+DIV+'/results').remove();
+  }
+  await db.ref(DB_ROOT+'/'+DIV+'/schedule').set(scheduleObj);
+  await db.ref(DB_ROOT+'/'+DIV+'/scheduleMeta').set({
+    generatedAt: Date.now(),
+    locked: true,
+    weekCount: opts.weeks,
+    courtCount: opts.courts,
+    matchesPerCourt: opts.mpc,
+    startDate: opts.startDate
+  });
+}
+
+// SCHEDULE PREVIEW (Admin)
+function dismissPreviewBanner(){
+  _previewBannerDismissed = true;
+  renderAdminPreview();
+}
+function renderAdminPreview(){
+  const host = $('sg-preview');
+  if(!host) return;
+  const sched = D[DIV].schedule || {};
+  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  if(!weeks.length){ host.innerHTML = ''; return; }
+  const banner = _previewBannerDismissed ? '' :
+    '<div class="preview-banner">'
+    +'<div class="preview-banner-text">Schedule generated. Review matchups, courts, and dates below. Tap Looks Right to dismiss this banner.</div>'
+    +'<button class="btn btn-p btn-sm" onclick="dismissPreviewBanner()">Looks Right</button>'
+    +'</div>';
+  host.innerHTML = banner + weeks.map(w => renderWeekCard(w, {showResult:true, showAdmin:true})).join('');
+}
+
+function renderWeekCard(w, opts){
+  opts = opts || {};
+  if(!w) return '';
+  const items = (w.matchups||[]).map((m,i) => ({m, idx:i})).filter(x => x.m);
+  items.sort((a,b) => (a.m.round - b.m.round) || (a.m.court - b.m.court));
+  const byRound = {};
+  items.forEach(it => { (byRound[it.m.round] = byRound[it.m.round] || []).push(it); });
+  const rounds = Object.keys(byRound).map(Number).sort((a,b)=>a-b);
+  const inner = rounds.length ? rounds.map(rn => {
+    const sorted = byRound[rn].slice().sort((a,b) => a.m.court - b.m.court);
+    return '<div class="round-label">Round '+rn+'</div>'
+      + sorted.map(it => renderMatchRow(it.m, w.week, it.idx, opts)).join('');
+  }).join('') : '<div style="font-size:13px;color:var(--gray);padding:6px 2px;">No matchups for this week.</div>';
+  return '<div class="week-card">'
+    + '<div class="week-hdr">'
+    + '<span class="week-label">Week '+w.week+'</span>'
+    + '<span class="week-date">'+escapeHtml(fmtDate(w.date))+'</span>'
+    + '</div>'
+    + inner
+    + '</div>';
+}
+
+function renderMatchRow(m, weekNum, idx, opts){
+  opts = opts || {};
+  if(!m) return '';
+  const aName = teamLabel(m.teamAId);
+  const bName = teamLabel(m.teamBId);
+  const aColor = teamColor(m.teamAId);
+  const bColor = teamColor(m.teamBId);
+  const aDot = aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  const bDot = bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  let resultLine = '';
+  if(opts.showResult){
+    const r = (D[DIV].results||{})[m.id];
+    if(r){
+      if(r.isForfeit){
+        const wName = teamLabel(r.winnerId);
+        resultLine = '<div class="match-result forf">Forfeit, '+escapeHtml(wName)+' wins</div>';
+      }else if(Array.isArray(r.sets) && r.sets.length){
+        const aSets = r.sets.filter(s=>s.a>s.b).length;
+        const bSets = r.sets.filter(s=>s.b>s.a).length;
+        const wName = teamLabel(r.winnerId);
+        resultLine = '<div class="match-result">'+aSets+'-'+bSets+', '+escapeHtml(wName)+' wins</div>';
+      }
+    }
+  }
+  const rowClass = 'match-row' + (opts.showAdmin ? ' adm' : '');
+  const swapBtn = opts.showAdmin
+    ? '<button class="swap-btn" title="Edit matchup" onclick="openSwapModal('+weekNum+','+idx+')">&#9998;</button>'
+    : '';
+  return '<div class="'+rowClass+'">'
+    + '<div class="match-tm">'+aDot+'<span>'+escapeHtml(aName)+'</span></div>'
+    + '<div>'
+    +   '<div class="match-vs">vs</div>'
+    +   '<div class="match-court">Court '+m.court+'</div>'
+    +   resultLine
+    + '</div>'
+    + '<div class="match-tm right"><span>'+escapeHtml(bName)+'</span>'+bDot+'</div>'
+    + swapBtn
+    + '</div>';
+}
+
+// PUBLIC SCHEDULE TAB
+function renderPublicSchedule(){
+  const host = $('pub-sched-host');
+  if(!host) return;
+  const sched = D[DIV].schedule || {};
+  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  if(!weeks.length){
+    host.innerHTML = '<div class="card"><div class="ctitle"><span class="bar"></span>Schedule</div>'
+      + '<div class="empty"><div class="eico">&#128197;</div><div class="etxt">Schedule will appear here once generated by admin.</div></div></div>';
+    return;
+  }
+  if(_selectedWeek == null) _selectedWeek = currentWeekIndex() || weeks[0].week;
+  const today = todayYMD();
+  const pills = weeks.map(w => {
+    const cls = 'wpill' + (w.week === _selectedWeek ? ' on' : (w.date < today ? ' past' : ''));
+    return '<button class="'+cls+'" onclick="selectWeek('+w.week+')">Wk '+w.week+'</button>';
+  }).join('');
+  const sel = weeks.find(w => w.week === _selectedWeek) || weeks[0];
+  host.innerHTML = '<div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>'+escapeHtml(DIV==='rec'?'Recreational 4v4':'Competitive 4v4')+'</div>'
+    + '<div class="week-pills">'+pills+'</div>'
+    + renderWeekCard(sel, {showResult:true, showAdmin:false})
+    + '</div>';
+}
+function selectWeek(n){
+  _selectedWeek = n;
+  renderPublicSchedule();
+}
+
+// PER-MATCHUP SWAP
+function openSwapModal(weekNum, idx){
+  if(!requireAdmin('swap')) return;
+  const week = (D[DIV].schedule||{})[String(weekNum)];
+  if(!week || !Array.isArray(week.matchups) || !week.matchups[idx]){ toast('Matchup not found'); return; }
+  const m = week.matchups[idx];
+  const existing = (D[DIV].results||{})[m.id];
+  const body = $('swap-body');
+  if(existing){
+    body.innerHTML = '<div class="err-banner" style="margin-bottom:14px;">'
+      + 'A result is already recorded for this matchup. Delete the result first, then edit the matchup.'
+      + '</div>'
+      + '<button class="btn btn-g btn-w" onclick="closeModal(\'swap-modal\')">Close</button>';
+    $('swap-modal').classList.add('on');
+    return;
+  }
+  _swapCtx = { div: DIV, weekNum: weekNum, idx: idx, origId: m.id };
+  const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const optsHtml = teams.map(t => '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.name)+'</option>').join('');
+  body.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-bottom:10px;">Week '+weekNum+', Round '+m.round+', Court '+m.court+'</div>'
+    + '<div class="fg">'
+    +   '<label class="lbl">Team A</label>'
+    +   '<select class="inp" id="sw-a">'+optsHtml+'</select>'
+    + '</div>'
+    + '<div class="fg">'
+    +   '<label class="lbl">Team B</label>'
+    +   '<select class="inp" id="sw-b">'+optsHtml+'</select>'
+    + '</div>'
+    + '<div class="swap-grid">'
+    +   '<div class="fg" style="margin:0;"><label class="lbl">Court</label><input class="inp" id="sw-court" type="number" min="1" max="8" value="'+m.court+'"></div>'
+    +   '<div class="fg" style="margin:0;"><label class="lbl">Round</label><input class="inp" id="sw-round" type="number" min="1" max="6" value="'+m.round+'"></div>'
+    + '</div>'
+    + '<button class="btn btn-p btn-w" onclick="saveSwap()">Save Matchup</button>';
+  $('swap-modal').classList.add('on');
+  $('sw-a').value = m.teamAId;
+  $('sw-b').value = m.teamBId;
+}
+
+function saveSwap(){
+  if(!_swapCtx) return;
+  if(_swapCtx.div !== DIV){
+    toast('Division changed while editing. Swap cancelled.');
+    closeModal('swap-modal');
+    _swapCtx = null;
+    return;
+  }
+  if(!requireAdmin('saveSwap')) return;
+  const week = (D[DIV].schedule||{})[String(_swapCtx.weekNum)];
+  if(!week || !Array.isArray(week.matchups)){ toast('Matchup not found'); return; }
+  const aId = $('sw-a').value;
+  const bId = $('sw-b').value;
+  const court = parseInt($('sw-court').value, 10);
+  const round = parseInt($('sw-round').value, 10);
+  if(!aId || !bId){ toast('Pick both teams'); return; }
+  if(aId === bId){ toast('Team A and Team B must differ'); return; }
+  if(!(court>=1 && court<=8)){ toast('Court must be 1 to 8'); return; }
+  if(!(round>=1 && round<=6)){ toast('Round must be 1 to 6'); return; }
+  const newId = 'm_w'+_swapCtx.weekNum+'_r'+round+'_c'+court;
+  if(newId !== _swapCtx.origId){
+    const dupe = week.matchups.some((mm,i) => mm && i !== _swapCtx.idx && mm.id === newId);
+    if(dupe){ toast('Another matchup already uses round '+round+' court '+court); return; }
+  }
+
+  const conflictTeams = new Set();
+  week.matchups.forEach((mm, i) => {
+    if(!mm || i === _swapCtx.idx) return;
+    if(mm.round !== round) return;
+    if(mm.court === court) return;
+    if(mm.teamAId === aId || mm.teamBId === aId) conflictTeams.add(aId);
+    if(mm.teamAId === bId || mm.teamBId === bId) conflictTeams.add(bId);
+  });
+  if(conflictTeams.size){
+    const names = Array.from(conflictTeams).map(id => teamLabel(id));
+    const msg = names.length === 1
+      ? 'Heads up: '+names[0]+' is also scheduled in Round '+round+' on a different court this week. Save anyway?'
+      : 'Heads up: '+names.join(' and ')+' are also scheduled in Round '+round+' on a different court this week. Save anyway?';
+    if(!confirm(msg)) return;
+  }
+
+  const updated = week.matchups.slice();
+  updated[_swapCtx.idx] = { id: newId, teamAId: aId, teamBId: bId, court: court, round: round };
+  fbSet(DIV+'/schedule/'+_swapCtx.weekNum+'/matchups', updated);
+  closeModal('swap-modal');
+  _swapCtx = null;
+  toast('Matchup updated');
+}
+
+// SCORE ENTRY
+function renderScoreEntry(){
+  const host = $('se-host');
+  if(!host) return;
+
+  // Capture focus before the re-render so user keystrokes don't get lost
+  const ae = document.activeElement;
+  const focusId = (ae && ae.id && host.contains(ae)) ? ae.id : null;
+  let cursorStart = null, cursorEnd = null;
+  try{
+    if(focusId){ cursorStart = ae.selectionStart; cursorEnd = ae.selectionEnd; }
+  }catch(e){}
+
+  const sched = D[DIV].schedule || {};
+  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  if(!weeks.length){
+    host.innerHTML = '<div class="empty" style="padding:20px 12px;"><div class="etxt">Generate a schedule first, then return here to enter scores.</div></div>';
+    return;
+  }
+  if(_seWeek == null){ setSeWeek(currentWeekIndex() || weeks[0].week); }
+  const pills = weeks.map(w => {
+    const cls = 'wpill' + (w.week === _seWeek ? ' on' : '');
+    return '<button class="'+cls+'" onclick="selectSeWeek('+w.week+')">Wk '+w.week+'</button>';
+  }).join('');
+  const sel = weeks.find(w => w.week === _seWeek) || weeks[0];
+  const ms = (sel.matchups || []).slice().sort((a,b)=>(a.round-b.round) || (a.court-b.court));
+  const cards = ms.length ? ms.map(m => renderSeCard(sel.week, m)).join('') :
+    '<div class="empty" style="padding:18px 12px;"><div class="etxt">No matchups scheduled for week '+sel.week+'.</div></div>';
+  host.innerHTML = '<div class="week-pills" style="margin-top:4px;">'+pills+'</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin-bottom:10px;">'+escapeHtml(fmtDate(sel.date))+'</div>'
+    + cards;
+
+  // Restore focus + cursor after innerHTML reset
+  if(focusId){
+    const el = document.getElementById(focusId);
+    if(el){
+      el.focus();
+      if(cursorStart != null){
+        try{ el.setSelectionRange(cursorStart, cursorEnd); }catch(e){}
+      }
+    }
+  }
+}
+function selectSeWeek(n){
+  setSeWeek(n);
+  renderScoreEntry();
+}
+
+function renderSeCard(weekNum, m){
+  if(!m) return '';
+  const r = (D[DIV].results||{})[m.id];
+  const aName = teamLabel(m.teamAId);
+  const bName = teamLabel(m.teamBId);
+  const aColor = teamColor(m.teamAId);
+  const bColor = teamColor(m.teamBId);
+  const aDot = aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  const bDot = bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  let cls = 'score-card';
+  if(r){ cls += r.isForfeit ? ' forfeit' : ' has-result'; }
+
+  const head = '<div class="score-head">'
+    + '<div class="score-tm">'+aDot+'<span>'+escapeHtml(aName)+'</span></div>'
+    + '<div class="score-meta">Court '+m.court+'<br>Round '+m.round+'</div>'
+    + '<div class="score-tm right"><span>'+escapeHtml(bName)+'</span>'+bDot+'</div>'
+    + '</div>';
+
+  let body = '';
+  if(_seOpenId === m.id){
+    body = renderScoreForm(m, weekNum);
+  }else if(r){
+    let resultText;
+    if(r.isForfeit){
+      resultText = 'Forfeit, '+escapeHtml(teamLabel(r.winnerId))+' wins';
+    }else{
+      const setsTxt = (r.sets||[]).map(s => s.a+'-'+s.b).join(', ');
+      const aSets = (r.sets||[]).filter(s=>s.a>s.b).length;
+      const bSets = (r.sets||[]).filter(s=>s.b>s.a).length;
+      resultText = aSets+'-'+bSets+' ('+escapeHtml(setsTxt)+'), '+escapeHtml(teamLabel(r.winnerId))+' wins';
+    }
+    body = '<div class="score-result-line">'
+      + '<span class="score-result-text'+(r.isForfeit?' forf':'')+'">'+resultText+'</span>'
+      + '<div class="score-actions">'
+      +   '<button class="btn btn-g btn-sm" onclick="editScore(\''+m.id+'\','+weekNum+')">Edit</button>'
+      +   '<button class="btn btn-d btn-sm" onclick="deleteResult(\''+m.id+'\')">Delete</button>'
+      + '</div>'
+      + '</div>';
+  }else{
+    body = '<div style="margin-top:10px;display:flex;justify-content:flex-end;">'
+      + '<button class="btn btn-p btn-sm" onclick="openScoreForm(\''+m.id+'\')">Enter Score</button>'
+      + '</div>';
+  }
+
+  return '<div class="'+cls+'" data-mid="'+m.id+'">'+head+body+'</div>';
+}
+
+function renderScoreForm(m, weekNum){
+  // Hydration priority: in-progress draft > saved result > blank
+  let s1 = {a:'', b:''}, s2 = {a:'', b:''}, s3 = {a:'', b:''};
+  const draft = loadDraft(m.id);
+  if(draft && Array.isArray(draft.sets)){
+    s1 = draft.sets[0] || s1;
+    s2 = draft.sets[1] || s2;
+    s3 = draft.sets[2] || s3;
+  }else{
+    const existing = (D[DIV].results||{})[m.id];
+    if(existing && Array.isArray(existing.sets)){
+      s1 = existing.sets[0] || s1;
+      s2 = existing.sets[1] || s2;
+      s3 = existing.sets[2] || s3;
+    }
+  }
+  const aName = teamLabel(m.teamAId);
+  const bName = teamLabel(m.teamBId);
+  return '<div class="score-form">'
+    + '<div class="sets-grid">'
+    +   buildSetBlock(1, s1.a, s1.b, 23, m.id)
+    +   buildSetBlock(2, s2.a, s2.b, 23, m.id)
+    +   buildSetBlock(3, s3.a, s3.b, 17, m.id)
+    + '</div>'
+    + '<div class="forf-row">'
+    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamAId+'\','+weekNum+')">Forfeit, '+escapeHtml(aName)+' wins</button>'
+    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamBId+'\','+weekNum+')">Forfeit, '+escapeHtml(bName)+' wins</button>'
+    + '</div>'
+    + '<div class="score-form-actions">'
+    +   '<button class="btn btn-p" style="flex:1;" onclick="saveScore(\''+m.id+'\','+weekNum+')">Save Score</button>'
+    +   '<button class="btn btn-g btn-sm" onclick="closeScoreForm()">Cancel</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function buildSetBlock(num, aVal, bVal, cap, mid){
+  const cls = 'set-num';
+  const id = 'se-s'+num;
+  const max = cap;
+  const onInput = ' oninput="seDraftInput(\''+mid+'\')"';
+  const onBlur  = ' onblur="clampSet(this,'+max+');seDraftInput(\''+mid+'\')"';
+  const vA = (aVal===''||aVal==null) ? '' : String(aVal);
+  const vB = (bVal===''||bVal==null) ? '' : String(bVal);
+  return '<div class="set-block">'
+    + '<div class="set-lbl">Set '+num+' (cap '+cap+')</div>'
+    + '<div class="set-row">'
+    +   '<input class="'+cls+'" id="'+id+'a" type="number" inputmode="numeric" min="0" max="'+max+'" value="'+escapeHtml(vA)+'"'+onInput+onBlur+'>'
+    +   '<span class="set-dash">-</span>'
+    +   '<input class="'+cls+'" id="'+id+'b" type="number" inputmode="numeric" min="0" max="'+max+'" value="'+escapeHtml(vB)+'"'+onInput+onBlur+'>'
+    + '</div>'
+    + '</div>';
+}
+
+function clampSet(el, cap){
+  if(el.value === '' || el.value === null) return;
+  let v = parseInt(el.value, 10);
+  if(isNaN(v) || v < 0) v = 0;
+  if(v > cap) v = cap;
+  el.value = String(v);
+}
+
+function openScoreForm(mid){
+  if(!requireAdmin('openScore')) return;
+  setSeOpenId(mid);
+  renderScoreEntry();
+}
+function closeScoreForm(){
+  const wasOpen = _seOpenId;
+  if(wasOpen) clearDraft(wasOpen);
+  setSeOpenId(null);
+  renderScoreEntry();
+}
+function editScore(mid, weekNum){
+  if(!requireAdmin('editScore')) return;
+  setSeOpenId(mid);
+  renderScoreEntry();
+}
+
+function readSetInputs(){
+  const sets = [];
+  for(let i=1;i<=3;i++){
+    const a = $('se-s'+i+'a');
+    const b = $('se-s'+i+'b');
+    if(!a || !b) continue;
+    const av = a.value === '' ? null : parseInt(a.value, 10);
+    const bv = b.value === '' ? null : parseInt(b.value, 10);
+    if(av === null && bv === null) continue;
+    sets.push({a: av, b: bv});
+  }
+  return sets;
+}
+
+function saveScore(mid, weekNum){
+  if(!requireAdmin('saveScore')) return;
+  const sched = D[DIV].schedule || {};
+  const week = sched[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  const m = (week.matchups||[]).find(x => x && x.id === mid);
+  if(!m){ toast('Matchup not found'); return; }
+
+  const setsRaw = readSetInputs();
+  if(setsRaw.length < 2){ toast('Enter at least 2 sets, or tap a forfeit button'); return; }
+  for(let i=0;i<setsRaw.length;i++){
+    const s = setsRaw[i];
+    if(s.a === null || s.b === null || isNaN(s.a) || isNaN(s.b)){ toast('Set '+(i+1)+' is incomplete'); return; }
+    if(s.a === s.b){ toast('Set '+(i+1)+' cannot be a tie'); return; }
+  }
+  const aWins = setsRaw.filter(s => s.a > s.b).length;
+  const bWins = setsRaw.filter(s => s.b > s.a).length;
+  if(aWins < 2 && bWins < 2){ toast('No clear match winner yet. Enter another set.'); return; }
+  const winnerId = aWins > bWins ? m.teamAId : m.teamBId;
+
+  const result = {
+    weekNumber: weekNum,
+    teamAId: m.teamAId,
+    teamBId: m.teamBId,
+    sets: setsRaw,
+    winnerId: winnerId,
+    isForfeit: false,
+    recordedAt: Date.now()
+  };
+  fbSet(DIV+'/results/'+mid, result);
+  clearDraft(mid);
+  setSeOpenId(null);
+  toast('Score saved');
+}
+
+function recordForfeit(mid, winnerId, weekNum){
+  if(!requireAdmin('recordForfeit')) return;
+  const sched = D[DIV].schedule || {};
+  const week = sched[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  const m = (week.matchups||[]).find(x => x && x.id === mid);
+  if(!m){ toast('Matchup not found'); return; }
+  const wName = teamLabel(winnerId);
+  if(!confirm('Record forfeit, '+wName+' wins?')) return;
+  const result = {
+    weekNumber: weekNum,
+    teamAId: m.teamAId,
+    teamBId: m.teamBId,
+    sets: [],
+    winnerId: winnerId,
+    isForfeit: true,
+    recordedAt: Date.now()
+  };
+  fbSet(DIV+'/results/'+mid, result);
+  clearDraft(mid);
+  setSeOpenId(null);
+  toast('Forfeit recorded');
+}
+
+function deleteResult(mid){
+  if(!requireAdmin('deleteResult')) return;
+  const r = (D[DIV].results||{})[mid];
+  if(!r) return;
+  if(!confirm('Delete this recorded result? This cannot be undone.')) return;
+  fbDel(DIV+'/results/'+mid);
+  clearDraft(mid);
+  if(_seOpenId === mid) setSeOpenId(null);
+  toast('Result deleted');
+}
+
+// STANDINGS
+function computeStandings(){
+  const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name);
+  const stats = {};
+  teams.forEach(t => { stats[t.id] = { id: t.id, name: t.name, color: t.color||'', w:0, l:0, setsW:0, setsL:0, ptsFor:0, ptsAgainst:0 }; });
+  const results = Object.values(D[DIV].results||{});
+  results.forEach(r => {
+    if(!r) return;
+    const a = stats[r.teamAId];
+    const b = stats[r.teamBId];
+    if(!a || !b) return;
+    if(r.isForfeit){
+      if(r.winnerId === r.teamAId){ a.w++; b.l++; }
+      else if(r.winnerId === r.teamBId){ b.w++; a.l++; }
+      return;
+    }
+    let aSets = 0, bSets = 0, aPts = 0, bPts = 0;
+    (r.sets||[]).forEach(s => {
+      if(typeof s.a !== 'number' || typeof s.b !== 'number') return;
+      aPts += s.a; bPts += s.b;
+      if(s.a > s.b) aSets++; else if(s.b > s.a) bSets++;
+    });
+    a.setsW += aSets; a.setsL += bSets;
+    b.setsW += bSets; b.setsL += aSets;
+    a.ptsFor += aPts; a.ptsAgainst += bPts;
+    b.ptsFor += bPts; b.ptsAgainst += aPts;
+    if(r.winnerId === r.teamAId){ a.w++; b.l++; }
+    else if(r.winnerId === r.teamBId){ b.w++; a.l++; }
+  });
+  const rows = Object.values(stats).map(s => Object.assign({}, s, {
+    setDiff: s.setsW - s.setsL,
+    ptDiff:  s.ptsFor - s.ptsAgainst
+  }));
+  rows.sort((x,y) => (y.w - x.w) || (y.setDiff - x.setDiff) || (y.ptDiff - x.ptDiff) || x.name.localeCompare(y.name));
+  return rows;
+}
+
+function renderStandings(){
+  const host = $('standings-host');
+  if(!host) return;
+  const rows = computeStandings();
+  const title = DIV==='rec' ? 'Recreational 4v4' : 'Competitive 4v4';
+  if(!rows.length){
+    host.innerHTML = '<div class="card"><div class="ctitle"><span class="bar"></span>Standings</div>'
+      + '<div class="empty"><div class="eico">&#127942;</div><div class="etxt">No teams in '+escapeHtml(title)+' yet.</div></div></div>';
+    return;
+  }
+  const body = rows.map((r,i) => {
+    const rank = i+1;
+    const rcls = 'rnk' + (rank===1?' r1':rank===2?' r2':rank===3?' r3':'');
+    const dotHtml = r.color ? '<span class="match-dot" style="background:'+escapeHtml(r.color)+'"></span>' : '<span class="match-dot empty"></span>';
+    return '<tr onclick="openTeamDetail(\''+r.id+'\')">'
+      + '<td><span class="'+rcls+'">'+rank+'</span></td>'
+      + '<td><span class="tname">'+dotHtml+escapeHtml(r.name)+'</span></td>'
+      + '<td>'+r.w+'</td>'
+      + '<td>'+r.l+'</td>'
+      + '<td>'+r.setsW+'</td>'
+      + '<td>'+r.setsL+'</td>'
+      + '<td class="'+pmc(r.setDiff)+'">'+pm(r.setDiff)+'</td>'
+      + '<td>'+r.ptsFor+'</td>'
+      + '<td>'+r.ptsAgainst+'</td>'
+      + '<td class="'+pmc(r.ptDiff)+'">'+pm(r.ptDiff)+'</td>'
+      + '</tr>';
+  }).join('');
+  host.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">'
+    + '<div class="ctitle" style="padding:14px 14px 0 14px;"><span class="bar"></span>'+escapeHtml(title)+' Standings</div>'
+    + '<div style="overflow-x:auto;">'
+    +   '<table class="tbl">'
+    +     '<thead><tr>'
+    +       '<th>#</th><th>Team</th><th>W</th><th>L</th><th>Sets W</th><th>Sets L</th>'
+    +       '<th>Set Diff</th><th>Pts For</th><th>Pts Ag</th><th>Pt Diff</th>'
+    +     '</tr></thead>'
+    +     '<tbody>'+body+'</tbody>'
+    +   '</table>'
+    + '</div>'
+    + '<div style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a team for a match-by-match breakdown.</div>'
+    + '</div>';
+}
+function pm(v){ return (v>0?'+':'')+v; }
+function pmc(v){ return v>0?'pos':v<0?'neg':'neu'; }
+
+function openTeamDetail(teamId){
+  const team = (D[DIV].teams||{})[teamId];
+  if(!team){ toast('Team not found'); return; }
+  $('team-modal-title').textContent = team.name;
+  const results = Object.values(D[DIV].results||{}).filter(r => r && (r.teamAId === teamId || r.teamBId === teamId));
+  // Build week index for date lookup
+  const sched = D[DIV].schedule || {};
+  const weekDate = {};
+  Object.values(sched).forEach(w => { if(w&&w.week) weekDate[w.week] = w.date; });
+  const sorted = results.slice().sort((a,b) => (a.weekNumber - b.weekNumber) || ((a.recordedAt||0) - (b.recordedAt||0)));
+  const playedRows = sorted.map(r => {
+    const isA = r.teamAId === teamId;
+    const oppId = isA ? r.teamBId : r.teamAId;
+    const oppName = teamLabel(oppId);
+    const won = r.winnerId === teamId;
+    let resText;
+    if(r.isForfeit){
+      resText = won ? 'Forfeit win' : 'Forfeit loss';
+    }else{
+      const aSets = (r.sets||[]).filter(s=>s.a>s.b).length;
+      const bSets = (r.sets||[]).filter(s=>s.b>s.a).length;
+      const mySets = isA ? aSets : bSets;
+      const oppSets = isA ? bSets : aSets;
+      const setStr = (r.sets||[]).map(s => isA ? (s.a+'-'+s.b) : (s.b+'-'+s.a)).join(', ');
+      resText = (won?'W ':'L ') + mySets + '-' + oppSets + ' ('+setStr+')';
+    }
+    const dateStr = weekDate[r.weekNumber] ? fmtDate(weekDate[r.weekNumber]) : '';
+    return '<div class="td-match">'
+      + '<div class="td-week">Wk '+r.weekNumber+'</div>'
+      + '<div><div class="td-opp">vs '+escapeHtml(oppName)+'</div>'
+      +     (dateStr ? '<div style="font-size:11px;color:var(--gray);">'+escapeHtml(dateStr)+'</div>' : '')
+      + '</div>'
+      + '<div class="td-res '+(won?'w':'l')+'">'+escapeHtml(resText)+'</div>'
+      + '</div>';
+  }).join('');
+
+  // Upcoming
+  const upcomingRows = [];
+  Object.values(sched).sort((a,b)=>(a&&a.week||0)-(b&&b.week||0)).forEach(w => {
+    if(!w || !Array.isArray(w.matchups)) return;
+    w.matchups.forEach(m => {
+      if(!m) return;
+      if(m.teamAId !== teamId && m.teamBId !== teamId) return;
+      if((D[DIV].results||{})[m.id]) return;
+      const oppId = m.teamAId === teamId ? m.teamBId : m.teamAId;
+      const dateStr = w.date ? fmtDate(w.date) : '';
+      upcomingRows.push('<div class="td-match">'
+        + '<div class="td-week">Wk '+w.week+'</div>'
+        + '<div><div class="td-opp">vs '+escapeHtml(teamLabel(oppId))+'</div>'
+        +     (dateStr ? '<div style="font-size:11px;color:var(--gray);">'+escapeHtml(dateStr)+' &middot; Court '+m.court+'</div>' : '')
+        + '</div>'
+        + '<div class="td-res pending">Upcoming</div>'
+        + '</div>');
+    });
+  });
+
+  const totalW = sorted.filter(r => r.winnerId === teamId).length;
+  const totalL = sorted.length - totalW;
+  const recordChip = '<div style="font-size:13px;color:var(--gray);margin-bottom:10px;"><strong style="color:var(--black);">'+totalW+'-'+totalL+'</strong> record &middot; '+sorted.length+' match'+(sorted.length===1?'':'es')+' played</div>';
+
+  let html = recordChip;
+  if(sorted.length){
+    html += '<div class="ctitle"><span class="bar"></span>Played</div>' + playedRows;
+  }
+  if(upcomingRows.length){
+    html += '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Upcoming</div>' + upcomingRows.join('');
+  }
+  if(!sorted.length && !upcomingRows.length){
+    html += '<div class="empty"><div class="etxt">No matches found for this team.</div></div>';
+  }
+  $('team-modal-body').innerHTML = html;
+  $('team-modal').classList.add('on');
+}
+
+// PIN
+let _pinEntry = '', _pinAction = null;
+function pinTap(v){
+  if(v==='back') _pinEntry = _pinEntry.slice(0,-1);
+  else if(v==='clear') _pinEntry = '';
+  else if(_pinEntry.length < 4) _pinEntry += v;
+  updatePinDots();
+  $('pin-error').textContent = '';
+  if(_pinEntry.length === 4){
+    if(_pinEntry === ADMIN_PIN){
+      $('pin-modal').classList.remove('on');
+      _pinEntry = '';
+      updatePinDots();
+      _pinAdminUntil = Date.now() + SESSION_PIN_MS;
+      applyAdminLock();
+      if(_pinAction === 'admin'){
+        const t = window._pendingTab;
+        if(t) activateTab(t);
+        window._pendingTab = null;
+      }
+    }else{
+      $('pin-error').textContent = 'Incorrect PIN';
+      setTimeout(()=>{ _pinEntry=''; updatePinDots(); $('pin-error').textContent=''; }, 700);
+    }
+  }
+}
+function updatePinDots(){
+  for(let i=0;i<4;i++){
+    const d = $('pd'+i);
+    if(d) d.classList.toggle('filled', i < _pinEntry.length);
+  }
+}
+
+// BOOT
+document.addEventListener('DOMContentLoaded', ()=>{
+  loadDivState();
+  applyAdminLock();
+  initTabs();
+  renderSwatches();
+  initFB();
+});
+</script>
+</body>
+</html>
