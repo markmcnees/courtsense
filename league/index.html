@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CourtSense for League Directors</title>
+<meta name="description" content="Complete league management for beach and grass volleyball. Scheduling, scoring, standings, ratings, payment, and communications in one platform.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="CourtSense for League Directors">
+<meta property="og:description" content="Complete league management for beach and grass volleyball. Scheduling, scoring, standings, ratings, payment, and communications in one platform.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/league/">
+<meta property="og:site_name" content="CourtSense">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CourtSense for League Directors">
+<meta name="twitter:description" content="Complete league management for beach and grass volleyball.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --gold-deep:#b8902f;
+  --teal:#3a8c91;
+  --teal-deep:#2a6e72;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);
+  --shadow-hover:0 20px 50px rgba(15,35,71,0.18), 0 8px 16px rgba(15,35,71,0.10);
+  --radius:14px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  color:var(--ink);
+  background:var(--white);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* HEADER (sticky) */
+.hdr{
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:rgba(255,255,255,0.96);
+  backdrop-filter:saturate(180%) blur(8px);
+  -webkit-backdrop-filter:saturate(180%) blur(8px);
+  border-bottom:1px solid rgba(15,35,71,0.08);
+}
+.hdr-inner{
+  max-width:1100px;
+  margin:0 auto;
+  padding:14px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.hdr-logo{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  text-decoration:none;
+  color:var(--navy-deep);
+}
+.hdr-logo img{
+  height:72px;
+  width:auto;
+  display:block;
+}
+.hdr-wordmark{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:30px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  line-height:1;
+}
+.hdr-wordmark .tld{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-weight:600;
+  font-size:22px;
+  color:var(--gold);
+  letter-spacing:0;
+  margin-left:2px;
+  text-transform:lowercase;
+}
+.btn-admin{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:1.8px;
+  padding:10px 20px;
+  border-radius:24px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  white-space:nowrap;
+}
+.btn-admin:hover{background:var(--gold-deep);transform:translateY(-1px);}
+.btn-admin:active{transform:translateY(0);}
+
+/* HERO */
+.hero{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  padding:88px 24px 96px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 20% 30%, rgba(212,168,67,0.12) 0%, transparent 42%),
+             radial-gradient(circle at 80% 70%, rgba(58,140,145,0.10) 0%, transparent 48%);
+  pointer-events:none;
+}
+.hero-inner{
+  position:relative;
+  max-width:880px;
+  margin:0 auto;
+}
+.hero-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  padding:6px 14px;
+  border-radius:24px;
+  background:rgba(212,168,67,0.18);
+  color:var(--gold);
+  margin-bottom:24px;
+}
+.hero h1{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(36px, 6.5vw, 64px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  margin-bottom:20px;
+}
+.hero h1 .accent{color:var(--gold);}
+.hero p{
+  font-size:clamp(16px, 2.2vw, 19px);
+  line-height:1.55;
+  color:rgba(255,255,255,0.85);
+  max-width:660px;
+  margin:0 auto 36px;
+}
+.cta-row{
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+.btn-primary{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:15px;
+  letter-spacing:2px;
+  padding:15px 34px;
+  border-radius:30px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  display:inline-block;
+}
+.btn-primary:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.18);}
+.btn-primary:active{transform:translateY(0);}
+
+/* SECTION COMMON */
+.section{padding:72px 24px;}
+.section-inner{max-width:1100px;margin:0 auto;}
+.section-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  color:var(--gold);
+  margin-bottom:14px;
+}
+.section h2{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(28px, 5vw, 44px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  color:var(--navy);
+  margin-bottom:18px;
+}
+.section h2 .accent{color:var(--gold);}
+.section .lede{
+  font-size:clamp(15px, 1.8vw, 17px);
+  line-height:1.6;
+  color:var(--ink-soft);
+  max-width:680px;
+}
+
+/* LIVE PROOF */
+.live-proof{background:var(--sand);text-align:center;}
+.live-proof .lede{margin-left:auto;margin-right:auto;margin-bottom:28px;}
+
+/* FEATURES */
+.features{background:var(--sand);}
+.features .section-head{text-align:center;margin-bottom:36px;}
+.features .section-head .lede{margin-left:auto;margin-right:auto;}
+.features-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:20px;
+}
+.feature-card{
+  background:var(--white);
+  border-radius:var(--radius);
+  padding:28px 26px;
+  box-shadow:var(--shadow);
+  border-top:4px solid var(--gold);
+  transition:all 0.3s cubic-bezier(0.2,0.8,0.2,1);
+}
+.feature-card:hover{
+  transform:translateY(-4px);
+  box-shadow:var(--shadow-hover);
+}
+.feature-icon{
+  font-size:36px;
+  line-height:1;
+  margin-bottom:14px;
+}
+.feature-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:1.4px;
+  color:var(--navy);
+  margin-bottom:10px;
+  line-height:1.1;
+}
+.feature-body{
+  font-size:14.5px;
+  line-height:1.55;
+  color:var(--ink-soft);
+}
+
+/* FOR DIRECTORS */
+.directors{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  position:relative;
+  overflow:hidden;
+  text-align:center;
+}
+.directors::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 20% 30%, rgba(212,168,67,0.10) 0%, transparent 42%),
+             radial-gradient(circle at 80% 70%, rgba(58,140,145,0.08) 0%, transparent 48%);
+  pointer-events:none;
+}
+.directors .section-inner{position:relative;}
+.directors h2{color:var(--white);margin-bottom:32px;}
+.directors-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:20px;
+  text-align:left;
+}
+.director-point{
+  background:rgba(255,255,255,0.05);
+  border-left:3px solid var(--gold);
+  padding:22px 24px;
+  border-radius:8px;
+}
+.director-point-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:18px;
+  letter-spacing:1.2px;
+  color:var(--gold);
+  margin-bottom:8px;
+  line-height:1.15;
+}
+.director-point-body{
+  font-size:14.5px;
+  line-height:1.55;
+  color:rgba(255,255,255,0.85);
+}
+
+/* CONTACT FORM */
+#contact{scroll-margin-top:80px;}
+.contact{background:var(--white);}
+.contact .section-head{text-align:center;margin-bottom:32px;}
+.contact .section-head .lede{margin-left:auto;margin-right:auto;}
+.contact-card{
+  max-width:640px;
+  margin:0 auto;
+  background:var(--white);
+  border:1px solid rgba(15,35,71,0.10);
+  border-radius:var(--radius);
+  padding:32px 28px;
+  box-shadow:var(--shadow);
+}
+.fg{margin-bottom:18px;}
+.lbl{
+  display:block;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0.5px;
+  color:var(--navy-deep);
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+.req{color:var(--gold);margin-left:2px;}
+.inp{
+  width:100%;
+  padding:13px 14px;
+  border:1.5px solid #d1d5db;
+  border-radius:10px;
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:15px;
+  color:var(--ink);
+  background:var(--white);
+  min-height:48px;
+  transition:border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.inp::placeholder{color:#9ca3af;}
+.inp:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,58,107,0.10);}
+.inp.err-on{border-color:#dc2626;background:#fef2f2;}
+textarea.inp{min-height:120px;resize:vertical;line-height:1.5;font-family:'Barlow',-apple-system,sans-serif;}
+select.inp{
+  -webkit-appearance:none;
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  padding-right:36px;
+}
+.err{
+  font-size:12px;
+  color:#dc2626;
+  font-weight:600;
+  margin-top:5px;
+  min-height:14px;
+  line-height:1.2;
+}
+.btn-submit{
+  width:100%;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:16px;
+  letter-spacing:2px;
+  padding:16px 24px;
+  border-radius:10px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  transition:all 0.2s ease;
+  margin-top:6px;
+}
+.btn-submit:hover{background:var(--gold-deep);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,0.12);}
+.btn-submit:active{transform:translateY(0);}
+.btn-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none;box-shadow:none;}
+
+/* ADMIN LOGIN MODAL */
+.overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(15,35,71,0.55);
+  -webkit-backdrop-filter:blur(2px);
+  backdrop-filter:blur(2px);
+  z-index:9000;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.overlay.on{display:flex;}
+.login-modal{
+  background:var(--white);
+  border-radius:var(--radius);
+  width:100%;
+  max-width:420px;
+  box-shadow:0 30px 80px rgba(0,0,0,0.30);
+  overflow:hidden;
+  animation:loginIn 0.18s ease-out;
+}
+@keyframes loginIn{
+  from{opacity:0;transform:translateY(10px) scale(0.98);}
+  to{opacity:1;transform:translateY(0) scale(1);}
+}
+.login-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 22px;
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+}
+.login-head h3{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;
+  letter-spacing:2px;
+  color:var(--gold);
+  margin:0;
+}
+.login-close{
+  background:transparent;
+  border:none;
+  color:rgba(255,255,255,0.75);
+  font-size:18px;
+  cursor:pointer;
+  padding:6px 10px;
+  margin:-6px -10px -6px 0;
+  border-radius:6px;
+  line-height:1;
+}
+.login-close:hover{background:rgba(255,255,255,0.10);color:var(--white);}
+.login-body{padding:22px 22px 26px;}
+.login-body .fg{margin-bottom:14px;}
+.login-body .err{margin-top:2px;margin-bottom:12px;min-height:14px;}
+
+/* FOOTER */
+footer{
+  margin-top:auto;
+  text-align:center;
+  padding:36px 24px 32px;
+  color:var(--ink-soft);
+}
+.foot-mark{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  margin-bottom:8px;
+}
+.foot-line{font-size:13px;line-height:1.6;}
+.foot-line + .foot-line{margin-top:2px;}
+
+/* TOAST */
+.toast{
+  position:fixed;
+  bottom:24px;
+  left:50%;
+  transform:translateX(-50%) translateY(120px);
+  background:rgba(15,35,71,0.95);
+  color:#fff;
+  padding:13px 24px;
+  border-radius:24px;
+  font-weight:700;
+  font-size:13px;
+  box-shadow:var(--shadow);
+  z-index:9999;
+  transition:transform 0.28s ease;
+  white-space:nowrap;
+}
+.toast.on{transform:translateX(-50%) translateY(0);}
+
+/* RESPONSIVE */
+@media (max-width:640px){
+  .hdr-inner{padding:12px 16px;gap:12px;}
+  .hdr-logo{gap:9px;}
+  .hdr-logo img{height:52px;}
+  .hdr-wordmark{font-size:22px;letter-spacing:2px;}
+  .hdr-wordmark .tld{font-size:16px;letter-spacing:0;}
+  .btn-admin{padding:9px 16px;font-size:13px;}
+  .hero{padding:60px 20px 72px;}
+  .hero-eyebrow{font-size:12px;letter-spacing:2.5px;margin-bottom:18px;}
+  .hero h1{letter-spacing:1px;}
+  .btn-primary{padding:13px 28px;font-size:14px;}
+  .section{padding:52px 20px;}
+  .features-grid,.directors-grid{gap:14px;}
+  .feature-card{padding:24px 22px;}
+  .director-point{padding:18px 20px;}
+}
+@media (max-width:420px){
+  .hdr-wordmark{display:none;}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="hdr-logo" aria-label="CourtSense home">
+      <img src="/logo.png" alt="CourtSense.app">
+      <span class="hdr-wordmark">CourtSense<span class="tld">.app</span></span>
+    </a>
+    <button class="btn-admin" onclick="openAdminLogin()">Admin Login</button>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">For League Directors</div>
+    <h1>Complete League Management <span class="accent">for Beach/Grass Volleyball</span></h1>
+    <p>Scheduling, scoring, standings, ratings, payment, and player communications in one platform. Built by a league director, for league directors.</p>
+    <div class="cta-row">
+      <a href="#contact" class="btn-primary">Contact Us</a>
+    </div>
+  </div>
+</section>
+
+<section class="section features">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">What You Get</div>
+      <h2>Everything You Need to Run a League</h2>
+      <p class="lede">One platform for beach and grass volleyball leagues. From the first registration through the final standings.</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">&#129302;</div>
+        <div class="feature-title">AI Schedule Generation</div>
+        <div class="feature-body">Round-robins, partner rotations, and court assignments built in seconds. The schedule respects your team count, court count, weeks, and rounds per night.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#9889;</div>
+        <div class="feature-title">Live Scoring</div>
+        <div class="feature-body">Scores sync to every phone the moment they are entered. Captains and players see results live, no refresh needed.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#127942;</div>
+        <div class="feature-title">Standings and Stats</div>
+        <div class="feature-body">Automatic leaderboards with wins, losses, set differential, and point differential. The math runs itself, all season long.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128200;</div>
+        <div class="feature-title">Player Ratings</div>
+        <div class="feature-body">Glicko-2 skill ratings that follow players across leagues, seasons, and divisions. New players settle in quickly; veterans see steady progression.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128176;</div>
+        <div class="feature-title">Payment</div>
+        <div class="feature-body">Connect your existing Venmo, PayPal, or whatever payment method you already use. CourtSense surfaces your payment link to players and tracks who has paid. We never touch transactions.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128172;</div>
+        <div class="feature-title">Player Communications</div>
+        <div class="feature-body">Automated emails for registration, schedule changes, and reminders. Captain rosters and contact info stay current without you chasing them down.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section directors">
+  <div class="section-inner">
+    <div class="section-eyebrow">For Directors</div>
+    <h2>Built by a Director, <span class="accent">for Directors</span></h2>
+    <div class="directors-grid">
+
+      <div class="director-point">
+        <div class="director-point-title">Less Logistics, More Volleyball</div>
+        <div class="director-point-body">Schedule generation, score entry, standings, and payment tracking that used to take whole evenings now happen in minutes. Spend that time talking to players, not wrestling spreadsheets.</div>
+      </div>
+
+      <div class="director-point">
+        <div class="director-point-title">A Professional Player Experience</div>
+        <div class="director-point-body">Live scores, automatic standings, clean schedules, and clear communications give your league the polish that keeps players coming back season after season.</div>
+      </div>
+
+      <div class="director-point">
+        <div class="director-point-title">Credibility with Your Department</div>
+        <div class="director-point-body">When your supervisor or commissioner asks how the league is running, you have a live dashboard to show them. Numbers, not anecdotes.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section live-proof">
+  <div class="section-inner">
+    <div class="section-eyebrow">Live Proof</div>
+    <h2>See It In Action</h2>
+    <p class="lede">The City of Tallahassee Parks Department runs its summer beach volleyball leagues on CourtSense. Captains, players, and the director all work in the same platform.</p>
+    <a href="/league/tallahassee/" class="btn-primary" style="color:var(--navy-deep);">View a Live League</a>
+  </div>
+</section>
+
+<section class="section contact" id="contact">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Get In Touch</div>
+      <h2>Bring CourtSense to Your League</h2>
+      <p class="lede">Tell us about your league and what you are looking for. We will be in touch within 24 hours.</p>
+    </div>
+    <div class="contact-card">
+      <div class="fg">
+        <label class="lbl" for="cf-name">Name<span class="req">*</span></label>
+        <input class="inp" id="cf-name" type="text" placeholder="Your name" maxlength="80" autocomplete="name">
+        <div class="err" id="err-name"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cf-email">Email<span class="req">*</span></label>
+        <input class="inp" id="cf-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email" inputmode="email">
+        <div class="err" id="err-email"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cf-org">Organization or League<span class="req">*</span></label>
+        <input class="inp" id="cf-org" type="text" placeholder="City of Anytown Parks, your club name, etc." maxlength="100" autocomplete="organization">
+        <div class="err" id="err-org"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cf-role">Role</label>
+        <select class="inp" id="cf-role">
+          <option value="">Select your role (optional)</option>
+          <option value="League Director">League Director</option>
+          <option value="Coach">Coach</option>
+          <option value="Tournament Director">Tournament Director</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="cf-msg">Message</label>
+        <textarea class="inp" id="cf-msg" rows="4" placeholder="Tell us about your league and what you are looking for." maxlength="2000"></textarea>
+      </div>
+      <button class="btn-submit" id="cf-submit" onclick="sendLead()" type="button">Send Message</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-mark">CourtSense</div>
+  <div class="foot-line">&copy; 2026 CourtSense. All rights reserved.</div>
+  <div class="foot-line">Built in Tallahassee, FL.</div>
+</footer>
+
+<div class="overlay" id="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title" onclick="if(event.target===this)closeAdminLogin()">
+  <div class="login-modal">
+    <div class="login-head">
+      <h3 id="login-title">Admin Login</h3>
+      <button class="login-close" type="button" onclick="closeAdminLogin()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="login-body">
+      <div class="fg">
+        <label class="lbl" for="lg-slug">League</label>
+        <input class="inp" id="lg-slug" type="text" placeholder="tallahassee" autocomplete="off" autocapitalize="none" maxlength="60">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="lg-pin">Admin PIN</label>
+        <input class="inp" id="lg-pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12">
+      </div>
+      <div class="err" id="lg-err"></div>
+      <button class="btn-submit" id="lg-submit" type="button" onclick="submitAdminLogin()">Open League</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// FIREBASE
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+let db = null;
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  }catch(e){ console.error(e); }
+}
+
+// UI HELPERS
+function toast(m){
+  const t = document.getElementById('toast');
+  t.textContent = m;
+  t.classList.add('on');
+  setTimeout(()=>t.classList.remove('on'), 2800);
+}
+// ADMIN LOGIN MODAL
+const MASTER_PIN = '1969';
+const LEAGUE_ADMIN_SESSION_MS = 60 * 60 * 1000;
+
+function openAdminLogin(){
+  const ov = document.getElementById('login-overlay');
+  if(!ov) return;
+  document.getElementById('lg-slug').value = '';
+  document.getElementById('lg-pin').value = '';
+  document.getElementById('lg-err').textContent = '';
+  const btn = document.getElementById('lg-submit');
+  btn.disabled = false;
+  btn.textContent = 'Open League';
+  ov.classList.add('on');
+  setTimeout(function(){ const i = document.getElementById('lg-slug'); if(i) i.focus(); }, 50);
+}
+function closeAdminLogin(){
+  const ov = document.getElementById('login-overlay');
+  if(ov) ov.classList.remove('on');
+}
+function kebab(s){
+  return (s || '').toLowerCase().trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+function submitAdminLogin(){
+  const slugRaw = document.getElementById('lg-slug').value;
+  const pin = (document.getElementById('lg-pin').value || '').trim();
+  const errEl = document.getElementById('lg-err');
+  const btn = document.getElementById('lg-submit');
+  errEl.textContent = '';
+  const slug = kebab(slugRaw);
+  if(!slug){ errEl.textContent = 'Enter a league name.'; return; }
+  if(!pin){ errEl.textContent = 'Enter the admin PIN.'; return; }
+  if(!db){ errEl.textContent = 'Could not connect. Try again in a moment.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+
+  // Callback form; promises do not resolve reliably in this deployment context.
+  db.ref('courtsense_leagues/' + slug).once('value', function(snap){
+    const val = snap && snap.val();
+    if(!val){
+      errEl.textContent = 'League not found or incorrect PIN.';
+      btn.disabled = false;
+      btn.textContent = 'Open League';
+      return;
+    }
+    const leaguePin = (val.leaguePin == null ? '' : String(val.leaguePin));
+    if(pin !== MASTER_PIN && pin !== leaguePin){
+      errEl.textContent = 'League not found or incorrect PIN.';
+      btn.disabled = false;
+      btn.textContent = 'Open League';
+      return;
+    }
+    try{
+      sessionStorage.setItem('cs_league_admin_' + slug, String(Date.now() + LEAGUE_ADMIN_SESSION_MS));
+    }catch(e){}
+    // Relative redirect so it resolves correctly both locally and in production.
+    window.location.href = slug + '/';
+  }, function(){
+    errEl.textContent = 'Could not connect. Try again in a moment.';
+    btn.disabled = false;
+    btn.textContent = 'Open League';
+  });
+}
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    const ov = document.getElementById('login-overlay');
+    if(ov && ov.classList.contains('on')) closeAdminLogin();
+  }
+  if(e.key === 'Enter'){
+    const ov = document.getElementById('login-overlay');
+    if(ov && ov.classList.contains('on')){
+      const ae = document.activeElement;
+      if(ae && (ae.id === 'lg-slug' || ae.id === 'lg-pin')){
+        e.preventDefault();
+        submitAdminLogin();
+      }
+    }
+  }
+});
+
+// CONTACT FORM
+function slugify(s){
+  return (s||'').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    .slice(0,40) || 'org';
+}
+function clearErrors(){
+  ['name','email','org'].forEach(k => {
+    const e = document.getElementById('err-'+k);
+    if(e) e.textContent = '';
+    const i = document.getElementById('cf-'+k);
+    if(i) i.classList.remove('err-on');
+  });
+}
+function setError(field, msg){
+  const e = document.getElementById('err-'+field);
+  if(e) e.textContent = msg;
+  const i = document.getElementById('cf-'+field);
+  if(i) i.classList.add('err-on');
+}
+function sendLead(){
+  clearErrors();
+  const name  = document.getElementById('cf-name').value.trim();
+  const email = document.getElementById('cf-email').value.trim();
+  const org   = document.getElementById('cf-org').value.trim();
+  const role  = document.getElementById('cf-role').value;
+  const msg   = document.getElementById('cf-msg').value.trim();
+
+  let bad = false;
+  if(!name){ setError('name', 'Name is required.'); bad = true; }
+  if(!email){ setError('email', 'Email is required.'); bad = true; }
+  else if(!/^\S+@\S+\.\S+$/.test(email)){ setError('email', 'Please enter a valid email address.'); bad = true; }
+  if(!org){ setError('org', 'Organization or league name is required.'); bad = true; }
+  if(bad){
+    const firstBad = document.querySelector('.inp.err-on');
+    if(firstBad) firstBad.focus();
+    return;
+  }
+
+  if(!db){ toast('Could not connect. Please try again in a moment.'); return; }
+
+  const submitBtn = document.getElementById('cf-submit');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Sending...';
+
+  const now = Date.now();
+  const orgSlug = slugify(org);
+  const leadKey = now + '_' + orgSlug;
+  const submittedAtIso = new Date(now).toISOString();
+
+  // 1) Write lead record. This is the durable record; never depends on the email worker.
+  const lead = {
+    name: name,
+    email: email,
+    organization: org,
+    role: role || '',
+    message: msg || '',
+    createdAt: now
+  };
+  db.ref('courtsense_leads/' + leadKey).set(lead);
+
+  // 2) Queue email notification to Mark. Worker drains tally_kotb_pickup/email_queue/.
+  //    Worker must learn the lead_received type before this actually fires.
+  const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2,5);
+  const emailItem = {
+    type: 'lead_received',
+    to: 'markmcnees@gmail.com',
+    data: {
+      lead_name: name,
+      lead_email: email,
+      organization: org,
+      role: role || '',
+      message: msg || '',
+      submitted_at: submittedAtIso
+    },
+    relatedRegistration: null,
+    createdAt: now,
+    status: 'queued'
+  };
+  db.ref('tally_kotb_pickup/email_queue/' + eid).set(emailItem);
+
+  // UI feedback. Fire-and-forget writes do not resolve a promise reliably,
+  // so we show success after a short delay rather than awaiting.
+  setTimeout(() => {
+    toast('Message sent. We will be in touch within 24 hours.');
+    document.getElementById('cf-name').value = '';
+    document.getElementById('cf-email').value = '';
+    document.getElementById('cf-org').value = '';
+    document.getElementById('cf-role').value = '';
+    document.getElementById('cf-msg').value = '';
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Send Message';
+  }, 350);
+}
+
+initFB();
+</script>
+
+</body>
+</html>

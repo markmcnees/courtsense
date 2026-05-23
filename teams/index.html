@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CourtSense for Beach Volleyball Programs</title>
+<meta name="description" content="Complete beach volleyball team management for high school and college programs. Beta-tested in 2026, launching for the 2027 season.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="CourtSense for Beach Volleyball Programs">
+<meta property="og:description" content="Complete beach volleyball team management for high school and college programs. Beta-tested in 2026, launching for the 2027 season.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/teams/">
+<meta property="og:site_name" content="CourtSense">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CourtSense for Beach Volleyball Programs">
+<meta name="twitter:description" content="Complete beach volleyball team management for high school and college programs.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --gold-deep:#b8902f;
+  --teal:#3a8c91;
+  --teal-deep:#2a6e72;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);
+  --shadow-hover:0 20px 50px rgba(15,35,71,0.18), 0 8px 16px rgba(15,35,71,0.10);
+  --radius:14px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  color:var(--ink);
+  background:var(--white);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* HEADER (sticky) */
+.hdr{
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:rgba(255,255,255,0.96);
+  backdrop-filter:saturate(180%) blur(8px);
+  -webkit-backdrop-filter:saturate(180%) blur(8px);
+  border-bottom:1px solid rgba(15,35,71,0.08);
+}
+.hdr-inner{
+  max-width:1100px;
+  margin:0 auto;
+  padding:14px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.hdr-logo{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  text-decoration:none;
+  color:var(--navy-deep);
+}
+.hdr-logo img{
+  height:72px;
+  width:auto;
+  display:block;
+}
+.hdr-wordmark{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:30px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  line-height:1;
+}
+.hdr-wordmark .tld{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-weight:600;
+  font-size:22px;
+  color:var(--gold);
+  letter-spacing:0;
+  margin-left:2px;
+  text-transform:lowercase;
+}
+.btn-admin{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:1.8px;
+  padding:10px 20px;
+  border-radius:24px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  white-space:nowrap;
+  display:inline-block;
+}
+.btn-admin:hover{background:var(--gold-deep);transform:translateY(-1px);}
+.btn-admin:active{transform:translateY(0);}
+
+/* HERO */
+.hero{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  padding:88px 24px 96px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 20% 30%, rgba(212,168,67,0.12) 0%, transparent 42%),
+             radial-gradient(circle at 80% 70%, rgba(58,140,145,0.10) 0%, transparent 48%);
+  pointer-events:none;
+}
+.hero-inner{
+  position:relative;
+  max-width:880px;
+  margin:0 auto;
+}
+.hero-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  padding:6px 14px;
+  border-radius:24px;
+  background:rgba(212,168,67,0.18);
+  color:var(--gold);
+  margin-bottom:24px;
+}
+.hero h1{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(36px, 6.5vw, 64px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  margin-bottom:20px;
+}
+.hero h1 .accent{color:var(--gold);}
+.hero p{
+  font-size:clamp(16px, 2.2vw, 19px);
+  line-height:1.55;
+  color:rgba(255,255,255,0.85);
+  max-width:660px;
+  margin:0 auto 36px;
+}
+.cta-row{
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+.btn-primary{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:15px;
+  letter-spacing:2px;
+  padding:15px 34px;
+  border-radius:30px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  display:inline-block;
+}
+.btn-primary:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.18);}
+.btn-primary:active{transform:translateY(0);}
+
+/* SECTION COMMON */
+.section{padding:72px 24px;}
+.section-inner{max-width:1100px;margin:0 auto;}
+.section-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  color:var(--gold);
+  margin-bottom:14px;
+}
+.section h2{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(28px, 5vw, 44px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  color:var(--navy);
+  margin-bottom:18px;
+}
+.section h2 .accent{color:var(--gold);}
+.section .lede{
+  font-size:clamp(15px, 1.8vw, 17px);
+  line-height:1.6;
+  color:var(--ink-soft);
+  max-width:680px;
+}
+
+/* TRANSPARENCY (marquee) */
+.transparency{background:var(--sand);}
+.transparency .section-head{text-align:center;margin-bottom:42px;}
+.transparency .section-head .lede{margin-left:auto;margin-right:auto;}
+.transparency-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:20px;
+}
+.transparency-card{
+  background:var(--white);
+  border-radius:var(--radius);
+  padding:30px 28px 28px;
+  box-shadow:var(--shadow);
+  border-top:4px solid var(--navy);
+  transition:all 0.3s cubic-bezier(0.2,0.8,0.2,1);
+}
+.transparency-card:hover{
+  transform:translateY(-4px);
+  box-shadow:var(--shadow-hover);
+}
+.transparency-num{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:46px;
+  letter-spacing:1.5px;
+  color:var(--gold);
+  line-height:1;
+  margin-bottom:14px;
+}
+.transparency-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:1.4px;
+  color:var(--navy);
+  margin-bottom:12px;
+  line-height:1.15;
+}
+.transparency-body{
+  font-size:14.5px;
+  line-height:1.6;
+  color:var(--ink-soft);
+}
+.transparency-footnote{
+  margin-top:36px;
+  text-align:center;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  opacity:0.72;
+}
+
+/* FEATURES */
+.features{background:var(--white);}
+.features .section-head{text-align:center;margin-bottom:36px;}
+.features .section-head .lede{margin-left:auto;margin-right:auto;}
+.features-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+  gap:18px;
+}
+.feature-card{
+  background:var(--white);
+  border:1.5px solid rgba(15,35,71,0.08);
+  border-radius:var(--radius);
+  padding:24px 22px 22px;
+  transition:all 0.25s cubic-bezier(0.2,0.8,0.2,1);
+}
+.feature-card:hover{
+  border-color:rgba(212,168,67,0.45);
+  transform:translateY(-2px);
+  box-shadow:var(--shadow);
+}
+.feature-icon{
+  font-size:30px;
+  line-height:1;
+  margin-bottom:14px;
+}
+.feature-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:19px;
+  letter-spacing:1.3px;
+  color:var(--navy);
+  margin-bottom:10px;
+  line-height:1.15;
+}
+.feature-body{
+  font-size:14px;
+  line-height:1.55;
+  color:var(--ink-soft);
+}
+
+/* LEVELS (for coaches at every level) */
+.levels{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  position:relative;
+  overflow:hidden;
+}
+.levels::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 20% 30%, rgba(212,168,67,0.10) 0%, transparent 42%),
+             radial-gradient(circle at 80% 70%, rgba(58,140,145,0.10) 0%, transparent 48%);
+  pointer-events:none;
+}
+.levels .section-inner{position:relative;}
+.levels .section-head{text-align:center;margin-bottom:36px;}
+.levels .section-head h2{color:var(--white);}
+.levels .section-head .lede{
+  color:rgba(255,255,255,0.86);
+  margin-left:auto;
+  margin-right:auto;
+  max-width:720px;
+}
+.levels-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+  gap:20px;
+}
+.level-card{
+  background:rgba(255,255,255,0.05);
+  border-left:3px solid var(--gold);
+  border-radius:8px;
+  padding:28px 28px 26px;
+}
+.level-card-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:1.5px;
+  color:var(--gold);
+  margin-bottom:14px;
+  line-height:1.15;
+}
+.level-card-body{
+  font-size:15px;
+  line-height:1.6;
+  color:rgba(255,255,255,0.88);
+}
+
+/* BRANDING (your program, your brand) */
+.branding{background:var(--sand);text-align:center;}
+.branding .section-inner{max-width:780px;}
+.branding .section-head{margin-bottom:0;}
+.branding .lede{
+  margin-left:auto;
+  margin-right:auto;
+  max-width:680px;
+}
+.brand-swatches{
+  display:flex;
+  justify-content:center;
+  gap:18px;
+  margin-top:30px;
+}
+.brand-swatch{
+  width:52px;
+  height:52px;
+  border-radius:50%;
+  flex-shrink:0;
+  box-shadow:0 6px 16px rgba(15,35,71,0.16);
+}
+.brand-swatch-1{background:var(--navy);border:3px solid var(--gold);}
+.brand-swatch-2{background:var(--teal);border:3px solid var(--gold);}
+.brand-swatch-3{background:var(--gold);border:3px solid var(--navy);}
+
+/* SIGNUP FORM */
+#notify{scroll-margin-top:80px;}
+.contact{background:var(--white);}
+.contact .section-head{text-align:center;margin-bottom:32px;}
+.contact .section-head .lede{margin-left:auto;margin-right:auto;}
+.contact-card{
+  max-width:640px;
+  margin:0 auto;
+  background:var(--white);
+  border:1px solid rgba(15,35,71,0.10);
+  border-radius:var(--radius);
+  padding:32px 28px;
+  box-shadow:var(--shadow);
+}
+.fg{margin-bottom:18px;}
+.lbl{
+  display:block;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0.5px;
+  color:var(--navy-deep);
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+.req{color:var(--gold);margin-left:2px;}
+.inp{
+  width:100%;
+  padding:13px 14px;
+  border:1.5px solid #d1d5db;
+  border-radius:10px;
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:15px;
+  color:var(--ink);
+  background:var(--white);
+  min-height:48px;
+  transition:border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.inp::placeholder{color:#9ca3af;}
+.inp:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,58,107,0.10);}
+.inp.err-on{border-color:#dc2626;background:#fef2f2;}
+select.inp{
+  -webkit-appearance:none;
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  padding-right:36px;
+}
+.err{
+  font-size:12px;
+  color:#dc2626;
+  font-weight:600;
+  margin-top:5px;
+  min-height:14px;
+  line-height:1.2;
+}
+.btn-submit{
+  width:100%;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:16px;
+  letter-spacing:2px;
+  padding:16px 24px;
+  border-radius:10px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  transition:all 0.2s ease;
+  margin-top:6px;
+}
+.btn-submit:hover{background:var(--gold-deep);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,0.12);}
+.btn-submit:active{transform:translateY(0);}
+.btn-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none;box-shadow:none;}
+.success-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:26px;
+  letter-spacing:1.5px;
+  color:var(--navy);
+  margin-bottom:10px;
+  line-height:1.15;
+}
+.success-body{
+  color:var(--ink-soft);
+  font-size:15px;
+  line-height:1.55;
+}
+
+/* DEMO CALLOUT (slim band above footer) */
+.demo-cta{
+  background:var(--sand);
+  padding:32px 24px 36px;
+  text-align:center;
+  border-top:1px solid rgba(15,35,71,0.06);
+}
+.demo-cta-inner{
+  max-width:760px;
+  margin:0 auto;
+}
+.demo-cta-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:12px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  opacity:0.72;
+  margin-bottom:10px;
+}
+.demo-cta-line{
+  font-size:15px;
+  line-height:1.55;
+  color:var(--ink-soft);
+  margin-bottom:18px;
+}
+.demo-cta-line strong{color:var(--navy);font-weight:700;}
+.btn-secondary{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:2px;
+  padding:11px 26px;
+  border-radius:24px;
+  background:transparent;
+  color:var(--navy);
+  border:2px solid var(--navy);
+  text-decoration:none;
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+.btn-secondary:hover{
+  background:var(--navy);
+  color:var(--white);
+  transform:translateY(-1px);
+}
+.btn-secondary:active{transform:translateY(0);}
+
+/* FOOTER */
+footer{
+  margin-top:auto;
+  text-align:center;
+  padding:36px 24px 32px;
+  color:var(--ink-soft);
+}
+.foot-mark{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:2.5px;
+  color:var(--navy);
+  margin-bottom:8px;
+}
+.foot-line{font-size:13px;line-height:1.6;}
+.foot-line + .foot-line{margin-top:2px;}
+
+/* RESPONSIVE */
+@media (max-width:640px){
+  .hdr-inner{padding:12px 16px;gap:12px;}
+  .hdr-logo{gap:9px;}
+  .hdr-logo img{height:52px;}
+  .hdr-wordmark{font-size:22px;letter-spacing:2px;}
+  .hdr-wordmark .tld{font-size:16px;letter-spacing:0;}
+  .btn-admin{padding:9px 16px;font-size:13px;}
+  .hero{padding:60px 20px 72px;}
+  .hero-eyebrow{font-size:12px;letter-spacing:2.5px;margin-bottom:18px;}
+  .hero h1{letter-spacing:1px;}
+  .btn-primary{padding:13px 28px;font-size:14px;}
+  .section{padding:52px 20px;}
+  .transparency-grid{gap:14px;}
+  .transparency-card{padding:26px 22px 24px;}
+  .transparency-num{font-size:38px;}
+  .transparency-footnote{margin-top:28px;font-size:12px;letter-spacing:2px;}
+  .features-grid{gap:14px;}
+  .feature-card{padding:22px 20px 20px;}
+  .feature-icon{font-size:28px;}
+  .levels-grid{gap:14px;}
+  .level-card{padding:24px 22px 22px;}
+  .level-card-title{font-size:20px;letter-spacing:1.3px;}
+  .level-card-body{font-size:14.5px;}
+  .brand-swatches{gap:14px;margin-top:24px;}
+  .brand-swatch{width:44px;height:44px;border-width:2.5px;box-shadow:0 4px 12px rgba(15,35,71,0.16);}
+  .demo-cta{padding:28px 20px 30px;}
+  .demo-cta-line{font-size:14.5px;}
+  .btn-secondary{padding:10px 22px;font-size:13px;letter-spacing:1.8px;}
+}
+@media (max-width:420px){
+  .hdr-wordmark{display:none;}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="hdr-logo" aria-label="CourtSense home">
+      <img src="/logo.png" alt="CourtSense.app">
+      <span class="hdr-wordmark">CourtSense<span class="tld">.app</span></span>
+    </a>
+    <a class="btn-admin" href="#notify">Get Demo Notified</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Launching for the 2027 Season</div>
+    <h1>Complete Beach Volleyball <span class="accent">Team Management</span></h1>
+    <p>Built for high school and college beach volleyball programs. Beta-tested in 2026, launching for the 2027 season.</p>
+    <div class="cta-row">
+      <a href="#notify" class="btn-primary">Get Notified of the Next Demo</a>
+    </div>
+  </div>
+</section>
+
+<section class="section transparency">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">The Difference</div>
+      <h2>Pre-Dual Lineup <span class="accent">Transparency</span></h2>
+      <p class="lede">Both coaches build their dual lineups in CourtSense and post them. When both are in, the lineups reveal to both teams at the same time. Move a player more than one court out of position, and the app asks why; the note goes to the other coach. A fair, transparent exchange that both programs can trust.</p>
+    </div>
+    <div class="transparency-grid">
+
+      <div class="transparency-card">
+        <div class="transparency-num">01</div>
+        <div class="transparency-title">Both Coaches Post Privately</div>
+        <div class="transparency-body">Build your dual lineup in CourtSense and post it. Until the other coach posts theirs, neither lineup is visible to either team.</div>
+      </div>
+
+      <div class="transparency-card">
+        <div class="transparency-num">02</div>
+        <div class="transparency-title">Reveal at the Same Time</div>
+        <div class="transparency-body">When both lineups are posted, the app reveals them to both teams in the same moment. No waiting, no watching, no advantage to whoever submits last.</div>
+      </div>
+
+      <div class="transparency-card">
+        <div class="transparency-num">03</div>
+        <div class="transparency-title">Big Moves Get an Honest Note</div>
+        <div class="transparency-body">Move a player more than one court from where they would be expected, and the app asks for a short reason. That note is shared with the other coach. Strategy stays yours. Integrity stays on the table.</div>
+      </div>
+
+    </div>
+    <div class="transparency-footnote">Coming for the 2027 season.</div>
+  </div>
+</section>
+
+<section class="section features">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">The Full System</div>
+      <h2>A Complete Team Management System</h2>
+      <p class="lede">From practice pairings to season exports, every part of running a beach volleyball program in one place.</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">&#129309;</div>
+        <div class="feature-title">AI-Assisted Pairing</div>
+        <div class="feature-body">The app proposes balanced pairings using player skill, match history, side preference, and court level. Coaches stay in control and adjust as they see fit.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#9889;</div>
+        <div class="feature-title">Live, Real-Time Scoring</div>
+        <div class="feature-body">Scores update every few seconds during a dual, so parents and fans can follow along from anywhere in the world while the match is happening.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#127919;</div>
+        <div class="feature-title">AI-Assisted Training Plans for Player Goals</div>
+        <div class="feature-body">A player sets a goal, and the app uses player stats and skill data to generate a personalized training plan toward it. The coach reviews, edits, and approves every plan before the player sees it, so guidance always passes through the coach.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128202;</div>
+        <div class="feature-title">Stats, Records, and Rankings</div>
+        <div class="feature-body">Season-long per-player stats with win-loss, point differential, and percentile rankings across the roster. The leaderboard runs itself.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128197;</div>
+        <div class="feature-title">Schedule and Dual History</div>
+        <div class="feature-body">The full dual schedule plus a complete history of past matches with court-by-court results.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#127952;</div>
+        <div class="feature-title">Practice Modes</div>
+        <div class="feature-body">Run scrimmages, exhibitions, and intra-squad scenarios in practice, not just official duals. Team-versus-team or Queen of the Beach.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128269;</div>
+        <div class="feature-title">Opponent Scouting</div>
+        <div class="feature-body">Keep a running scouting log on opposing programs. Player notes and pair history per opponent, with a memory of every prior meeting.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">&#128228;</div>
+        <div class="feature-title">Season Exports</div>
+        <div class="feature-body">Export the full season to Excel anytime. Stats, pairings, schedule, and standings in one workbook.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section branding">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Make It Yours</div>
+      <h2>Your Program. Your Colors. <span class="accent">Your Spirit.</span></h2>
+      <p class="lede">CourtSense runs in your program's colors and logo, so it carries your team's identity, not generic software branding. Players, parents, and opponents see your program in everything they open. It looks like it belongs to your team, because it does.</p>
+      <div class="brand-swatches" aria-hidden="true">
+        <span class="brand-swatch brand-swatch-1"></span>
+        <span class="brand-swatch brand-swatch-2"></span>
+        <span class="brand-swatch brand-swatch-3"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section levels">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">For Coaches at Every Level</div>
+      <h2>Built for Programs at <span class="accent">Every Level</span></h2>
+      <p class="lede">High school programs and college programs get the same core platform. The same fair lineups, the same live scoring, the same goal-driven player development, scaled to how a season actually runs at each level.</p>
+    </div>
+    <div class="levels-grid">
+
+      <div class="level-card">
+        <div class="level-card-title">High School Programs</div>
+        <div class="level-card-body">Run an organized roster across all five courts. Let parents and fans follow live as the dual unfolds, even when they cannot be there in person. Post lineups in a transparent exchange that opposing coaches can trust. Give every player a development plan the coach has reviewed and approved.</div>
+      </div>
+
+      <div class="level-card">
+        <div class="level-card-title">College Programs</div>
+        <div class="level-card-body">Run deeper season-long stats and roster rankings that inform real lineup decisions. Build a scouting library across conference opponents you face year after year. Post lineups in a transparent exchange that holds up at higher stakes. Develop players with goal plans the coach reviews, edits, and approves.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section contact" id="notify">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Get on the List</div>
+      <h2>Get Notified of the Next Demo</h2>
+      <p class="lede">Beta-tested in 2026, launching for the 2027 season. We run regular Zoom demos for coaches. Sign up and we will email you when the next one is scheduled.</p>
+    </div>
+
+    <div class="contact-card" id="notify-card">
+      <div class="fg">
+        <label class="lbl" for="nf-name">Coach Name<span class="req">*</span></label>
+        <input class="inp" id="nf-name" type="text" placeholder="Your name" maxlength="80" autocomplete="name">
+        <div class="err" id="err-nf-name"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="nf-email">Email<span class="req">*</span></label>
+        <input class="inp" id="nf-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email" inputmode="email">
+        <div class="err" id="err-nf-email"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="nf-program">Program or School Name<span class="req">*</span></label>
+        <input class="inp" id="nf-program" type="text" placeholder="Your program or school" maxlength="120" autocomplete="organization">
+        <div class="err" id="err-nf-program"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="nf-level">Level</label>
+        <select class="inp" id="nf-level">
+          <option value="">Level (optional)</option>
+          <option value="High School">High School</option>
+          <option value="College">College</option>
+          <option value="Club">Club</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <button class="btn-submit" id="nf-submit" onclick="submitNotify()" type="button">Get Notified of the Next Demo</button>
+    </div>
+
+    <div class="contact-card" id="notify-success" style="display:none;text-align:center;" role="status" aria-live="polite">
+      <div class="success-title">You're on the list.</div>
+      <p class="success-body">We will email you when the next Zoom demo is scheduled.</p>
+    </div>
+  </div>
+</section>
+
+<section class="demo-cta" aria-label="Sand Sharks demo">
+  <div class="demo-cta-inner">
+    <div class="demo-cta-eyebrow">Early Look</div>
+    <p class="demo-cta-line">Want to see it in action? Take a look at our <strong>Sand Sharks demo</strong>, an early version of the team app ahead of the 2027 launch.</p>
+    <a href="/demo/" class="btn-secondary">View the Sand Sharks Demo</a>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-mark">CourtSense</div>
+  <div class="foot-line">&copy; 2026 CourtSense. All rights reserved.</div>
+  <div class="foot-line">Built in the Sand, USA.</div>
+</footer>
+
+<script>
+// FIREBASE
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+let db = null;
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  }catch(e){ console.error(e); }
+}
+
+// SIGNUP FORM
+function slugify(s){
+  return (s||'').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    .slice(0,40) || 'program';
+}
+function clearErrors(){
+  ['name','email','program'].forEach(k => {
+    const e = document.getElementById('err-nf-'+k);
+    if(e) e.textContent = '';
+    const i = document.getElementById('nf-'+k);
+    if(i) i.classList.remove('err-on');
+  });
+}
+function setError(field, msg){
+  const e = document.getElementById('err-nf-'+field);
+  if(e) e.textContent = msg;
+  const i = document.getElementById('nf-'+field);
+  if(i) i.classList.add('err-on');
+}
+function submitNotify(){
+  clearErrors();
+  const name    = document.getElementById('nf-name').value.trim();
+  const email   = document.getElementById('nf-email').value.trim();
+  const program = document.getElementById('nf-program').value.trim();
+  const level   = document.getElementById('nf-level').value;
+
+  let bad = false;
+  if(!name){ setError('name', 'Coach name is required.'); bad = true; }
+  if(!email){ setError('email', 'Email is required.'); bad = true; }
+  else if(!/^\S+@\S+\.\S+$/.test(email)){ setError('email', 'Please enter a valid email address.'); bad = true; }
+  if(!program){ setError('program', 'Program or school name is required.'); bad = true; }
+  if(bad){
+    const firstBad = document.querySelector('.inp.err-on');
+    if(firstBad) firstBad.focus();
+    return;
+  }
+
+  if(!db){
+    setError('email', 'Could not connect. Please try again in a moment.');
+    return;
+  }
+
+  const submitBtn = document.getElementById('nf-submit');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting...';
+
+  const now = Date.now();
+  const orgSlug = slugify(program);
+  const leadKey = now + '_' + orgSlug;
+  const submittedAtIso = new Date(now).toISOString();
+
+  // 1) Write lead record to courtsense_leads/. Durable; independent of email worker.
+  //    Mirrors league's key shape (name, email, organization, createdAt) and adds type + source
+  //    so team-demo leads land in the same node but are distinguishable from league leads.
+  const lead = {
+    type: 'team_demo',
+    source: 'teams',
+    name: name,
+    email: email,
+    organization: program,
+    level: level || '',
+    createdAt: now
+  };
+  db.ref('courtsense_leads/' + leadKey).set(lead);
+
+  // 2) Queue email notification (worker drains tally_kotb_pickup/email_queue/).
+  //    Worker must learn the team_demo_received type before this dispatches. Lead is still
+  //    captured in courtsense_leads regardless of worker state.
+  const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2,5);
+  const emailItem = {
+    type: 'team_demo_received',
+    to: 'markmcnees@gmail.com',
+    data: {
+      lead_name: name,
+      lead_email: email,
+      organization: program,
+      level: level || '',
+      submitted_at: submittedAtIso
+    },
+    relatedRegistration: null,
+    createdAt: now,
+    status: 'queued'
+  };
+  db.ref('tally_kotb_pickup/email_queue/' + eid).set(emailItem);
+
+  // UI feedback. Fire-and-forget writes do not resolve a promise reliably,
+  // so we swap to the success card after a short delay rather than awaiting.
+  setTimeout(function(){
+    const card = document.getElementById('notify-card');
+    const succ = document.getElementById('notify-success');
+    if(card) card.style.display = 'none';
+    if(succ) succ.style.display = 'block';
+  }, 350);
+}
+
+initFB();
+</script>
+
+</body>
+</html>

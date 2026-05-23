@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Tallahassee Beach Volleyball &middot; CourtSense</title>
+<meta name="description" content="The Tallahassee beach volleyball portal on CourtSense. Schedules, standings, registration, and contact info for the season.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Tallahassee Beach Volleyball on CourtSense">
+<meta property="og:description" content="Schedules, standings, registration, and contact info for the Tallahassee beach volleyball season.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/league/tallahassee/">
+<meta property="og:site_name" content="CourtSense">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Tallahassee Beach Volleyball on CourtSense">
+<meta name="twitter:description" content="Schedules, standings, registration, and contact info for the Tallahassee beach volleyball season.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+
+<link rel="icon" type="image/png" href="../../favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --gold-deep:#b8902f;
+  --teal:#3a8c91;
+  --teal-deep:#2a6e72;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);
+  --shadow-hover:0 20px 50px rgba(15,35,71,0.18), 0 8px 16px rgba(15,35,71,0.10);
+  --radius:14px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  color:var(--ink);
+  background:var(--white);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* HEADER */
+.hdr{
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:rgba(255,255,255,0.96);
+  backdrop-filter:saturate(180%) blur(8px);
+  -webkit-backdrop-filter:saturate(180%) blur(8px);
+  border-bottom:1px solid rgba(15,35,71,0.08);
+}
+.hdr-inner{
+  max-width:1100px;
+  margin:0 auto;
+  padding:14px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.hdr-logo{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  text-decoration:none;
+  color:var(--navy-deep);
+  min-width:0;
+}
+.hdr-logo img{
+  height:56px;
+  width:auto;
+  display:block;
+  flex-shrink:0;
+}
+.hdr-name{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:24px;
+  letter-spacing:2px;
+  color:var(--navy);
+  line-height:1.1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.btn-admin{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:1.8px;
+  padding:10px 20px;
+  border-radius:24px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+.btn-admin:hover{background:var(--gold-deep);transform:translateY(-1px);}
+.btn-admin:active{transform:translateY(0);}
+
+/* HERO */
+.hero{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  padding:80px 24px 88px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(circle at 20% 30%, rgba(212,168,67,0.12) 0%, transparent 42%),
+             radial-gradient(circle at 80% 70%, rgba(58,140,145,0.10) 0%, transparent 48%);
+  pointer-events:none;
+}
+.hero-inner{
+  position:relative;
+  max-width:880px;
+  margin:0 auto;
+}
+.hero-logo{
+  display:block;
+  height:100px;
+  width:auto;
+  max-width:100%;
+  margin:0 auto 20px;
+}
+.hero h1{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(36px, 6.5vw, 60px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  margin-bottom:18px;
+}
+.hero p{
+  font-size:clamp(16px, 2.2vw, 19px);
+  line-height:1.55;
+  color:rgba(255,255,255,0.86);
+  max-width:680px;
+  margin:0 auto;
+}
+
+/* SECTION COMMON */
+.section{padding:72px 24px;}
+.section-inner{max-width:1100px;margin:0 auto;}
+.section-head{text-align:center;margin-bottom:32px;}
+.section-eyebrow{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  color:var(--gold);
+  margin-bottom:14px;
+}
+.section h2{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(28px, 5vw, 44px);
+  letter-spacing:1.5px;
+  line-height:1.05;
+  color:var(--navy);
+  margin-bottom:6px;
+}
+
+/* ACTIVE LEAGUES */
+.leagues{background:var(--sand);}
+.leagues-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:18px;
+}
+.league-card{
+  display:block;
+  background:var(--white);
+  border-radius:var(--radius);
+  padding:24px 24px 22px;
+  box-shadow:var(--shadow);
+  border-top:4px solid var(--teal);
+  text-decoration:none;
+  color:var(--ink);
+  transition:all 0.25s cubic-bezier(0.2,0.8,0.2,1);
+}
+.league-card:hover{
+  transform:translateY(-4px);
+  box-shadow:var(--shadow-hover);
+}
+.league-card-label{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px;
+  letter-spacing:1.4px;
+  color:var(--navy);
+  margin-bottom:8px;
+  line-height:1.1;
+}
+.league-card-desc{
+  font-size:14.5px;
+  line-height:1.55;
+  color:var(--ink-soft);
+  margin-bottom:14px;
+}
+.league-card-arrow{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:1.8px;
+  color:var(--teal-deep);
+}
+.league-card:hover .league-card-arrow{color:var(--teal);}
+
+/* SEASON INFO */
+.season{background:var(--white);}
+.season-card{
+  max-width:680px;
+  margin:0 auto;
+  background:var(--white);
+  border:1px solid rgba(15,35,71,0.10);
+  border-left:4px solid var(--navy);
+  border-radius:var(--radius);
+  padding:28px 28px 26px;
+  box-shadow:var(--shadow);
+}
+.season-line{
+  font-size:15px;
+  line-height:1.7;
+  color:var(--ink);
+  padding:6px 0;
+}
+.season-lbl{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:1.5px;
+  color:var(--navy);
+  margin-right:6px;
+}
+.season-contact-row{
+  font-size:15px;
+  line-height:1.7;
+  padding:6px 0;
+  margin-top:4px;
+}
+.contact-link{
+  color:var(--teal-deep);
+  text-decoration:none;
+  font-weight:600;
+}
+.contact-link:hover{color:var(--teal);text-decoration:underline;}
+.season-register{margin-top:16px;}
+.btn-primary{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:15px;
+  letter-spacing:2px;
+  padding:13px 30px;
+  border-radius:30px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+}
+.btn-primary:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.15);}
+.btn-primary:active{transform:translateY(0);}
+
+/* CALM STATE */
+.calm{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:60px 24px;
+  min-height:60vh;
+}
+.calm-logo{
+  width:100%;
+  max-width:240px;
+  height:auto;
+  margin-bottom:32px;
+  opacity:0.95;
+}
+.calm-h{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(26px, 4.5vw, 36px);
+  letter-spacing:1.5px;
+  color:var(--navy);
+  margin-bottom:14px;
+  line-height:1.15;
+}
+.calm-sub{
+  font-size:16px;
+  line-height:1.55;
+  color:var(--ink-soft);
+  max-width:480px;
+}
+
+/* FOOTER */
+footer{
+  margin-top:auto;
+  text-align:center;
+  padding:32px 24px;
+}
+.powered{
+  display:inline-flex;
+  align-items:baseline;
+  gap:6px;
+  text-decoration:none;
+  color:var(--ink-soft);
+}
+.powered:hover .powered-mark{color:var(--navy);}
+.powered-text{font-size:13px;}
+.powered-mark{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:18px;
+  letter-spacing:2px;
+  color:var(--navy);
+  transition:color 0.2s ease;
+}
+.powered-tld{
+  font-family:'Barlow',sans-serif;
+  font-weight:600;
+  font-size:14px;
+  color:var(--gold);
+  letter-spacing:0;
+  margin-left:1px;
+  text-transform:lowercase;
+}
+
+/* ADMIN BADGE */
+.admin-badge{
+  position:fixed;
+  top:74px;
+  right:18px;
+  z-index:60;
+  background:var(--gold);
+  color:var(--navy-deep);
+  font-family:'Bebas Neue',sans-serif;
+  font-size:12px;
+  letter-spacing:1.8px;
+  padding:7px 14px;
+  border-radius:18px;
+  box-shadow:0 6px 16px rgba(15,35,71,0.20);
+  border:1.5px solid var(--gold-deep);
+  pointer-events:none;
+}
+
+/* ADMIN LOGIN MODAL */
+.overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(15,35,71,0.55);
+  -webkit-backdrop-filter:blur(2px);
+  backdrop-filter:blur(2px);
+  z-index:9000;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.overlay.on{display:flex;}
+.login-modal{
+  background:var(--white);
+  border-radius:var(--radius);
+  width:100%;
+  max-width:420px;
+  box-shadow:0 30px 80px rgba(0,0,0,0.30);
+  overflow:hidden;
+  animation:loginIn 0.18s ease-out;
+}
+@keyframes loginIn{
+  from{opacity:0;transform:translateY(10px) scale(0.98);}
+  to{opacity:1;transform:translateY(0) scale(1);}
+}
+.login-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 22px;
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+}
+.login-head h3{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;
+  letter-spacing:2px;
+  color:var(--gold);
+  margin:0;
+}
+.login-close{
+  background:transparent;
+  border:none;
+  color:rgba(255,255,255,0.75);
+  font-size:18px;
+  cursor:pointer;
+  padding:6px 10px;
+  margin:-6px -10px -6px 0;
+  border-radius:6px;
+  line-height:1;
+}
+.login-close:hover{background:rgba(255,255,255,0.10);color:var(--white);}
+.login-body{padding:22px 22px 26px;}
+.login-body .fg{margin-bottom:14px;}
+.fg{margin-bottom:18px;}
+.lbl{
+  display:block;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0.5px;
+  color:var(--navy-deep);
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+.inp{
+  width:100%;
+  padding:13px 14px;
+  border:1.5px solid #d1d5db;
+  border-radius:10px;
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:15px;
+  color:var(--ink);
+  background:var(--white);
+  min-height:48px;
+  transition:border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.inp:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,58,107,0.10);}
+.err{
+  font-size:12px;
+  color:#dc2626;
+  font-weight:600;
+  margin-top:2px;
+  margin-bottom:12px;
+  min-height:14px;
+  line-height:1.2;
+}
+.btn-submit{
+  width:100%;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:16px;
+  letter-spacing:2px;
+  padding:16px 24px;
+  border-radius:10px;
+  border:none;
+  background:var(--gold);
+  color:var(--navy-deep);
+  cursor:pointer;
+  transition:all 0.2s ease;
+  margin-top:6px;
+}
+.btn-submit:hover{background:var(--gold-deep);transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,0.12);}
+.btn-submit:active{transform:translateY(0);}
+.btn-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none;box-shadow:none;}
+
+/* EDIT MODAL */
+.edit-modal{
+  background:var(--white);
+  border-radius:var(--radius);
+  width:100%;
+  max-width:640px;
+  max-height:90vh;
+  box-shadow:0 30px 80px rgba(0,0,0,0.30);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  animation:loginIn 0.18s ease-out;
+}
+.edit-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 22px;
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  color:var(--white);
+  flex-shrink:0;
+}
+.edit-head h3{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;
+  letter-spacing:2px;
+  color:var(--gold);
+  margin:0;
+}
+.edit-body{
+  padding:20px 22px 12px;
+  overflow-y:auto;
+  flex:1 1 auto;
+}
+.edit-body .fg{margin-bottom:14px;}
+.edit-foot{
+  padding:14px 22px 18px;
+  border-top:1px solid rgba(15,35,71,0.10);
+  background:var(--white);
+  flex-shrink:0;
+}
+.edit-foot-row{
+  display:flex;
+  gap:10px;
+}
+.edit-foot-row .btn-submit{margin-top:0;flex:1;}
+.btn-cancel{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:15px;
+  letter-spacing:2px;
+  padding:16px 22px;
+  border-radius:10px;
+  border:1.5px solid #d1d5db;
+  background:var(--white);
+  color:var(--ink-soft);
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+.btn-cancel:hover{background:#f3f4f6;color:var(--ink);}
+.section-divider{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:2px;
+  color:var(--navy);
+  text-transform:uppercase;
+  margin:18px 0 12px;
+  padding-top:14px;
+  border-top:1px solid rgba(15,35,71,0.08);
+}
+.section-divider:first-child{margin-top:0;padding-top:0;border-top:none;}
+.edit-body textarea.inp{
+  min-height:96px;
+  resize:vertical;
+  line-height:1.5;
+  font-family:'Barlow',-apple-system,sans-serif;
+}
+.card-row{
+  background:var(--sand);
+  border:1px solid rgba(15,35,71,0.10);
+  border-radius:10px;
+  padding:14px;
+  margin-bottom:10px;
+}
+.card-row-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:10px;
+}
+.card-row-num{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:12px;
+  letter-spacing:1.5px;
+  color:var(--navy);
+}
+.card-remove{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:11px;
+  letter-spacing:1.2px;
+  padding:5px 12px;
+  border-radius:14px;
+  border:1px solid #fca5a5;
+  background:#fef2f2;
+  color:#b91c1c;
+  cursor:pointer;
+}
+.card-remove:hover{background:#fee2e2;}
+.card-row .fg{margin-bottom:10px;}
+.card-row .fg:last-child{margin-bottom:0;}
+.btn-add-card{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:1.5px;
+  padding:12px 16px;
+  border-radius:8px;
+  border:1.5px dashed var(--navy);
+  background:transparent;
+  color:var(--navy);
+  cursor:pointer;
+  width:100%;
+  transition:all 0.15s ease;
+}
+.btn-add-card:hover:not(:disabled){background:rgba(26,58,107,0.04);}
+.btn-add-card:disabled{opacity:0.4;cursor:not-allowed;}
+.edit-err{
+  font-size:13px;
+  color:#dc2626;
+  font-weight:600;
+  margin-bottom:8px;
+  min-height:16px;
+  line-height:1.3;
+}
+
+/* TOAST */
+.toast{
+  position:fixed;
+  bottom:24px;
+  left:50%;
+  transform:translateX(-50%) translateY(120px);
+  background:rgba(15,35,71,0.95);
+  color:#fff;
+  padding:13px 24px;
+  border-radius:24px;
+  font-weight:700;
+  font-size:13px;
+  box-shadow:var(--shadow);
+  z-index:9999;
+  transition:transform 0.28s ease;
+  white-space:nowrap;
+}
+.toast.on{transform:translateX(-50%) translateY(0);}
+
+/* RESPONSIVE */
+@media (max-width:640px){
+  .hdr-inner{padding:12px 16px;gap:10px;}
+  .hdr-logo{gap:9px;}
+  .hdr-logo img{height:44px;}
+  .hdr-name{font-size:18px;letter-spacing:1.5px;}
+  .btn-admin{padding:9px 16px;font-size:13px;}
+  .hero{padding:58px 20px 68px;}
+  .hero-logo{height:72px;margin-bottom:16px;}
+  .section{padding:52px 20px;}
+  .leagues-grid{gap:14px;}
+  .league-card{padding:22px 22px 20px;}
+  .season-card{padding:24px 22px 22px;}
+  .admin-badge{top:64px;right:12px;font-size:11px;padding:6px 12px;}
+}
+@media (max-width:420px){
+  .hdr-name{display:none;}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr" id="hdr" style="display:none;">
+  <div class="hdr-inner">
+    <a href="../" class="hdr-logo" aria-label="Back to leagues">
+      <img id="hdr-logo-img" alt="League logo">
+      <span id="hdr-league-name" class="hdr-name"></span>
+    </a>
+    <button class="btn-admin" id="hdr-login-btn" type="button" onclick="openAdminLogin()">Admin Login</button>
+    <button class="btn-admin" id="hdr-edit-btn" type="button" onclick="openEditModal()" style="display:none;">Edit Page</button>
+  </div>
+</header>
+
+<section class="hero" id="hero" style="display:none;">
+  <div class="hero-inner">
+    <img id="hero-logo" class="hero-logo" alt="League logo" style="display:none;" onerror="this.style.display='none';">
+    <h1 id="hero-name"></h1>
+    <p id="hero-blurb" style="display:none;"></p>
+  </div>
+</section>
+
+<section class="section leagues" id="leagues-section" style="display:none;">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Our Leagues</div>
+      <h2>Active This Season</h2>
+    </div>
+    <div class="leagues-grid" id="leagues-grid"></div>
+  </div>
+</section>
+
+<section class="section season" id="season-section" style="display:none;">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Season</div>
+      <h2 id="season-name"></h2>
+    </div>
+    <div class="season-card">
+      <div id="season-dates"></div>
+      <div id="season-deadline"></div>
+      <div id="season-contact"></div>
+      <div id="season-register" class="season-register"></div>
+    </div>
+  </div>
+</section>
+
+<div class="calm" id="calm" style="display:none;">
+  <img class="calm-logo" src="../../logo.png" alt="CourtSense">
+  <h1 class="calm-h">This league has not been set up yet.</h1>
+  <p class="calm-sub">The league administrator will activate this portal when ready. Check back soon.</p>
+</div>
+
+<footer>
+  <a href="../" class="powered">
+    <span class="powered-text">Powered by</span>
+    <span class="powered-mark">CourtSense<span class="powered-tld">.app</span></span>
+  </a>
+</footer>
+
+<div class="admin-badge" id="admin-badge" style="display:none;">Admin Mode</div>
+
+<div class="overlay" id="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title" onclick="if(event.target===this)closeAdminLogin()">
+  <div class="login-modal">
+    <div class="login-head">
+      <h3 id="login-title">Admin Login</h3>
+      <button class="login-close" type="button" onclick="closeAdminLogin()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="login-body">
+      <div class="fg">
+        <label class="lbl" for="lg-pin">Admin PIN</label>
+        <input class="inp" id="lg-pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="12">
+      </div>
+      <div class="err" id="lg-err"></div>
+      <button class="btn-submit" id="lg-submit" type="button" onclick="submitAdminLogin()">Open Admin</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="edit-overlay" role="dialog" aria-modal="true" aria-labelledby="edit-title" onclick="if(event.target===this)closeEditModal()">
+  <div class="edit-modal">
+    <div class="edit-head">
+      <h3 id="edit-title">Edit Page</h3>
+      <button class="login-close" type="button" onclick="closeEditModal()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="edit-body">
+
+      <div class="section-divider">Branding</div>
+      <div class="fg">
+        <label class="lbl" for="ef-logoUrl">Logo URL</label>
+        <input class="inp" id="ef-logoUrl" type="text" placeholder="https://courtsense.app/tallahassee-logo.png" autocomplete="off">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-name">League Name</label>
+        <input class="inp" id="ef-name" type="text" autocomplete="off" maxlength="120">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-blurb">Hero Blurb</label>
+        <textarea class="inp" id="ef-blurb" rows="3" maxlength="600"></textarea>
+      </div>
+
+      <div class="section-divider">Active Leagues (up to 6)</div>
+      <div id="ef-cards"></div>
+      <button class="btn-add-card" id="ef-add-card" type="button" onclick="addCardRow()">+ Add League Card</button>
+
+      <div class="section-divider">Season</div>
+      <div class="fg">
+        <label class="lbl" for="ef-seasonName">Season Name</label>
+        <input class="inp" id="ef-seasonName" type="text" autocomplete="off" maxlength="80" placeholder="Summer 2026">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-seasonStart">Season Start</label>
+        <input class="inp" id="ef-seasonStart" type="date">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-seasonEnd">Season End</label>
+        <input class="inp" id="ef-seasonEnd" type="date">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-regDeadline">Registration Deadline</label>
+        <input class="inp" id="ef-regDeadline" type="date">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-regUrl">Registration URL</label>
+        <input class="inp" id="ef-regUrl" type="text" placeholder="https://..." autocomplete="off">
+      </div>
+
+      <div class="section-divider">Contact</div>
+      <div class="fg">
+        <label class="lbl" for="ef-contactEmail">Contact Email</label>
+        <input class="inp" id="ef-contactEmail" type="email" autocomplete="off" maxlength="120">
+      </div>
+      <div class="fg">
+        <label class="lbl" for="ef-contactPhone">Contact Phone</label>
+        <input class="inp" id="ef-contactPhone" type="tel" autocomplete="off" maxlength="30">
+      </div>
+
+      <div class="section-divider">Security</div>
+      <div class="fg">
+        <label class="lbl" for="ef-newPin">Change League PIN (leave blank to keep current)</label>
+        <input class="inp" id="ef-newPin" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="4 to 8 digits" autocomplete="off" maxlength="8">
+      </div>
+
+    </div>
+    <div class="edit-foot">
+      <div class="edit-err" id="ef-err"></div>
+      <div class="edit-foot-row">
+        <button class="btn-cancel" type="button" onclick="closeEditModal()">Cancel</button>
+        <button class="btn-submit" id="ef-save" type="button" onclick="saveEdits()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// PORTAL SLUG (single point of change for future cities)
+const SLUG = 'tallahassee';
+
+// FIREBASE
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+let db = null;
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  }catch(e){ console.error(e); }
+}
+
+// STATE
+const MASTER_PIN = '1969';
+const LEAGUE_ADMIN_SESSION_MS = 60 * 60 * 1000;
+let isAdmin = false;
+let _leaguePin = '';
+let _snapshotLoaded = false;
+let _lastVal = null;
+
+// HELPERS
+const $ = id => document.getElementById(id);
+function toast(m){
+  const t = $('toast');
+  t.textContent = m;
+  t.classList.add('on');
+  setTimeout(function(){ t.classList.remove('on'); }, 2800);
+}
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function fmtDate(s){
+  if(!s) return '';
+  try{
+    const d = new Date(s + 'T12:00:00');
+    if(isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+  }catch(e){ return s; }
+}
+function slugTitle(){
+  return SLUG.split('-').map(function(w){ return w ? (w[0].toUpperCase() + w.slice(1)) : ''; }).join(' ');
+}
+function safeUrl(u){
+  if(!u) return '';
+  const t = String(u).trim();
+  if(!t) return '';
+  if(/^javascript:/i.test(t)) return '';
+  return t;
+}
+
+// SESSION CHECK ON LOAD
+function loadSession(){
+  try{
+    const raw = sessionStorage.getItem('cs_league_admin_' + SLUG);
+    if(!raw) return;
+    const expiry = parseInt(raw, 10);
+    if(isNaN(expiry) || expiry <= Date.now()){
+      sessionStorage.removeItem('cs_league_admin_' + SLUG);
+      return;
+    }
+    isAdmin = true;
+  }catch(e){}
+}
+function applyAdminState(){
+  const b = $('admin-badge');
+  if(b) b.style.display = isAdmin ? 'block' : 'none';
+  const login = $('hdr-login-btn');
+  if(login) login.style.display = isAdmin ? 'none' : '';
+  const edit = $('hdr-edit-btn');
+  if(edit) edit.style.display = isAdmin ? '' : 'none';
+}
+
+// RENDER
+function showCalm(){
+  $('calm').style.display = 'flex';
+  $('hdr').style.display = 'none';
+  $('hero').style.display = 'none';
+  $('leagues-section').style.display = 'none';
+  $('season-section').style.display = 'none';
+}
+function hideCalm(){
+  $('calm').style.display = 'none';
+  $('hdr').style.display = 'block';
+  $('hero').style.display = 'block';
+}
+
+function renderHeader(cfg){
+  const img = $('hdr-logo-img');
+  const url = safeUrl(cfg.logoUrl);
+  if(url){
+    img.src = url;
+    img.onerror = function(){ this.onerror = null; this.src = '../../logo.png'; };
+  }else{
+    img.onerror = null;
+    img.src = '../../logo.png';
+  }
+  const name = (cfg.name && cfg.name.trim()) ? cfg.name : slugTitle();
+  $('hdr-league-name').textContent = name;
+  document.title = name + ' · CourtSense';
+}
+function renderHero(cfg){
+  const name = (cfg.name && cfg.name.trim()) ? cfg.name : slugTitle();
+  $('hero-name').textContent = name;
+
+  const logoEl = $('hero-logo');
+  const logoUrl = safeUrl(cfg.logoUrl);
+  if(logoUrl){
+    logoEl.alt = (cfg.name && cfg.name.trim()) ? cfg.name : 'League logo';
+    logoEl.src = logoUrl;
+    logoEl.style.display = '';
+  }else{
+    logoEl.removeAttribute('src');
+    logoEl.style.display = 'none';
+  }
+
+  const blurbEl = $('hero-blurb');
+  if(cfg.blurb && cfg.blurb.trim()){
+    blurbEl.textContent = cfg.blurb;
+    blurbEl.style.display = 'block';
+  }else{
+    blurbEl.textContent = '';
+    blurbEl.style.display = 'none';
+  }
+}
+function renderLeagues(cards){
+  const section = $('leagues-section');
+  const grid = $('leagues-grid');
+  cards = cards || {};
+  const arr = Object.keys(cards)
+    .map(function(k){ return Object.assign({_id:k}, cards[k]); })
+    .filter(function(c){ return c && c.label; });
+  arr.sort(function(a,b){
+    const oa = (typeof a.order === 'number') ? a.order : 9999;
+    const ob = (typeof b.order === 'number') ? b.order : 9999;
+    return oa - ob;
+  });
+  if(!arr.length){
+    section.style.display = 'none';
+    grid.innerHTML = '';
+    return;
+  }
+  section.style.display = 'block';
+  grid.innerHTML = arr.map(function(c){
+    const label = escapeHtml(c.label || '');
+    const desc = escapeHtml(c.desc || '');
+    const url = safeUrl(c.url);
+    const open = url ? '<div class="league-card-arrow">Open &rarr;</div>' : '';
+    if(url){
+      return '<a class="league-card" href="' + escapeHtml(url) + '">' +
+        '<div class="league-card-label">' + label + '</div>' +
+        (desc ? '<div class="league-card-desc">' + desc + '</div>' : '') +
+        open +
+      '</a>';
+    }
+    return '<div class="league-card" style="cursor:default;">' +
+      '<div class="league-card-label">' + label + '</div>' +
+      (desc ? '<div class="league-card-desc">' + desc + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+function renderSeason(cfg){
+  const section = $('season-section');
+  const nameEl = $('season-name');
+  const datesEl = $('season-dates');
+  const deadlineEl = $('season-deadline');
+  const contactEl = $('season-contact');
+  const registerEl = $('season-register');
+
+  let anyVisible = false;
+
+  if(cfg.seasonName && cfg.seasonName.trim()){
+    nameEl.textContent = cfg.seasonName;
+    nameEl.style.display = '';
+    anyVisible = true;
+  }else{
+    nameEl.textContent = '';
+    nameEl.style.display = 'none';
+  }
+
+  if(cfg.seasonStart && cfg.seasonEnd){
+    datesEl.innerHTML = '<div class="season-line"><span class="season-lbl">Season:</span> ' +
+      escapeHtml(fmtDate(cfg.seasonStart)) + ' to ' + escapeHtml(fmtDate(cfg.seasonEnd)) + '</div>';
+    datesEl.style.display = 'block';
+    anyVisible = true;
+  }else{
+    datesEl.innerHTML = '';
+    datesEl.style.display = 'none';
+  }
+
+  if(cfg.registrationDeadline){
+    deadlineEl.innerHTML = '<div class="season-line"><span class="season-lbl">Registration deadline:</span> ' +
+      escapeHtml(fmtDate(cfg.registrationDeadline)) + '</div>';
+    deadlineEl.style.display = 'block';
+    anyVisible = true;
+  }else{
+    deadlineEl.innerHTML = '';
+    deadlineEl.style.display = 'none';
+  }
+
+  const contactBits = [];
+  if(cfg.contactEmail && cfg.contactEmail.trim()){
+    const ce = cfg.contactEmail.trim();
+    contactBits.push('<a class="contact-link" href="mailto:' + escapeHtml(ce) + '">' + escapeHtml(ce) + '</a>');
+  }
+  if(cfg.contactPhone && cfg.contactPhone.trim()){
+    const cp = cfg.contactPhone.trim();
+    const telDigits = cp.replace(/[^+\d]/g, '');
+    contactBits.push('<a class="contact-link" href="tel:' + escapeHtml(telDigits || cp) + '">' + escapeHtml(cp) + '</a>');
+  }
+  if(contactBits.length){
+    contactEl.innerHTML = '<div class="season-contact-row"><span class="season-lbl">Contact:</span> ' + contactBits.join(' &middot; ') + '</div>';
+    contactEl.style.display = 'block';
+    anyVisible = true;
+  }else{
+    contactEl.innerHTML = '';
+    contactEl.style.display = 'none';
+  }
+
+  const regUrl = safeUrl(cfg.registrationUrl);
+  if(regUrl){
+    registerEl.innerHTML = '<a class="btn-primary" href="' + escapeHtml(regUrl) + '" target="_blank" rel="noopener">Register</a>';
+    registerEl.style.display = 'block';
+    anyVisible = true;
+  }else{
+    registerEl.innerHTML = '';
+    registerEl.style.display = 'none';
+  }
+
+  section.style.display = anyVisible ? 'block' : 'none';
+}
+
+function renderPage(val){
+  _snapshotLoaded = true;
+  _lastVal = val;
+  _leaguePin = (val && val.leaguePin != null) ? String(val.leaguePin) : '';
+  const cfg = val && val.config;
+  if(!val || !cfg){
+    showCalm();
+    return;
+  }
+  hideCalm();
+  renderHeader(cfg);
+  renderHero(cfg);
+  renderLeagues(val.cards || {});
+  renderSeason(cfg);
+}
+
+// ADMIN LOGIN MODAL
+function openAdminLogin(){
+  const ov = $('login-overlay');
+  if(!ov) return;
+  $('lg-pin').value = '';
+  $('lg-err').textContent = '';
+  const btn = $('lg-submit');
+  btn.disabled = false;
+  btn.textContent = 'Open Admin';
+  ov.classList.add('on');
+  setTimeout(function(){ const i = $('lg-pin'); if(i) i.focus(); }, 50);
+}
+function closeAdminLogin(){
+  const ov = $('login-overlay');
+  if(ov) ov.classList.remove('on');
+}
+function _adminSuccess(){
+  try{
+    sessionStorage.setItem('cs_league_admin_' + SLUG, String(Date.now() + LEAGUE_ADMIN_SESSION_MS));
+  }catch(e){}
+  isAdmin = true;
+  applyAdminState();
+  closeAdminLogin();
+  toast('Admin mode active.');
+}
+function _checkPin(pin, leaguePin, errEl, btn){
+  if(pin !== MASTER_PIN && pin !== leaguePin){
+    errEl.textContent = 'Incorrect PIN.';
+    btn.disabled = false;
+    btn.textContent = 'Open Admin';
+    return;
+  }
+  _adminSuccess();
+}
+function submitAdminLogin(){
+  const pin = ($('lg-pin').value || '').trim();
+  const errEl = $('lg-err');
+  const btn = $('lg-submit');
+  errEl.textContent = '';
+  if(!pin){ errEl.textContent = 'Enter the admin PIN.'; return; }
+
+  if(_snapshotLoaded){
+    _checkPin(pin, _leaguePin, errEl, btn);
+    return;
+  }
+  // Snapshot not yet loaded; re-read leaguePin directly via callback form.
+  if(!db){ errEl.textContent = 'Could not connect. Try again in a moment.'; return; }
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  db.ref('courtsense_leagues/' + SLUG + '/leaguePin').once('value', function(snap){
+    const lp = (snap && snap.val() != null) ? String(snap.val()) : '';
+    _leaguePin = lp;
+    _checkPin(pin, lp, errEl, btn);
+  }, function(){
+    errEl.textContent = 'Could not connect. Try again in a moment.';
+    btn.disabled = false;
+    btn.textContent = 'Open Admin';
+  });
+}
+
+// EDIT MODAL
+function openEditModal(){
+  if(!isAdmin) return;
+  const ov = $('edit-overlay');
+  if(!ov) return;
+  populateEditForm();
+  $('ef-err').textContent = '';
+  const saveBtn = $('ef-save');
+  saveBtn.disabled = false;
+  saveBtn.textContent = 'Save Changes';
+  ov.classList.add('on');
+  setTimeout(function(){
+    const body = document.querySelector('#edit-overlay .edit-body');
+    if(body) body.scrollTop = 0;
+    const i = $('ef-logoUrl');
+    if(i) i.focus();
+  }, 50);
+}
+function closeEditModal(){
+  const ov = $('edit-overlay');
+  if(ov) ov.classList.remove('on');
+}
+function populateEditForm(){
+  const val = _lastVal || {};
+  const cfg = val.config || {};
+  $('ef-logoUrl').value = cfg.logoUrl || '';
+  $('ef-name').value = cfg.name || '';
+  $('ef-blurb').value = cfg.blurb || '';
+  $('ef-seasonName').value = cfg.seasonName || '';
+  $('ef-seasonStart').value = cfg.seasonStart || '';
+  $('ef-seasonEnd').value = cfg.seasonEnd || '';
+  $('ef-regDeadline').value = cfg.registrationDeadline || '';
+  $('ef-regUrl').value = cfg.registrationUrl || '';
+  $('ef-contactEmail').value = cfg.contactEmail || '';
+  $('ef-contactPhone').value = cfg.contactPhone || '';
+  $('ef-newPin').value = '';
+
+  // Cards: sorted by order, rebuilt fresh each time the modal opens.
+  const cards = val.cards || {};
+  const sorted = Object.keys(cards)
+    .map(function(k){ return Object.assign({}, cards[k]); })
+    .filter(function(c){ return c && (c.label || c.desc || c.url); })
+    .sort(function(a,b){
+      const oa = (typeof a.order === 'number') ? a.order : 9999;
+      const ob = (typeof b.order === 'number') ? b.order : 9999;
+      return oa - ob;
+    });
+  const container = $('ef-cards');
+  container.innerHTML = '';
+  sorted.forEach(function(c){ addCardRow(c); });
+  updateAddCardBtn();
+}
+function addCardRow(card){
+  const container = $('ef-cards');
+  const rows = container.querySelectorAll('.card-row');
+  if(rows.length >= 6) return;
+  const c = (card && typeof card === 'object') ? card : {};
+  const row = document.createElement('div');
+  row.className = 'card-row';
+  row.innerHTML =
+    '<div class="card-row-head">' +
+      '<span class="card-row-num">Card ' + (rows.length + 1) + '</span>' +
+      '<button class="card-remove" type="button" onclick="removeCardRow(this)">Remove</button>' +
+    '</div>' +
+    '<div class="fg">' +
+      '<label class="lbl">Label</label>' +
+      '<input class="inp ef-card-label" type="text" maxlength="80">' +
+    '</div>' +
+    '<div class="fg">' +
+      '<label class="lbl">Description</label>' +
+      '<input class="inp ef-card-desc" type="text" maxlength="160">' +
+    '</div>' +
+    '<div class="fg">' +
+      '<label class="lbl">URL</label>' +
+      '<input class="inp ef-card-url" type="text" placeholder="https://courtsense.app/kotb/" autocomplete="off">' +
+    '</div>';
+  row.querySelector('.ef-card-label').value = c.label || '';
+  row.querySelector('.ef-card-desc').value = c.desc || '';
+  row.querySelector('.ef-card-url').value = c.url || '';
+  container.appendChild(row);
+  renumberCardRows();
+  updateAddCardBtn();
+}
+function removeCardRow(btn){
+  const row = btn.closest('.card-row');
+  if(row) row.remove();
+  renumberCardRows();
+  updateAddCardBtn();
+}
+function renumberCardRows(){
+  const container = $('ef-cards');
+  const rows = container.querySelectorAll('.card-row');
+  rows.forEach(function(r, i){
+    const numEl = r.querySelector('.card-row-num');
+    if(numEl) numEl.textContent = 'Card ' + (i + 1);
+  });
+}
+function updateAddCardBtn(){
+  const container = $('ef-cards');
+  const rows = container.querySelectorAll('.card-row');
+  const btn = $('ef-add-card');
+  if(!btn) return;
+  if(rows.length >= 6){
+    btn.disabled = true;
+    btn.textContent = 'Maximum of 6 cards reached';
+  }else{
+    btn.disabled = false;
+    btn.textContent = '+ Add League Card';
+  }
+}
+function newCardId(){
+  return 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function saveEdits(){
+  if(!isAdmin) return;
+  const errEl = $('ef-err');
+  errEl.textContent = '';
+  const saveBtn = $('ef-save');
+
+  const newPinRaw = ($('ef-newPin').value || '').trim();
+  if(newPinRaw && !/^\d{4,8}$/.test(newPinRaw)){
+    errEl.textContent = 'New PIN must be 4 to 8 digits.';
+    $('ef-newPin').focus();
+    return;
+  }
+
+  if(!db){
+    errEl.textContent = 'Could not connect. Try again in a moment.';
+    return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+
+  // Build config; trim every text field; safeUrl on URL fields.
+  const cfg = {
+    logoUrl: safeUrl(($('ef-logoUrl').value || '').trim()) || '',
+    name: ($('ef-name').value || '').trim(),
+    blurb: ($('ef-blurb').value || '').trim(),
+    seasonName: ($('ef-seasonName').value || '').trim(),
+    seasonStart: ($('ef-seasonStart').value || '').trim(),
+    seasonEnd: ($('ef-seasonEnd').value || '').trim(),
+    registrationDeadline: ($('ef-regDeadline').value || '').trim(),
+    registrationUrl: safeUrl(($('ef-regUrl').value || '').trim()) || '',
+    contactEmail: ($('ef-contactEmail').value || '').trim(),
+    contactPhone: ($('ef-contactPhone').value || '').trim()
+  };
+
+  // Build cards object; order assigned by row position; safeUrl on each card url.
+  const rows = $('ef-cards').querySelectorAll('.card-row');
+  const cards = {};
+  let cardIdx = 0;
+  rows.forEach(function(r){
+    const label = (r.querySelector('.ef-card-label').value || '').trim();
+    const desc = (r.querySelector('.ef-card-desc').value || '').trim();
+    const url = safeUrl((r.querySelector('.ef-card-url').value || '').trim()) || '';
+    if(!label && !desc && !url) return;
+    cardIdx++;
+    cards[newCardId()] = {
+      label: label,
+      desc: desc,
+      url: url,
+      order: cardIdx
+    };
+  });
+
+  // Fire-and-forget writes scoped only to this league's config, cards, and (optionally) leaguePin.
+  db.ref('courtsense_leagues/' + SLUG + '/config').set(cfg);
+  db.ref('courtsense_leagues/' + SLUG + '/cards').set(Object.keys(cards).length ? cards : null);
+  if(newPinRaw){
+    db.ref('courtsense_leagues/' + SLUG + '/leaguePin').set(newPinRaw);
+  }
+
+  // The .on listener will repaint the public view automatically.
+  setTimeout(function(){
+    closeEditModal();
+    toast('Changes saved.');
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Changes';
+  }, 350);
+}
+
+// KEYBOARD: Escape closes either open modal; Enter inside the PIN input submits login.
+document.addEventListener('keydown', function(e){
+  const loginOv = $('login-overlay');
+  const editOv = $('edit-overlay');
+  if(e.key === 'Escape'){
+    if(editOv && editOv.classList.contains('on')){ closeEditModal(); return; }
+    if(loginOv && loginOv.classList.contains('on')){ closeAdminLogin(); return; }
+  }
+  if(e.key === 'Enter' && loginOv && loginOv.classList.contains('on')){
+    const ae = document.activeElement;
+    if(ae && ae.id === 'lg-pin'){
+      e.preventDefault();
+      submitAdminLogin();
+    }
+  }
+});
+
+// BOOT
+initFB();
+loadSession();
+applyAdminState();
+// Default to calm until first snapshot resolves, so an empty/no-rules read does not render a blank header.
+showCalm();
+if(db){
+  db.ref('courtsense_leagues/' + SLUG).on('value', function(snap){
+    renderPage(snap.val());
+  }, function(err){
+    console.error(err);
+    showCalm();
+  });
+}
+</script>
+</body>
+</html>
