@@ -270,7 +270,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
     <div class="card">
       <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 2</span>Import Roster from Excel</div>
-      <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Upload an Excel file (.xlsx or .csv) with player names. Put names in the <strong>first column</strong> — one name per row. A header row (e.g. "Name") is fine, the app will skip it automatically.</p>
+      <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Download the template, add one player name per row in the <strong>first column</strong>, then choose the file to import. The "Name" header row is fine — the app skips it automatically.</p>
+      <button class="btn btn-p btn-w" type="button" onclick="downloadRosterTemplate()" style="margin-bottom:8px;">&#11015; Download Template</button>
       <label class="btn btn-p btn-w" style="cursor:pointer;justify-content:center;margin-bottom:8px;">
         📂 Choose Roster File
         <input type="file" id="roster-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importRoster(this)">

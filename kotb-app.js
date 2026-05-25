@@ -1717,33 +1717,48 @@ function importRoster(input){
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
 
-      // Extract names from first column, skip blank rows and likely headers
-      const names = [];
+      // Build players[] from columns 0 (Name), 1 (Email), 2 (Phone). Skip blank rows + likely header row.
+      const players = [];
       rows.forEach((row, i) => {
-        const cell = String(row[0]||'').trim();
-        if(!cell) return;
-        // Skip header row if it looks like a label (no spaces or common headers)
-        const isHeader = /^(name|player|first|full|#)/i.test(cell) && i === 0;
+        const name  = String(row[0]||'').trim();
+        if(!name) return;
+        const isHeader = /^(name|player|first|full|#)/i.test(name) && i === 0;
         if(isHeader) return;
-        names.push(cell);
+        const email = String(row[1]||'').trim();
+        const phone = String(row[2]||'').trim();
+        players.push({name, email, phone});
       });
 
-      if(!names.length){
+      if(!players.length){
         preview.innerHTML = '<div style="color:var(--loss);font-size:13px;padding:8px;">No names found. Make sure names are in the first column.</div>';
         return;
       }
 
-      // Show preview with confirm button
+      // Validate emails: every player must have a non-empty, well-formed email. Phone is optional.
+      const emailRe = /^\S+@\S+\.\S+$/;
+      const invalid = players.filter(p => !p.email || !emailRe.test(p.email));
+      if(invalid.length){
+        const bad = invalid.map(p => p.name).join(', ');
+        preview.innerHTML = `
+          <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin-top:8px;font-size:13px;color:#7f1d1d;">
+            <div style="font-weight:700;margin-bottom:6px;">These players need a valid email before importing:</div>
+            <div>${bad}</div>
+            <div style="font-size:11px;margin-top:8px;">Fix the spreadsheet and choose the file again. Phone is optional.</div>
+          </div>`;
+        return;
+      }
+
+      // Preview with confirm button.
       preview.innerHTML = `
         <div style="background:var(--light);border-radius:10px;padding:12px;margin-top:8px;">
           <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--primary);margin-bottom:8px;">
-            Found ${names.length} player${names.length!==1?'s':''} — review before importing:
+            Found ${players.length} player${players.length!==1?'s':''} — review before importing:
           </div>
           <div style="max-height:200px;overflow-y:auto;margin-bottom:10px;">
-            ${names.map((n,i)=>`<div style="padding:7px 0;border-bottom:1px solid var(--sand-border);font-size:14px;font-weight:600;">${i+1}. ${n}</div>`).join('')}
+            ${players.map((p,i)=>`<div style="padding:7px 0;border-bottom:1px solid var(--sand-border);font-size:14px;"><span style="font-weight:600;">${i+1}. ${p.name}</span> <span style="color:var(--gray);font-size:12px;">· ${p.email}${p.phone?' · '+p.phone:''}</span></div>`).join('')}
           </div>
           <div style="display:flex;gap:8px;">
-            <button class="btn btn-p" style="flex:1;" onclick="confirmRosterImport(${JSON.stringify(names).replace(/"/g,'&quot;')})">
+            <button class="btn btn-p" style="flex:1;" onclick="confirmRosterImport(${JSON.stringify(players).replace(/"/g,'&quot;')})">
               ✓ Import All
             </button>
             <button class="btn btn-g" onclick="$('roster-import-preview').innerHTML='';$('roster-file').value='';">
@@ -1763,19 +1778,21 @@ function importRoster(input){
   input.value = ''; // reset so same file can be re-selected
 }
 
-function confirmRosterImport(names){
-  if(!names||!names.length)return;
+function confirmRosterImport(players){
+  if(!players||!players.length)return;
   // Get existing player names to avoid exact duplicates
   const existing = new Set(
     Object.values(D[SIDE].players||{}).map(p=>p&&p.name?p.name.toLowerCase().trim():'')
   );
   let added = 0, skipped = 0;
-  names.forEach(name=>{
-    const trimmed = name.trim();
-    if(!trimmed)return;
-    if(existing.has(trimmed.toLowerCase())){skipped++;return;}
+  players.forEach(p=>{
+    const name  = (p && p.name  ? String(p.name).trim()  : '');
+    const email = (p && p.email ? String(p.email).trim() : '');
+    const phone = (p && p.phone ? String(p.phone).trim() : '');
+    if(!name)return;
+    if(existing.has(name.toLowerCase())){skipped++;return;}
     const id = gi('p');
-    fbSet(SIDE+'/players/'+id, {id, name:trimmed, active:true});
+    fbSet(SIDE+'/players/'+id, {id, name, active:true, email, phone});
     added++;
   });
   $('roster-import-preview').innerHTML = `
@@ -1860,6 +1877,20 @@ function exportExcel(){
   const today = td();
   XLSX.writeFile(wb, LC.exportPrefix+'_'+sideName+'_'+today+'.xlsx');
   toast('Exported! Check your Downloads ✓');
+}
+
+function downloadRosterTemplate(){
+  if(typeof XLSX === 'undefined'){ toast('Excel library not loaded'); return; }
+  var aoa = [
+    ['Name', 'Email', 'Phone'],
+    ['Alex Smith',  'alex@example.com',   '850-555-0101'],
+    ['Jordan Lee',  'jordan@example.com', ''],
+    ['Sam Rivera',  'sam@example.com',    '850-555-0103']
+  ];
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+  XLSX.writeFile(wb, 'KotB_Roster_Template.xlsx');
 }
 
 // ─── PIN SYSTEM ───
