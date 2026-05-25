@@ -121,6 +121,36 @@ body{
 .btn-admin:hover{background:var(--gold-deep);transform:translateY(-1px);}
 .btn-admin:active{transform:translateY(0);}
 
+/* FIND-YOUR-LEAGUE BUTTON — player door, sits next to the gold director door */
+.btn-find{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:1.8px;
+  padding:10px 20px;
+  border-radius:24px;
+  border:none;
+  background:var(--navy);
+  color:#fff;
+  cursor:pointer;
+  text-decoration:none;
+  transition:all 0.2s ease;
+  white-space:nowrap;
+  margin-right:8px;
+}
+.btn-find:hover{background:var(--navy-deep);transform:translateY(-1px);}
+.btn-find:active{transform:translateY(0);}
+
+/* FINDER MODAL — results list */
+.finder-results{display:flex;flex-direction:column;gap:10px;margin-top:8px;max-height:50vh;overflow-y:auto;}
+.finder-card{display:flex;gap:12px;align-items:center;padding:12px 14px;border:1.5px solid #e5e7eb;border-radius:12px;cursor:pointer;background:#fff;transition:all 0.15s ease;text-align:left;width:100%;font-family:inherit;}
+.finder-card:hover{border-color:var(--navy);background:#f9fafb;transform:translateY(-1px);}
+.finder-card-logo{width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#f3f4f6;}
+.finder-card-logo-placeholder{width:44px;height:44px;border-radius:8px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;flex-shrink:0;}
+.finder-card-body{flex:1;min-width:0;}
+.finder-card-name{font-weight:700;font-size:15px;color:var(--navy-deep);margin-bottom:2px;}
+.finder-card-blurb{font-size:13px;color:#6b7280;line-height:1.4;}
+.finder-empty{font-size:13px;color:#6b7280;font-style:italic;padding:8px 0;}
+
 /* HERO */
 .hero{
   background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
@@ -506,6 +536,7 @@ footer{
       <img src="/logo.png" alt="CourtSense.app">
       <span class="hdr-wordmark">CourtSense<span class="tld">.app</span></span>
     </a>
+    <button class="btn-find" onclick="openLeagueFinder()">&#128269; Find your league</button>
     <button class="btn-admin" onclick="openAdminLogin()">Admin Login</button>
   </div>
 </header>
@@ -673,6 +704,22 @@ footer{
   </div>
 </div>
 
+<div class="overlay" id="finder-overlay" role="dialog" aria-modal="true" aria-labelledby="finder-title" onclick="if(event.target===this)closeLeagueFinder()">
+  <div class="login-modal">
+    <div class="login-head">
+      <h3 id="finder-title">Find your league</h3>
+      <button class="login-close" type="button" onclick="closeLeagueFinder()" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="login-body">
+      <div class="fg">
+        <label class="lbl" for="finder-input">Type your city or league</label>
+        <input class="inp" id="finder-input" type="text" placeholder="Type your city or league, e.g. Tallahassee" autocomplete="off" oninput="filterLeagues()">
+      </div>
+      <div class="finder-results" id="finder-results"></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -767,10 +814,101 @@ function submitAdminLogin(){
     btn.textContent = 'Open League';
   });
 }
+// LEAGUE FINDER
+let _leaguesCache = null;
+function openLeagueFinder(){
+  const ov = document.getElementById('finder-overlay');
+  if(!ov) return;
+  document.getElementById('finder-input').value = '';
+  ov.classList.add('on');
+  setTimeout(function(){ const i = document.getElementById('finder-input'); if(i) i.focus(); }, 50);
+  loadLeaguesIfNeeded();
+}
+function closeLeagueFinder(){
+  const ov = document.getElementById('finder-overlay');
+  if(ov) ov.classList.remove('on');
+}
+function loadLeaguesIfNeeded(){
+  const resEl = document.getElementById('finder-results');
+  if(!resEl) return;
+  if(_leaguesCache){ renderLeagueResults(); return; }
+  resEl.innerHTML = '<div class="finder-empty">Loading leagues...</div>';
+  if(!db){
+    resEl.innerHTML = '<div class="finder-empty">Could not connect. Try again in a moment.</div>';
+    return;
+  }
+  db.ref('courtsense_leagues').once('value', function(snap){
+    const val = (snap && snap.val()) || {};
+    const list = [];
+    Object.keys(val).forEach(function(slug){
+      const cfg = (val[slug] && val[slug].config) || {};
+      list.push({
+        slug: slug,
+        name: cfg.name || slug,
+        blurb: cfg.blurb || '',
+        logoUrl: cfg.logoUrl || ''
+      });
+    });
+    list.sort(function(a, b){ return a.name.localeCompare(b.name); });
+    _leaguesCache = list;
+    renderLeagueResults();
+  }, function(){
+    resEl.innerHTML = '<div class="finder-empty">Could not connect. Try again in a moment.</div>';
+  });
+}
+function filterLeagues(){ renderLeagueResults(); }
+function escapeHtmlFinder(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function renderLeagueResults(){
+  const resEl = document.getElementById('finder-results');
+  const inpEl = document.getElementById('finder-input');
+  if(!resEl || !_leaguesCache) return;
+  const q = (inpEl ? inpEl.value : '').toLowerCase().trim();
+  let matches = _leaguesCache;
+  let header = '';
+  if(q){
+    matches = _leaguesCache.filter(function(l){
+      const hay = (l.name + ' ' + l.blurb).toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+    if(matches.length === 0){
+      header = '<div class="finder-empty">No exact match. Here is what is available:</div>';
+      matches = _leaguesCache;
+    }
+  }
+  if(matches.length === 0){
+    resEl.innerHTML = '<div class="finder-empty">No leagues available yet.</div>';
+    return;
+  }
+  const cards = matches.map(function(l){
+    const initial = (l.name.charAt(0) || '?').toUpperCase();
+    const logo = l.logoUrl
+      ? '<img class="finder-card-logo" src="' + escapeHtmlFinder(l.logoUrl) + '" alt="">'
+      : '<div class="finder-card-logo-placeholder">' + escapeHtmlFinder(initial) + '</div>';
+    return '<button class="finder-card" type="button" onclick="goLeague(\'' + escapeHtmlFinder(l.slug) + '\')">' +
+      logo +
+      '<div class="finder-card-body">' +
+        '<div class="finder-card-name">' + escapeHtmlFinder(l.name) + '</div>' +
+        (l.blurb ? '<div class="finder-card-blurb">' + escapeHtmlFinder(l.blurb) + '</div>' : '') +
+      '</div>' +
+    '</button>';
+  }).join('');
+  resEl.innerHTML = header + cards;
+}
+function goLeague(slug){
+  if(!slug) return;
+  window.location.href = slug + '/';
+}
+
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape'){
     const ov = document.getElementById('login-overlay');
     if(ov && ov.classList.contains('on')) closeAdminLogin();
+    const fv = document.getElementById('finder-overlay');
+    if(fv && fv.classList.contains('on')) closeLeagueFinder();
   }
   if(e.key === 'Enter'){
     const ov = document.getElementById('login-overlay');

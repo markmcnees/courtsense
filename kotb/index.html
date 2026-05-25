@@ -8,6 +8,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="/ratings.js"></script>
 <script src="/identity.js"></script>
 <style>
@@ -297,7 +299,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         </select>
         <button class="btn btn-p btn-sm" onclick="openAbsModal()">Absences / Subs</button>
       </div>
-      <button class="btn btn-a btn-w" style="margin-bottom:12px;" onclick="promptGenSchedule(false)">🤖 Generate Tonight's Schedule</button>
+      <button class="btn btn-a btn-w" style="margin-bottom:8px;" onclick="promptGenFullSeason()">🗓️ Generate Full Season</button>
+      <button class="btn btn-g btn-sm" style="margin-bottom:12px;width:100%;" onclick="promptGenSchedule(false)">🤖 Regenerate one week (fallback)</button>
       <div id="week-detail"></div>
     </div>
 
@@ -305,6 +308,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 6</span>Export</div>
       <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Download the full season data as an Excel file — standings, all results, partner history, and weekly schedule.</p>
       <button class="btn btn-a btn-w" onclick="exportExcel()">📊 Export to Excel</button>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid #00000014;">
+        <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Or download a clean PDF to print or hand out. Pick what to include:</p>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:14px;margin-right:18px;cursor:pointer;"><input type="checkbox" id="kotb-exp-schedule" checked> Schedule</label>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;"><input type="checkbox" id="kotb-exp-standings" checked> Standings</label>
+        <button class="btn btn-p btn-w" style="margin-top:12px;" onclick="runExportPdf()">📄 Export to PDF</button>
+      </div>
     </div>
 
     <div class="card" style="border:2px solid #e4002b22;">

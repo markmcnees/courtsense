@@ -1,8 +1,10 @@
 # CourtSense Pickup Email Templates
 
-Templates for the courtsense-email-worker dispatch queue. Six total: invite, 24-hour reminder, waitlist promotion, admin new-registration notification, welcome, decline.
+Templates for the courtsense-email-worker dispatch queue. Seven total: invite, 24-hour reminder, waitlist promotion, admin new-registration notification, welcome, decline, lead received.
 
 Owned by the Cloudflare Worker that drains `tally_kotb_pickup/email_queue/` and dispatches via Resend.
+
+Lead-received items originate from the League sales page (`courtsense.app/league/`) but use the same email queue path for consistency with the worker. The lead itself is also stored under the separate `courtsense_leads/` namespace for durable record-keeping.
 
 ---
 
@@ -338,6 +340,90 @@ Built in Tallahassee · courtsense.app
 
 ---
 
+## Template 7: Lead Received
+
+Fires when a visitor submits the contact form at `courtsense.app/league/`. Goes to Mark only. Utilitarian layout matching Template 4: no navy bar, no button, no footer. Optimized for fast mobile triage of inbound sales leads.
+
+Inherits the admin-notification spec (utilitarian, single recipient, no brand chrome).
+
+**Subject:** `New CourtSense lead: {organization}`
+
+**Preheader:** `{lead_name} from {organization}. {role_or_default}.`
+
+### HTML body (when role and message both present)
+
+```
+New CourtSense lead.
+
+Name: {lead_name}
+Email: {lead_email}
+Organization: {organization}
+Role: {role}
+Submitted: {submitted_at_display}
+
+Message:
+{message}
+```
+
+### HTML body (when role is empty)
+
+```
+New CourtSense lead.
+
+Name: {lead_name}
+Email: {lead_email}
+Organization: {organization}
+Submitted: {submitted_at_display}
+
+Message:
+{message}
+```
+
+### HTML body (when message is empty)
+
+```
+New CourtSense lead.
+
+Name: {lead_name}
+Email: {lead_email}
+Organization: {organization}
+Role: {role}
+Submitted: {submitted_at_display}
+
+No message provided.
+```
+
+### HTML body (when both role and message are empty)
+
+```
+New CourtSense lead.
+
+Name: {lead_name}
+Email: {lead_email}
+Organization: {organization}
+Submitted: {submitted_at_display}
+
+No message provided.
+```
+
+### Plain-text fallback
+
+Same as HTML body for the matching variant (no styling difference; plain text is the canonical form for this template).
+
+### Worker variant selection
+
+The worker inspects the incoming `data` payload and picks the variant by checking whether `role` and `message` are non-empty strings. Empty strings produce the omitted-line variant. Do not render `Role:` with an empty value; omit the entire line.
+
+### Preheader rendering
+
+`{role_or_default}` resolves to the trimmed `role` value if non-empty, or the string `New lead` if empty. Keeps the preheader scannable on a phone lock screen.
+
+### Submitted-at formatting
+
+The client sends `submitted_at` as an ISO timestamp (e.g., `2026-05-21T14:32:00.000Z`). The worker reformats it for display as `submitted_at_display` in the same human-readable shape as Template 4's `{submitted_at}` (e.g., `May 21 at 10:32 AM` in the recipient's local time, or in Eastern Time if no timezone is available). This keeps both admin-notification templates visually consistent.
+
+---
+
 ## Merge field reference
 
 ### Player-facing event tokens (Templates 1-3)
@@ -385,6 +471,46 @@ Built in Tallahassee · courtsense.app
 |-------|--------|---------|
 | `{applicant_name}` | string | `Jane` |
 | `{decline_reason}` | string, optional. Worker selects template variant based on whether this field is populated. | `We're at capacity for the spring season and will reopen applications in fall.` or empty |
+
+### Lead received tokens (Template 7)
+
+| Token | Format | Example |
+|-------|--------|---------|
+| `{lead_name}` | string, required | `Lucas Williams` |
+| `{lead_email}` | string, required | `lucas.williams@example.com` |
+| `{organization}` | string, required | `City of Tallahassee Parks Department` |
+| `{role}` | string, optional. Worker omits the Role line entirely when empty. | `League Director` or empty |
+| `{message}` | string, optional. Worker uses the no-message variant when empty. | `We are looking for a platform to run our summer beach leagues.` or empty |
+| `{submitted_at}` | ISO 8601 timestamp from client | `2026-05-21T14:32:00.000Z` |
+| `{submitted_at_display}` | string, worker-formatted from `{submitted_at}` for display in the email body | `May 21 at 10:32 AM` |
+| `{role_or_default}` | string, worker-computed for the preheader. Resolves to `{role}` if non-empty, else `New lead`. | `League Director` or `New lead` |
+
+---
+
+## Lead capture data flow (Template 7)
+
+The League sales page (`courtsense.app/league/`) writes **two** records per submission:
+
+1. **Lead record** at `courtsense_leads/{timestamp}_{org_slug}/` with shape:
+   ```
+   { name, email, organization, role, message, createdAt }
+   ```
+   This is the durable record; it is written first and does not depend on the email worker.
+
+2. **Email queue item** at `tally_kotb_pickup/email_queue/{eid}` with shape:
+   ```
+   {
+     type: 'lead_received',
+     to: 'markmcnees@gmail.com',
+     data: { lead_name, lead_email, organization, role, message, submitted_at },
+     relatedRegistration: null,
+     createdAt: <ms timestamp>,
+     status: 'queued'
+   }
+   ```
+   The `eid` follows the existing format: `'em' + Date.now().toString(36) + Math.random().toString(36).slice(2,5)`.
+
+If the worker is not yet aware of `type:'lead_received'`, the email will not fire but the lead is still captured in `courtsense_leads/` for manual review.
 
 ---
 

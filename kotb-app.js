@@ -877,10 +877,21 @@ function healSchedule(parsed,pool,pCounts,oCounts,TARGET_GAMES){
   return parsed;
 }
 
-async function genNight(){
+async function genNight(skipOverwriteCheck){
   const wid=$('week-sel').value;
   if(!wid){toast('Select a week first');return;}
   const week=D[SIDE].weeks[wid];if(!week)return;
+  // ── Overwrite guard (fix #1): warn before replacing an existing schedule ──
+  if(!skipOverwriteCheck){
+    const existingRounds=Array.isArray(week.rounds)?week.rounds.length:(week.rounds?Object.keys(week.rounds).length:0);
+    const resultCount=Object.values(D[SIDE].results||{}).filter(r=>r&&r.weekId===wid).length;
+    if(existingRounds>0){
+      const msg=resultCount>0
+        ? 'Heads up: this week already has a schedule and '+resultCount+' recorded result'+(resultCount===1?'':'s')+'.\n\nGenerating a new schedule will replace the current matchups. Your recorded scores stay saved, but they may no longer match the new rounds.\n\nReplace the schedule anyway?'
+        : 'This week already has a schedule.\n\nGenerating a new one will replace the current matchups.\n\nReplace it?';
+      if(!confirm(msg)) return;
+    }
+  }
   const cfg=D[SIDE].config||{};
   const courts=cfg.courts||2;
   const absences=getSessionAbsences();
@@ -999,7 +1010,7 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
         });
       });
     }catch(pe){
-      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Couldn't parse AI response — the AI response may have been cut off or malformed. Tap Retry to try again.<br><button onclick="genNight()" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
+      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Couldn't parse AI response — the AI response may have been cut off or malformed. Tap Retry to try again.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
       return;
     }
     // Heal first (fixes '?' and invalid slots), then validate
@@ -1009,7 +1020,7 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
     console.log('[KotB] Post-heal slots:', parsed.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...ct.t1,...ct.t2])));
     const hasPlaceholder=parsed.some(rd=>(rd.courts||[]).some(ct=>[...(ct.t1||[]),...(ct.t2||[])].some(id=>!id||id.trim()==='?')));
     if(hasPlaceholder){
-      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">AI returned placeholder names instead of real players -- tap Retry to regenerate.<br><button onclick="genNight()" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
+      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">AI returned placeholder names instead of real players -- tap Retry to regenerate.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
       toast('Schedule had bad slots -- please retry');
       return;
     }
@@ -1023,8 +1034,99 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
     loadWeekDetail();
   }catch(err){
     console.error(err);
-    $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Error connecting to AI — check your connection and try again.<br><button onclick="genNight()" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
+    $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Error connecting to AI — check your connection and try again.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
   }
+}
+
+// ─── DETERMINISTIC FULL-SEASON GENERATOR (no AI) ───
+// Builds every non-skipped week's rounds in one pass from the REGISTERED roster only.
+// Even games per night, even season-long sit-outs, partner/opponent variety balanced
+// across the whole season by construction. No absence input, no AI, device-independent.
+// Subs are handled purely at game time on the Score tab and never touch this schedule.
+function _csPv(C,a,b){return (C[a]&&C[a][b])||0;}
+function _csChg(C,a,b,d){if(!C[a])C[a]={};if(!C[b])C[b]={};C[a][b]=(C[a][b]||0)+d;C[b][a]=(C[b][a]||0)+d;}
+function buildSeasonNight(ids,courts,pC,oC,sitCount,TARGET,weekIdx){
+  const n=ids.length,courtsN=Math.min(courts,Math.floor(n/4));
+  if(courtsN<1)return null;
+  const slots=courtsN*4,sitPer=n-slots;
+  const totalRounds=sitPer===0?TARGET:Math.ceil(n*TARGET/slots);
+  const gtw={},idx={};ids.forEach((id,i)=>{gtw[id]=0;idx[id]=i;});
+  const rounds=[];
+  for(let r=1;r<=totalRounds;r++){
+    const rotor=(r*5+weekIdx*3);
+    const sorted=ids.slice().sort((a,b)=>(gtw[b]-gtw[a])||((sitCount[a]||0)-(sitCount[b]||0))||(((idx[a]+rotor)%n)-((idx[b]+rotor)%n)));
+    const sitters=sorted.slice(0,sitPer),active=sorted.slice(sitPer);
+    sitters.forEach(id=>sitCount[id]=(sitCount[id]||0)+1);active.forEach(id=>gtw[id]++);
+    const rem=active.slice(),teams=[];
+    while(rem.length){let bi=0,bj=1,bc=Infinity;for(let i=0;i<rem.length;i++)for(let j=i+1;j<rem.length;j++){const c=_csPv(pC,rem[i],rem[j]);if(c<bc){bc=c;bi=i;bj=j;}}teams.push([rem[bi],rem[bj]]);rem.splice(bj,1);rem.splice(bi,1);}
+    const tr=teams.slice(),carr=[];let cn=1;
+    while(tr.length>=2){let bi=0,bj=1,bc=Infinity;for(let i=0;i<tr.length;i++)for(let j=i+1;j<tr.length;j++){let c=0;tr[i].forEach(a=>tr[j].forEach(b=>c+=_csPv(oC,a,b)));if(c<bc){bc=c;bi=i;bj=j;}}carr.push({court:cn++,t1:tr[bi].slice(),t2:tr[bj].slice()});tr.splice(bj,1);tr.splice(bi,1);}
+    rounds.push({round:r,courts:carr,sitting:sitters.slice()});
+  }
+  const undo=(c,d)=>{_csChg(pC,c.t1[0],c.t1[1],d);_csChg(pC,c.t2[0],c.t2[1],d);c.t1.forEach(a=>c.t2.forEach(b=>_csChg(oC,a,b,d)));};
+  rounds.forEach(rd=>rd.courts.forEach(c=>undo(c,1)));
+  const cost=()=>{let s=0;for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){const p=_csPv(pC,ids[i],ids[j]),o=_csPv(oC,ids[i],ids[j]);s+=p*p*3+o*o+(p===0?40:0)+(o===0?15:0);}return s;};
+  const activeArr=rd=>{const m=[];rd.courts.forEach((c,ci)=>['t1','t2'].forEach(tk=>c[tk].forEach((id,si)=>m.push({id,ci,tk,si}))));return m;};
+  let moves=1,guard=0;
+  while(moves>0&&guard++<400){
+    moves=0;
+    for(let r1=0;r1<rounds.length&&moves===0;r1++)for(let r2=0;r2<rounds.length&&moves===0;r2++){
+      if(r1===r2)continue;
+      const aList=activeArr(rounds[r1]).filter(x=>rounds[r2].sitting.includes(x.id));
+      for(const A of aList){
+        if(moves)break;
+        const bList=activeArr(rounds[r2]).filter(x=>rounds[r1].sitting.includes(x.id));
+        for(const B of bList){
+          if(A.id===B.id)continue;
+          const c1=rounds[r1].courts[A.ci],c2=rounds[r2].courts[B.ci];
+          const before=cost();
+          undo(c1,-1);undo(c2,-1);
+          c1[A.tk][A.si]=B.id;c2[B.tk][B.si]=A.id;
+          undo(c1,1);undo(c2,1);
+          if(cost()<before){
+            rounds[r1].sitting=rounds[r1].sitting.map(x=>x===B.id?A.id:x);
+            rounds[r2].sitting=rounds[r2].sitting.map(x=>x===A.id?B.id:x);
+            moves=1;break;
+          }else{undo(c1,-1);undo(c2,-1);c1[A.tk][A.si]=A.id;c2[B.tk][B.si]=B.id;undo(c1,1);undo(c2,1);}
+        }
+      }
+    }
+  }
+  return {rounds};
+}
+function promptGenFullSeason(){
+  _pinAction='genseason';_pinEntry='';updatePinDots();
+  $('pin-error').textContent='';
+  $('pin-modal-title').textContent='Admin PIN — Generate Full Season';
+  $('pin-modal').classList.add('on');
+}
+function doGenSeasonAction(){ genFullSeason(); }
+function genFullSeason(){
+  const pool=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false).map(p=>p.id);
+  if(pool.length<4){toast('Need at least 4 active players');return;}
+  const weeks=Object.values(D[SIDE].weeks||{}).filter(w=>w&&!w.skipped&&!w.cancelled).sort((a,b)=>a.weekNum-b.weekNum);
+  if(!weeks.length){toast('Set up a season first');return;}
+  const resultCount=Object.values(D[SIDE].results||{}).length;
+  if(resultCount>0){
+    alert('Cannot regenerate the season: '+resultCount+' result'+(resultCount===1?' is':'s are')+' already recorded.\n\nRegenerating would break the link between recorded scores and the schedule. Use Close & Archive Season to start fresh.');
+    return;
+  }
+  const hasSchedules=weeks.some(w=>w.rounds&&(Array.isArray(w.rounds)?w.rounds.length:Object.keys(w.rounds).length));
+  if(hasSchedules&&!confirm('This replaces the schedule for all '+weeks.length+' weeks. No results are recorded yet, so nothing is lost. Continue?')) return;
+  const courts=(D[SIDE].config||{}).courts||2;
+  const TARGET=6;
+  const pC={},oC={},sitCount={};
+  let built=0;
+  for(let wi=0;wi<weeks.length;wi++){
+    const res=buildSeasonNight(pool,courts,pC,oC,sitCount,TARGET,wi);
+    if(!res){toast('Need at least 4 active players for the configured courts');return;}
+    const wid=weeks[wi].id;
+    fbSet(SIDE+'/weeks/'+wid+'/rounds',res.rounds);
+    if(D[SIDE]&&D[SIDE].weeks&&D[SIDE].weeks[wid]) D[SIDE].weeks[wid].rounds=res.rounds;
+    built++;
+  }
+  toast('Full season generated for '+built+' week'+(built===1?'':'s')+' \u2713');
+  fillWeekSels();loadWeekDetail();
 }
 
 // ─── LIVE SCORING ───
@@ -1490,6 +1592,7 @@ function reverseRatingsLeague(gameId, t1, t2, subSlots){
 }
 
 function saveScore(wid,round,court,t1s,t2s,idx){
+  if(!_scoreGate()) return;
   const s1=parseInt($('su-'+idx)?.value)||0;
   const s2=parseInt($('st-'+idx)?.value)||0;
   if(s1===s2){toast('Scores cannot be tied');return;}
@@ -1512,6 +1615,7 @@ function saveScore(wid,round,court,t1s,t2s,idx){
 }
 
 function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
+  if(!_scoreGate()) return;
   const t1=t1s.split(',').filter(Boolean);
   const t2=t2s.split(',').filter(Boolean);
   const id=gi('r');
@@ -1528,6 +1632,7 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
 }
 
 function openEditResult(id){
+  if(!_scoreGate()) return;
   const r=((D[SIDE]||{}).results||{})[id];if(!r)return;
   window._editResultId=id;
   // Resolve display names: if value looks like a player ID, get name; else it's already a name
@@ -1587,6 +1692,7 @@ function saveEditResult(){
 }
 
 function delResult(id){
+  if(!_scoreGate()) return;
   const r=((D[SIDE]||{}).results||{})[id];
   if(r) reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
   fbDel(SIDE+'/results/'+id);
@@ -1757,7 +1863,142 @@ function exportExcel(){
 }
 
 // ─── PIN SYSTEM ───
+// --- PDF EXPORT (Schedule / Standings) - mirrors the 4v4 pattern ---
+function _sideFullLabel(){ return SIDE==='kings' ? 'King of the Beach (Kings)' : 'Queen of the Beach (Queens)'; }
+function _sideColor(){ return SIDE==='kings' ? [26,58,107] : [107,33,168]; }
+
+function exportPdf(includeSchedule, includeStandings){
+  const ns = window.jspdf;
+  if(!ns || !ns.jsPDF){ toast('PDF library not loaded'); return; }
+  const doc = new ns.jsPDF({unit:'pt', format:'letter'});
+  if(typeof doc.autoTable !== 'function'){ toast('PDF table plugin missing'); return; }
+  const sideName = SIDE==='kings' ? 'Kings' : 'Queens';
+  const sideFull = _sideFullLabel();
+  const col = _sideColor();
+  const today = td();
+  const generatedStr = new Date().toLocaleString();
+  let kindParts = [];
+
+  // Page 1 header
+  doc.setFontSize(16); doc.setFont('helvetica','bold');
+  doc.text(sideFull, 40, 50);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  doc.text('Generated: ' + generatedStr, 40, 66);
+  let y = 84;
+
+  if(includeSchedule){
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('Season Schedule', 40, y); y += 12;
+    const weeks = Object.values(D[SIDE].weeks||{}).filter(w=>w && w.weekNum).sort((a,b)=>a.weekNum-b.weekNum);
+    if(!weeks.length){
+      doc.setFontSize(10); doc.setFont('helvetica','italic');
+      doc.text('(no schedule generated yet)', 40, y+14); y += 30;
+    } else {
+      weeks.forEach(w=>{
+        const rounds = Object.values(w.rounds||[]).filter(Boolean).sort((a,b)=>(a.round||0)-(b.round||0));
+        let tag = '';
+        if(w.skipped) tag = '  (skipped)';
+        else if(w.cancelled) tag = '  (cancelled)';
+        const weekHdr = 'Week ' + w.weekNum + (w.date ? '  -  ' + w.date : '') + tag;
+        // Week header strip (colored)
+        doc.autoTable({
+          head: [[weekHdr]], body: [], startY: y, theme:'plain',
+          headStyles:{fontSize:11, fontStyle:'bold', fillColor:col, textColor:[255,255,255]},
+          margin:{left:40, right:40}, tableWidth:'auto'
+        });
+        y = doc.lastAutoTable.finalY + 4;
+        // Build match rows for the night
+        let body = [];
+        if(!rounds.length){
+          body = [['-','-','(no schedule generated for this week)','','']];
+        } else {
+          rounds.forEach(rd=>{
+            const courts = Object.values(rd.courts||[]).filter(Boolean).sort((a,b)=>(a.court||0)-(b.court||0));
+            const sitting = Object.values(rd.sitting||[]).map(id=>pN(id)).filter(Boolean).join(', ');
+            if(!courts.length){
+              body.push([rd.round||'', '-', '(no courts)', '', sitting]);
+            } else {
+              courts.forEach((c,ci)=>{
+                body.push([
+                  ci===0 ? (rd.round||'') : '',
+                  c.court||'',
+                  (c.t1||[]).map(id=>pN(id)).join(' & '),
+                  (c.t2||[]).map(id=>pN(id)).join(' & '),
+                  ci===0 ? sitting : ''
+                ]);
+              });
+            }
+          });
+        }
+        doc.autoTable({
+          head: [['Round','Court','Team 1','Team 2','Sitting Out']],
+          body: body, startY: y, theme:'striped',
+          headStyles:{fontSize:10, fontStyle:'bold', fillColor:col, textColor:[255,255,255]},
+          bodyStyles:{fontSize:9},
+          margin:{left:40, right:40},
+          columnStyles:{0:{halign:'center', cellWidth:46}, 1:{halign:'center', cellWidth:46}}
+        });
+        y = doc.lastAutoTable.finalY + 14;
+      });
+    }
+    kindParts.push('Schedule');
+  }
+
+  if(includeStandings){
+    if(includeSchedule) doc.addPage();
+    let sy = 50;
+    doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text(sideFull, 40, sy); sy += 16;
+    doc.setFontSize(14);
+    doc.text('Standings', 40, sy); sy += 12;
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text('Generated: ' + generatedStr, 40, sy+4); sy += 22;
+
+    const players = Object.values(D[SIDE].players||{}).filter(p=>p && p.name);
+    const rows = players.map(p=>({name:p.name, s:calcStats(p.id)})).sort((a,b)=>b.s.diff-a.s.diff);
+    if(!rows.length){
+      doc.setFont('helvetica','italic');
+      doc.text('(no players yet)', 40, sy);
+    } else {
+      const body = rows.map((r,i)=>[
+        i+1, r.name, r.s.gp, r.s.w, r.s.l, r.s.pct, r.s.pf, r.s.pa,
+        r.s.gp>0 ? pm(r.s.diff) : '-'
+      ]);
+      doc.autoTable({
+        head: [['Rank','Player','GP','W','L','Win%','PF','PA','+/-']],
+        body: body, startY: sy, theme:'striped',
+        headStyles:{fontSize:10, fontStyle:'bold', fillColor:col, textColor:[255,255,255]},
+        bodyStyles:{fontSize:9},
+        margin:{left:40, right:40},
+        columnStyles:{0:{halign:'center'},2:{halign:'center'},3:{halign:'center'},4:{halign:'center'},5:{halign:'center'},6:{halign:'center'},7:{halign:'center'},8:{halign:'center'}}
+      });
+    }
+    kindParts.push('Standings');
+  }
+
+  if(!kindParts.length) return;
+  const kind = kindParts.length===2 ? 'Full' : kindParts[0];
+  doc.save(LC.exportPrefix + '_' + sideName + '_' + kind + '_' + today + '.pdf');
+  toast('PDF exported! Check your Downloads.');
+}
+
+function runExportPdf(){
+  const includeSchedule  = !!($('kotb-exp-schedule')  && $('kotb-exp-schedule').checked);
+  const includeStandings = !!($('kotb-exp-standings') && $('kotb-exp-standings').checked);
+  if(!includeSchedule && !includeStandings){ toast('Pick at least one section'); return; }
+  exportPdf(includeSchedule, includeStandings);
+}
+
 let _pinEntry='',_pinAction=null;
+let _scoreUnlocked=false;
+function _scoreGate(){
+  if(_scoreUnlocked) return true;
+  _pinAction='score';_pinEntry='';updatePinDots();
+  $('pin-error').textContent='';
+  $('pin-modal-title').textContent='Admin PIN — Scoring';
+  $('pin-modal').classList.add('on');
+  return false;
+}
 function promptCancelNight(){_pinAction='cancel';_pinEntry='';updatePinDots();$('pin-error').textContent='';$('pin-modal-title').textContent='Admin PIN — Cancel Night';$('pin-modal').classList.add('on');}
 function pinTap(v){
   if(v==='back')_pinEntry=_pinEntry.slice(0,-1);
@@ -1770,12 +2011,14 @@ function pinTap(v){
       _pinEntry='';updatePinDots();
       if(_pinAction==='clearschedule'){ doClearSchedule(_editCourtCtx.wid); }
       else if(_pinAction==='genschedule') doGenScheduleAction();
+      else if(_pinAction==='genseason') doGenSeasonAction();
       else if(_pinAction==='editcourt'){ openEditCourtModal(); }
       else if(_pinAction==='cancel') doCancelNight();
       else if(_pinAction==='uncancel') doUncancelNight();
       else if(_pinAction==='closeseason') doCloseSeason();
       else if(_pinAction==='addplayer') _doAddPlayer();
       else if(_pinAction==='planner') _openPlanner();
+      else if(_pinAction==='score'){ _scoreUnlocked=true; toast('Scoring unlocked for this session'); }
     }else{
       $('pin-error').textContent='Incorrect PIN';
       setTimeout(()=>{_pinEntry='';updatePinDots();$('pin-error').textContent='';},700);

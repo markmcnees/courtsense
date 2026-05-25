@@ -313,7 +313,7 @@ body.admin-locked .card-admin-export{display:none;}
     </div>
 
     <div class="card card-admin-teams">
-      <div class="ctitle"><span class="bar"></span>Teams <span id="teams-count" style="font-size:13px;font-weight:400;color:var(--gray);margin-left:6px;"></span></div>
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 1</span>Teams <span id="teams-count" style="font-size:13px;font-weight:400;color:var(--gray);margin-left:6px;"></span></div>
 
       <div id="edit-banner" class="edit-banner" style="display:none;">
         <span id="edit-banner-text">Editing team</span>
@@ -358,12 +358,12 @@ body.admin-locked .card-admin-export{display:none;}
     </div>
 
     <div class="card card-admin-roster">
-      <div class="ctitle"><span class="bar"></span>Roster</div>
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 2</span>Roster</div>
       <div id="teams-list"></div>
     </div>
 
     <div class="card card-admin-sched">
-      <div class="ctitle"><span class="bar"></span>Schedule Generation</div>
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 3</span>Schedule Generation</div>
       <div id="sched-status"></div>
       <div class="row2">
         <div class="fg" style="margin:0;">
@@ -442,18 +442,18 @@ body.admin-locked .card-admin-export{display:none;}
         </div>
       </details>
       <div id="sg-helper" style="font-size:12px;color:var(--gray);margin:4px 0 12px;line-height:1.5;"></div>
-      <button class="btn btn-a btn-w" id="sg-gen-btn" onclick="genSchedule()">&#129302; Generate Schedule</button>
+      <button class="btn btn-a btn-w" id="sg-gen-btn" onclick="genSchedule()">&#129302; Generate Full Season</button>
       <button class="btn btn-p btn-w" id="sg-lock-btn" onclick="lockSeason()" style="margin-top:10px;display:none;">&#128274; Lock Season</button>
       <div id="sg-preview" style="margin-top:14px;"></div>
     </div>
 
     <div class="card card-admin-score">
-      <div class="ctitle"><span class="bar"></span>Score Entry</div>
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 4</span>Score Entry</div>
       <div id="se-host"></div>
     </div>
 
     <div class="card card-admin-export">
-      <div class="ctitle"><span class="bar"></span>Export</div>
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 5</span>Export</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">
         Export the active division: <strong id="exp-div-label">Recreational 4v4</strong>.
       </div>
@@ -1160,7 +1160,7 @@ function renderScheduleGen(){
     if(hasSched){
       btn.textContent = '♻ Regenerate Schedule';
     }else{
-      btn.innerHTML = '&#129302; Generate Schedule';
+      btn.innerHTML = '&#129302; Generate Full Season';
     }
   }
   if(lockBtn){
