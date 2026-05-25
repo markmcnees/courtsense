@@ -7,6 +7,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -205,10 +208,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .card-admin-roster{ order: 2; }
 .card-admin-sched { order: 3; }
 .card-admin-score { order: 4; }
+.card-admin-export{ order: 5; }
 body.sched-locked .card-admin-score  { order: 1; }
 body.sched-locked .card-admin-sched  { order: 2; }
 body.sched-locked .card-admin-teams  { order: 3; }
 body.sched-locked .card-admin-roster { order: 4; }
+body.sched-locked .card-admin-export { order: 5; }
 
 /* ADMIN LOCK SCREEN */
 .card-admin-lock{display:none;order:0;}
@@ -216,11 +221,53 @@ body.admin-locked .card-admin-lock{display:block;}
 body.admin-locked .card-admin-teams,
 body.admin-locked .card-admin-roster,
 body.admin-locked .card-admin-sched,
-body.admin-locked .card-admin-score{display:none;}
+body.admin-locked .card-admin-score,
+body.admin-locked .card-admin-export{display:none;}
+
+/* EXPORT PANEL */
+.exp-chk{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--black);cursor:pointer;user-select:none;}
+.exp-chk input{width:18px;height:18px;accent-color:var(--primary);cursor:pointer;}
 .lock-wrap{text-align:center;padding:24px 12px;}
 .lock-ico{font-size:42px;margin-bottom:10px;line-height:1;}
 .lock-title{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--primary);margin-bottom:6px;}
 .lock-msg{font-size:13px;color:var(--gray);margin-bottom:18px;line-height:1.55;}
+
+/* TEAM IMPORT BLOCK */
+.import-block{margin-top:18px;padding-top:14px;border-top:1px dashed var(--sand-border);}
+.import-head{font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;color:var(--gray);margin-bottom:4px;}
+.import-sub{font-size:12px;color:var(--gray);line-height:1.5;margin-bottom:10px;}
+.import-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.import-preview-box{background:var(--light);border:1px solid var(--primary);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:13px;color:var(--black);}
+.import-preview-list{max-height:160px;overflow-y:auto;background:var(--white);border:1px solid var(--sand-border);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:12px;line-height:1.55;}
+.import-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+
+/* ADVANCED SECTION (collapsed by default) */
+.adv-section{border:1.5px solid var(--sand-border);border-radius:10px;background:var(--sand);padding:0;margin:6px 0 12px;}
+.adv-section summary{font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;color:var(--gray);padding:12px 14px;cursor:pointer;list-style:none;user-select:none;}
+.adv-section summary::-webkit-details-marker{display:none;}
+.adv-section summary::before{content:'\25B8';display:inline-block;margin-right:8px;transition:transform .15s;}
+.adv-section[open] summary::before{transform:rotate(90deg);}
+.adv-body{padding:0 14px 14px;}
+
+/* PRINT VIEW (off-screen container, only visible in print) */
+.print-host{display:none;}
+.print-tbl{width:100%;border-collapse:collapse;margin-bottom:18px;}
+.print-tbl th,.print-tbl td{border:1px solid #333;padding:6px 8px;font-size:12px;text-align:left;}
+.print-tbl th{background:#e8e8e8;font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;}
+.print-week-hdr{font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:#333;margin:14px 0 6px;border-bottom:2px solid #333;padding-bottom:4px;}
+.print-byes{font-size:11px;color:#666;margin:4px 0 12px;font-style:italic;}
+.print-doc-hdr{text-align:center;margin-bottom:14px;}
+.print-doc-title{font-family:'Bebas Neue';font-size:24px;letter-spacing:2px;color:#222;}
+.print-doc-sub{font-size:13px;color:#444;margin-top:4px;}
+
+/* @media print: show only the print host, hide app chrome */
+@media print {
+  @page { margin: 0.5in; }
+  body { background:#fff !important; color:#222 !important; }
+  .hdr, .tabs, .pane, .overlay, .toast, .btn, .swap-btn { display:none !important; }
+  .print-host { display:block !important; padding:0; max-width:100%; }
+  .content { padding:0; max-width:100%; }
+}
 </style>
 </head>
 <body>
@@ -296,6 +343,18 @@ body.admin-locked .card-admin-score{display:none;}
         <div class="swatches" id="swatches"></div>
       </div>
       <button class="btn btn-p btn-w" id="t-save-btn" onclick="saveTeam()">+ Add Team</button>
+
+      <div class="import-block">
+        <div class="import-head">Import teams (Excel)</div>
+        <div class="import-sub">Bulk-add teams for the active division. Columns: Team, Captain, Email, Phone.</div>
+        <div class="import-row">
+          <button class="btn btn-g btn-sm" type="button" onclick="downloadTeamTemplate()">&#11015; Download template</button>
+          <label class="btn btn-g btn-sm" for="t-import-file" style="cursor:pointer;">&#128206; Choose file</label>
+          <input type="file" id="t-import-file" accept=".xlsx,.xls" style="display:none;" onchange="importTeamsFile(this)">
+          <span id="t-import-filename" style="font-size:12px;color:var(--gray);align-self:center;"></span>
+        </div>
+        <div id="t-import-preview"></div>
+      </div>
     </div>
 
     <div class="card card-admin-roster">
@@ -318,16 +377,73 @@ body.admin-locked .card-admin-score{display:none;}
       </div>
       <div class="row2">
         <div class="fg" style="margin:0;">
-          <label class="lbl">Courts</label>
-          <input class="inp" id="sg-courts" type="number" min="1" max="8" value="4">
+          <label class="lbl">Night of Week</label>
+          <select class="inp" id="sg-night">
+            <option value="0">Sunday</option>
+            <option value="1" selected>Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label class="lbl">Matches / Court / Night</label>
-          <input class="inp" id="sg-mpc" type="number" min="1" max="6" value="2">
+          <label class="lbl">Park</label>
+          <input class="inp" id="sg-park" type="text" value="Tom Brown Park" maxlength="80">
         </div>
       </div>
+      <div class="fg">
+        <label class="lbl">Courts (comma-separated court numbers)</label>
+        <input class="inp" id="sg-courts" type="text" value="" placeholder="1, 2" maxlength="120">
+      </div>
+      <div class="fg">
+        <label class="lbl">Time Slots (comma-separated)</label>
+        <input class="inp" id="sg-slots" type="text" value="6:15 PM, 7:00 PM" placeholder="6:15 PM, 7:00 PM" maxlength="200">
+      </div>
+      <details class="adv-section">
+        <summary>Advanced &mdash; Scoring Rules</summary>
+        <div class="adv-body">
+          <div class="row3">
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Best of</label>
+              <input class="inp" id="sg-bestof" type="number" min="1" max="5" value="3">
+            </div>
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 1/2 target</label>
+              <input class="inp" id="sg-s12-target" type="number" min="1" max="50" value="21">
+            </div>
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 1/2 cap</label>
+              <input class="inp" id="sg-s12-cap" type="number" min="1" max="60" value="23">
+            </div>
+          </div>
+          <div class="row3">
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 1/2 win by</label>
+              <input class="inp" id="sg-s12-winby" type="number" min="1" max="10" value="2">
+            </div>
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 3 target</label>
+              <input class="inp" id="sg-s3-target" type="number" min="1" max="50" value="15">
+            </div>
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 3 cap</label>
+              <input class="inp" id="sg-s3-cap" type="number" min="1" max="60" value="17">
+            </div>
+          </div>
+          <div class="row2">
+            <div class="fg" style="margin:0;">
+              <label class="lbl">Set 3 win by</label>
+              <input class="inp" id="sg-s3-winby" type="number" min="1" max="10" value="2">
+            </div>
+            <div class="fg" style="margin:0;"></div>
+          </div>
+        </div>
+      </details>
       <div id="sg-helper" style="font-size:12px;color:var(--gray);margin:4px 0 12px;line-height:1.5;"></div>
       <button class="btn btn-a btn-w" id="sg-gen-btn" onclick="genSchedule()">&#129302; Generate Schedule</button>
+      <button class="btn btn-p btn-w" id="sg-lock-btn" onclick="lockSeason()" style="margin-top:10px;display:none;">&#128274; Lock Season</button>
       <div id="sg-preview" style="margin-top:14px;"></div>
     </div>
 
@@ -336,9 +452,26 @@ body.admin-locked .card-admin-score{display:none;}
       <div id="se-host"></div>
     </div>
 
+    <div class="card card-admin-export">
+      <div class="ctitle"><span class="bar"></span>Export</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">
+        Export the active division: <strong id="exp-div-label">Recreational 4v4</strong>.
+      </div>
+      <div style="display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap;">
+        <label class="exp-chk"><input type="checkbox" id="exp-schedule" checked> Schedule</label>
+        <label class="exp-chk"><input type="checkbox" id="exp-standings" checked> Standings</label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-p btn-sm" type="button" onclick="runExport('xlsx')">&#128202; Export to Excel</button>
+        <button class="btn btn-p btn-sm" type="button" onclick="runExport('pdf')">&#128196; Export to PDF</button>
+      </div>
+    </div>
+
   </div>
 
 </div>
+
+<div class="print-host" id="print-host"></div>
 
 <div class="overlay" id="pin-modal" onclick="if(event.target===this)closeModal('pin-modal')">
   <div class="modal" style="border-radius:20px 20px 0 0;max-width:340px;margin:0 auto;">
@@ -536,7 +669,11 @@ function activateTab(t){
 // REFRESH
 function refreshAll(){ applyAdminOrder(); applyAdminLock(); refreshTab(tab); }
 function applyAdminOrder(){
-  const locked = !!(D[DIV] && D[DIV].scheduleMeta && D[DIV].scheduleMeta.locked);
+  const meta = (D[DIV] && D[DIV].scheduleMeta) || {};
+  const hasSched = !!(D[DIV] && D[DIV].schedule && Object.keys(D[DIV].schedule).length);
+  // Treat both new status='locked' and legacy locked:true as "lock layout"; also treat any
+  // existing schedule (draft or locked) as the score-entry-priority layout.
+  const locked = meta.status === 'locked' || meta.locked === true || hasSched;
   document.body.classList.toggle('sched-locked', locked);
 }
 function refreshTab(which){
@@ -545,6 +682,7 @@ function refreshTab(which){
     renderTeams();
     renderScheduleGen();
     renderScoreEntry();
+    renderExportLabel();
   }
   if(which === 'schedule') renderPublicSchedule();
   if(which === 'standings') renderStandings();
@@ -639,6 +777,199 @@ function editTeam(id){
   $('edit-banner').style.display = 'flex';
   $('t-name').focus();
   $('t-name').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// ─── TEAM EXCEL IMPORT ───
+const TEAM_TEMPLATE_FILENAME = 'Tally4v4_Team_Import_Template.xlsx';
+
+function downloadTeamTemplate(){
+  if(typeof XLSX === 'undefined'){ toast('Excel library not loaded'); return; }
+  const aoa = [
+    ['Team', 'Captain', 'Email', 'Phone'],
+    ['Example Team', 'Jane Smith', 'jane@example.com', '850-555-0100']
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Modest column widths so the file opens looking sane
+  ws['!cols'] = [{wch:24},{wch:20},{wch:28},{wch:16}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Teams');
+  XLSX.writeFile(wb, TEAM_TEMPLATE_FILENAME);
+  toast('Template downloaded');
+}
+
+// Map a raw header string to a canonical key, tolerant of variants.
+function canonTeamHeader(raw){
+  const s = String(raw == null ? '' : raw).trim().toLowerCase();
+  if(!s) return null;
+  if(s === 'team' || s === 'team name') return 'team';
+  if(s === 'captain' || s === 'captain name') return 'captain';
+  if(s === 'email' || s === 'captain email' || s === 'e-mail') return 'email';
+  if(s === 'phone' || s === 'captain phone' || s === 'tel' || s === 'telephone') return 'phone';
+  return null;
+}
+
+function importTeamsFile(input){
+  if(!requireAdmin('importTeams')) { input.value = ''; return; }
+  const file = input.files && input.files[0];
+  if(!file){ return; }
+  $('t-import-filename').textContent = file.name;
+  const preview = $('t-import-preview');
+  preview.innerHTML = '<div class="import-preview-box" style="background:var(--gray-lighter);border-color:var(--gray-light);color:var(--gray);">Reading file...</div>';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      if(typeof XLSX === 'undefined'){
+        preview.innerHTML = '<div class="err-banner">Excel library not loaded. Reload the page and try again.</div>';
+        return;
+      }
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      if(!wb.SheetNames.length){
+        preview.innerHTML = '<div class="err-banner">Workbook has no sheets.</div>';
+        return;
+      }
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if(!rows.length){
+        preview.innerHTML = '<div class="err-banner">Sheet is empty.</div>';
+        return;
+      }
+      // Find header row: first row that has a recognizable "Team" column.
+      let headerIdx = -1, headerMap = null;
+      for(let i = 0; i < Math.min(rows.length, 5); i++){
+        const map = {};
+        (rows[i] || []).forEach((cell, ci) => {
+          const k = canonTeamHeader(cell);
+          if(k && map[k] == null) map[k] = ci;
+        });
+        if(map.team != null){ headerIdx = i; headerMap = map; break; }
+      }
+      if(headerIdx < 0 || !headerMap || headerMap.team == null){
+        preview.innerHTML = '<div class="err-banner">Could not find a <strong>Team</strong> column. Required header (case-insensitive): Team. Optional: Captain, Email, Phone. Nothing imported.</div>';
+        return;
+      }
+      const parsedTeams = [];
+      for(let r = headerIdx + 1; r < rows.length; r++){
+        const row = rows[r] || [];
+        const name = String(row[headerMap.team] == null ? '' : row[headerMap.team]).trim();
+        if(!name) continue;  // skip blank-team rows silently
+        const captain = headerMap.captain != null ? String(row[headerMap.captain] == null ? '' : row[headerMap.captain]).trim() : '';
+        const email   = headerMap.email   != null ? String(row[headerMap.email]   == null ? '' : row[headerMap.email]).trim()   : '';
+        const phone   = headerMap.phone   != null ? String(row[headerMap.phone]   == null ? '' : row[headerMap.phone]).trim()   : '';
+        parsedTeams.push({ name, captain, email, phone });
+      }
+      if(!parsedTeams.length){
+        preview.innerHTML = '<div class="err-banner">No team rows found beneath the header. Nothing imported.</div>';
+        return;
+      }
+      _pendingTeamImport = parsedTeams;
+      const divLabel = DIV === 'rec' ? 'Recreational' : 'Competitive';
+      const list = parsedTeams.map((t,i)=>'<div>'+(i+1)+'. <strong>'+escapeHtml(t.name)+'</strong>'
+        + (t.captain ? ' &middot; '+escapeHtml(t.captain) : '')
+        + (t.email   ? ' &middot; '+escapeHtml(t.email)   : '')
+        + (t.phone   ? ' &middot; '+escapeHtml(t.phone)   : '')
+        + '</div>').join('');
+      preview.innerHTML = '<div class="import-preview-box">'
+        + '<div><strong>'+parsedTeams.length+'</strong> team'+(parsedTeams.length===1?'':'s')+' found in this file.</div>'
+        + '<div class="import-preview-list">'+list+'</div>'
+        + '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">Choose how to import into <strong>'+escapeHtml(divLabel)+'</strong>:</div>'
+        + '<div class="import-actions">'
+        +   '<button class="btn btn-p btn-sm" type="button" onclick="confirmTeamImport(\'add\')">+ Add to existing</button>'
+        +   '<button class="btn btn-d btn-sm" type="button" onclick="confirmTeamImport(\'replace\')">&#9888; Replace all teams</button>'
+        +   '<button class="btn btn-g btn-sm" type="button" onclick="cancelTeamImport()">Cancel</button>'
+        + '</div>'
+        + '</div>';
+    }catch(err){
+      console.error(err);
+      preview.innerHTML = '<div class="err-banner">Could not read this file: '+escapeHtml(err.message||'unknown error')+'</div>';
+    }
+  };
+  reader.onerror = function(){
+    preview.innerHTML = '<div class="err-banner">File could not be read. Try a different file.</div>';
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = '';  // allow re-selecting the same file later
+}
+
+let _pendingTeamImport = null;
+
+function cancelTeamImport(){
+  _pendingTeamImport = null;
+  $('t-import-preview').innerHTML = '';
+  $('t-import-filename').textContent = '';
+}
+
+function confirmTeamImport(mode){
+  if(!requireAdmin('confirmTeamImport')) return;
+  if(!_pendingTeamImport || !_pendingTeamImport.length){ toast('No import to confirm'); return; }
+  const parsed = _pendingTeamImport;
+  const divLabel = DIV === 'rec' ? 'Recreational' : 'Competitive';
+  const existing = D[DIV].teams || {};
+  const existingCount = Object.values(existing).filter(t => t && t.id).length;
+  const rCount = resultsCount();
+
+  if(mode === 'replace'){
+    let msg = 'REPLACE ALL TEAMS in '+divLabel+'?\n\n'
+      + 'This will remove '+existingCount+' existing team'+(existingCount===1?'':'s')+' '
+      + 'and replace with '+parsed.length+' imported team'+(parsed.length===1?'':'s')+'.\n\n'
+      + 'Schedule and recorded results are NOT deleted, but if a schedule exists it will still reference the OLD team IDs and may need to be regenerated.';
+    if(rCount > 0){
+      msg += '\n\n'+rCount+' result'+(rCount===1?'':'s')+' are recorded against the existing teams.';
+    }
+    msg += '\n\nThis cannot be undone. Continue?';
+    if(!confirm(msg)) return;
+    // Wipe existing teams, then write imports.
+    fbDel(DIV+'/teams');
+    parsed.forEach(t => writeImportedTeam(t.name, t.captain, t.email, t.phone));
+    toast('Imported '+parsed.length+' team'+(parsed.length===1?'':'s')+' (replaced)');
+  } else {
+    // Add mode. If a team with the same name (case-insensitive) exists, update it; otherwise create.
+    const byLowerName = {};
+    Object.values(existing).forEach(t => {
+      if(t && t.id && t.name) byLowerName[t.name.toLowerCase().trim()] = t;
+    });
+    let added = 0, updated = 0;
+    parsed.forEach(t => {
+      const key = (t.name || '').toLowerCase().trim();
+      const dup = byLowerName[key];
+      if(dup){
+        const merged = Object.assign({}, dup, {
+          captainName:  t.captain || dup.captainName  || '',
+          captainEmail: t.email   || dup.captainEmail || '',
+          captainPhone: t.phone   || dup.captainPhone || ''
+        });
+        fbSet(DIV+'/teams/'+dup.id, merged);
+        updated++;
+      }else{
+        writeImportedTeam(t.name, t.captain, t.email, t.phone);
+        added++;
+      }
+    });
+    if(updated > 0){
+      toast('Imported '+(added+updated)+' team'+((added+updated)===1?'':'s')+' ('+added+' added, '+updated+' updated)');
+    }else{
+      toast('Imported '+added+' team'+(added===1?'':'s')+' (added)');
+    }
+  }
+  _pendingTeamImport = null;
+  $('t-import-preview').innerHTML = '';
+  $('t-import-filename').textContent = '';
+  // Listener will refresh the team list on next snapshot.
+}
+
+// Build a team record matching the existing manual-add shape, generate id the same way, write via fbSet.
+function writeImportedTeam(name, captain, email, phone){
+  const id = 'team_' + slugify(name) + '_' + rand6();
+  const team = {
+    id: id,
+    name: name,
+    captainName:  captain || '',
+    captainEmail: email   || '',
+    captainPhone: phone   || '',
+    color: ''
+  };
+  fbSet(DIV+'/teams/'+id, team);
 }
 
 function deleteTeam(id){
@@ -762,6 +1093,38 @@ function resultsCount(){
   return Object.keys(D[DIV].results||{}).length;
 }
 
+// READ-ONLY: scan the active division's stored schedule for (court,time) conflicts within a week.
+// A conflict exists when two or more matchups in the same week share the same court at the same
+// time slot. The generator no longer produces this, but schedules written by older code paths
+// may still carry the legacy bug; this surfaces those so an admin knows to regenerate.
+// Returns an array of {week, court, time, count} (count >= 2). Empty array if clean.
+// Pure: no Firebase reads, no writes, no DOM access, no state mutation.
+function detectScheduleConflicts(){
+  const sched = (D[DIV] && D[DIV].schedule) || {};
+  const conflicts = [];
+  Object.values(sched).forEach(w => {
+    if(!w || !Array.isArray(w.matchups)) return;
+    const counts = Object.create(null);
+    const samples = Object.create(null);
+    w.matchups.forEach(m => {
+      if(!m) return;
+      const key = String(m.court == null ? '' : m.court) + '@' + String(m.time == null ? '' : m.time);
+      counts[key] = (counts[key] || 0) + 1;
+      if(!samples[key]) samples[key] = { court: m.court, time: m.time };
+    });
+    Object.keys(counts).forEach(k => {
+      if(counts[k] > 1){
+        conflicts.push({ week: w.week, court: samples[k].court, time: samples[k].time, count: counts[k] });
+      }
+    });
+  });
+  // Stable order: by week, then by court, then by time.
+  conflicts.sort((a, b) => (a.week - b.week)
+    || (String(a.court).localeCompare(String(b.court)))
+    || (String(a.time).localeCompare(String(b.time))));
+  return conflicts;
+}
+
 // SCHEDULE GENERATION (Admin)
 function renderScheduleGen(){
   const teamCount = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id).length;
@@ -772,14 +1135,24 @@ function renderScheduleGen(){
   const sched = D[DIV].schedule || {};
   const hasSched = Object.keys(sched).length > 0;
   const rCount = resultsCount();
+  // Reset the Courts field to this division's saved value or its default on every refresh.
+  refreshCourtsField();
 
   if(helper){
     if(teamCount < 4){
       helper.innerHTML = '<strong>Need at least 4 teams to generate.</strong> Currently '+teamCount+' team'+(teamCount===1?'':'s')+' in '+(DIV==='rec'?'Rec':'Comp')+'.';
     }else{
-      helper.innerHTML = teamCount+' teams in '+(DIV==='rec'?'Rec':'Comp')+'. AI will balance opponents and courts.';
+      const T = parseInt(($('sg-weeks')||{}).value, 10) || 8;
+      const desiredCycles = Math.max(1, Math.round(T / Math.max(1, teamCount - 1)));
+      const maxCycles = Math.max(1, Math.floor(T / Math.max(1, teamCount - 1)));
+      const cycles = Math.min(desiredCycles, maxCycles);
+      helper.innerHTML = teamCount+' teams in '+(DIV==='rec'?'Rec':'Comp')+'. Deterministic round-robin, '
+        + cycles + ' cycle' + (cycles===1?'':'s') + '; each team plays '
+        + (cycles * (teamCount - 1)) + ' match' + (cycles*(teamCount-1)===1?'':'es') + '.';
     }
   }
+  const lockBtn = $('sg-lock-btn');
+  const isLocked = meta.status === 'locked' || meta.locked === true;
   if(btn){
     btn.disabled = teamCount < 4;
     btn.style.opacity = teamCount < 4 ? '.5' : '1';
@@ -790,13 +1163,36 @@ function renderScheduleGen(){
       btn.innerHTML = '&#129302; Generate Schedule';
     }
   }
+  if(lockBtn){
+    lockBtn.style.display = (hasSched && !isLocked) ? '' : 'none';
+  }
   if(status){
     if(hasSched){
       const dt = meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : 'previously';
+      const statusLabel = isLocked ? 'Schedule locked' : 'Schedule draft';
       const lockNote = rCount > 0
-        ? ' <strong>'+rCount+' result'+(rCount===1?'':'s')+' recorded</strong>; regeneration will wipe them.'
+        ? ' <strong>'+rCount+' result'+(rCount===1?'':'s')+' recorded.</strong>'
         : '';
-      status.innerHTML = '<div class="warn-banner">Schedule locked. Generated '+escapeHtml(dt)+'.'+lockNote+'</div>';
+      // Detect legacy court+time conflicts written by older code; surface them so the admin
+      // knows to regenerate. Read-only — does not modify, write, or block anything.
+      const conflicts = detectScheduleConflicts();
+      let conflictBanner = '';
+      if(conflicts.length){
+        const examples = conflicts.slice(0, 3).map(c =>
+          'Week '+c.week+': '+c.count+' matches on court '+escapeHtml(String(c.court))+
+          (c.time ? ' at '+escapeHtml(String(c.time)) : '')
+        );
+        const more = conflicts.length > examples.length
+          ? ' and '+(conflicts.length - examples.length)+' more'
+          : '';
+        conflictBanner = '<div class="err-banner" style="margin-bottom:8px;">'
+          + 'This schedule has '+conflicts.length+' court/time conflict'+(conflicts.length===1?'':'s')+'. '
+          + 'It was likely generated by an older version. Regenerate to fix.'
+          + '<br><span style="font-size:12px;">'+examples.join('; ')+more+'.</span>'
+          + '</div>';
+      }
+      status.innerHTML = conflictBanner
+        + '<div class="warn-banner">'+statusLabel+'. Generated '+escapeHtml(dt)+'.'+lockNote+'</div>';
     }else{
       status.innerHTML = '';
     }
@@ -804,6 +1200,206 @@ function renderScheduleGen(){
   renderAdminPreview();
 }
 
+// ─── DETERMINISTIC ROUND-ROBIN GENERATOR ───
+// Circle (polygon) method. Handles odd N by adding a BYE sentinel.
+// Returns array of rounds; each round is array of {a,b} pairings.
+function circleRoundRobin(teamIds){
+  const ids = teamIds.slice();
+  if(ids.length % 2 === 1) ids.push('__BYE__');
+  const N = ids.length;
+  const rounds = [];
+  let rot = ids.slice(1);
+  for(let r=0;r<N-1;r++){
+    const seq = [ids[0], ...rot];
+    const round = [];
+    for(let i=0;i<N/2;i++){
+      const a = seq[i], b = seq[N-1-i];
+      if(a !== '__BYE__' && b !== '__BYE__') round.push({a,b});
+    }
+    rounds.push(round);
+    rot = [rot[rot.length-1], ...rot.slice(0,-1)];
+  }
+  return rounds;
+}
+
+// Build all pairings across `cycles` round-robins. On odd-indexed cycles, swap home/away.
+function generatePairings(teamIds, cycles){
+  const out = [];
+  for(let c=0;c<cycles;c++){
+    const rrRounds = circleRoundRobin(teamIds);
+    for(const round of rrRounds){
+      for(const p of round){
+        if(c % 2 === 1) out.push({a:p.b, b:p.a});
+        else out.push({a:p.a, b:p.b});
+      }
+    }
+  }
+  return out;
+}
+
+// Greedy pack pairings into W weeks. Hard cap: 2 matches/team/week.
+// Prefer weeks where neither team has played yet (avoid doubleheaders).
+// Week-by-week packer: minimize byes then doubleheaders.
+// Phase 1 takes a conflict-free matching up to each week's target size; Phase 2 places
+// any leftovers into the week that costs the fewest new doubleheaders and removes the
+// most byes, spreading any unavoidable doubleheaders to teams with fewer so far.
+// Same signature/return shape as the previous version.
+function packIntoWeeks(pairings, teamIds, W){
+  const totalP = pairings.length;
+  // Target match counts per week: floor distribution with the extras packed into the
+  // earliest weeks (which lets Phase 2 doubleheader-fills flow naturally).
+  const base = Math.floor(totalP / W);
+  const extra = totalP % W;
+  const target = [];
+  for(let w=0;w<W;w++) target.push(w < extra ? base + 1 : base);
+
+  // Remaining pairings (mutable copy) + per-team remaining count (used as a "tightness" signal).
+  const remaining = pairings.slice();
+  const teamRemaining = Object.create(null);
+  teamIds.forEach(t => teamRemaining[t] = 0);
+  remaining.forEach(p => { teamRemaining[p.a]++; teamRemaining[p.b]++; });
+
+  const weeks = Array.from({length: W}, () => []);
+  const weekTeamCount = Array.from({length: W}, () => Object.create(null));
+  const dhCount = Object.create(null);
+  teamIds.forEach(t => dhCount[t] = 0);
+
+  // Phase 1: greedy conflict-free matching per week, up to target[w].
+  for(let w = 0; w < W; w++){
+    const used = new Set();
+    while(weeks[w].length < target[w]){
+      let bestIdx = -1, bestScore = -Infinity;
+      for(let i = 0; i < remaining.length; i++){
+        const p = remaining[i];
+        if(used.has(p.a) || used.has(p.b)) continue;
+        // Prefer pairings whose teams have the MOST remaining unplaced matches
+        // (= tightest constraints first; gives byes a chance to rotate naturally).
+        const score = teamRemaining[p.a] + teamRemaining[p.b];
+        if(score > bestScore){ bestScore = score; bestIdx = i; }
+      }
+      if(bestIdx < 0) break;
+      const p = remaining.splice(bestIdx, 1)[0];
+      weeks[w].push(p);
+      used.add(p.a); used.add(p.b);
+      weekTeamCount[w][p.a] = 1;
+      weekTeamCount[w][p.b] = 1;
+      teamRemaining[p.a]--;
+      teamRemaining[p.b]--;
+    }
+  }
+
+  // Phase 2: place anything Phase 1 could not fit conflict-free.
+  // Strategy: pick the leftover whose teams are tightest, then choose the week where
+  // placement adds the fewest new doubleheaders, removes the most byes, and spreads
+  // remaining doubleheaders fairly.
+  while(remaining.length){
+    let pickIdx = 0, pickScore = -Infinity;
+    for(let i = 0; i < remaining.length; i++){
+      const p = remaining[i];
+      const s = teamRemaining[p.a] + teamRemaining[p.b];
+      if(s > pickScore){ pickScore = s; pickIdx = i; }
+    }
+    const p = remaining.splice(pickIdx, 1)[0];
+
+    let bestW = -1, bestScore = Infinity;
+    for(let w = 0; w < W; w++){
+      const aC = weekTeamCount[w][p.a] || 0;
+      const bC = weekTeamCount[w][p.b] || 0;
+      if(aC >= 2 || bC >= 2) continue;  // hard cap: never exceed 2 matches/team/week
+      const aDH = (aC === 1) ? 1 : 0;
+      const bDH = (bC === 1) ? 1 : 0;
+      const aRemovesBye = (aC === 0) ? 1 : 0;
+      const bRemovesBye = (bC === 0) ? 1 : 0;
+      const fairness = (aDH ? dhCount[p.a] : 0) + (bDH ? dhCount[p.b] : 0);
+      const score = 1000 * (aDH + bDH)
+                  - 1000 * (aRemovesBye + bRemovesBye)
+                  + 10 * fairness
+                  + 0.1 * weeks[w].length;
+      if(score < bestScore){ bestScore = score; bestW = w; }
+    }
+    if(bestW < 0) throw new Error('Could not place pairing '+p.a+' vs '+p.b+' — every week has both teams already at the 2-match cap');
+
+    const w = bestW;
+    const aBefore = weekTeamCount[w][p.a] || 0;
+    const bBefore = weekTeamCount[w][p.b] || 0;
+    weeks[w].push(p);
+    weekTeamCount[w][p.a] = aBefore + 1;
+    weekTeamCount[w][p.b] = bBefore + 1;
+    if(aBefore === 1) dhCount[p.a]++;
+    if(bBefore === 1) dhCount[p.b]++;
+    teamRemaining[p.a]--;
+    teamRemaining[p.b]--;
+  }
+
+  return {weeks, weekTeamCount};
+}
+
+// Assign court + time slot to each match in a week.
+// Cycle: matches[i] -> (courts[i % courts.length], slots[Math.floor(i/courts.length) % slots.length]).
+// This guarantees two matches sharing a court use different time slots.
+function assignCourtsAndTimes(weekMatches, courts, slots){
+  return weekMatches.map((m, i) => {
+    const court = courts[i % courts.length];
+    const time  = slots[Math.floor(i / courts.length) % slots.length];
+    return Object.assign({}, m, {court, time});
+  });
+}
+
+// Compute dates: start at startDate, but shift forward to the configured night-of-week, then +7 days each week.
+function computeWeekDates(startDateStr, weeks, nightDow){
+  const start = new Date(startDateStr + 'T12:00:00');
+  // Shift forward to the next occurrence of nightDow (inclusive of start day)
+  const diff = ((nightDow - start.getDay()) + 7) % 7;
+  start.setDate(start.getDate() + diff);
+  const out = [];
+  for(let i=0;i<weeks;i++){
+    const d = new Date(start);
+    d.setDate(d.getDate() + i*7);
+    out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+  }
+  return out;
+}
+
+// Convert config slots input (string or array) to an array.
+function parseSlots(raw){
+  if(Array.isArray(raw)) return raw.filter(s=>s && String(s).trim()).map(s=>String(s).trim());
+  if(typeof raw !== 'string') return ['6:15 PM','7:00 PM'];
+  return raw.split(',').map(s=>s.trim()).filter(s=>s.length > 0);
+}
+
+// Tolerant comma-separated court-number parser: "1, 2, 5" -> [1,2,5].
+// Accepts an existing array too (for round-tripping config). Drops blanks and non-positive numbers.
+function parseCourts(raw){
+  if(Array.isArray(raw)){
+    return raw.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n) && n > 0);
+  }
+  if(typeof raw !== 'string') return [];
+  return raw.split(',').map(s => parseInt(String(s).trim(), 10)).filter(n => Number.isInteger(n) && n > 0);
+}
+
+// Division defaults: Comp on courts 1/2, Rec on courts 3/4. Cities with other layouts
+// can fully override via the setup form.
+function defaultCourtsForDiv(div){
+  return div === 'comp' ? '1, 2' : '3, 4';
+}
+
+// Populate the Courts input from saved config for the active division if present,
+// otherwise from the division default. Called whenever the admin tab refreshes,
+// including after switchDiv.
+function refreshCourtsField(){
+  const inp = $('sg-courts');
+  if(!inp) return;
+  const cfg = (D[DIV] && D[DIV].config) || {};
+  const saved = cfg.courts;
+  if(Array.isArray(saved) && saved.length){
+    inp.value = saved.join(', ');
+  } else {
+    // Treat legacy numeric or missing config.courts as "no saved value" — show the division default.
+    inp.value = defaultCourtsForDiv(DIV);
+  }
+}
+
+// ─── SCHEDULE GENERATION (Admin) — deterministic ───
 async function genSchedule(){
   if(!requireAdmin('genSchedule')) return;
   const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name);
@@ -811,155 +1407,548 @@ async function genSchedule(){
 
   const startDate = $('sg-start').value;
   const weeks  = parseInt($('sg-weeks').value, 10);
-  const courts = parseInt($('sg-courts').value, 10);
-  const mpc    = parseInt($('sg-mpc').value, 10);
+  const courtListRaw = $('sg-courts').value;
+  const courtList = parseCourts(courtListRaw);
+  const nightDow = parseInt($('sg-night').value, 10);
+  const park = ($('sg-park').value || 'Tom Brown Park').trim();
+  const slotsRaw = $('sg-slots').value;
+  const slots = parseSlots(slotsRaw);
   if(!startDate){ toast('Pick a start date'); return; }
   if(!(weeks>=1 && weeks<=20)){ toast('Weeks must be 1 to 20'); return; }
-  if(!(courts>=1 && courts<=8)){ toast('Courts must be 1 to 8'); return; }
-  if(!(mpc>=1 && mpc<=6)){ toast('Matches per court must be 1 to 6'); return; }
+  if(!courtList.length){ toast('At least one court number required'); return; }
+  if(!slots.length){ toast('At least one time slot required'); return; }
 
   const hasSched = Object.keys(D[DIV].schedule||{}).length > 0;
   const rCount = resultsCount();
+  const meta = D[DIV].scheduleMeta || {};
+  const wasLocked = meta.status === 'locked' || meta.locked === true;
+
+  // Single regenerate confirm: OK = replace schedule (and delete any recorded results);
+  // Cancel = nothing changes. Replaces the prior three-confirm chain that included a
+  // misleading "Cancel to keep results" trap which silently aborted the whole regenerate.
   if(hasSched){
-    if(!confirm('This wipes the current schedule. Continue?')) return;
-    if(rCount > 0){
-      if(!confirm('This also wipes '+rCount+' recorded result'+(rCount===1?'':'s')+'. Continue?')) return;
-    }
+    const resultsLine = rCount > 0
+      ? ' and DELETE all ' + rCount + ' recorded result' + (rCount===1?'':'s')
+      : '';
+    const lockPrefix = wasLocked ? 'This season is LOCKED. ' : '';
+    const undoLine = wasLocked ? ' This cannot be undone.' : '';
+    const msg = lockPrefix + 'Regenerating will REPLACE the current schedule' + resultsLine + '.' + undoLine
+      + '\n\nClick OK to regenerate, or Cancel to keep the current schedule unchanged.';
+    if(!confirm(msg)) return;
   }
 
-  const dates = buildScheduleDates(startDate, weeks);
+  // Build pairings via circle method
   const teamsSorted = teams.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  const shortToId = {}, idToShort = {};
-  teamsSorted.forEach((t,i)=>{ const sid='T'+(i+1); shortToId[sid]=t.id; idToShort[t.id]=sid; });
+  const teamIds = teamsSorted.map(t=>t.id);
+  const N = teamIds.length;
+  const T = weeks;  // target matches per team = weeks (default; future Advanced override goes here)
+  // Bug 2 cap: bound cycles so total per-team matches stay near 1/week average.
+  // Without this cap, small divisions (e.g. N=4) generate more matches than the
+  // season can hold cleanly, forcing excessive doubleheaders.
+  // Preserves real cases: N=9/w=8 -> 1 cycle; N=5/w=8 -> 2 cycles. Reduces N=4/w=8 from 3 to 2.
+  const desiredCycles = Math.max(1, Math.round(T / (N - 1)));
+  const maxCycles = Math.max(1, Math.floor(weeks / (N - 1)));
+  const cycles = Math.min(desiredCycles, maxCycles);
 
-  const teamLines = teamsSorted.map((t,i)=>'T'+(i+1)+': '+t.name).join('\n');
-  const datesList = dates.map((d,i)=>'Week '+(i+1)+': '+d).join('\n');
-  const fullRR = teamsSorted.length * (teamsSorted.length-1) / 2;
-  const totalSlots = courts * mpc * weeks;
-  const matchesPerNight = courts * mpc;
-
-  const prompt = 'You are scheduling a 4v4 beach volleyball league.\n\n'
-    + 'Teams ('+teamsSorted.length+' total). Use these short IDs in your output:\n'
-    + teamLines + '\n\n'
-    + 'Season setup:\n'
-    + '- '+weeks+' weeks, one league night per week\n'
-    + '- '+courts+' courts available per night (numbered 1 to '+courts+')\n'
-    + '- '+mpc+' matches per court per night ('+mpc+' rounds; rounds numbered 1 to '+mpc+')\n'
-    + '- '+matchesPerNight+' matches per night, '+totalSlots+' total matchup slots across the season\n'
-    + '- Full round-robin for '+teamsSorted.length+' teams is '+fullRR+' unique matchups\n\n'
-    + 'Dates for each week (use exactly these):\n'
-    + datesList + '\n\n'
-    + 'Scheduling rules:\n'
-    + '1. Every team should play as many DISTINCT opponents as possible. Maximize unique pairings first.\n'
-    + '2. If total slots exceed the full round-robin, allow repeats but distribute them so no two teams face each other more than the minimum number of times.\n'
-    + '3. Within a single round on a single night, each team appears in at most one matchup.\n'
-    + '4. Across each night, distribute matches as evenly as possible across teams. Avoid any team playing zero matches on a night unless mathematically required by team count.\n'
-    + '5. Spread each team\'s appearances across the season; avoid loading too many matches onto one early week or one late week.\n'
-    + '6. Court numbers can repeat across rounds (court 1 round 1 and court 1 round 2 are different match slots).\n\n'
-    + 'Return ONLY a JSON array of weeks. No markdown fences, no preamble, no commentary, no trailing text.\n'
-    + 'Shape:\n'
-    + '[\n'
-    + '  {"week":1,"date":"'+dates[0]+'","matchups":[\n'
-    + '    {"teamAId":"T1","teamBId":"T2","court":1,"round":1},\n'
-    + '    {"teamAId":"T3","teamBId":"T4","court":2,"round":1}\n'
-    + '  ]},\n'
-    + '  ...\n'
-    + ']\n\n'
-    + 'Use ONLY the short IDs (T1 through T'+teamsSorted.length+') for teamAId and teamBId.\n'
-    + 'Every matchup must have all four fields: teamAId, teamBId, court, round.\n'
-    + 'teamAId and teamBId in the same matchup must be different.';
-
-  const preview = $('sg-preview');
-  preview.innerHTML = '<div class="gen-block"><div class="spin"></div><div>Generating schedule. This usually takes 10 to 30 seconds.</div></div>';
-
-  let parsed = null;
+  let pairings, packed;
   try{
-    const res = await fetch(AI_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
-        messages: [{role:'user', content: prompt}]
-      })
-    });
-    const data = await res.json();
-    const text = (data.content||[]).map(c=>c.text||'').join('') || '';
-    try{
-      const clean = text.replace(/```json|```/g,'').trim();
-      const s = clean.indexOf('['), e = clean.lastIndexOf(']');
-      if(s<0 || e<0) throw new Error('no JSON array found');
-      parsed = JSON.parse(clean.slice(s, e+1));
-    }catch(pe){
-      console.error('parse error', pe, text);
-      preview.innerHTML = '<div class="err-banner">Could not parse AI response. It may have been cut off or malformed. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
-      return;
-    }
+    pairings = generatePairings(teamIds, cycles);
+    packed = packIntoWeeks(pairings, teamIds, weeks);
   }catch(err){
     console.error(err);
-    preview.innerHTML = '<div class="err-banner">Network error contacting the AI service. Check your connection. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+    $('sg-preview').innerHTML = '<div class="err-banner">Generator error: '+escapeHtml(err.message)+'</div>';
     return;
   }
 
-  if(!Array.isArray(parsed) || !parsed.length){
-    preview.innerHTML = '<div class="err-banner">AI returned an empty schedule. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+  // Court pool is an explicit list of court NUMBERS (e.g. [1,2] Comp / [3,4] Rec).
+  const courtPool = courtList.slice();
+  // Full slot list. Per-week capacity is enforced explicitly below.
+  const slotPool = slots.slice();
+
+  // Capacity precondition: every week's match count must fit within courts*slots distinct slots.
+  // Without this, assignCourtsAndTimes would wrap and produce real-world double-bookings.
+  const capacityPerWeek = courtPool.length * slotPool.length;
+  let _overflowWi = -1;
+  packed.weeks.forEach((wkMatches, wi) => {
+    if(_overflowWi < 0 && wkMatches.length > capacityPerWeek) _overflowWi = wi;
+  });
+  if(_overflowWi >= 0){
+    const wn = _overflowWi + 1;
+    const need = packed.weeks[_overflowWi].length;
+    $('sg-preview').innerHTML = '<div class="err-banner">Week '+wn+' needs '+need+' matches but only '+capacityPerWeek+' court/time slots are available ('+courtPool.length+' court' + (courtPool.length===1?'':'s') + ' &times; ' + slotPool.length + ' time' + (slotPool.length===1?'':'s') + '). Add a court or a time slot, then regenerate.</div>';
     return;
   }
 
+  const dates = computeWeekDates(startDate, weeks, nightDow);
+
+  // Build output shape (preserve existing schedule data shape so the rest of the app keeps working).
   const scheduleOut = {};
-  let bad = false;
-  parsed.forEach(w=>{
-    if(!w || !w.week) return;
-    const wnum = parseInt(w.week, 10);
-    if(!(wnum>=1)) return;
-    const date = (typeof w.date === 'string' && w.date) ? w.date : (dates[wnum-1] || '');
-    const matchupsIn = Array.isArray(w.matchups) ? w.matchups : [];
-    const matchups = [];
-    matchupsIn.forEach(m=>{
-      if(!m) return;
-      const aShort = String(m.teamAId||'').trim();
-      const bShort = String(m.teamBId||'').trim();
-      const aId = shortToId[aShort];
-      const bId = shortToId[bShort];
-      const court = parseInt(m.court,10);
-      const round = parseInt(m.round,10);
-      if(!aId || !bId || aId===bId || !(court>=1) || !(round>=1)){ bad = true; return; }
-      matchups.push({
-        id: 'm_w'+wnum+'_r'+round+'_c'+court,
-        teamAId: aId,
-        teamBId: bId,
-        court: court,
-        round: round
-      });
+  packed.weeks.forEach((weekMatches, wi) => {
+    const wnum = wi + 1;
+    const date = dates[wi] || '';
+    const assigned = assignCourtsAndTimes(weekMatches, courtPool, slotPool);
+    const matchups = assigned.map((m, mi) => {
+      // Derive round from slot index (0-based time slot) + 1 for backwards compatibility.
+      const slotIdx = slotPool.indexOf(m.time);
+      const round = (slotIdx >= 0 ? slotIdx : 0) + 1;
+      // Bug 1 fix: include a per-week sequence number so the id is globally unique even
+      // when two matches share the same (round, court) — which can happen with doubleheaders
+      // or when the court/slot pool is smaller than that week's match count. Without this,
+      // colliding ids silently overwrite each other in Firebase and recorded scores are lost.
+      const seq = String(mi + 1).padStart(2, '0');
+      return {
+        id: 'm_w'+wnum+'_s'+seq+'_r'+round+'_c'+m.court,
+        teamAId: m.a,            // visitor by convention (cycle 0); swaps on odd cycles via generatePairings
+        teamBId: m.b,            // home
+        court: m.court,
+        round: round,
+        time: m.time,
+        park: park
+      };
     });
-    scheduleOut[String(wnum)] = { week: wnum, date: date, matchups: matchups };
+    // Byes for this week: teams not present in any matchup
+    const present = new Set();
+    matchups.forEach(mm=>{ present.add(mm.teamAId); present.add(mm.teamBId); });
+    const byes = teamIds.filter(id => !present.has(id));
+    scheduleOut[String(wnum)] = { week: wnum, date: date, matchups: matchups, byes: byes };
   });
 
-  if(Object.keys(scheduleOut).length === 0){
-    preview.innerHTML = '<div class="err-banner">AI returned no valid weeks. <button class="btn btn-p btn-sm" style="margin-left:8px;" onclick="genSchedule()">Retry</button></div>';
+  // Bug 1 assertion: every match id must be globally unique across the schedule. Refuse to
+  // write if any duplicates slipped through, so Firebase writes never silently overwrite results.
+  const _allIds = [];
+  Object.values(scheduleOut).forEach(w => (w.matchups || []).forEach(m => _allIds.push(m.id)));
+  if(new Set(_allIds).size !== _allIds.length){
+    const _seen = new Set();
+    const _dupes = [];
+    _allIds.forEach(id => { if(_seen.has(id)) _dupes.push(id); else _seen.add(id); });
+    console.error('Duplicate match ids:', _dupes);
+    $('sg-preview').innerHTML = '<div class="err-banner">Internal error: generator produced ' + _dupes.length + ' duplicate match id' + (_dupes.length===1?'':'s') + '. Schedule NOT written. First few: ' + escapeHtml(_dupes.slice(0,5).join(', ')) + '</div>';
+    return;
+  }
+
+  // (court,time) uniqueness assertion: within any single week no two matches may share the
+  // same court at the same time slot. The capacity precondition above should make this
+  // unreachable in normal use; this is the belt-and-suspenders backstop.
+  let _ctCollision = null;
+  Object.values(scheduleOut).forEach(w => {
+    const seen = new Set();
+    (w.matchups || []).forEach(m => {
+      const key = String(m.court) + '@' + String(m.time);
+      if(seen.has(key) && !_ctCollision){
+        _ctCollision = { week: w.week, court: m.court, time: m.time };
+      }
+      seen.add(key);
+    });
+  });
+  if(_ctCollision){
+    $('sg-preview').innerHTML = '<div class="err-banner">Week '+_ctCollision.week+' has two matches both on court '+escapeHtml(String(_ctCollision.court))+' at '+escapeHtml(String(_ctCollision.time))+'. Schedule NOT written. Add a court or a time slot, then regenerate.</div>';
     return;
   }
 
   _previewBannerDismissed = false;
-  await writeSchedule(scheduleOut, { startDate, weeks, courts, mpc, hadResults: rCount > 0 });
-  if(bad) toast('Schedule generated, some matchups were dropped (bad IDs).');
-  else    toast('Schedule generated.');
+  await writeSchedule(scheduleOut, { startDate, weeks, courts: courtPool, slots, park, nightDow, hadResults: rCount > 0, cycles });
+  toast('Schedule generated (' + cycles + ' cycle' + (cycles===1?'':'s') + ', ' + pairings.length + ' matches).');
 }
 
 async function writeSchedule(scheduleObj, opts){
   if(!db) return;
+  // Persist scoring rules + setup params under config (so score-entry reads caps from config).
+  // opts.courts is now an explicit array of court numbers (e.g. [1,2] or [3,4]).
+  const scoring = readScoringFromForm();
+  const cfg = {
+    park: opts.park,
+    nightDow: opts.nightDow,
+    slots: opts.slots,
+    courts: opts.courts,   // array of court numbers
+    weeks: opts.weeks,
+    startDate: opts.startDate,
+    cycles: opts.cycles,
+    scoring: scoring
+  };
+  await db.ref(DB_ROOT+'/'+DIV+'/config').set(cfg);
   if(opts && opts.hadResults){
+    // Caller has already confirmed via confirm() that results may be wiped.
     await db.ref(DB_ROOT+'/'+DIV+'/results').remove();
   }
   await db.ref(DB_ROOT+'/'+DIV+'/schedule').set(scheduleObj);
   await db.ref(DB_ROOT+'/'+DIV+'/scheduleMeta').set({
     generatedAt: Date.now(),
-    locked: true,
+    status: 'draft',
+    locked: false,
     weekCount: opts.weeks,
-    courtCount: opts.courts,
-    matchesPerCourt: opts.mpc,
-    startDate: opts.startDate
+    courtCount: Array.isArray(opts.courts) ? opts.courts.length : 0,
+    startDate: opts.startDate,
+    cycles: opts.cycles
   });
+}
+
+// Read scoring rules from the Advanced form (with defaults).
+function readScoringFromForm(){
+  const num = (id, d) => {
+    const v = parseInt(($(id)||{}).value, 10);
+    return (isNaN(v) || v < 1) ? d : v;
+  };
+  return {
+    bestOf: num('sg-bestof', 3),
+    set1: { target: num('sg-s12-target', 21), winBy: num('sg-s12-winby', 2), cap: num('sg-s12-cap', 23) },
+    set2: { target: num('sg-s12-target', 21), winBy: num('sg-s12-winby', 2), cap: num('sg-s12-cap', 23) },
+    set3: { target: num('sg-s3-target', 15), winBy: num('sg-s3-winby', 2), cap: num('sg-s3-cap', 17) }
+  };
+}
+
+// Default scoring used when config has nothing.
+function defaultScoring(){
+  return {
+    bestOf: 3,
+    set1: { target: 21, winBy: 2, cap: 23 },
+    set2: { target: 21, winBy: 2, cap: 23 },
+    set3: { target: 15, winBy: 2, cap: 17 }
+  };
+}
+
+// Read effective scoring from config, falling back to defaults.
+function getScoring(){
+  const cfg = D[DIV].config || {};
+  const sc = cfg.scoring || {};
+  const def = defaultScoring();
+  return {
+    bestOf: sc.bestOf || def.bestOf,
+    set1: Object.assign({}, def.set1, sc.set1 || {}),
+    set2: Object.assign({}, def.set2, sc.set2 || {}),
+    set3: Object.assign({}, def.set3, sc.set3 || {})
+  };
+}
+
+// ─── LOCK SEASON ───
+function lockSeason(){
+  if(!requireAdmin('lockSeason')) return;
+  const hasSched = Object.keys(D[DIV].schedule||{}).length > 0;
+  if(!hasSched){ toast('Generate a schedule first'); return; }
+  const meta = D[DIV].scheduleMeta || {};
+  if(meta.status === 'locked' || meta.locked === true){ toast('Already locked'); return; }
+  if(!confirm('Lock this season? Once locked, regenerating will require an explicit confirmation and may affect recorded results.')) return;
+  const newMeta = Object.assign({}, meta, { status: 'locked', locked: true, lockedAt: Date.now() });
+  if(db) db.ref(DB_ROOT+'/'+DIV+'/scheduleMeta').set(newMeta);
+  toast('Season locked');
+}
+
+// ─── PRINT SCHEDULE ───
+const DOW_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function fmtDateLong(s){
+  if(!s) return '';
+  const d = new Date(s+'T12:00:00');
+  return d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+}
+function fmtDayOfWeek(s){
+  if(!s) return '';
+  const d = new Date(s+'T12:00:00');
+  return DOW_LONG[d.getDay()];
+}
+
+function buildPrintHtml(){
+  const sched = D[DIV].schedule || {};
+  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  const cfg = D[DIV].config || {};
+  const meta = D[DIV].scheduleMeta || {};
+  const divName = DIV==='rec' ? 'Recreational 4v4' : 'Competitive 4v4';
+  let html = '<div class="print-doc-hdr">';
+  html += '<div class="print-doc-title">' + escapeHtml(divName) + ' Schedule</div>';
+  if(weeks.length){
+    const first = weeks[0].date, last = weeks[weeks.length-1].date;
+    html += '<div class="print-doc-sub">' + escapeHtml(fmtDateLong(first)) + ' &mdash; ' + escapeHtml(fmtDateLong(last)) + '</div>';
+  }
+  if(meta.status === 'locked' || meta.locked === true){
+    html += '<div class="print-doc-sub" style="font-size:11px;color:#777;">Schedule locked</div>';
+  }
+  html += '</div>';
+
+  weeks.forEach(w => {
+    html += '<div class="print-week-hdr">Week ' + w.week + ' &mdash; ' + escapeHtml(fmtDayOfWeek(w.date)) + ', ' + escapeHtml(fmtDateLong(w.date)) + '</div>';
+    const items = (w.matchups||[]).slice().sort((a,b) => (a.round-b.round) || (a.court-b.court));
+    if(items.length){
+      html += '<table class="print-tbl">'
+        + '<thead><tr>'
+        +   '<th>Day</th><th>Date</th><th>Visitors</th><th>Home</th><th>Court</th><th>Park</th><th>Time</th>'
+        + '</tr></thead><tbody>';
+      items.forEach(m => {
+        html += '<tr>'
+          + '<td>' + escapeHtml(fmtDayOfWeek(w.date)) + '</td>'
+          + '<td>' + escapeHtml(fmtDateLong(w.date)) + '</td>'
+          + '<td>' + escapeHtml(teamLabel(m.teamAId)) + '</td>'
+          + '<td>' + escapeHtml(teamLabel(m.teamBId)) + '</td>'
+          + '<td>' + escapeHtml(String(m.court)) + '</td>'
+          + '<td>' + escapeHtml(m.park || cfg.park || 'Tom Brown Park') + '</td>'
+          + '<td>' + escapeHtml(m.time || '') + '</td>'
+          + '</tr>';
+      });
+      html += '</tbody></table>';
+    }else{
+      html += '<div class="print-byes">No matchups scheduled.</div>';
+    }
+    if(Array.isArray(w.byes) && w.byes.length){
+      const byeNames = w.byes.map(id => teamLabel(id)).join(', ');
+      html += '<div class="print-byes">Bye this week: ' + escapeHtml(byeNames) + '</div>';
+    }
+  });
+  return html;
+}
+
+function printSchedule(){
+  const host = $('print-host');
+  if(!host) return;
+  const sched = D[DIV].schedule || {};
+  if(!Object.keys(sched).length){ toast('No schedule to print'); return; }
+  host.innerHTML = buildPrintHtml();
+  // Defer to next tick so the DOM updates before the print dialog opens.
+  setTimeout(()=>{ window.print(); }, 50);
+}
+
+// ─── EXPORT (Excel / PDF, active DIV only) ───
+function getDivLabel(){ return DIV === 'rec' ? 'Rec' : 'Comp'; }
+function getDivFullLabel(){ return DIV === 'rec' ? 'Recreational 4v4' : 'Competitive 4v4'; }
+
+function renderExportLabel(){
+  const el = $('exp-div-label');
+  if(el) el.textContent = getDivFullLabel();
+}
+
+// Build schedule rows shared by Excel + PDF.
+// Returns [{week, day, date, visitors, home, court, park, time, byes}], byes filled only on first row of each week.
+function buildScheduleRowsForExport(){
+  const sched = D[DIV].schedule || {};
+  const cfg = D[DIV].config || {};
+  const defaultPark = (cfg.park || 'Tom Brown Park');
+  const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
+  const rows = [];
+  weeks.forEach(w => {
+    const items = (w.matchups || []).slice().sort((a,b) => (a.round - b.round) || (a.court - b.court));
+    const byeNames = (w.byes || []).map(id => teamLabel(id)).filter(Boolean).join(', ');
+    if(items.length === 0){
+      rows.push({
+        week: w.week, day: fmtDayOfWeek(w.date), date: fmtDateLong(w.date),
+        visitors: '(no matches)', home: '', court: '', park: '', time: '', byes: byeNames
+      });
+    } else {
+      items.forEach((m, i) => {
+        rows.push({
+          week: w.week,
+          day:  fmtDayOfWeek(w.date),
+          date: fmtDateLong(w.date),
+          visitors: teamLabel(m.teamAId),
+          home:     teamLabel(m.teamBId),
+          court:    m.court,
+          park:     m.park || defaultPark,
+          time:     m.time || '',
+          byes:     i === 0 ? byeNames : ''
+        });
+      });
+    }
+  });
+  return rows;
+}
+
+// Build standings rows shared by Excel + PDF. Uses computeStandings() so sort order
+// matches the on-screen standings (W desc, set diff, pt diff, then name).
+function buildStandingsRowsForExport(){
+  const standings = computeStandings();
+  return standings.map((s, i) => {
+    const total = s.w + s.l;
+    const winPctStr = total > 0 ? (Math.round((s.w / total) * 1000) / 10).toFixed(1) + '%' : '—';
+    return {
+      rank: i + 1,
+      team: s.name,
+      w: s.w,
+      l: s.l,
+      winPct: winPctStr,
+      setsW: s.setsW,
+      setsL: s.setsL,
+      setDiff: s.setDiff,
+      ptsFor: s.ptsFor,
+      ptsAgainst: s.ptsAgainst,
+      ptDiff: s.ptDiff
+    };
+  });
+}
+
+function exportToExcel(includeSchedule, includeStandings){
+  if(typeof XLSX === 'undefined'){ toast('Excel library not loaded'); return; }
+  const wb = XLSX.utils.book_new();
+  const divLabel = getDivLabel();
+  const today = todayYMD();
+  let appended = 0;
+  let kindParts = [];
+
+  if(includeSchedule){
+    const rows = buildScheduleRowsForExport();
+    const header = ['Week','Day','Date','Visitors','Home','Court','Park','Time','Bye(s) this week'];
+    const aoa = [header];
+    if(rows.length === 0){
+      aoa.push(['(no schedule generated yet)']);
+    } else {
+      rows.forEach(r => aoa.push([r.week, r.day, r.date, r.visitors, r.home, r.court, r.park, r.time, r.byes]));
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:6},{wch:9},{wch:18},{wch:24},{wch:24},{wch:6},{wch:18},{wch:10},{wch:30}];
+    XLSX.utils.book_append_sheet(wb, ws, divLabel + ' Schedule');
+    appended++;
+    kindParts.push('Schedule');
+  }
+  if(includeStandings){
+    const rows = buildStandingsRowsForExport();
+    const header = ['Rank','Team','W','L','Win%','Sets W','Sets L','Set Diff','Pts For','Pts Ag','Pt Diff'];
+    const aoa = [header];
+    if(rows.length === 0){
+      aoa.push(['(no teams yet)']);
+    } else {
+      rows.forEach(r => aoa.push([r.rank, r.team, r.w, r.l, r.winPct, r.setsW, r.setsL, r.setDiff, r.ptsFor, r.ptsAgainst, r.ptDiff]));
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:6},{wch:24},{wch:5},{wch:5},{wch:8},{wch:7},{wch:7},{wch:8},{wch:8},{wch:8},{wch:8}];
+    XLSX.utils.book_append_sheet(wb, ws, divLabel + ' Standings');
+    appended++;
+    kindParts.push('Standings');
+  }
+  if(appended === 0) return;
+  const kind = kindParts.length === 2 ? 'Full' : kindParts[0];
+  const filename = 'Tally4v4_' + divLabel + '_' + kind + '_' + today + '.xlsx';
+  XLSX.writeFile(wb, filename);
+  toast('Excel exported');
+}
+
+function exportToPdf(includeSchedule, includeStandings){
+  const ns = window.jspdf;
+  if(!ns || !ns.jsPDF){ toast('PDF library not loaded'); return; }
+  const doc = new ns.jsPDF({unit: 'pt', format: 'letter'});
+  if(typeof doc.autoTable !== 'function'){ toast('PDF table plugin missing'); return; }
+  const divLabel = getDivLabel();
+  const divFull = getDivFullLabel();
+  const today = todayYMD();
+  const generatedStr = new Date().toLocaleString();
+  let kindParts = [];
+
+  // Header on page 1
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text(divFull, 40, 50);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Generated: ' + generatedStr, 40, 66);
+  let yCursor = 84;
+
+  if(includeSchedule){
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Schedule', 40, yCursor);
+    yCursor += 12;
+
+    const sched = D[DIV].schedule || {};
+    const cfg = D[DIV].config || {};
+    const defaultPark = cfg.park || 'Tom Brown Park';
+    const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
+
+    if(weeks.length === 0){
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'italic');
+      doc.text('(no schedule generated yet)', 40, yCursor + 14);
+      yCursor += 30;
+    } else {
+      weeks.forEach(w => {
+        const items = (w.matchups || []).slice().sort((a,b) => (a.round - b.round) || (a.court - b.court));
+        const byeNames = (w.byes || []).map(id => teamLabel(id)).filter(Boolean).join(', ');
+        const weekHdr = 'Week ' + w.week + ' — ' + fmtDayOfWeek(w.date) + ', ' + fmtDateLong(w.date);
+        const body = items.length === 0
+          ? [['(no matches)','','','','']]
+          : items.map(m => [
+              teamLabel(m.teamAId),
+              teamLabel(m.teamBId),
+              String(m.court),
+              m.park || defaultPark,
+              m.time || ''
+            ]);
+        const subtitleRows = byeNames ? [['Bye(s): ' + byeNames]] : [];
+        // Week header strip
+        doc.autoTable({
+          head: [[weekHdr]],
+          body: subtitleRows,
+          startY: yCursor,
+          theme: 'plain',
+          headStyles: {fontSize: 11, fontStyle: 'bold', fillColor: [240,240,240], textColor: [40,40,40]},
+          bodyStyles: {fontSize: 9, fontStyle: 'italic', textColor: [100,100,100]},
+          margin: {left: 40, right: 40},
+          tableWidth: 'auto'
+        });
+        yCursor = doc.lastAutoTable.finalY + 4;
+        // Match table
+        doc.autoTable({
+          head: [['Visitors','Home','Court','Park','Time']],
+          body: body,
+          startY: yCursor,
+          theme: 'striped',
+          headStyles: {fontSize: 10, fontStyle: 'bold', fillColor: [230,230,230], textColor: [40,40,40]},
+          bodyStyles: {fontSize: 9},
+          margin: {left: 40, right: 40},
+          columnStyles: {2: {halign: 'center'}}
+        });
+        yCursor = doc.lastAutoTable.finalY + 14;
+      });
+    }
+    kindParts.push('Schedule');
+  }
+
+  if(includeStandings){
+    if(includeSchedule) doc.addPage();
+    let y = 50;
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(divFull, 40, y);
+    y += 16;
+    doc.setFontSize(14);
+    doc.text('Standings', 40, y);
+    y += 12;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Generated: ' + generatedStr, 40, y + 4);
+    y += 22;
+
+    const rows = buildStandingsRowsForExport();
+    if(rows.length === 0){
+      doc.setFont('helvetica', 'italic');
+      doc.text('(no teams yet)', 40, y);
+    } else {
+      const body = rows.map(r => [r.rank, r.team, r.w, r.l, r.winPct, r.setsW, r.setsL, r.setDiff, r.ptsFor, r.ptsAgainst, r.ptDiff]);
+      doc.autoTable({
+        head: [['Rank','Team','W','L','Win%','Sets W','Sets L','Set Diff','Pts For','Pts Ag','Pt Diff']],
+        body: body,
+        startY: y,
+        theme: 'striped',
+        headStyles: {fontSize: 10, fontStyle: 'bold', fillColor: [230,230,230], textColor: [40,40,40]},
+        bodyStyles: {fontSize: 9},
+        margin: {left: 40, right: 40}
+      });
+    }
+    kindParts.push('Standings');
+  }
+
+  if(kindParts.length === 0) return;
+  const kind = kindParts.length === 2 ? 'Full' : kindParts[0];
+  const filename = 'Tally4v4_' + divLabel + '_' + kind + '_' + today + '.pdf';
+  doc.save(filename);
+  toast('PDF exported');
+}
+
+function runExport(format){
+  if(!requireAdmin('runExport')) return;
+  const includeSchedule = !!($('exp-schedule') && $('exp-schedule').checked);
+  const includeStandings = !!($('exp-standings') && $('exp-standings').checked);
+  if(!includeSchedule && !includeStandings){
+    toast('Pick at least one section');
+    return;
+  }
+  if(format === 'xlsx'){
+    exportToExcel(includeSchedule, includeStandings);
+  } else if(format === 'pdf'){
+    exportToPdf(includeSchedule, includeStandings);
+  }
 }
 
 // SCHEDULE PREVIEW (Admin)
@@ -1063,6 +2052,9 @@ function renderPublicSchedule(){
   const sel = weeks.find(w => w.week === _selectedWeek) || weeks[0];
   host.innerHTML = '<div class="card">'
     + '<div class="ctitle"><span class="bar"></span>'+escapeHtml(DIV==='rec'?'Recreational 4v4':'Competitive 4v4')+'</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
+    +   '<button class="btn btn-g btn-sm" onclick="printSchedule()">&#128424; Print schedule</button>'
+    + '</div>'
     + '<div class="week-pills">'+pills+'</div>'
     + renderWeekCard(sel, {showResult:true, showAdmin:false})
     + '</div>';
@@ -1272,11 +2264,12 @@ function renderScoreForm(m, weekNum){
   }
   const aName = teamLabel(m.teamAId);
   const bName = teamLabel(m.teamBId);
+  const sc = getScoring();
   return '<div class="score-form">'
     + '<div class="sets-grid">'
-    +   buildSetBlock(1, s1.a, s1.b, 23, m.id)
-    +   buildSetBlock(2, s2.a, s2.b, 23, m.id)
-    +   buildSetBlock(3, s3.a, s3.b, 17, m.id)
+    +   buildSetBlock(1, s1.a, s1.b, sc.set1.cap, m.id)
+    +   buildSetBlock(2, s2.a, s2.b, sc.set2.cap, m.id)
+    +   buildSetBlock(3, s3.a, s3.b, sc.set3.cap, m.id)
     + '</div>'
     + '<div class="forf-row">'
     +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamAId+'\','+weekNum+')">Forfeit, '+escapeHtml(aName)+' wins</button>'
