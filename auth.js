@@ -1,8 +1,7 @@
 /* CourtSense shared auth module
  *
- * Ported from the Leon school login pattern, simplified to player-only.
- * Coach actions on CourtSense happen via admin-players.html, which is
- * separately PIN-gated.
+ * Email + password sign-in for the pickup app. Coach actions on CourtSense
+ * happen via admin-players.html, which is separately PIN-gated.
  *
  * Pattern:
  *   CourtSenseAuth.init({ firebaseDb, rosterPath, onLogin, onLogout })
@@ -12,21 +11,26 @@
  *     codes: 'wrong_password' | 'no_account' | 'same_password' | 'failed'
  *     On ok:true the player's passwordHash + updatedAt are written and a
  *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
- *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel })
+ *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, keepSignedIn })
  *     -> Promise<{ok:true, playerKey} | {ok:false, error}>
  *     Self-serve community signup. Writes verified:false player record at
  *     {rosterPath}/{snake_case_displayName}, queues a 'welcome' email with
- *     generated_password:null (user picked their own), and sets sessionStorage
- *     so the new player is logged in immediately. Phase D will add email
+ *     generated_password:null (user picked their own), and signs the new
+ *     player in immediately. keepSignedIn (default false) controls whether
+ *     the session persists across browser close. Phase D will add email
  *     verification gating against the verified flag.
  *
  * Storage: passwordHash lives at {rosterPath}/{playerId}/passwordHash.
- * Hashing happens in admin-players.html at approval time (cost 10).
- * Verifying happens here at login time. Plaintext is never persisted;
- * it only lives in the welcome email payload.
+ * Hashing happens here (cost 10) at signup time and at admin-players.html
+ * approval time. Verifying happens here at login time. Plaintext is never
+ * persisted; it only lives in the welcome email payload.
  *
- * Session: sessionStorage 'courtsenseAuth' = { playerId, ts }. Survives
- * navigation, clears on browser close. autoLogin restores on init.
+ * Session: a single key 'courtsenseAuth' = { playerId, ts[, exp] }. Lives
+ * in sessionStorage by default (clears on browser close). When "Keep me
+ * signed in on this device" is checked at login or signup, lives in
+ * localStorage with exp = now + 75 days instead. autoLogin prefers
+ * localStorage, then falls back to sessionStorage; expired localStorage
+ * entries are dropped. Logout clears both stores.
  *
  * No password reset email flow in v1: admin resets via admin-players.html
  * and texts the new plaintext to the player.
@@ -104,13 +108,18 @@
 .cs-auth-box{background:#fff;border-radius:18px;padding:28px 22px 22px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.35);}
 .cs-auth-logo{display:block;width:100%;max-width:240px;height:auto;margin:0 auto 6px;}
 .cs-auth-sub{text-align:center;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:#1a3a6b;margin-bottom:18px;}
+.cs-auth-view{display:none;}
+.cs-auth-view.on{display:block;}
 .cs-auth-input{width:100%;padding:13px 12px;border:1.5px solid #d1d5db;border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;color:#111827;background:#fff;margin-bottom:10px;min-height:48px;}
 .cs-auth-input:focus{outline:none;border-color:#1a3a6b;}
-select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+.cs-auth-keep{display:flex;align-items:center;gap:8px;font-size:14px;color:#374151;margin:2px 2px 14px;cursor:pointer;user-select:none;}
+.cs-auth-keep input{width:18px;height:18px;cursor:pointer;}
 .cs-auth-err{color:#dc2626;font-size:13px;font-weight:600;min-height:18px;margin:2px 2px 8px;}
 .cs-auth-btn{display:block;width:100%;padding:14px 18px;border-radius:10px;border:none;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;cursor:pointer;background:#1a3a6b;color:#fff;min-height:50px;}
 .cs-auth-btn:active{filter:brightness(.9);}
 .cs-auth-btn:disabled{opacity:.5;cursor:not-allowed;}
+.cs-auth-toggle{display:block;width:100%;text-align:center;background:none;border:none;color:#1a3a6b;font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;padding:12px 8px 4px;cursor:pointer;}
+.cs-auth-toggle:hover{text-decoration:underline;}
 .cs-auth-foot{text-align:center;font-size:12px;color:#6b7280;margin-top:14px;line-height:1.5;}
 .cs-auth-foot a{color:#1a3a6b;text-decoration:none;font-weight:600;}
 .cs-auth-foot a:hover{text-decoration:underline;}
@@ -134,20 +143,67 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
       <div class="cs-auth-box">
         <img src="${LOGO_URL}" alt="CourtSense" class="cs-auth-logo" onerror="this.style.display='none'">
         <div class="cs-auth-sub">2026 Beach Volleyball Season</div>
-        <select class="cs-auth-input" id="cs-auth-player">
-          <option value="">— Choose Player —</option>
-        </select>
-        <input type="password" class="cs-auth-input" id="cs-auth-pw" placeholder="Enter Password" autocomplete="current-password">
-        <div class="cs-auth-err" id="cs-auth-err"></div>
-        <button class="cs-auth-btn" id="cs-auth-go">Log In</button>
-        <div class="cs-auth-foot">Forgot password? <a href="${ADMIN_MAIL}">Contact admin.</a></div>
+
+        <div class="cs-auth-view on" id="cs-auth-view-login">
+          <input type="email" class="cs-auth-input" id="cs-auth-email" placeholder="Email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false">
+          <input type="password" class="cs-auth-input" id="cs-auth-pw" placeholder="Password" autocomplete="current-password">
+          <label class="cs-auth-keep"><input type="checkbox" id="cs-auth-keep" checked> Keep me signed in on this device</label>
+          <div class="cs-auth-err" id="cs-auth-err"></div>
+          <button class="cs-auth-btn" id="cs-auth-go">Log In</button>
+          <button type="button" class="cs-auth-toggle" id="cs-auth-show-register">New here? Create an account</button>
+          <div class="cs-auth-foot">Forgot password? <a href="${ADMIN_MAIL}">Contact admin.</a></div>
+        </div>
+
+        <div class="cs-auth-view" id="cs-auth-view-register">
+          <input type="email" class="cs-auth-input" id="cs-auth-reg-email" placeholder="Email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false">
+          <input type="password" class="cs-auth-input" id="cs-auth-reg-pw" placeholder="Password (at least 8 characters)" autocomplete="new-password">
+          <input type="text" class="cs-auth-input" id="cs-auth-reg-name" placeholder="Display name" autocomplete="nickname" maxlength="40">
+          <label class="cs-auth-keep"><input type="checkbox" id="cs-auth-reg-keep" checked> Keep me signed in on this device</label>
+          <div class="cs-auth-err" id="cs-auth-reg-err"></div>
+          <button class="cs-auth-btn" id="cs-auth-reg-go">Create account</button>
+          <button type="button" class="cs-auth-toggle" id="cs-auth-show-login">Already have an account? Sign in</button>
+          <div class="cs-auth-foot">Forgot password? <a href="${ADMIN_MAIL}">Contact admin.</a></div>
+        </div>
       </div>`;
     document.body.appendChild(overlay);
+
+    // Login view wiring
     overlay.querySelector('#cs-auth-go').addEventListener('click', handleLoginClick);
+    overlay.querySelector('#cs-auth-email').addEventListener('keydown', e => {
+      if(e.key === 'Enter') handleLoginClick();
+    });
     overlay.querySelector('#cs-auth-pw').addEventListener('keydown', e => {
       if(e.key === 'Enter') handleLoginClick();
     });
+    overlay.querySelector('#cs-auth-show-register').addEventListener('click', () => showView('register'));
+
+    // Register view wiring
+    overlay.querySelector('#cs-auth-reg-go').addEventListener('click', handleRegisterClick);
+    ['#cs-auth-reg-email','#cs-auth-reg-pw','#cs-auth-reg-name'].forEach(sel => {
+      overlay.querySelector(sel).addEventListener('keydown', e => {
+        if(e.key === 'Enter') handleRegisterClick();
+      });
+    });
+    overlay.querySelector('#cs-auth-show-login').addEventListener('click', () => showView('login'));
+
     _overlayBuilt = true;
+  }
+
+  function showView(which){
+    const lv = document.getElementById('cs-auth-view-login');
+    const rv = document.getElementById('cs-auth-view-register');
+    if(!lv || !rv) return;
+    if(which === 'register'){
+      lv.classList.remove('on');
+      rv.classList.add('on');
+      const f = document.getElementById('cs-auth-reg-email');
+      if(f) setTimeout(() => { try { f.focus(); } catch(e){} }, 0);
+    } else {
+      rv.classList.remove('on');
+      lv.classList.add('on');
+      const f = document.getElementById('cs-auth-email');
+      if(f) setTimeout(() => { try { f.focus(); } catch(e){} }, 0);
+    }
   }
 
   function lastNameOf(p){
@@ -182,20 +238,36 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
     }
   }
 
-  async function attemptLogin(playerId, password){
-    if(!playerId) return { success: false, error: 'Select your name' };
+  async function attemptLogin(email, password){
+    if(!email) return { success: false, error: 'Enter your email' };
     if(!password) return { success: false, error: 'Enter your password' };
+    const target = String(email).trim().toLowerCase();
 
-    let player;
+    let roster;
     try {
-      const snap = await _db.ref(_rosterPath + '/' + playerId).once('value');
-      player = snap.val();
+      const snap = await _db.ref(_rosterPath).once('value');
+      roster = snap.val() || {};
     } catch(e) {
       console.error(e);
       return { success: false, error: 'Network error. Try again.' };
     }
-    if(!player) return { success: false, error: 'Player not found' };
-    if(!player.passwordHash) return { success: false, error: 'No password set. Contact admin.' };
+
+    // v1 limitation: if two records share an email, the first match wins.
+    let playerId = null, player = null;
+    for(const id in roster){
+      const p = roster[id];
+      if(p && typeof p.email === 'string' && p.email.toLowerCase() === target){
+        playerId = id;
+        player = p;
+        break;
+      }
+    }
+    if(!player){
+      return { success: false, error: 'No account found for that email. New here? Create an account.' };
+    }
+    if(!player.passwordHash){
+      return { success: false, error: 'No password set. Contact admin.' };
+    }
 
     let bcrypt;
     try { bcrypt = await loadBcrypt(); }
@@ -206,48 +278,119 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
     catch(e) { console.error(e); return { success: false, error: 'Login failed. Try again.' }; }
     if(!ok) return { success: false, error: 'Incorrect password' };
 
-    sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: Date.now() }));
     _currentPlayer = Object.assign({ id: playerId }, player);
     delete _currentPlayer.passwordHash;
-    return { success: true, player: _currentPlayer };
+    return { success: true, player: _currentPlayer, playerId: playerId };
   }
 
   async function handleLoginClick(){
-    const sel = document.getElementById('cs-auth-player');
-    const pw  = document.getElementById('cs-auth-pw');
-    const err = document.getElementById('cs-auth-err');
-    const btn = document.getElementById('cs-auth-go');
-    if(!sel || !pw || !err || !btn) return;
-    err.textContent = '';
-    btn.disabled = true;
-    btn.textContent = 'Logging in...';
+    const emailEl = document.getElementById('cs-auth-email');
+    const pwEl    = document.getElementById('cs-auth-pw');
+    const keepEl  = document.getElementById('cs-auth-keep');
+    const errEl   = document.getElementById('cs-auth-err');
+    const btnEl   = document.getElementById('cs-auth-go');
+    if(!emailEl || !pwEl || !errEl || !btnEl) return;
+    errEl.textContent = '';
+    btnEl.disabled = true;
+    btnEl.textContent = 'Logging in...';
     try {
-      const res = await attemptLogin(sel.value, pw.value);
+      const res = await attemptLogin(emailEl.value, pwEl.value);
       if(!res.success){
-        err.textContent = res.error || 'Login failed';
+        errEl.textContent = res.error || 'Login failed';
         return;
       }
-      pw.value = '';
+      persistSession(res.playerId, !!(keepEl && keepEl.checked));
+      pwEl.value = '';
       hideLogin();
       if(typeof _onLogin === 'function') _onLogin(res.player);
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Log In';
+      btnEl.disabled = false;
+      btnEl.textContent = 'Log In';
+    }
+  }
+
+  async function handleRegisterClick(){
+    const emailEl = document.getElementById('cs-auth-reg-email');
+    const pwEl    = document.getElementById('cs-auth-reg-pw');
+    const nameEl  = document.getElementById('cs-auth-reg-name');
+    const keepEl  = document.getElementById('cs-auth-reg-keep');
+    const errEl   = document.getElementById('cs-auth-reg-err');
+    const btnEl   = document.getElementById('cs-auth-reg-go');
+    if(!emailEl || !pwEl || !nameEl || !errEl || !btnEl) return;
+    errEl.textContent = '';
+    btnEl.disabled = true;
+    btnEl.textContent = 'Creating account...';
+    try {
+      // City and skillLevel are required by createPlayer's validators; the minimal
+      // signup form doesn't ask for them, so pass sensible placeholders that pass
+      // validation. A profile screen can let players edit these later.
+      const res = await createPlayer({
+        email: emailEl.value,
+        password: pwEl.value,
+        displayName: nameEl.value,
+        city: 'Not set',
+        skillLevel: 'Recreational',
+        keepSignedIn: !!(keepEl && keepEl.checked)
+      });
+      if(!res.ok){
+        errEl.textContent = res.error || 'Could not create account';
+        return;
+      }
+      // createPlayer wrote the session and fired onLogin; just close the overlay.
+      pwEl.value = '';
+      nameEl.value = '';
+      hideLogin();
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = 'Create account';
+    }
+  }
+
+  // Remember-me: localStorage with exp (75 days). Default: sessionStorage,
+  // which clears on browser close. Writing one always clears the other so
+  // there is exactly one source of truth for the active session.
+  function persistSession(playerId, keepSignedIn){
+    const now = Date.now();
+    if(keepSignedIn){
+      const exp = now + 75 * 24 * 60 * 60 * 1000;
+      try { localStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now, exp })); } catch(e){}
+      try { sessionStorage.removeItem(SS_KEY); } catch(e){}
+    } else {
+      try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now })); } catch(e){}
+      try { localStorage.removeItem(SS_KEY); } catch(e){}
     }
   }
 
   async function autoLogin(){
-    let v;
-    try { v = sessionStorage.getItem(SS_KEY); } catch(e) { return null; }
-    if(!v) return null;
-    let parsed;
-    try { parsed = JSON.parse(v); } catch(e) { return null; }
+    // Prefer localStorage (keep-signed-in) over sessionStorage. Expired
+    // localStorage entries are dropped and we fall through to sessionStorage.
+    let parsed = null;
+    try {
+      const raw = localStorage.getItem(SS_KEY);
+      if(raw){
+        const p = JSON.parse(raw);
+        if(p && p.playerId){
+          if(typeof p.exp === 'number' && p.exp <= Date.now()){
+            try { localStorage.removeItem(SS_KEY); } catch(e){}
+          } else {
+            parsed = p;
+          }
+        }
+      }
+    } catch(e){ /* fall through */ }
+    if(!parsed){
+      try {
+        const raw = sessionStorage.getItem(SS_KEY);
+        if(raw) parsed = JSON.parse(raw);
+      } catch(e){ return null; }
+    }
     if(!parsed || !parsed.playerId) return null;
     try {
       const snap = await _db.ref(_rosterPath + '/' + parsed.playerId).once('value');
       const player = snap.val();
       if(!player || !player.passwordHash || player.blocked){
-        sessionStorage.removeItem(SS_KEY);
+        try { localStorage.removeItem(SS_KEY); } catch(e){}
+        try { sessionStorage.removeItem(SS_KEY); } catch(e){}
         return null;
       }
       _currentPlayer = Object.assign({ id: parsed.playerId }, player);
@@ -263,9 +406,15 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
     if(!_overlayBuilt) buildOverlay();
     const overlay = document.getElementById('cs-auth-overlay');
     if(overlay) overlay.classList.add('on');
-    populatePlayerSelect();
-    const err = document.getElementById('cs-auth-err'); if(err) err.textContent = '';
-    const pw = document.getElementById('cs-auth-pw'); if(pw) pw.value = '';
+    // Always open in the login view; clear inputs and errors on both views.
+    showView('login');
+    ['cs-auth-err','cs-auth-reg-err'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.textContent = '';
+    });
+    const pw  = document.getElementById('cs-auth-pw');      if(pw)  pw.value = '';
+    const rpw = document.getElementById('cs-auth-reg-pw');  if(rpw) rpw.value = '';
+    const keep  = document.getElementById('cs-auth-keep');     if(keep)  keep.checked = true;
+    const rkeep = document.getElementById('cs-auth-reg-keep'); if(rkeep) rkeep.checked = true;
   }
 
   function hideLogin(){
@@ -277,6 +426,7 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
 
   function logout(){
     try { sessionStorage.removeItem(SS_KEY); } catch(e) {}
+    try { localStorage.removeItem(SS_KEY); } catch(e) {}
     _currentPlayer = null;
     if(typeof _onLogout === 'function') _onLogout();
     showLogin();
@@ -421,9 +571,10 @@ select.cs-auth-input{-webkit-appearance:none;appearance:none;background-image:ur
       return { ok:false, error:'Could not create account. Try again.' };
     }
 
-    // Set session so the new account is immediately logged in.
-    try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId: playerKey, ts: now })); }
-    catch(e){ console.warn('CourtSenseAuth.createPlayer: sessionStorage write failed', e); }
+    // Set session so the new account is immediately logged in. keepSignedIn
+    // defaults to false to preserve prior behavior for callers that omit it;
+    // the in-overlay register flow passes the checkbox value explicitly.
+    persistSession(playerKey, !!o.keepSignedIn);
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
     delete _currentPlayer.passwordHash;
