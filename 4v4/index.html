@@ -522,6 +522,7 @@ const FB_CFG = {
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
 const DB_ROOT = 'tally_4v4';
+const GAMES_PER_TEAM = 8;   // Rule A: every team plays exactly this many matches per season, regardless of week count.
 const ADMIN_PIN = '8675';
 const AI_URL = 'https://leon-beach-ai.markmcnees-479.workers.dev';
 
@@ -1142,13 +1143,13 @@ function renderScheduleGen(){
     if(teamCount < 4){
       helper.innerHTML = '<strong>Need at least 4 teams to generate.</strong> Currently '+teamCount+' team'+(teamCount===1?'':'s')+' in '+(DIV==='rec'?'Rec':'Comp')+'.';
     }else{
-      const T = parseInt(($('sg-weeks')||{}).value, 10) || 8;
-      const desiredCycles = Math.max(1, Math.round(T / Math.max(1, teamCount - 1)));
-      const maxCycles = Math.max(1, Math.floor(T / Math.max(1, teamCount - 1)));
-      const cycles = Math.min(desiredCycles, maxCycles);
-      helper.innerHTML = teamCount+' teams in '+(DIV==='rec'?'Rec':'Comp')+'. Deterministic round-robin, '
-        + cycles + ' cycle' + (cycles===1?'':'s') + '; each team plays '
-        + (cycles * (teamCount - 1)) + ' match' + (cycles*(teamCount-1)===1?'':'es') + '.';
+      const W = parseInt(($('sg-weeks')||{}).value, 10) || 8;
+      const minWeeks = Math.ceil(GAMES_PER_TEAM / 2);  // 2 matches/team/week cap => need at least this many weeks
+      const fitNote = W < minWeeks
+        ? ' Heads up: ' + GAMES_PER_TEAM + ' matches per team needs at least ' + minWeeks + ' weeks (max 2 per night), so bump Weeks to ' + minWeeks + ' or more.'
+        : '';
+      helper.innerHTML = teamCount+' teams in '+(DIV==='rec'?'Rec':'Comp')+'. Every team plays exactly '
+        + GAMES_PER_TEAM + ' matches over the season. Teams may sit out some weeks, so not everyone plays every week.' + fitNote;
     }
   }
   const lockBtn = $('sg-lock-btn');
@@ -1191,7 +1192,20 @@ function renderScheduleGen(){
           + '<br><span style="font-size:12px;">'+examples.join('; ')+more+'.</span>'
           + '</div>';
       }
-      status.innerHTML = conflictBanner
+      // Rule B reporting: surface any post-doubleheader byes that had to be skipped so every
+      // team still reaches its exact game count. Admin-facing only; warm, plain wording.
+      const skipped = Array.isArray(meta.skippedByes) ? meta.skippedByes : [];
+      let byeBanner = '';
+      if(skipped.length){
+        const lines = skipped.map(s =>
+          escapeHtml(teamLabel(s.teamId)) + ' played back-to-back weeks (their bye after the Week '
+          + s.doubledWeek + ' doubleheader was skipped so every team reaches ' + GAMES_PER_TEAM + ' matches).'
+        );
+        byeBanner = '<div class="warn-banner" style="margin-bottom:8px;">'
+          + 'Heads up:<br><span style="font-size:12px;">' + lines.join('<br>') + '</span>'
+          + '</div>';
+      }
+      status.innerHTML = conflictBanner + byeBanner
         + '<div class="warn-banner">'+statusLabel+'. Generated '+escapeHtml(dt)+'.'+lockNote+'</div>';
     }else{
       status.innerHTML = '';
@@ -1237,6 +1251,47 @@ function generatePairings(teamIds, cycles){
   return out;
 }
 
+// Rule A helper: reduce a round-robin candidate pool so every team ends up with EXACTLY
+// `target` matches. The greedy keep-if-both-under-target pass preserves the pool's order
+// (and therefore its partner variety). A deterministic repair pass then tops up any team
+// left short: first by pairing two short teams (a useful real match), and only if X is the
+// lone short team, by splitting one existing full-vs-full match into two matches against X
+// (which leaves both full teams exactly on target while X gains two). The lone-short deficit
+// is always even, so the split converges. Returns a fresh pairings array; every team's degree
+// is guaranteed to equal `target`.
+function trimPairingsToTarget(pool, teamIds, target){
+  const count = Object.create(null);
+  teamIds.forEach(t => count[t] = 0);
+  const chosen = [];
+  for(const p of pool){
+    if(count[p.a] < target && count[p.b] < target){
+      chosen.push({a:p.a, b:p.b});
+      count[p.a]++; count[p.b]++;
+    }
+    if(teamIds.every(t => count[t] === target)) break;
+  }
+  let guard = 0;
+  const GUARD_MAX = teamIds.length * target * 4 + 1000;
+  while(guard++ < GUARD_MAX){
+    const short = teamIds.filter(t => count[t] < target);
+    if(!short.length) break;
+    const X = short[0];
+    const Y = teamIds.find(t => t !== X && count[t] < target);
+    if(Y){
+      chosen.push({a:X, b:Y});
+      count[X]++; count[Y]++;
+      continue;
+    }
+    const idx = chosen.findIndex(p => p.a !== X && p.b !== X && count[p.a] === target && count[p.b] === target);
+    if(idx < 0) break;  // unreachable in practice; bail rather than spin
+    const old = chosen.splice(idx, 1)[0];
+    count[old.a]--; count[old.b]--;
+    chosen.push({a:X, b:old.a}); count[X]++; count[old.a]++;
+    chosen.push({a:X, b:old.b}); count[X]++; count[old.b]++;
+  }
+  return chosen;
+}
+
 // Greedy pack pairings into W weeks. Hard cap: 2 matches/team/week.
 // Prefer weeks where neither team has played yet (avoid doubleheaders).
 // Week-by-week packer: minimize byes then doubleheaders.
@@ -1274,7 +1329,14 @@ function packIntoWeeks(pairings, teamIds, W){
         if(used.has(p.a) || used.has(p.b)) continue;
         // Prefer pairings whose teams have the MOST remaining unplaced matches
         // (= tightest constraints first; gives byes a chance to rotate naturally).
-        const score = teamRemaining[p.a] + teamRemaining[p.b];
+        let score = teamRemaining[p.a] + teamRemaining[p.b];
+        // Rule B (soft): if a team had a doubleheader last week, lean toward resting it this
+        // week. This only nudges WHICH pairing fills the slot, never whether it gets filled,
+        // so it can never stop a team from reaching its exact game count.
+        if(w > 0){
+          if((weekTeamCount[w-1][p.a] || 0) >= 2) score -= 5;
+          if((weekTeamCount[w-1][p.b] || 0) >= 2) score -= 5;
+        }
         if(score > bestScore){ bestScore = score; bestIdx = i; }
       }
       if(bestIdx < 0) break;
@@ -1311,8 +1373,18 @@ function packIntoWeeks(pairings, teamIds, W){
       const aRemovesBye = (aC === 0) ? 1 : 0;
       const bRemovesBye = (bC === 0) ? 1 : 0;
       const fairness = (aDH ? dhCount[p.a] : 0) + (bDH ? dhCount[p.b] : 0);
+      // Rule B (soft): discourage scheduling a team the week right after its doubleheader.
+      // Lower score is better, so this is a positive penalty. It sits below the doubleheader
+      // and bye-removal terms (weight 1000), so it only breaks ties between otherwise-similar
+      // weeks; it is never a hard skip, so Rule A's exact game counts always win.
+      let postDhPenalty = 0;
+      if(w > 0){
+        if((weekTeamCount[w-1][p.a] || 0) >= 2) postDhPenalty += 1;
+        if((weekTeamCount[w-1][p.b] || 0) >= 2) postDhPenalty += 1;
+      }
       const score = 1000 * (aDH + bDH)
                   - 1000 * (aRemovesBye + bRemovesBye)
+                  + 500 * postDhPenalty
                   + 10 * fairness
                   + 0.1 * weeks[w].length;
       if(score < bestScore){ bestScore = score; bestW = w; }
@@ -1331,7 +1403,21 @@ function packIntoWeeks(pairings, teamIds, W){
     teamRemaining[p.b]--;
   }
 
-  return {weeks, weekTeamCount};
+  // Rule B reporting: a "skipped bye" is a team that played 2 games in some week and still
+  // had at least one game the very next week, i.e. its post-doubleheader rest was given up so
+  // the season's exact game counts could be met. The bye is best-effort, so we just report it.
+  const skippedByes = [];
+  for(let w = 0; w < W - 1; w++){
+    teamIds.forEach(t => {
+      const doubled = (weekTeamCount[w][t] || 0) >= 2;
+      const playedNext = (weekTeamCount[w+1][t] || 0) >= 1;
+      if(doubled && playedNext){
+        skippedByes.push({ teamId: t, doubledWeek: w + 1, playedWeek: w + 2 });
+      }
+    });
+  }
+
+  return {weeks, weekTeamCount, skippedByes};
 }
 
 // Assign court + time slot to each match in a week.
@@ -1441,18 +1527,18 @@ async function genSchedule(){
   const teamsSorted = teams.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const teamIds = teamsSorted.map(t=>t.id);
   const N = teamIds.length;
-  const T = weeks;  // target matches per team = weeks (default; future Advanced override goes here)
-  // Bug 2 cap: bound cycles so total per-team matches stay near 1/week average.
-  // Without this cap, small divisions (e.g. N=4) generate more matches than the
-  // season can hold cleanly, forcing excessive doubleheaders.
-  // Preserves real cases: N=9/w=8 -> 1 cycle; N=5/w=8 -> 2 cycles. Reduces N=4/w=8 from 3 to 2.
-  const desiredCycles = Math.max(1, Math.round(T / (N - 1)));
-  const maxCycles = Math.max(1, Math.floor(weeks / (N - 1)));
-  const cycles = Math.min(desiredCycles, maxCycles);
+  // Rule A: every team plays EXACTLY GAMES_PER_TEAM matches per season, independent of the
+  // number of calendar weeks. Build a round-robin candidate pool big enough to cover the
+  // target for every team, then trim each team down to exactly the target. Full cycles give
+  // every team the same number of games, so the pool keeps the round-robin's even partner
+  // spread; trimPairingsToTarget only nudges the tail (mostly odd team counts) onto target.
+  // `cycles` here is just how many full cycles seeded the pool; it is still recorded in meta/config.
+  const cycles = Math.max(1, Math.ceil(GAMES_PER_TEAM / (N - 1)));
 
   let pairings, packed;
   try{
-    pairings = generatePairings(teamIds, cycles);
+    const pool = generatePairings(teamIds, cycles);
+    pairings = trimPairingsToTarget(pool, teamIds, GAMES_PER_TEAM);
     packed = packIntoWeeks(pairings, teamIds, weeks);
   }catch(err){
     console.error(err);
@@ -1546,7 +1632,7 @@ async function genSchedule(){
   }
 
   _previewBannerDismissed = false;
-  await writeSchedule(scheduleOut, { startDate, weeks, courts: courtPool, slots, park, nightDow, hadResults: rCount > 0, cycles });
+  await writeSchedule(scheduleOut, { startDate, weeks, courts: courtPool, slots, park, nightDow, hadResults: rCount > 0, cycles, skippedByes: packed.skippedByes || [] });
   toast('Schedule generated (' + cycles + ' cycle' + (cycles===1?'':'s') + ', ' + pairings.length + ' matches).');
 }
 
@@ -1578,7 +1664,9 @@ async function writeSchedule(scheduleObj, opts){
     weekCount: opts.weeks,
     courtCount: Array.isArray(opts.courts) ? opts.courts.length : 0,
     startDate: opts.startDate,
-    cycles: opts.cycles
+    cycles: opts.cycles,
+    gamesPerTeam: GAMES_PER_TEAM,
+    skippedByes: Array.isArray(opts.skippedByes) ? opts.skippedByes : []
   });
 }
 
@@ -1980,7 +2068,8 @@ function renderWeekCard(w, opts){
   const rounds = Object.keys(byRound).map(Number).sort((a,b)=>a-b);
   const inner = rounds.length ? rounds.map(rn => {
     const sorted = byRound[rn].slice().sort((a,b) => a.m.court - b.m.court);
-    return '<div class="round-label">Round '+rn+'</div>'
+    const _roundTime = (sorted[0] && sorted[0].m && sorted[0].m.time) ? sorted[0].m.time : '';
+    return '<div class="round-label">Round '+rn+(_roundTime ? ' — '+_roundTime : '')+'</div>'
       + sorted.map(it => renderMatchRow(it.m, w.week, it.idx, opts)).join('');
   }).join('') : '<div style="font-size:13px;color:var(--gray);padding:6px 2px;">No matchups for this week.</div>';
   return '<div class="week-card">'
