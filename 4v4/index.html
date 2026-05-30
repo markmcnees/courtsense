@@ -1060,6 +1060,15 @@ function teamColor(id){
   const t = teamById(id);
   return t && t.color ? t.color : '';
 }
+// Split a display name like "Beachin' & Ballin 🏖️" into { icon:"🏖️", cleanName:"Beachin' & Ballin" }.
+// Matches a trailing run of emoji + variation-selector/ZWJ/skin-tone chars after the last space.
+// No trailing emoji -> { icon:'', cleanName:name }. Render-time only; stored name is unchanged.
+function splitNameIcon(name){
+  const s = String(name == null ? '' : name);
+  const m = s.match(/\s+(\p{Extended_Pictographic}[\p{Extended_Pictographic}️‍\u{1F3FB}-\u{1F3FF}]*)\s*$/u);
+  if(m) return { icon: m[1], cleanName: s.slice(0, m.index).replace(/\s+$/, '') };
+  return { icon: '', cleanName: s };
+}
 function fmtDate(s){
   if(!s) return '';
   const d = new Date(s+'T12:00:00');
@@ -2088,8 +2097,12 @@ function renderMatchRow(m, weekNum, idx, opts){
   const bName = teamLabel(m.teamBId);
   const aColor = teamColor(m.teamAId);
   const bColor = teamColor(m.teamBId);
-  const aDot = aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>';
-  const bDot = bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  const aSplit = splitNameIcon(aName);
+  const bSplit = splitNameIcon(bName);
+  // Trailing emoji (if any) renders large inside the existing swatch circle; clean name shows as text.
+  const emojiDot = ic => '<span class="match-dot" style="width:48px;height:48px;border:0.5px solid var(--gray-light);background:transparent;display:inline-flex;align-items:center;justify-content:center;font-size:30px;line-height:1;">'+escapeHtml(ic)+'</span>';
+  const aDot = aSplit.icon ? emojiDot(aSplit.icon) : (aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>');
+  const bDot = bSplit.icon ? emojiDot(bSplit.icon) : (bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>');
   let resultLine = '';
   if(opts.showResult){
     const r = (D[DIV].results||{})[m.id];
@@ -2110,13 +2123,13 @@ function renderMatchRow(m, weekNum, idx, opts){
     ? '<button class="swap-btn" title="Edit matchup" onclick="openSwapModal('+weekNum+','+idx+')">&#9998;</button>'
     : '';
   return '<div class="'+rowClass+'">'
-    + '<div class="match-tm">'+aDot+'<span>'+escapeHtml(aName)+'</span></div>'
+    + '<div class="match-tm">'+aDot+'<span>'+escapeHtml(aSplit.cleanName)+'</span></div>'
     + '<div>'
     +   '<div class="match-vs">vs</div>'
     +   '<div class="match-court">Court '+m.court+'</div>'
     +   resultLine
     + '</div>'
-    + '<div class="match-tm right"><span>'+escapeHtml(bName)+'</span>'+bDot+'</div>'
+    + '<div class="match-tm right"><span>'+escapeHtml(bSplit.cleanName)+'</span>'+bDot+'</div>'
     + swapBtn
     + '</div>';
 }
@@ -2295,15 +2308,19 @@ function renderSeCard(weekNum, m){
   const bName = teamLabel(m.teamBId);
   const aColor = teamColor(m.teamAId);
   const bColor = teamColor(m.teamBId);
-  const aDot = aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>';
-  const bDot = bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>';
+  const aSplit = splitNameIcon(aName);
+  const bSplit = splitNameIcon(bName);
+  // Score-entry card is a tighter layout than the schedule card: smaller bordered emoji circle.
+  const seEmojiDot = ic => '<span class="match-dot" style="width:32px;height:32px;border:0.5px solid var(--gray-light);background:transparent;display:inline-flex;align-items:center;justify-content:center;font-size:20px;line-height:1;">'+escapeHtml(ic)+'</span>';
+  const aDot = aSplit.icon ? seEmojiDot(aSplit.icon) : (aColor ? '<span class="match-dot" style="background:'+escapeHtml(aColor)+'"></span>' : '<span class="match-dot empty"></span>');
+  const bDot = bSplit.icon ? seEmojiDot(bSplit.icon) : (bColor ? '<span class="match-dot" style="background:'+escapeHtml(bColor)+'"></span>' : '<span class="match-dot empty"></span>');
   let cls = 'score-card';
   if(r){ cls += r.isForfeit ? ' forfeit' : ' has-result'; }
 
   const head = '<div class="score-head">'
-    + '<div class="score-tm">'+aDot+'<span>'+escapeHtml(aName)+'</span></div>'
+    + '<div class="score-tm">'+aDot+'<span>'+escapeHtml(aSplit.cleanName)+'</span></div>'
     + '<div class="score-meta">Court '+m.court+'<br>Round '+m.round+'</div>'
-    + '<div class="score-tm right"><span>'+escapeHtml(bName)+'</span>'+bDot+'</div>'
+    + '<div class="score-tm right"><span>'+escapeHtml(bSplit.cleanName)+'</span>'+bDot+'</div>'
     + '</div>';
 
   let body = '';
@@ -2312,12 +2329,12 @@ function renderSeCard(weekNum, m){
   }else if(r){
     let resultText;
     if(r.isForfeit){
-      resultText = 'Forfeit, '+escapeHtml(teamLabel(r.winnerId))+' wins';
+      resultText = 'Forfeit, '+escapeHtml(splitNameIcon(teamLabel(r.winnerId)).cleanName)+' wins';
     }else{
       const setsTxt = (r.sets||[]).map(s => s.a+'-'+s.b).join(', ');
       const aSets = (r.sets||[]).filter(s=>s.a>s.b).length;
       const bSets = (r.sets||[]).filter(s=>s.b>s.a).length;
-      resultText = aSets+'-'+bSets+' ('+escapeHtml(setsTxt)+'), '+escapeHtml(teamLabel(r.winnerId))+' wins';
+      resultText = aSets+'-'+bSets+' ('+escapeHtml(setsTxt)+'), '+escapeHtml(splitNameIcon(teamLabel(r.winnerId)).cleanName)+' wins';
     }
     body = '<div class="score-result-line">'
       + '<span class="score-result-text'+(r.isForfeit?' forf':'')+'">'+resultText+'</span>'
@@ -2361,8 +2378,8 @@ function renderScoreForm(m, weekNum){
     +   buildSetBlock(3, s3.a, s3.b, sc.set3.cap, m.id)
     + '</div>'
     + '<div class="forf-row">'
-    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamAId+'\','+weekNum+')">Forfeit, '+escapeHtml(aName)+' wins</button>'
-    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamBId+'\','+weekNum+')">Forfeit, '+escapeHtml(bName)+' wins</button>'
+    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamAId+'\','+weekNum+')">Forfeit, '+escapeHtml(splitNameIcon(aName).cleanName)+' wins</button>'
+    +   '<button class="forf-btn" onclick="recordForfeit(\''+m.id+'\',\''+m.teamBId+'\','+weekNum+')">Forfeit, '+escapeHtml(splitNameIcon(bName).cleanName)+' wins</button>'
     + '</div>'
     + '<div class="score-form-actions">'
     +   '<button class="btn btn-p" style="flex:1;" onclick="saveScore(\''+m.id+'\','+weekNum+')">Save Score</button>'
@@ -2548,10 +2565,13 @@ function renderStandings(){
   const body = rows.map((r,i) => {
     const rank = i+1;
     const rcls = 'rnk' + (rank===1?' r1':rank===2?' r2':rank===3?' r3':'');
-    const dotHtml = r.color ? '<span class="match-dot" style="background:'+escapeHtml(r.color)+'"></span>' : '<span class="match-dot empty"></span>';
+    const stdSplit = splitNameIcon(r.name);
+    // Standings table rows are tight: smaller bordered emoji circle than the schedule card.
+    const stdEmojiDot = ic => '<span class="match-dot" style="width:28px;height:28px;border:0.5px solid var(--gray-light);background:transparent;display:inline-flex;align-items:center;justify-content:center;font-size:18px;line-height:1;">'+escapeHtml(ic)+'</span>';
+    const dotHtml = stdSplit.icon ? stdEmojiDot(stdSplit.icon) : (r.color ? '<span class="match-dot" style="background:'+escapeHtml(r.color)+'"></span>' : '<span class="match-dot empty"></span>');
     return '<tr onclick="openTeamDetail(\''+r.id+'\')">'
       + '<td><span class="'+rcls+'">'+rank+'</span></td>'
-      + '<td><span class="tname">'+dotHtml+escapeHtml(r.name)+'</span></td>'
+      + '<td><span class="tname">'+dotHtml+escapeHtml(stdSplit.cleanName)+'</span></td>'
       + '<td>'+r.w+'</td>'
       + '<td>'+r.l+'</td>'
       + '<td>'+r.setsW+'</td>'
@@ -2608,7 +2628,7 @@ function openTeamDetail(teamId){
     const dateStr = weekDate[r.weekNumber] ? fmtDate(weekDate[r.weekNumber]) : '';
     return '<div class="td-match">'
       + '<div class="td-week">Wk '+r.weekNumber+'</div>'
-      + '<div><div class="td-opp">vs '+escapeHtml(oppName)+'</div>'
+      + '<div><div class="td-opp">vs '+escapeHtml(splitNameIcon(oppName).cleanName)+'</div>'
       +     (dateStr ? '<div style="font-size:11px;color:var(--gray);">'+escapeHtml(dateStr)+'</div>' : '')
       + '</div>'
       + '<div class="td-res '+(won?'w':'l')+'">'+escapeHtml(resText)+'</div>'
@@ -2627,7 +2647,7 @@ function openTeamDetail(teamId){
       const dateStr = w.date ? fmtDate(w.date) : '';
       upcomingRows.push('<div class="td-match">'
         + '<div class="td-week">Wk '+w.week+'</div>'
-        + '<div><div class="td-opp">vs '+escapeHtml(teamLabel(oppId))+'</div>'
+        + '<div><div class="td-opp">vs '+escapeHtml(splitNameIcon(teamLabel(oppId)).cleanName)+'</div>'
         +     (dateStr ? '<div style="font-size:11px;color:var(--gray);">'+escapeHtml(dateStr)+' &middot; Court '+m.court+'</div>' : '')
         + '</div>'
         + '<div class="td-res pending">Upcoming</div>'
