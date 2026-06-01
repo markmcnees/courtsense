@@ -1430,13 +1430,87 @@ function packIntoWeeks(pairings, teamIds, W){
 }
 
 // Assign court + time slot to each match in a week.
-// Cycle: matches[i] -> (courts[i % courts.length], slots[Math.floor(i/courts.length) % slots.length]).
-// This guarantees two matches sharing a court use different time slots.
+// HARD RULE: within any single time slot (= round), every team appears AT MOST ONCE.
+// A team may play twice in one night (a doubleheader), but its two matches MUST land in
+// DIFFERENT slots — never the same one (a team cannot play two courts at the same time).
+//
+// This fills a (slots x courts) grid with a constraint-aware assignment: most-constrained
+// matches first (those involving a doubleheader team), then backtracking. A match may go in
+// a slot only when that slot still has a free court AND neither of its teams is already in
+// that slot. Each slot therefore holds at most courts.length matches on distinct courts, so
+// (court, time) stays unique too. If a match genuinely cannot be placed without breaking the
+// rule (e.g. an odd cycle of doubleheaders with too few time slots), it is LEFT UNASSIGNED
+// (court/time = null) rather than double-booked; the downstream capacity/collision checks
+// then surface that to the admin instead of silently scheduling a team twice in one round.
 function assignCourtsAndTimes(weekMatches, courts, slots){
+  const C = courts.length, S = slots.length;
+  const M = weekMatches.length;
+
+  // Per-week team degree: 1 = single game this week, 2 = doubleheader.
+  const degree = Object.create(null);
+  weekMatches.forEach(m => {
+    degree[m.a] = (degree[m.a] || 0) + 1;
+    degree[m.b] = (degree[m.b] || 0) + 1;
+  });
+
+  // Place doubleheader matches first (they are the ones that must be split across slots).
+  // Deterministic: higher max-degree first, then original index.
+  const order = weekMatches.map((m, i) => i).sort((x, y) => {
+    const cx = Math.max(degree[weekMatches[x].a] || 0, degree[weekMatches[x].b] || 0);
+    const cy = Math.max(degree[weekMatches[y].a] || 0, degree[weekMatches[y].b] || 0);
+    if(cy !== cx) return cy - cx;
+    return x - y;
+  });
+
+  const slotCount = new Array(S).fill(0);                       // matches already in each slot
+  const slotTeams = Array.from({length: S}, () => new Set());   // teams already in each slot
+  const result = new Array(M).fill(null);                       // result[origIndex] = {slot, court}
+
+  // Try a given slot for a match: valid only if a court is free and neither team is in the slot.
+  function tryPlace(mi, s){
+    const m = weekMatches[mi];
+    if(slotCount[s] >= C) return false;
+    if(slotTeams[s].has(m.a) || slotTeams[s].has(m.b)) return false;
+    result[mi] = { slot: s, court: courts[slotCount[s]] };
+    slotTeams[s].add(m.a); slotTeams[s].add(m.b);
+    slotCount[s]++;
+    return true;
+  }
+  function undoPlace(mi, s){
+    const m = weekMatches[mi];
+    slotCount[s]--;
+    slotTeams[s].delete(m.a); slotTeams[s].delete(m.b);
+    result[mi] = null;
+  }
+
+  // Backtracking: place every match conflict-free if at all possible.
+  function place(k){
+    if(k === order.length) return true;
+    const mi = order[k];
+    for(let s = 0; s < S; s++){
+      if(tryPlace(mi, s)){
+        if(place(k + 1)) return true;
+        undoPlace(mi, s);
+      }
+    }
+    return false;
+  }
+
+  if(!place(0)){
+    // Infeasible to place all matches under the hard rule. Greedily place what we can,
+    // leaving any unplaceable match open (null) rather than double-booking a round.
+    slotCount.fill(0);
+    slotTeams.forEach(t => t.clear());
+    result.fill(null);
+    for(const mi of order){
+      for(let s = 0; s < S; s++){ if(tryPlace(mi, s)) break; }
+    }
+  }
+
+  // Preserve the input match order in the returned array.
   return weekMatches.map((m, i) => {
-    const court = courts[i % courts.length];
-    const time  = slots[Math.floor(i / courts.length) % slots.length];
-    return Object.assign({}, m, {court, time});
+    const r = result[i];
+    return Object.assign({}, m, r ? {court: r.court, time: slots[r.slot]} : {court: null, time: null});
   });
 }
 
