@@ -450,9 +450,30 @@ async function loadRating(pid){
   }
 }
 
+// Resolve a display string from either record shape. Pre-created league records
+// store name as { first, last } (plus a flat displayName); self-serve records
+// store name as a flat string. Rendering the { first, last } object directly is
+// what produced "[object Object]" in the header. Priority: displayName, then
+// name.first + name.last, then a string name, then the email local-part, never
+// the raw object.
+function displayNameOf(p){
+  p = p || {};
+  if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p.name;
+  if(n && typeof n === 'object'){
+    const full = ((n.first || '') + ' ' + (n.last || '')).trim();
+    if(full) return full;
+  }
+  if(typeof n === 'string' && n.trim()) return n.trim();
+  const email = (typeof p.email === 'string' && p.email)
+    || (p.emails && typeof p.emails.primary === 'string' && p.emails.primary) || '';
+  if(email && email.indexOf('@') > 0) return email.slice(0, email.indexOf('@'));
+  return 'My Profile';
+}
+
 async function onLogin(player){
   currentPid = player.id;
-  $('who-name').textContent = player.name || 'My Profile';
+  $('who-name').textContent = displayNameOf(player);
   $('who-email').textContent = player.email || '';
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');

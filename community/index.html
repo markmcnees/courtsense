@@ -91,6 +91,14 @@ h2 .accent{color:var(--gold);}
   text-decoration:none;transition:all 0.2s ease;
 }
 .hdr-cta:hover{background:var(--gold-deep);transform:translateY(-1px);}
+.hdr-nav{display:flex;align-items:center;gap:14px;}
+.hdr-login{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;letter-spacing:1.5px;
+  color:var(--navy-deep);text-decoration:none;
+  padding:9px 8px;transition:color 0.2s ease;
+}
+.hdr-login:hover{color:var(--gold-deep);}
 
 /* HERO */
 .hero{
@@ -296,7 +304,10 @@ select.inp{
     <span class="hdr-logo"><span class="c">Court</span>Sense</span>
     <span class="hdr-wordmark">Community</span>
   </a>
-  <a class="hdr-cta" href="#notify">Get Early Access</a>
+  <nav class="hdr-nav">
+    <a class="hdr-login" href="/community/profile/">Log in</a>
+    <a class="hdr-cta" href="#notify">Get Early Access</a>
+  </nav>
 </header>
 
 <section class="hero">
