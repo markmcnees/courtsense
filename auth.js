@@ -256,7 +256,13 @@
     let playerId = null, player = null;
     for(const id in roster){
       const p = roster[id];
-      if(p && typeof p.email === 'string' && p.email.toLowerCase() === target){
+      if(!p) continue;
+      // Match on the top-level email OR the pre-created record's emails.primary
+      // (activation reconciles these by writing a top-level email, but older
+      // pre-created rows may still only carry emails.primary). Both lowercased.
+      const e1 = typeof p.email === 'string' ? p.email.toLowerCase() : null;
+      const e2 = (p.emails && typeof p.emails.primary === 'string') ? p.emails.primary.toLowerCase() : null;
+      if((e1 && e1 === target) || (e2 && e2 === target)){
         playerId = id;
         player = p;
         break;
