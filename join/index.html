@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join CourtSense · CourtSense</title>
+<meta name="description" content="Enter your email to claim your account, log in, or sign up for CourtSense Community.">
+<meta name="robots" content="noindex">
+
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/auth.js"></script>
+
+<style>
+:root{
+  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
+  --navy:#1a3a6b;--navy-deep:#0f2347;--accent:#d4a843;
+  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--ink:#111827;--err:#dc2626;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);
+  --shadow-lg:0 8px 32px rgba(0,0,0,0.14);
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{min-height:100%;background:var(--sand);font-family:'Barlow',sans-serif;color:var(--ink);line-height:1.5;}
+
+.hdr{background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,0.18);position:sticky;top:0;z-index:50;}
+.hdr-inner{max-width:560px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.brand{display:flex;align-items:center;gap:10px;color:var(--accent);font-family:'Bebas Neue';font-size:20px;letter-spacing:2.5px;text-decoration:none;}
+.brand img{height:30px;width:auto;}
+.page-title{color:#fff;font-family:'Bebas Neue';font-size:18px;letter-spacing:2px;opacity:.85;}
+
+main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
+
+.intro{background:linear-gradient(180deg, #fffbf2 0%, var(--white) 80%);border:1px solid var(--sand-border);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px;box-shadow:var(--shadow);}
+.intro h2{font-family:'Bebas Neue';font-size:20px;letter-spacing:1.5px;color:var(--navy);margin-bottom:6px;}
+.intro p{font-size:14px;color:var(--ink);line-height:1.55;}
+
+.section{background:var(--white);border-radius:var(--radius);padding:18px 18px;margin-bottom:14px;box-shadow:var(--shadow);}
+
+.fg{margin-bottom:14px;}
+.fg:last-child{margin-bottom:0;}
+.lbl{display:block;font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;}
+.req{color:var(--err);}
+.inp{width:100%;padding:12px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;color:var(--ink);background:var(--white);min-height:48px;}
+.inp:focus{outline:none;border-color:var(--navy);}
+.inp.invalid{border-color:var(--err);}
+.help{font-size:12px;color:var(--gray);margin-top:6px;line-height:1.45;}
+.fld-err{font-size:12px;color:var(--err);margin-top:6px;line-height:1.4;display:none;}
+.fld-err.on{display:block;}
+
+.pw-wrap{position:relative;}
+.pw-toggle{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--gray);font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer;padding:6px 8px;text-transform:uppercase;}
+.pw-toggle:hover{color:var(--navy);}
+
+.keep{display:flex;align-items:center;gap:8px;font-size:14px;color:#374151;margin:2px 2px 14px;cursor:pointer;user-select:none;}
+.keep input{width:18px;height:18px;cursor:pointer;}
+
+.actions{margin-top:6px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:14px 22px;border-radius:10px;border:none;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;cursor:pointer;min-height:50px;text-decoration:none;}
+.btn-p{background:var(--navy);color:#fff;}
+.btn-p:active{filter:brightness(.9);}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-w{width:100%;}
+.btn:disabled{opacity:.6;cursor:not-allowed;}
+
+.form-err{color:var(--err);font-size:13px;font-weight:600;min-height:18px;margin-top:10px;}
+
+.alt-row{text-align:center;margin-top:16px;font-size:13px;color:var(--gray);}
+.alt-row a{color:var(--navy);font-weight:700;text-decoration:none;}
+.alt-row a:hover{text-decoration:underline;}
+
+.state{display:none;}
+.state.on{display:block;}
+.muted{font-size:14px;color:var(--ink);line-height:1.55;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/community" class="brand">
+      <img src="/logo.png" alt="CourtSense" onerror="this.style.display='none'">
+      <span>CourtSense</span>
+    </a>
+    <span class="page-title">Join</span>
+  </div>
+</div>
+
+<main>
+
+  <!-- Step 1: email entry -->
+  <section class="state on" id="state-email">
+    <div class="intro">
+      <h2>Welcome to CourtSense</h2>
+      <p>Enter your email and we will get you to the right place. Whether you are claiming your account, logging back in, or brand new, it starts here.</p>
+    </div>
+    <form class="section" id="email-form" onsubmit="return doContinue(event)" novalidate>
+      <div class="fg">
+        <label class="lbl" for="f-email">Email <span class="req">*</span></label>
+        <input class="inp" id="f-email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required placeholder="you@example.com">
+        <div class="fld-err" id="err-email"></div>
+      </div>
+      <div class="form-err" id="email-form-err"></div>
+      <div class="actions">
+        <button type="submit" class="btn btn-p btn-w" id="continue-btn">Continue</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- CASE A: unclaimed -> set password (claim) -->
+  <section class="state" id="state-claim">
+    <div class="intro">
+      <h2 id="claim-welcome">Welcome</h2>
+      <p>Set a password to finish claiming your account. You will use your email and this password to log in from now on.</p>
+    </div>
+    <form class="section" id="claim-form" onsubmit="return doClaim(event)" novalidate>
+      <div class="fg">
+        <label class="lbl" for="f-password">Password <span class="req">*</span></label>
+        <div class="pw-wrap">
+          <input class="inp" id="f-password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" style="padding-right:64px;">
+          <button type="button" class="pw-toggle" onclick="togglePw('f-password', this)" aria-label="Show password">Show</button>
+        </div>
+        <div class="help">Minimum 8 characters.</div>
+        <div class="fld-err" id="err-password"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="f-confirm">Confirm password <span class="req">*</span></label>
+        <input class="inp" id="f-confirm" type="password" autocomplete="new-password" required placeholder="Type it again">
+        <div class="fld-err" id="err-confirm"></div>
+      </div>
+      <label class="keep"><input type="checkbox" id="f-claim-keep" checked> Keep me signed in on this device</label>
+      <div class="form-err" id="claim-form-err"></div>
+      <div class="actions">
+        <button type="submit" class="btn btn-p btn-w" id="claim-btn">Set password and continue</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- CASE B: already claimed -> log in -->
+  <section class="state" id="state-login">
+    <div class="intro">
+      <h2 id="login-welcome">Welcome back</h2>
+      <p>Enter your password to log in.</p>
+    </div>
+    <form class="section" id="login-form" onsubmit="return doLogin(event)" novalidate>
+      <div class="fg">
+        <label class="lbl" for="f-login-pw">Password <span class="req">*</span></label>
+        <div class="pw-wrap">
+          <input class="inp" id="f-login-pw" type="password" autocomplete="current-password" required placeholder="Your password" style="padding-right:64px;">
+          <button type="button" class="pw-toggle" onclick="togglePw('f-login-pw', this)" aria-label="Show password">Show</button>
+        </div>
+        <div class="fld-err" id="err-login-pw"></div>
+      </div>
+      <label class="keep"><input type="checkbox" id="f-login-keep" checked> Keep me signed in on this device</label>
+      <div class="form-err" id="login-form-err"></div>
+      <div class="actions">
+        <button type="submit" class="btn btn-p btn-w" id="login-btn">Log in</button>
+      </div>
+      <div class="alt-row">
+        Forgot your password? <a href="mailto:mark@markmcnees.com">Contact admin.</a>
+      </div>
+    </form>
+  </section>
+
+  <!-- CASE C: no match -> sign up -->
+  <section class="state" id="state-signup">
+    <div class="intro">
+      <h2>We don't see that email yet</h2>
+      <p>Let's get you set up. Creating an account takes about a minute, and then you are in.</p>
+    </div>
+    <div class="section">
+      <div class="actions">
+        <a class="btn btn-p btn-w" href="/community/signup/">Create your account</a>
+      </div>
+      <div class="alt-row">
+        Used a different email? <a href="#" id="try-again">Try another email</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const ROSTER_PATH = 'tally_kotb_pickup/players';
+
+// Mirror auth.js internals (SS_KEY + bcrypt CDN are not exported, so we
+// replicate the exact same values/behavior here, same as activate/index.html).
+const SS_KEY = 'courtsenseAuth';
+const BCRYPT_URL = 'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js';
+
+let db = null;
+let matchedKey = null;     // the matched record's key (never changed)
+let matchedRecord = null;  // the matched player record
+let enteredEmail = '';     // trimmed, lowercased email the user typed
+
+const $ = id => document.getElementById(id);
+
+function showState(which){
+  ['state-email','state-claim','state-login','state-signup'].forEach(id => {
+    const el = $(id); if(el) el.classList.toggle('on', id === 'state-' + which);
+  });
+}
+
+function togglePw(inputId, btn){
+  const inp = $(inputId);
+  if(!inp) return;
+  if(inp.type === 'password'){ inp.type = 'text'; btn.textContent = 'Hide'; btn.setAttribute('aria-label','Hide password'); }
+  else { inp.type = 'password'; btn.textContent = 'Show'; btn.setAttribute('aria-label','Show password'); }
+}
+
+function setErr(field, msg){
+  const inp = $('f-' + field), err = $('err-' + field);
+  if(inp) inp.classList.toggle('invalid', !!msg);
+  if(err){ err.textContent = msg || ''; err.classList.toggle('on', !!msg); }
+}
+
+// bcrypt loader: identical strategy to auth.js loadBcrypt (same CDN, same global
+// probing). Lazy, loaded on demand. Same as activate/index.html.
+let _bcryptPromise = null;
+function loadBcrypt(){
+  if(_bcryptPromise) return _bcryptPromise;
+  _bcryptPromise = new Promise((resolve, reject) => {
+    const existing = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
+    if(existing) return resolve(existing);
+    const s = document.createElement('script');
+    s.src = BCRYPT_URL;
+    s.onload = () => {
+      const lib = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
+      lib ? resolve(lib) : reject(new Error('bcrypt loaded but global missing'));
+    };
+    s.onerror = () => reject(new Error('Failed to load bcryptjs'));
+    document.head.appendChild(s);
+  });
+  return _bcryptPromise;
+}
+
+// Session writer: identical to auth.js persistSession (single 'courtsenseAuth'
+// key; localStorage + exp when keep-signed-in, else sessionStorage). Same as
+// activate/index.html. The profile page's auth.js autoLogin restores from it.
+function persistSession(playerId, keepSignedIn){
+  const now = Date.now();
+  if(keepSignedIn){
+    const exp = now + 75 * 24 * 60 * 60 * 1000;
+    try { localStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now, exp })); } catch(e){}
+    try { sessionStorage.removeItem(SS_KEY); } catch(e){}
+  } else {
+    try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now })); } catch(e){}
+    try { localStorage.removeItem(SS_KEY); } catch(e){}
+  }
+}
+
+function isAlreadyClaimed(rec){
+  return !!(rec && (rec.activated === true || (rec.passwordHash != null && rec.passwordHash !== '')));
+}
+
+// Scan the roster for a record whose email matches `target`. Matches BOTH the
+// top-level email field AND emails.primary, both lowercased, exactly like the
+// attemptLogin loop in auth.js. First match wins. Returns {key, record} or null.
+function findByEmail(players, target){
+  for(const id in players){
+    const p = players[id];
+    if(!p) continue;
+    const e1 = typeof p.email === 'string' ? p.email.toLowerCase() : null;
+    const e2 = (p.emails && typeof p.emails.primary === 'string') ? p.emails.primary.toLowerCase() : null;
+    if((e1 && e1 === target) || (e2 && e2 === target)){
+      return { key: id, record: p };
+    }
+  }
+  return null;
+}
+
+// ── Step 1 -> route ──────────────────────────────────────────────────────────
+async function doContinue(e){
+  if(e) e.preventDefault();
+  setErr('email',''); $('email-form-err').textContent = '';
+
+  const raw = $('f-email').value.trim();
+  if(!raw){ setErr('email','Email is required.'); $('f-email').focus(); return false; }
+  if(!/^\S+@\S+\.\S+$/.test(raw)){ setErr('email',"That email doesn't look right."); $('f-email').focus(); return false; }
+  enteredEmail = raw.toLowerCase();
+
+  const btn = $('continue-btn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Checking...';
+
+  try {
+    let players;
+    try {
+      const snap = await db.ref(ROSTER_PATH).once('value');
+      players = snap.val() || {};
+    } catch(err){
+      console.error('roster read failed', err);
+      $('email-form-err').textContent = 'Network error. Try again.';
+      return false;
+    }
+
+    const match = findByEmail(players, enteredEmail);
+    if(!match){
+      // CASE C: no match -> hand off to signup (no write here).
+      showState('signup');
+      return false;
+    }
+
+    matchedKey = match.key;
+    matchedRecord = match.record;
+    const name = matchedRecord.displayName || 'player';
+
+    if(isAlreadyClaimed(matchedRecord)){
+      // CASE B: returning player -> log in.
+      $('login-welcome').textContent = 'Welcome back, ' + name;
+      showState('login');
+      setTimeout(() => { try { $('f-login-pw').focus(); } catch(e){} }, 0);
+    } else {
+      // CASE A: unclaimed -> set password (claim).
+      $('claim-welcome').textContent = 'Welcome, ' + name + ' — set your password';
+      showState('claim');
+      setTimeout(() => { try { $('f-password').focus(); } catch(e){} }, 0);
+    }
+    return false;
+  } finally {
+    if($('continue-btn')){ $('continue-btn').disabled = false; $('continue-btn').textContent = original; }
+  }
+}
+
+// ── CASE A: claim (mirrors activate/index.html doClaim exactly) ──────────────
+async function doClaim(e){
+  if(e) e.preventDefault();
+  setErr('password',''); setErr('confirm',''); $('claim-form-err').textContent = '';
+
+  const pw = $('f-password').value;
+  const cf = $('f-confirm').value;
+  if(!pw || pw.length < 8){ setErr('password','Password must be at least 8 characters.'); $('f-password').focus(); return false; }
+  if(cf !== pw){ setErr('confirm','Passwords do not match.'); $('f-confirm').focus(); return false; }
+  if(!matchedKey || !matchedRecord){ $('claim-form-err').textContent = 'Something went wrong. Start over.'; return false; }
+
+  const btn = $('claim-btn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Setting your password...';
+
+  try {
+    // Defensive re-read of just this record so it cannot be claimed twice. We
+    // never create a record, so there is no duplicate risk; this only avoids
+    // overwriting an account that got claimed in the meantime.
+    let fresh;
+    try {
+      const snap = await db.ref(ROSTER_PATH + '/' + matchedKey).once('value');
+      fresh = snap.val();
+    } catch(err){
+      console.error('claim re-read failed', err);
+      $('claim-form-err').textContent = 'Network error. Try again.';
+      return false;
+    }
+    if(!fresh){ $('claim-form-err').textContent = 'This account is no longer available. Start over.'; return false; }
+    if(isAlreadyClaimed(fresh)){
+      // It became claimed since the scan: send them to the login form instead.
+      matchedRecord = fresh;
+      $('login-welcome').textContent = 'Welcome back, ' + (fresh.displayName || 'player');
+      showState('login');
+      setTimeout(() => { try { $('f-login-pw').focus(); } catch(e){} }, 0);
+      return false;
+    }
+
+    let bcrypt;
+    try { bcrypt = await loadBcrypt(); }
+    catch(err){ console.error(err); $('claim-form-err').textContent = 'Could not load activation. Refresh and try again.'; return false; }
+
+    let passwordHash;
+    try { passwordHash = bcrypt.hashSync(pw, 10); }
+    catch(err){ console.error(err); $('claim-form-err').textContent = 'Activation failed. Try again.'; return false; }
+
+    // Reconcile the pre-created record with what login/profile expect, in ONE
+    // multi-path update against the SAME key (no rekey):
+    //   passwordHash, activated:true, activationToken:null, top-level email
+    //   (from emails.primary, lowercased), verified:true, updatedAt.
+    const primary = (fresh.emails && typeof fresh.emails.primary === 'string')
+      ? fresh.emails.primary.toLowerCase()
+      : enteredEmail || null;
+    const now = Date.now();
+    const base = ROSTER_PATH + '/' + matchedKey + '/';
+    const updates = {};
+    updates[base + 'passwordHash']    = passwordHash;
+    updates[base + 'activated']       = true;
+    updates[base + 'activationToken'] = null;
+    updates[base + 'email']           = primary;
+    updates[base + 'verified']        = true;
+    updates[base + 'updatedAt']       = now;
+
+    try { await db.ref().update(updates); }
+    catch(err){ console.error('claim write failed', err); $('claim-form-err').textContent = 'Could not save. Try again.'; return false; }
+
+    // Log in immediately using the same session mechanism auth.js uses, then
+    // hand off to the profile editor (first-time welcome).
+    const keep = !!($('f-claim-keep') && $('f-claim-keep').checked);
+    persistSession(matchedKey, keep);
+    window.location.href = '/community/profile?firstTime=1';
+    return false;
+  } finally {
+    if($('claim-btn')){ $('claim-btn').disabled = false; $('claim-btn').textContent = original; }
+  }
+}
+
+// ── CASE B: log in (mirrors auth.js attemptLogin verification) ───────────────
+// attemptLogin is internal (not exported), so we replicate its verify exactly:
+// look up the record (already matched), bcrypt.compareSync against passwordHash,
+// then persistSession. This NEVER writes or re-claims the record.
+async function doLogin(e){
+  if(e) e.preventDefault();
+  $('login-form-err').textContent = ''; setErr('login-pw','');
+
+  const pw = $('f-login-pw').value;
+  if(!pw){ setErr('login-pw','Enter your password.'); $('f-login-pw').focus(); return false; }
+  if(!matchedKey){ $('login-form-err').textContent = 'Something went wrong. Start over.'; return false; }
+
+  const btn = $('login-btn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Logging in...';
+
+  try {
+    // Fresh read of the single record (like attemptLogin reads the roster fresh).
+    let rec;
+    try {
+      const snap = await db.ref(ROSTER_PATH + '/' + matchedKey).once('value');
+      rec = snap.val();
+    } catch(err){
+      console.error('login read failed', err);
+      $('login-form-err').textContent = 'Network error. Try again.';
+      return false;
+    }
+    if(!rec || !rec.passwordHash){ $('login-form-err').textContent = 'No password set. Contact admin.'; return false; }
+
+    let bcrypt;
+    try { bcrypt = await loadBcrypt(); }
+    catch(err){ console.error(err); $('login-form-err').textContent = 'Could not load login. Refresh and try again.'; return false; }
+
+    let ok = false;
+    try { ok = bcrypt.compareSync(pw, rec.passwordHash); }
+    catch(err){ console.error(err); $('login-form-err').textContent = 'Login failed. Try again.'; return false; }
+    if(!ok){ $('login-form-err').textContent = 'Incorrect password'; return false; }
+
+    const keep = !!($('f-login-keep') && $('f-login-keep').checked);
+    persistSession(matchedKey, keep);
+    window.location.href = '/community/profile';
+    return false;
+  } finally {
+    if($('login-btn')){ $('login-btn').disabled = false; $('login-btn').textContent = original; }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+  db = firebase.database();
+  const back = $('try-again');
+  if(back) back.addEventListener('click', (e) => {
+    e.preventDefault();
+    matchedKey = null; matchedRecord = null;
+    showState('email');
+    setTimeout(() => { try { $('f-email').focus(); } catch(e){} }, 0);
+  });
+});
+</script>
+</body>
+</html>
