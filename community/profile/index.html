@@ -127,8 +127,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <p class="sub">Help us seed your starting numbers from systems you already play in.</p>
       <div class="row two">
         <div class="fg">
-          <label class="lbl" for="f-truvolley">TruVolley ranking number</label>
-          <input class="inp" id="f-truvolley" inputmode="numeric" placeholder="e.g. 1750">
+          <label class="lbl" for="f-truvolley">TruVolley Rating</label>
+          <input class="inp" id="f-truvolley" inputmode="decimal" placeholder="e.g. 5.1">
         </div>
         <div class="fg">
           <label class="lbl" for="f-avp">AVP number</label>
@@ -294,6 +294,7 @@ const WELCOMED_KEY = 'courtsenseProfileWelcomed';
 
 let db = null;
 let currentPid = null;
+let currentDisplayName = '';
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
@@ -405,7 +406,10 @@ function doSave(e){
   }
 
   // Fire-and-forget per spec. The page UX does not wait on the network.
+  // On a successful save, seed the Glicko-2 rating from the TruVolley Rating.
+  // No-op when TruVolley is blank/non-numeric or a rating already exists.
   db.ref(ROSTER_PATH+'/'+currentPid+'/profile').set(profile)
+    .then(() => seedRatingFromTruVolley(currentDisplayName, profile.truvolleyRankingNumber))
     .catch(err => { console.error('profile save failed', err); toast("Couldn't save. Try again."); });
 
   toast('Profile saved');
@@ -436,9 +440,58 @@ async function doChangePassword(){
   toast('Password updated');
 }
 
-async function loadRating(pid){
+// Mirror ratings.js nameKey EXACTLY so the profile reads/writes the same rating
+// key the live KotB scoring uses (tally_kotb_pickup/ratings/{nameKey}).
+function nameKey(name){
+  return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
+}
+
+// TruVolley Rating (0-10 decimal) -> Glicko-2 seed. Bands own their lower edge,
+// so exactly 4.0 lands in 4-6. Returns { rating, rd }, or null if the value is
+// blank or not a usable number (in which case we do NOT seed).
+function truvolleySeed(raw){
+  const v = parseFloat(raw);
+  if(!isFinite(v)) return null;
+  if(v < 2)  return { rating: 1300, rd: 300 };
+  if(v < 4)  return { rating: 1450, rd: 250 };
+  if(v < 6)  return { rating: 1600, rd: 200 };
+  if(v < 8)  return { rating: 1800, rd: 150 };
+  if(v < 10) return { rating: 2000, rd: 150 };
+  return { rating: 2200, rd: 100 };
+}
+
+// Seed a Glicko-2 rating from the player's TruVolley Rating, keyed by
+// nameKey(displayName) — the same key live scoring uses. Guarded: never
+// overwrites an existing rating (preserves game history), mirroring doApprove.
+// No-op when the TruVolley value is blank/non-numeric.
+async function seedRatingFromTruVolley(displayName, truvolleyRaw){
+  const seed = truvolleySeed(truvolleyRaw);
+  if(!seed) return;
+  const key = nameKey(displayName);
+  if(!key) return;
   try {
-    const snap = await db.ref(RATINGS_PATH+'/'+pid).once('value');
+    const snap = await db.ref(RATINGS_PATH+'/'+key).once('value');
+    const existing = snap.val();
+    if(existing && existing.rating != null) return; // already rated -> preserve history
+    const now = Date.now();
+    await db.ref(RATINGS_PATH+'/'+key).update({
+      name: displayName,
+      rating: seed.rating,
+      rd: seed.rd,
+      volatility: 0.06,
+      gamesPlayed: 0,
+      peakRating: seed.rating,
+      peakRatingDate: null,
+      lastUpdated: now,
+      seededFromTruVolley: parseFloat(truvolleyRaw)
+    });
+    loadRating(displayName); // refresh the shown rating immediately
+  } catch(e){ console.warn('rating seed failed', e); }
+}
+
+async function loadRating(displayName){
+  try {
+    const snap = await db.ref(RATINGS_PATH+'/'+nameKey(displayName)).once('value');
     const r = snap.val();
     if(r && typeof r.rating === 'number'){
       $('who-rating').innerHTML = '<strong>'+Math.round(r.rating)+'</strong><span>'+(r.gamesPlayed||0)+' games</span>';
@@ -473,13 +526,14 @@ function displayNameOf(p){
 
 async function onLogin(player){
   currentPid = player.id;
+  currentDisplayName = player.displayName || displayNameOf(player);
   $('who-name').textContent = displayNameOf(player);
   $('who-email').textContent = player.email || '';
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');
 
   fillFromProfile(player.profile);
-  loadRating(player.id);
+  loadRating(currentDisplayName);
   maybeShowWelcome();
 }
 
