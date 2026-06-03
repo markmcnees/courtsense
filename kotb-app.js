@@ -1151,6 +1151,11 @@ function setSessionAbsences(arr){
 
 function renderScoreAbsencePanel(){
   const panel=$('score-absence-panel');if(!panel)return;
+  // UI removal (2026-06-03): the "Tonight's Roster" / absence panel no longer renders on the Score tab.
+  // Players should not mark absences here; substitutions are handled via "Edit Players" on each court.
+  // UI-only hide — getSessionAbsences/setSessionAbsences/toggleScoreAbsence and the schedule generator's
+  // absence labeling are all left intact. Delete these two lines to restore the panel.
+  panel.style.display='none'; return;
   if(!liveWeek){panel.style.display='none';return;}
   const week=D[SIDE].weeks[liveWeek];
   if(!week||week.cancelled||week.skipped){panel.style.display='none';return;}
