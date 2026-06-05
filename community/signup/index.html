@@ -169,7 +169,7 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
     </div>
 
     <div class="login-row">
-      Already have an account? <a href="/community/profile/">Log in</a>
+      Already have an account? <a href="/community/dashboard/">Log in</a>
     </div>
 
   </form>
@@ -340,8 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // handler runs once for a fresh signup AND once for an autoLogin
       // session restore. The flag tells us which.
       if(signupInFlight) return;
-      // Session restored from an earlier login. Send to profile (not first-time).
-      window.location.replace('/community/profile');
+      // Session restored from an earlier login. Returning users land on the dashboard.
+      window.location.replace('/community/dashboard/');
     }
   });
 });

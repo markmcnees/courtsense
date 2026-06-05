@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feedback</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --navy:#1a3a6b;--navy-deep:#0f2347;--gold:#d4a843;--gold-deep:#b8902f;
+  --teal:#3a8c91;--teal-deep:#2a6e72;--sand:#f5f0e8;--ink:#1a1a1a;--ink-soft:#555;
+  --white:#ffffff;--shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);--radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;color:var(--ink);background:var(--sand);line-height:1.55;-webkit-font-smoothing:antialiased;}
+
+.hdr{
+  position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px;background:rgba(255,255,255,0.94);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(15,35,71,0.08);
+}
+.hdr-brand{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.hdr-logo{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1px;color:var(--navy-deep);}
+.hdr-logo .c{color:var(--gold);}
+.page-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--navy-deep);opacity:.8;}
+
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
+
+.inp{
+  width:100%;padding:13px 14px;border:1.5px solid #d1d5db;border-radius:10px;
+  font-family:'Barlow',sans-serif;font-size:15px;color:var(--ink);background:var(--white);min-height:48px;
+}
+.inp:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,58,107,0.10);}
+.err{font-size:13px;color:#dc2626;font-weight:600;margin-top:8px;min-height:16px;}
+.btn{
+  width:100%;font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;
+  padding:15px 24px;border-radius:10px;border:none;background:var(--gold);color:var(--navy-deep);
+  cursor:pointer;transition:all 0.2s ease;margin-top:10px;
+}
+.btn:hover{background:var(--gold-deep);}
+
+.card{
+  max-width:520px;margin:48px auto 0;background:var(--white);border:1px solid rgba(15,35,71,0.10);
+  border-radius:var(--radius);padding:28px 26px;box-shadow:var(--shadow);text-align:center;
+}
+.card h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;color:var(--navy-deep);margin-bottom:6px;}
+.card .gate-sub{font-size:14px;color:var(--ink-soft);margin-bottom:18px;}
+
+.count{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ink-soft);text-transform:uppercase;margin-bottom:14px;}
+.fb{
+  background:var(--white);border:1px solid rgba(15,35,71,0.10);border-left:4px solid var(--gold);
+  border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:var(--shadow);
+}
+.fb-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+.fb-type{font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:1.5px;padding:3px 10px;border-radius:6px;text-transform:uppercase;}
+.fb-type.t-Issue{background:#fee2e2;color:#b91c1c;}
+.fb-type.t-Idea{background:#fef3c7;color:#92400e;}
+.fb-type.t-Other{background:#e5e7eb;color:#374151;}
+.fb-date{font-size:12px;color:var(--ink-soft);}
+.fb-who{font-size:13px;color:var(--navy-deep);font-weight:600;margin-bottom:6px;word-break:break-word;}
+.fb-who a{color:var(--navy);text-decoration:none;}
+.fb-msg{font-size:15px;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.empty{text-align:center;color:var(--ink-soft);font-size:15px;padding:30px 0;}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <a class="hdr-brand" href="/community">
+    <span class="hdr-logo"><span class="c">Court</span>Sense</span>
+  </a>
+  <span class="page-title">Feedback</span>
+</header>
+
+<main>
+  <!-- PIN gate (matches admin-ratings / admin-players convention) -->
+  <div class="card" id="gate">
+    <h2>Feedback</h2>
+    <p class="gate-sub">Admin tool. Enter PIN to view submissions.</p>
+    <input class="inp" id="pin-input" type="password" inputmode="numeric" placeholder="PIN" autocomplete="off" onkeypress="if(event.key==='Enter')checkPin()">
+    <div class="err" id="pin-err"></div>
+    <button class="btn" id="unlock-btn" onclick="checkPin()">Unlock</button>
+  </div>
+
+  <!-- Content (revealed after correct PIN) -->
+  <div id="content" style="display:none;">
+    <div class="count" id="count"></div>
+    <div id="list"></div>
+  </div>
+</main>
+
+<script>
+// READ-ONLY feedback viewer. Reads courtsense_leads once and filters to type === 'feedback'.
+// No writes anywhere. PIN gate mirrors the existing admin-ratings / admin-players convention.
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const ADMIN_PIN = '8675';
+
+let db = null;
+const $ = id => document.getElementById(id);
+
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+  }catch(e){ console.error(e); }
+}
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+function fmtDateTime(ms){
+  const n = (typeof ms === 'number' && isFinite(ms)) ? ms : null;
+  if(n == null) return 'Unknown date';
+  try { return new Date(n).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+  catch(e){ return 'Unknown date'; }
+}
+function typeClass(t){
+  if(t === 'Issue') return 't-Issue';
+  if(t === 'Idea') return 't-Idea';
+  return 't-Other';
+}
+
+function checkPin(){
+  const v = ($('pin-input').value || '').trim();
+  if(v !== ADMIN_PIN){
+    $('pin-err').textContent = 'Wrong PIN';
+    $('pin-input').value = '';
+    $('pin-input').focus();
+    return;
+  }
+  $('pin-err').textContent = '';
+  $('gate').style.display = 'none';
+  $('content').style.display = 'block';
+  loadFeedback();
+}
+
+function loadFeedback(){
+  if(!db){ $('list').innerHTML = '<div class="empty">Could not connect. Refresh and try again.</div>'; return; }
+  $('count').textContent = 'Loading...';
+  // READ-ONLY: single read of courtsense_leads.
+  db.ref('courtsense_leads').once('value').then(function(snap){
+    const all = snap.val() || {};
+    const items = Object.keys(all)
+      .map(k => all[k])
+      .filter(x => x && x.type === 'feedback')
+      .sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
+
+    if(!items.length){
+      $('count').textContent = '';
+      $('list').innerHTML = '<div class="empty">No feedback yet.</div>';
+      return;
+    }
+
+    $('count').textContent = items.length + (items.length === 1 ? ' submission' : ' submissions');
+    $('list').innerHTML = items.map(function(it){
+      const t = (it.feedbackType === 'Issue' || it.feedbackType === 'Idea') ? it.feedbackType : 'Other';
+      const name = esc(it.name || 'Anonymous');
+      const email = esc(it.email || '');
+      const who = email ? (name + ' &lt;<a href="mailto:' + email + '">' + email + '</a>&gt;') : name;
+      return '<div class="fb">' +
+          '<div class="fb-top">' +
+            '<span class="fb-type ' + typeClass(t) + '">' + esc(t) + '</span>' +
+            '<span class="fb-date">' + esc(fmtDateTime(Number(it.createdAt))) + '</span>' +
+          '</div>' +
+          '<div class="fb-who">' + who + '</div>' +
+          '<div class="fb-msg">' + esc(it.message || '') + '</div>' +
+        '</div>';
+    }).join('');
+  }).catch(function(err){
+    console.warn('feedback read failed', err);
+    $('count').textContent = '';
+    $('list').innerHTML = '<div class="empty">Could not load feedback right now. Refresh and try again.</div>';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  initFB();
+  $('pin-input').focus();
+});
+</script>
+</body>
+</html>

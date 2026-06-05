@@ -118,11 +118,12 @@ h2 .accent{color:var(--gold);}
 .hero-eyebrow{
   display:inline-block;
   font-family:'Bebas Neue',sans-serif;
-  font-size:13px;letter-spacing:3px;text-transform:uppercase;
+  font-size:22px;letter-spacing:4px;text-transform:uppercase;
   color:var(--navy-deep);
   background:var(--gold);
-  padding:6px 16px;border-radius:999px;
-  margin-bottom:22px;
+  padding:10px 30px;border-radius:999px;
+  margin-bottom:8px;
+  box-shadow:0 6px 20px rgba(212,168,67,0.40);
 }
 .hero h1{
   font-family:'Bebas Neue',sans-serif;
@@ -145,6 +146,24 @@ h2 .accent{color:var(--gold);}
   text-decoration:none;transition:all 0.2s ease;
 }
 .hero-cta:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,0.25);}
+.hero-version{
+  font-family:'Barlow',sans-serif;
+  font-size:13px;letter-spacing:1px;
+  color:rgba(255,255,255,0.55);
+  margin-bottom:24px;
+}
+.hero-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;}
+.hero-cta.hero-cta-secondary{
+  background:transparent;
+  color:var(--white);
+  border:2px solid rgba(255,255,255,0.55);
+}
+.hero-cta.hero-cta-secondary:hover{
+  background:rgba(255,255,255,0.12);
+  border-color:var(--white);
+  color:var(--white);
+  box-shadow:none;
+}
 
 /* PROMISE (three beats) */
 .promise{background:var(--sand);}
@@ -282,6 +301,21 @@ select.inp{
 .footer a{color:var(--gold);text-decoration:none;}
 .footer a:hover{text-decoration:underline;}
 
+/* NOW vs SOON */
+.nowsoon{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px;}
+.nowsoon .beat{padding:28px 26px;}
+.nowsoon .card-label{
+  font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;
+}
+.nowsoon .now .card-label{color:var(--teal-deep);}
+.nowsoon .soon .card-label{color:var(--gold-deep);}
+.nowsoon ul{list-style:none;margin-top:12px;}
+.nowsoon li{position:relative;padding-left:24px;margin-bottom:12px;font-size:15px;color:var(--ink-soft);line-height:1.5;}
+.nowsoon li::before{content:'';position:absolute;left:0;top:7px;width:10px;height:10px;border-radius:3px;}
+.nowsoon .now li::before{background:var(--teal);}
+.nowsoon .soon li::before{background:var(--gold);}
+textarea.inp{min-height:120px;resize:vertical;line-height:1.5;padding-top:12px;}
+
 /* RESPONSIVE */
 @media(max-width:860px){
   .beats{grid-template-columns:1fr;}
@@ -291,6 +325,9 @@ select.inp{
   .section{padding:56px 20px;}
   .hero{padding:72px 20px 80px;}
   .feat-grid{grid-template-columns:1fr;}
+  .nowsoon{grid-template-columns:1fr;}
+  .hero-actions{flex-direction:column;}
+  .hero-actions .hero-cta{width:100%;}
 }
 @media(max-width:420px){
   .hdr-wordmark{display:none;}
@@ -305,17 +342,21 @@ select.inp{
     <span class="hdr-wordmark">Community</span>
   </a>
   <nav class="hdr-nav">
-    <a class="hdr-login" href="/community/profile/">Log in</a>
-    <a class="hdr-cta" href="#notify">Get Early Access</a>
+    <a class="hdr-login" href="/community/dashboard/">Log in</a>
+    <a class="hdr-cta" href="/community/signup/">Sign up</a>
   </nav>
 </header>
 
 <section class="hero">
   <div class="hero-inner">
-    <span class="hero-eyebrow">Launching Soon</span>
+    <span class="hero-eyebrow">Beta</span>
+    <div class="hero-version">v0.1 · 2026-06-05</div>
     <h1>Your Game.<br>Your Stats.<br><span class="accent">Your People.</span></h1>
-    <p class="hero-sub">The free home for recreational beach volleyball players. Find games, build a profile that follows you everywhere, and connect with the players around you.</p>
-    <a class="hero-cta" href="#notify">Get Early Access</a>
+    <p class="hero-sub">The free home for recreational beach volleyball players. It is live now in beta. Build a profile that follows you everywhere, get a rating, and find games with the players around you.</p>
+    <div class="hero-actions">
+      <a class="hero-cta" href="/community/signup/">Sign up</a>
+      <a class="hero-cta hero-cta-secondary" href="/community/dashboard/">Log in</a>
+    </div>
   </div>
 </section>
 
@@ -349,40 +390,27 @@ select.inp{
 <section class="section features">
   <div class="section-inner">
     <div class="section-head">
-      <div class="section-eyebrow">On The Horizon</div>
-      <h2>What You Will Be Able To <span class="accent">Do</span></h2>
-      <p class="lede">Built around skill, so you find the right games, the right opponents, and the right partners. Sign up for early access and help shape it.</p>
+      <div class="section-eyebrow">Where We Are</div>
+      <h2>What You Can Do <span class="accent">Now</span></h2>
+      <p class="lede">CourtSense Community is live in beta. Here is what works today, and what we are building next. Your feedback shapes the order.</p>
     </div>
-    <div class="feat-grid">
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></div>
-        <h3>Find Games At Your Level</h3>
-        <p>Be shown pickup and open play matched to your skill, so every game is the right level of competitive and fun.</p>
+    <div class="nowsoon">
+      <div class="beat now">
+        <div class="card-label">Available now</div>
+        <ul>
+          <li>Create your player profile and get a starting rating. Enter your TruVolley number to seed it.</li>
+          <li>See your dashboard: your rating, your rank on the leaderboard, and where you stand.</li>
+          <li>Find and RSVP to pickup games you qualify for.</li>
+          <li>Schedule your own pickup games.</li>
+        </ul>
       </div>
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></div>
-        <h3>Create Games For Your Level</h3>
-        <p>Start your own game and open it to players at a similar skill level. Cap the spots so you always get the right number of people on the sand.</p>
-      </div>
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20v-1a5 5 0 015-5h4a5 5 0 015 5v1"/><path d="M17 4a3.5 3.5 0 010 7"/><path d="M22 20v-1a5 5 0 00-3-4.5"/></svg></div>
-        <h3>Find Tournament Partners</h3>
-        <p>Connect with players at your level who are looking for a partner, and team up for upcoming tournaments.</p>
-      </div>
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 016-6h4a6 6 0 016 6v1"/></svg></div>
-        <h3>A Profile That Follows You</h3>
-        <p>One player identity across every CourtSense league and event. No more starting over each season.</p>
-      </div>
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg></div>
-        <h3>Track Your Progress</h3>
-        <p>Your record and rating over time, so you can actually see yourself getting better.</p>
-      </div>
-      <div class="feat">
-        <div class="feat-icon"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z"/></svg></div>
-        <h3>Always Free To Join</h3>
-        <p>Community is free for players. Show up, make a profile, and start playing.</p>
+      <div class="beat soon">
+        <div class="card-label">Coming soon</div>
+        <ul>
+          <li>In-app pickup games that count toward your rating, the count this game option.</li>
+          <li>Tournament partner finder and training partner finder.</li>
+          <li>Community discussion board.</li>
+        </ul>
       </div>
     </div>
   </div>
@@ -399,9 +427,9 @@ select.inp{
 <section class="section contact" id="notify">
   <div class="section-inner">
     <div class="section-head">
-      <div class="section-eyebrow">Get On The List</div>
-      <h2>Be First To <span class="accent">Play</span></h2>
-      <p class="lede">CourtSense Community is launching soon. Drop your name and email and we will let you know the moment it is ready, plus early access before anyone else.</p>
+      <div class="section-eyebrow">Beta Feedback</div>
+      <h2>Report An Issue Or Share An <span class="accent">Idea</span></h2>
+      <p class="lede">Found a bug or have an idea to make CourtSense Community better? Tell us. Your beta feedback shapes what we build next.</p>
     </div>
 
     <div class="contact-card" id="notify-card">
@@ -411,31 +439,29 @@ select.inp{
         <div class="err" id="err-nf-name"></div>
       </div>
       <div class="fg">
-        <label class="lbl" for="nf-email">Email<span class="req">*</span></label>
+        <label class="lbl" for="nf-email">Your Email<span class="req">*</span></label>
         <input class="inp" id="nf-email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email" inputmode="email">
         <div class="err" id="err-nf-email"></div>
       </div>
       <div class="fg">
-        <label class="lbl" for="nf-city">City<span class="req">*</span></label>
-        <input class="inp" id="nf-city" type="text" placeholder="Where do you play?" maxlength="120" autocomplete="address-level2">
-        <div class="err" id="err-nf-city"></div>
-      </div>
-      <div class="fg">
-        <label class="lbl" for="nf-level">Level</label>
-        <select class="inp" id="nf-level">
-          <option value="">Level (optional)</option>
-          <option value="New to the sand">New to the sand</option>
-          <option value="Recreational">Recreational</option>
-          <option value="Competitive">Competitive</option>
-          <option value="Just here for fun">Just here for fun</option>
+        <label class="lbl" for="nf-type">Type</label>
+        <select class="inp" id="nf-type">
+          <option value="Issue">Issue</option>
+          <option value="Idea">Idea</option>
+          <option value="Other">Other</option>
         </select>
       </div>
-      <button class="btn-submit" id="nf-submit" onclick="submitNotify()" type="button">Get Early Access</button>
+      <div class="fg">
+        <label class="lbl" for="nf-message">Message<span class="req">*</span></label>
+        <textarea class="inp" id="nf-message" placeholder="What's the issue or idea?" maxlength="2000"></textarea>
+        <div class="err" id="err-nf-message"></div>
+      </div>
+      <button class="btn-submit" id="nf-submit" onclick="submitFeedback()" type="button">Send feedback</button>
     </div>
 
     <div class="contact-card" id="notify-success" style="display:none;text-align:center;" role="status" aria-live="polite">
-      <div class="success-title">You're on the list.</div>
-      <p class="success-body">We will email you the moment CourtSense Community is ready, with early access just for you.</p>
+      <div class="success-title">Thank you.</div>
+      <p class="success-body">Your feedback was sent. We read every note, and it helps shape what we build next.</p>
     </div>
   </div>
 </section>
@@ -463,15 +489,9 @@ function initFB(){
   }catch(e){ console.error(e); }
 }
 
-// SIGNUP FORM
-function slugify(s){
-  return (s||'').toLowerCase().trim()
-    .replace(/[^a-z0-9]+/g,'-')
-    .replace(/^-+|-+$/g,'')
-    .slice(0,40) || 'player';
-}
+// FEEDBACK FORM
 function clearErrors(){
-  ['name','email','city'].forEach(function(k){
+  ['name','email','message'].forEach(function(k){
     var e = document.getElementById('err-nf-'+k);
     if(e) e.textContent = '';
     var i = document.getElementById('nf-'+k);
@@ -484,18 +504,18 @@ function setError(field, msg){
   var i = document.getElementById('nf-'+field);
   if(i) i.classList.add('err-on');
 }
-function submitNotify(){
+function submitFeedback(){
   clearErrors();
-  var name  = document.getElementById('nf-name').value.trim();
-  var email = document.getElementById('nf-email').value.trim();
-  var city  = document.getElementById('nf-city').value.trim();
-  var level = document.getElementById('nf-level').value;
+  var name    = document.getElementById('nf-name').value.trim();
+  var email   = document.getElementById('nf-email').value.trim();
+  var message = document.getElementById('nf-message').value.trim();
+  var feedbackType = document.getElementById('nf-type').value || 'Other';
 
   var bad = false;
   if(!name){ setError('name', 'Your name is required.'); bad = true; }
   if(!email){ setError('email', 'Email is required.'); bad = true; }
   else if(!/^\S+@\S+\.\S+$/.test(email)){ setError('email', 'Please enter a valid email address.'); bad = true; }
-  if(!city){ setError('city', 'City is required.'); bad = true; }
+  if(!message){ setError('message', 'Please describe the issue or idea.'); bad = true; }
   if(bad){
     var firstBad = document.querySelector('.inp.err-on');
     if(firstBad) firstBad.focus();
@@ -509,29 +529,29 @@ function submitNotify(){
 
   var submitBtn = document.getElementById('nf-submit');
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Submitting...';
+  submitBtn.textContent = 'Sending...';
 
   var now = Date.now();
-  var citySlug = slugify(city);
-  var leadKey = now + '_' + citySlug;
   var submittedAtIso = new Date(now).toISOString();
 
-  // 1) Durable lead record to courtsense_leads/. Independent of the email worker.
-  //    Same node as team and league leads; type + source keep community leads distinguishable.
-  var lead = {
-    type: 'community_interest',
+  // 1) Durable feedback record to courtsense_leads/. Source of truth, preserves the full
+  //    message. Accepted by the existing open courtsense_leads rule, so no rules change.
+  var feedbackKey = now + '_feedback';
+  var feedback = {
+    type: 'feedback',
     source: 'community',
     name: name,
     email: email,
-    organization: city,
-    level: level || '',
+    feedbackType: feedbackType,
+    message: message,
     createdAt: now
   };
-  db.ref('courtsense_leads/' + leadKey).set(lead);
+  db.ref('courtsense_leads/' + feedbackKey).set(feedback);
 
-  // 2) Queue email notification. Worker drains tally_kotb_pickup/email_queue/.
-  //    Worker must learn 'community_interest_received' before this dispatches; until then it is
-  //    captured durably in courtsense_leads regardless. Consistent with team and league behavior.
+  // 2) Email ping so we hear about it today. We REUSE the existing supported worker type
+  //    'community_interest_received' on purpose, so the email actually sends now with no worker
+  //    change. A dedicated feedback_received template is a future cleanup. The full message is
+  //    preserved in courtsense_leads regardless of how the email renders.
   var eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2,5);
   var emailItem = {
     type: 'community_interest_received',
@@ -539,9 +559,10 @@ function submitNotify(){
     data: {
       lead_name: name,
       lead_email: email,
-      organization: city,
-      level: level || '',
-      submitted_at: submittedAtIso
+      organization: 'BETA FEEDBACK (' + feedbackType + ')',
+      level: '',
+      submitted_at: submittedAtIso,
+      message: message
     },
     relatedRegistration: null,
     createdAt: now,
@@ -549,8 +570,7 @@ function submitNotify(){
   };
   db.ref('tally_kotb_pickup/email_queue/' + eid).set(emailItem);
 
-  // UI feedback. Fire-and-forget writes do not resolve reliably in this context,
-  // so swap to the success card after a short delay rather than awaiting.
+  // Fire-and-forget UI swap, matching the existing pattern.
   setTimeout(function(){
     var card = document.getElementById('notify-card');
     var succ = document.getElementById('notify-success');

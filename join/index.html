@@ -457,7 +457,7 @@ async function doLogin(e){
 
     const keep = !!($('f-login-keep') && $('f-login-keep').checked);
     persistSession(matchedKey, keep);
-    window.location.href = '/community/profile';
+    window.location.href = '/community/dashboard/';
     return false;
   } finally {
     if($('login-btn')){ $('login-btn').disabled = false; $('login-btn').textContent = original; }

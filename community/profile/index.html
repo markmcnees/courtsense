@@ -64,6 +64,7 @@ main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
 .inp.invalid{border-color:#dc2626;}
 select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
 .help{font-size:12px;color:var(--gray);margin-top:4px;line-height:1.4;}
+.help-link{color:var(--navy);font-weight:600;}
 
 .toggle{display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;}
 .toggle input{width:18px;height:18px;cursor:pointer;}
@@ -129,10 +130,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-truvolley">TruVolley Rating</label>
           <input class="inp" id="f-truvolley" inputmode="decimal" placeholder="e.g. 5.1">
+          <div class="help"><a class="help-link" href="https://truvolley.com/ratings" target="_blank" rel="noopener noreferrer">Find your TruVolley number</a></div>
         </div>
         <div class="fg">
           <label class="lbl" for="f-avp">AVP number</label>
           <input class="inp" id="f-avp" placeholder="e.g. 12345">
+          <div class="help"><a class="help-link" href="https://members.avp.com/sign-in" target="_blank" rel="noopener noreferrer">Find your AVP number</a></div>
         </div>
       </div>
     </section>
