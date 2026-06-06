@@ -251,14 +251,19 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <div class="row2">
         <div>
-          <label class="lbl">Slots</label>
-          <input class="inp" id="iv-slots" type="number" min="2" max="32" value="8">
+          <label class="lbl">Maximum slots</label>
+          <input class="inp" id="iv-slots" type="number" min="2" max="32" value="8" oninput="validateMinSlots()">
         </div>
         <div>
-          <label class="lbl">RSVP Deadline</label>
-          <input class="inp" id="iv-deadline" type="datetime-local">
-          <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
+          <label class="lbl">Minimum slots</label>
+          <input class="inp" id="iv-min-slots" type="number" min="1" max="32" value="2" oninput="validateMinSlots()">
+          <div id="iv-min-slots-err" style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px;min-height:14px;"></div>
         </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">RSVP Deadline</label>
+        <input class="inp" id="iv-deadline" type="datetime-local">
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
       </div>
     </div>
 
@@ -2032,32 +2037,51 @@ function defaultDeadlineISO(date, startTime){
 // Build {nameKey -> displayName} of every player the system knows about,
 // deduped, with admin-blocked profiles excluded. Inactive league players are
 // skipped by default; hosts can override per-event with the include list.
+// Resolve a player/profile record to a display STRING. Pickup profiles store
+// name as { first, last } plus a string displayName, while league rosters and
+// ratings store name as a plain string. Mirrors the displayNameOf pattern used
+// in the community pages (implemented locally here). Returns '' if unresolvable.
+function nameStr(p){
+  if(!p) return '';
+  if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p.name;
+  if(n && typeof n === 'object'){ const f = ((n.first||'')+' '+(n.last||'')).trim(); if(f) return f; }
+  if(typeof n === 'string' && n.trim()) return n.trim();
+  return '';
+}
+
 function allKnownPlayerNames(){
   const byKey = {};
   const blocked = new Set();
   Object.values(window._profilesCache||{}).forEach(p=>{
-    if(!p || !p.name) return;
-    const k = Identity.nameKey(p.name);
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
     if(p.blocked){ blocked.add(k); return; }
-    byKey[k] = p.name;
+    byKey[k] = nm;
   });
   Object.values(D.ratings||{}).forEach(r=>{
-    if(!r || !r.name) return;
-    const k = Identity.nameKey(r.name);
+    const nm = nameStr(r);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
     if(blocked.has(k) || byKey[k]) return;
-    byKey[k] = r.name;
+    byKey[k] = nm;
   });
   Object.values(leagueKings||{}).forEach(p=>{
-    if(!p || !p.name || p.active===false) return;
-    const k = Identity.nameKey(p.name);
+    if(p && p.active===false) return;
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
     if(blocked.has(k) || byKey[k]) return;
-    byKey[k] = p.name;
+    byKey[k] = nm;
   });
   Object.values(leagueQueens||{}).forEach(p=>{
-    if(!p || !p.name || p.active===false) return;
-    const k = Identity.nameKey(p.name);
+    if(p && p.active===false) return;
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
     if(blocked.has(k) || byKey[k]) return;
-    byKey[k] = p.name;
+    byKey[k] = nm;
   });
   return byKey;
 }
@@ -2205,6 +2229,8 @@ function startNewInvite(){
       $('iv-loc').value = '';
       $('iv-desc').value = '';
       $('iv-slots').value = 8;
+      $('iv-min-slots').value = 2;
+      if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
       $('iv-deadline').value = defaultDeadlineISO(today, '09:00');
       $('iv-rec').checked = false;
       toggleRecurring();
@@ -2235,6 +2261,8 @@ function startEditInvite(id){
       $('iv-loc').value = i.location || '';
       $('iv-desc').value = i.description || '';
       $('iv-slots').value = i.slots || 8;
+      $('iv-min-slots').value = i.minSlots || 2;
+      if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
       $('iv-deadline').value = i.rsvpDeadline ? new Date(i.rsvpDeadline).toISOString().slice(0,16) : defaultDeadlineISO(i.date, i.startTime);
       $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
       toggleRecurring();
@@ -2320,7 +2348,7 @@ function updateInvitePreview(){
 
 function renderInclude(){
   const q = ($('iv-inc-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(D.ratings||{}).filter(r=>r&&r.name).map(r=>r.name).sort((a,b)=>a.localeCompare(b));
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
   const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
   if(!filtered.length){ $('iv-inc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
   $('iv-inc-list').innerHTML = filtered.map(name=>{
@@ -2334,7 +2362,7 @@ function renderInclude(){
 }
 function renderExclude(){
   const q = ($('iv-exc-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(D.ratings||{}).filter(r=>r&&r.name).map(r=>r.name).sort((a,b)=>a.localeCompare(b));
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
   const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
   if(!filtered.length){ $('iv-exc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
   $('iv-exc-list').innerHTML = filtered.map(name=>{
@@ -2357,6 +2385,27 @@ function toggleExcMember(name, isChecked){
   updateInvitePreview();
 }
 
+// Validate minimum slots: must be a positive integer and not greater than the
+// maximum-slots value. Shows a clean inline error; returns true when valid
+// (and true when the fields are absent, so it never blocks unrelated flows).
+function validateMinSlots(){
+  const errEl = $('iv-min-slots-err');
+  const maxEl = $('iv-slots'), minEl = $('iv-min-slots');
+  if(!maxEl || !minEl) return true;
+  const max = parseInt(maxEl.value);
+  const min = parseInt(minEl.value);
+  if(!Number.isInteger(min) || min < 1){
+    if(errEl) errEl.textContent = 'Enter a positive number.';
+    return false;
+  }
+  if(Number.isInteger(max) && min > max){
+    if(errEl) errEl.textContent = 'Minimum cannot be more than maximum (' + max + ').';
+    return false;
+  }
+  if(errEl) errEl.textContent = '';
+  return true;
+}
+
 function buildInviteRecord(){
   const name = ($('iv-name').value||'').trim() || 'Pickup';
   const date = $('iv-date').value || td();
@@ -2365,16 +2414,20 @@ function buildInviteRecord(){
   const location = ($('iv-loc').value||'').trim();
   const description = ($('iv-desc').value||'').trim();
   const slots = Math.max(2, parseInt($('iv-slots').value)||8);
+  // minSlots: minimum players for the game to be considered "on". Captured and
+  // stored only for now; no logic acts on it yet (no auto-cancel-under-minimum).
+  const minSlots = Math.max(1, parseInt($('iv-min-slots').value)||2);
   const dl = $('iv-deadline').value;
   const rsvpDeadline = dl ? new Date(dl).getTime() : (date && startTime ? new Date(date+'T'+startTime+':00').getTime() - 2*60*60*1000 : null);
   const eligibility = getCurrentEligibilitySpec();
   const me = window.Identity ? Identity.getCurrent() : null;
-  return { name, date, startTime, endTime, location, description, slots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous' };
+  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous' };
 }
 
 async function saveInvite(){
   const base = buildInviteRecord();
   if(!base.date){ toast('Pick a date'); return; }
+  if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
 
   const recurring = $('iv-rec').checked;
   const recFreq   = $('iv-rec-freq').value;
