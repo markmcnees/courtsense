@@ -268,6 +268,28 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
 
     <div class="card">
+      <div class="ctitle"><span class="bar"></span>Game Type</div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Vibe</label>
+          <select class="inp" id="iv-game-vibe" onchange="syncGameType()">
+            <option value="fun">Fun</option>
+            <option value="competitive">Competitive</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Format</label>
+          <select class="inp" id="iv-game-format" onchange="syncGameType()">
+            <option value="2s">2s (doubles)</option>
+            <option value="3s">3s (triples)</option>
+            <option value="4s">4s</option>
+            <option value="combo">Combo</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="ctitle"><span class="bar"></span>Recurring</div>
       <label style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
         <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
@@ -320,6 +342,36 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
 
       <div id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Widening Schedule</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it. Saved for a later phase; nothing widens automatically yet.</div>
+      <div id="iv-tiers-list"></div>
+      <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Game Options</div>
+      <div class="fg">
+        <label class="lbl">Auto-cancel if minimum not met</label>
+        <select class="inp" id="iv-cancel-offset" onchange="syncCancelOffset()">
+          <option value="">No auto-cancel</option>
+          <option value="120">2 hours before start</option>
+          <option value="240">4 hours before start</option>
+          <option value="480">8 hours before start</option>
+          <option value="720">12 hours before start</option>
+          <option value="1440">24 hours before start</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Saved for a later phase. Nothing cancels automatically yet.</div>
+      </div>
+      <div class="fg" style="margin-top:14px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:not-allowed;opacity:0.6;">
+          <input type="checkbox" id="iv-counts-rankings" disabled style="width:18px;height:18px;">
+          <span style="font-size:14px;font-weight:600;">Count this game toward player rankings</span>
+        </label>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Coming soon.</div>
+      </div>
     </div>
 
     <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
@@ -1987,6 +2039,24 @@ let inviteEditId = null;
 let inviteIncSelected = new Set();
 let inviteExcSelected = new Set();
 
+// A1 pickup data-model fields. Held in module state between form-open and save,
+// mirroring inviteIncSelected/inviteExcSelected. No A1 UI populates these yet
+// (the form lands in A2); buildInviteRecord reads them so edits round-trip and
+// the { ...existing, ...base } merge in saveInvite never clobbers a saved value.
+let inviteGameType = { vibe: 'fun', format: '2s' };
+let inviteWideningTiers = [];
+let inviteCancelDeadlineOffsetMins = null;
+let inviteCountsTowardRankings = false;
+
+// Deep-copy helper for nested invite fields (eligibility, gameType, wideningTiers).
+// structuredClone when available, else a JSON round-trip. Gives each recurring
+// occurrence its own copies instead of references shared with base.
+function deepCopy(v){
+  if(v == null) return v;
+  if(typeof structuredClone === 'function') return structuredClone(v);
+  return JSON.parse(JSON.stringify(v));
+}
+
 function backToList(){
   activeInvite = null;
   inviteEditId = null;
@@ -2215,6 +2285,11 @@ function startNewInvite(){
   inviteEditId = null;
   inviteIncSelected = new Set();
   inviteExcSelected = new Set();
+  // A1 data-model fields reset to defaults for a fresh form (no A1 UI yet).
+  inviteGameType = { vibe: 'fun', format: '2s' };
+  inviteWideningTiers = [];
+  inviteCancelDeadlineOffsetMins = null;
+  inviteCountsTowardRankings = false;
   _userEditedTitle = false;
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
@@ -2232,6 +2307,11 @@ function startNewInvite(){
       $('iv-min-slots').value = 4;
       if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
       $('iv-deadline').value = defaultDeadlineISO(today, '09:00');
+      // A2 new-game defaults for the added controls (module state already reset above).
+      if($('iv-game-vibe')) $('iv-game-vibe').value = 'fun';
+      if($('iv-game-format')) $('iv-game-format').value = '2s';
+      if($('iv-cancel-offset')) $('iv-cancel-offset').value = '';
+      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = false;
       $('iv-rec').checked = false;
       toggleRecurring();
       $('iv-elig-mode').value = 'open';
@@ -2239,6 +2319,7 @@ function startNewInvite(){
       renderEligibilityFields();
       renderInclude(); renderExclude();
       updateInvitePreview();
+      renderWideningTiers();
     }, 0);
   });
 }
@@ -2248,6 +2329,15 @@ function startEditInvite(id){
   inviteEditId = id;
   inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
   inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
+  // A1 data-model fields: load from the existing record into module state so they
+  // round-trip on save. Deep-copy the nested ones so editing never mutates the
+  // live D.invites copy. Defaults applied for older records that lack them.
+  inviteGameType = deepCopy(i.gameType) || { vibe: 'fun', format: '2s' };
+  if(!inviteGameType.vibe) inviteGameType.vibe = 'fun';
+  if(!inviteGameType.format) inviteGameType.format = '2s';
+  inviteWideningTiers = Array.isArray(i.wideningTiers) ? deepCopy(i.wideningTiers) : [];
+  inviteCancelDeadlineOffsetMins = Number.isInteger(i.cancelDeadlineOffsetMins) ? i.cancelDeadlineOffsetMins : null;
+  inviteCountsTowardRankings = !!i.countsTowardRankings;
   _userEditedTitle = true; // existing title is whatever the host saved; do not auto-overwrite on date change
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
@@ -2264,6 +2354,13 @@ function startEditInvite(id){
       $('iv-min-slots').value = i.minSlots || 4;
       if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
       $('iv-deadline').value = i.rsvpDeadline ? new Date(i.rsvpDeadline).toISOString().slice(0,16) : defaultDeadlineISO(i.date, i.startTime);
+      // A2 edit: reflect the loaded A1 module state into the added controls. All stored
+      // cancel-offset values are select presets (or null), so the option matches; a null
+      // shows "No auto-cancel".
+      if($('iv-game-vibe')) $('iv-game-vibe').value = inviteGameType.vibe || 'fun';
+      if($('iv-game-format')) $('iv-game-format').value = inviteGameType.format || '2s';
+      if($('iv-cancel-offset')) $('iv-cancel-offset').value = (inviteCancelDeadlineOffsetMins == null) ? '' : String(inviteCancelDeadlineOffsetMins);
+      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = !!inviteCountsTowardRankings;
       $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
       toggleRecurring();
       const e = i.eligibility || {};
@@ -2272,6 +2369,7 @@ function startEditInvite(id){
       renderEligibilityFields(e);
       renderInclude(); renderExclude();
       updateInvitePreview();
+      renderWideningTiers();
     }, 0);
   });
 }
@@ -2279,6 +2377,173 @@ function startEditInvite(id){
 function toggleRecurring(){
   const on = $('iv-rec').checked;
   $('iv-rec-fields').style.display = on ? 'block' : 'none';
+}
+
+// A2 game-type sync: keep module state aligned with the two selects. buildInviteRecord
+// reads the elements directly when present; this keeps inviteGameType in sync too so
+// any other reader of module state sees the latest choice.
+function syncGameType(){
+  const vibeEl = $('iv-game-vibe'), formatEl = $('iv-game-format');
+  inviteGameType = {
+    vibe: (vibeEl && vibeEl.value) || 'fun',
+    format: (formatEl && formatEl.value) || '2s'
+  };
+}
+
+// A2 cancel-offset sync: the select value is MINUTES before start (labels show hours),
+// matching the cancelDeadlineOffsetMins contract buildInviteRecord reads. Empty = null
+// = no auto-cancel. Stored only; no auto-cancel engine acts on it yet.
+function syncCancelOffset(){
+  const el = $('iv-cancel-offset');
+  const v = el ? el.value : '';
+  inviteCancelDeadlineOffsetMins = (v === '') ? null : (parseInt(v) || null);
+}
+
+// =====================================================================
+// A2 WIDENING-TIER BUILDER (UI + capture only; nothing resolves tiers yet)
+//
+// Reduced per-tier control (decided): each tier's eligibility spec is skill
+// based only (ratingMin / ratingRange / group), NO open-to-all and NO per-tier
+// include/exclude. This is a self-contained builder; it does not touch the
+// primary-eligibility functions (renderEligibilityFields/getCurrentEligibilitySpec).
+//
+// Storage: inviteWideningTiers is an ordered array of { atOffsetMins, spec },
+// where spec = { baseMode, ratingMin?, ratingMax?, groupId? } and atOffsetMins
+// is MINUTES before start. Absolute activation times are derived later (Phase B)
+// at read time from each occurrence's start. Ordering rule (decided): offsets
+// strictly DECREASING down the list, so each later tier activates closer to
+// start than the one above it. Validated at save by validateWideningTiers().
+// =====================================================================
+
+// Activation presets, minutes before start (label rendered as hours).
+const TIER_OFFSET_PRESETS = [
+  [2880, '48 hours'], [1440, '24 hours'], [720, '12 hours'],
+  [480, '8 hours'], [240, '4 hours'], [120, '2 hours'], [60, '1 hour']
+];
+
+function renderWideningTiers(){
+  const cont = $('iv-tiers-list'); if(!cont) return;
+  const tiers = inviteWideningTiers || [];
+  if(!tiers.length){
+    cont.innerHTML = '<p style="font-size:12px;color:var(--gray);padding:4px 0;">No widening tiers. The primary circle applies the whole time.</p>';
+    return;
+  }
+  const groups = Object.values(D.groups||{}).filter(g=>g&&g.name).sort((a,b)=>a.name.localeCompare(b.name));
+  cont.innerHTML = tiers.map((t, idx) => {
+    const spec = t.spec || {};
+    const offsetOpts = TIER_OFFSET_PRESETS.map(([v,l]) => `<option value="${v}" ${v===t.atOffsetMins?'selected':''}>${l} before start</option>`).join('');
+    let specFields;
+    if(spec.baseMode === 'ratingRange'){
+      specFields = `<div class="row2">
+        <div><label class="lbl">Min rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMin!=null?spec.ratingMin:1400}" oninput="setTierField(${idx},'ratingMin',this.value)"></div>
+        <div><label class="lbl">Max rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMax!=null?spec.ratingMax:1800}" oninput="setTierField(${idx},'ratingMax',this.value)"></div>
+      </div>`;
+    } else if(spec.baseMode === 'group'){
+      if(!groups.length){
+        specFields = '<p style="font-size:12px;color:var(--gray);">No saved groups yet. Create one in Groups first.</p>';
+      } else {
+        const sel = spec.groupId || groups[0].id;
+        specFields = `<div class="fg"><label class="lbl">Group</label><select class="inp" onchange="setTierField(${idx},'groupId',this.value)">${groups.map(g=>`<option value="${escapeHTML(g.id)}" ${g.id===sel?'selected':''}>${escapeHTML(g.name)} (${(g.members||[]).length})</option>`).join('')}</select></div>`;
+      }
+    } else {
+      specFields = `<div class="fg"><label class="lbl">Minimum rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMin!=null?spec.ratingMin:1500}" oninput="setTierField(${idx},'ratingMin',this.value)"></div>`;
+    }
+    return `<div style="border:1px solid var(--sand-border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--sand);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+        <span style="font-weight:700;font-size:13px;color:var(--primary);">Tier ${idx+1}</span>
+        <button type="button" class="btn btn-d btn-sm" onclick="removeWideningTier(${idx})">Remove</button>
+      </div>
+      <div class="fg"><label class="lbl">Activates</label><select class="inp" onchange="setTierOffset(${idx},this.value)">${offsetOpts}</select></div>
+      <div class="fg"><label class="lbl">Widen to (skill based)</label><select class="inp" onchange="setTierMode(${idx},this.value)">
+        <option value="ratingMin" ${(spec.baseMode==='ratingMin'||!spec.baseMode)?'selected':''}>Rating minimum</option>
+        <option value="ratingRange" ${spec.baseMode==='ratingRange'?'selected':''}>Rating range</option>
+        <option value="group" ${spec.baseMode==='group'?'selected':''}>Specific group</option>
+      </select></div>
+      ${specFields}
+    </div>`;
+  }).join('');
+}
+
+function addWideningTier(){
+  const tiers = inviteWideningTiers;
+  // Default a new tier's activation to the largest preset still strictly below
+  // the current smallest offset, so additions trend toward the decreasing-offset
+  // rule the host must satisfy. Falls back to the smallest preset.
+  let offset = 1440;
+  if(tiers.length){
+    const minExisting = Math.min(...tiers.map(t => t.atOffsetMins || 0));
+    const below = TIER_OFFSET_PRESETS.map(p => p[0]).filter(v => v < minExisting);
+    offset = below.length ? below[0] : TIER_OFFSET_PRESETS[TIER_OFFSET_PRESETS.length-1][0];
+  }
+  tiers.push({ atOffsetMins: offset, spec: { baseMode: 'ratingMin', ratingMin: 1500 } });
+  renderWideningTiers();
+}
+
+function removeWideningTier(idx){
+  if(idx >= 0 && idx < inviteWideningTiers.length){
+    inviteWideningTiers.splice(idx, 1);
+    renderWideningTiers();
+  }
+}
+
+function setTierOffset(idx, val){
+  const t = inviteWideningTiers[idx]; if(!t) return;
+  t.atOffsetMins = parseInt(val) || 0;
+}
+
+function setTierMode(idx, mode){
+  const t = inviteWideningTiers[idx]; if(!t) return;
+  const prev = t.spec || {};
+  const spec = { baseMode: mode };
+  if(mode === 'ratingRange'){
+    spec.ratingMin = prev.ratingMin != null ? prev.ratingMin : 1400;
+    spec.ratingMax = prev.ratingMax != null ? prev.ratingMax : 1800;
+  } else if(mode === 'group'){
+    spec.groupId = prev.groupId || null;
+  } else {
+    spec.ratingMin = prev.ratingMin != null ? prev.ratingMin : 1500;
+  }
+  t.spec = spec;
+  renderWideningTiers(); // mode change swaps the spec fields, so re-render this tier
+}
+
+function setTierField(idx, field, val){
+  const t = inviteWideningTiers[idx]; if(!t || !t.spec) return;
+  if(field === 'groupId'){
+    t.spec.groupId = val || null;
+  } else {
+    t.spec[field] = (val === '') ? null : parseFloat(val);
+  }
+}
+
+// Save-time validation. Returns { ok, msg }. Empty schedule is valid (no widening).
+function validateWideningTiers(){
+  const tiers = inviteWideningTiers || [];
+  if(!tiers.length) return { ok: true };
+  for(let idx = 0; idx < tiers.length; idx++){
+    const t = tiers[idx] || {};
+    if(!Number.isInteger(t.atOffsetMins) || t.atOffsetMins <= 0){
+      return { ok: false, msg: 'Tier ' + (idx+1) + ': choose when it activates.' };
+    }
+    const spec = t.spec || {};
+    if(spec.baseMode === 'group'){
+      if(!spec.groupId) return { ok: false, msg: 'Tier ' + (idx+1) + ': pick a group.' };
+    } else if(spec.baseMode === 'ratingRange'){
+      const lo = parseFloat(spec.ratingMin), hi = parseFloat(spec.ratingMax);
+      if(!(lo >= 0) || !(hi >= 0) || lo > hi) return { ok: false, msg: 'Tier ' + (idx+1) + ': rating range is invalid.' };
+    } else if(spec.baseMode === 'ratingMin'){
+      if(!(parseFloat(spec.ratingMin) >= 0)) return { ok: false, msg: 'Tier ' + (idx+1) + ': enter a minimum rating.' };
+    } else {
+      return { ok: false, msg: 'Tier ' + (idx+1) + ': choose a skill based circle.' };
+    }
+  }
+  // Offsets must strictly decrease (each later tier activates closer to start).
+  for(let idx = 1; idx < tiers.length; idx++){
+    if(!(tiers[idx-1].atOffsetMins > tiers[idx].atOffsetMins)){
+      return { ok: false, msg: 'Order tiers so each activates closer to start (fewer hours before) than the one above it.' };
+    }
+  }
+  return { ok: true };
 }
 
 function renderEligibilityFields(prefill){
@@ -2421,13 +2686,40 @@ function buildInviteRecord(){
   const rsvpDeadline = dl ? new Date(dl).getTime() : (date && startTime ? new Date(date+'T'+startTime+':00').getTime() - 2*60*60*1000 : null);
   const eligibility = getCurrentEligibilitySpec();
   const me = window.Identity ? Identity.getCurrent() : null;
-  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous' };
+
+  // A1 data-model fields (stored only; no logic acts on them yet). Read from an
+  // A2 form input when it exists, else from module state (loaded by
+  // startEditInvite from the existing record, or reset to defaults by
+  // startNewInvite). Always emitted so the edit-path merge in saveInvite never
+  // drops or clobbers a previously saved value.
+  const vibeEl = $('iv-game-vibe');
+  const formatEl = $('iv-game-format');
+  const gameType = {
+    vibe: (vibeEl && vibeEl.value) || (inviteGameType && inviteGameType.vibe) || 'fun',
+    format: (formatEl && formatEl.value) || (inviteGameType && inviteGameType.format) || '2s'
+  };
+  // wideningTiers: no A1 UI; carried in module state, always an array. Deep-copied
+  // so the returned record never shares the module-state reference.
+  const wideningTiers = deepCopy(Array.isArray(inviteWideningTiers) ? inviteWideningTiers : []);
+  // Offsets in minutes before start. Absolute activation/cancel times are derived
+  // later (post-A1) at read time from each occurrence's start; stored as offsets
+  // so they stay per-occurrence correct through recurring expansion.
+  const cancelEl = $('iv-cancel-offset');
+  const cancelDeadlineOffsetMins = (cancelEl && cancelEl.value !== '')
+    ? (parseInt(cancelEl.value) || null)
+    : (Number.isInteger(inviteCancelDeadlineOffsetMins) ? inviteCancelDeadlineOffsetMins : null);
+  const rankEl = $('iv-counts-rankings');
+  const countsTowardRankings = rankEl ? !!rankEl.checked : !!inviteCountsTowardRankings;
+
+  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', gameType, wideningTiers, cancelDeadlineOffsetMins, countsTowardRankings };
 }
 
 async function saveInvite(){
   const base = buildInviteRecord();
   if(!base.date){ toast('Pick a date'); return; }
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
+  const tierCheck = validateWideningTiers();
+  if(!tierCheck.ok){ toast(tierCheck.msg); return; }
 
   const recurring = $('iv-rec').checked;
   const recFreq   = $('iv-rec-freq').value;
@@ -2468,6 +2760,14 @@ async function saveInvite(){
       id,
       date: iso,
       rsvpDeadline: n===0 ? base.rsvpDeadline : dl,
+      // Deep-copy nested fields so each occurrence owns its objects instead of
+      // sharing the single base reference (the prior shallow-spread bug). Offset
+      // fields (cancelDeadlineOffsetMins, wideningTiers[].atOffsetMins) are stored
+      // as minutes-before-start, so absolute activation/cancel times get derived
+      // later at read time from each occurrence's own start; no recompute here.
+      eligibility: deepCopy(base.eligibility),
+      gameType: deepCopy(base.gameType),
+      wideningTiers: deepCopy(base.wideningTiers),
       status: 'open',
       recurringGroupId,
       createdAt: Date.now(),
