@@ -1975,11 +1975,8 @@ function openGroupEditor(id){
 
 function renderGroupMembers(){
   const q = ($('ge-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(D.ratings||{})
-    .filter(r=>r&&r.name)
-    .map(r=>r.name)
-    .sort((a,b)=>a.localeCompare(b));
-  // Include any currently-selected names that aren't in ratings (defensive)
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
+  // Include any currently-selected names that aren't in the roster (defensive)
   groupEditMembers.forEach(m=>{ if(!allRated.includes(m)) allRated.push(m); });
   const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
   $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
