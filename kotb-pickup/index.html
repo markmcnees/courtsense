@@ -321,6 +321,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <option value="ratingMin">Rating minimum</option>
           <option value="ratingRange">Rating range</option>
           <option value="group">Specific group</option>
+          <option value="inviteOnly">Invite only (named list)</option>
         </select>
       </div>
       <div id="iv-elig-fields"></div>
@@ -2174,6 +2175,9 @@ function computeEligible(e){
     names = (g.members||[])
       .map(n => { const k = Identity.nameKey(n); return allByKey[k] || null; })
       .filter(Boolean);
+  } else if(e.baseMode === 'inviteOnly'){
+    // Phase B: empty base so the additive includeList below becomes the whole circle.
+    names = [];
   } else {
     names = Object.values(allByKey);
   }
@@ -2187,11 +2191,44 @@ function computeEligible(e){
   return names.sort((a,b) => a.localeCompare(b));
 }
 
+// Phase B resolver: the eligible name set in force right now = the primary
+// eligibility circle UNIONED with every widening tier whose activation time has
+// passed. Union/grow-only: the pool only expands as start approaches; nobody
+// eligible earlier loses eligibility. Pure function (invite + D.ratings/D.groups
+// + clock); no user reference. A tier activates when now >= (start - atOffsetMins),
+// start = new Date(date+'T'+startTime+':00').getTime(). Absolute times are derived
+// here at read time from each occurrence's own start, so stored minute-offsets stay
+// per-occurrence correct through recurring expansion.
+function activeEligibleNames(invite, now){
+  invite = invite || {};
+  now = now || Date.now();
+  const byKey = new Map(); // nameKey -> displayName, dedupe across primary + tiers
+  const addAll = list => (list||[]).forEach(n => {
+    const k = Identity.nameKey(n);
+    if(!byKey.has(k)) byKey.set(k, n);
+  });
+  addAll(computeEligible(invite.eligibility || {}));
+  const tiers = Array.isArray(invite.wideningTiers) ? invite.wideningTiers : [];
+  if(tiers.length && invite.date && invite.startTime){
+    const start = new Date(invite.date+'T'+invite.startTime+':00').getTime();
+    if(Number.isFinite(start)){
+      tiers.forEach(t => {
+        if(!t || !Number.isFinite(+t.atOffsetMins)) return;
+        const activatesAt = start - (+t.atOffsetMins)*60000;
+        if(now >= activatesAt) addAll(computeEligible(t.spec || {}));
+      });
+    }
+  }
+  return [...byKey.values()].sort((a,b) => a.localeCompare(b));
+}
+
 // Phase 5 entry point: who actually receives email/banner notifications?
 // Filters the eligible set down to profiles with notifications enabled, not
 // muted, with an email on file. Worker code should call only this function.
 function notifiableForInvite(invite){
-  const eligible = computeEligible((invite && invite.eligibility) || {});
+  // Phase B: route through the time-aware resolver (primary + activated tiers).
+  // Tier resolution stays HERE, never in the Worker.
+  const eligible = activeEligibleNames(invite, Date.now());
   const profiles = window._profilesCache || {};
   const now = Date.now();
   return eligible.filter(name => {
@@ -2813,13 +2850,16 @@ function renderInviteDetail(){
   const dateStr = i.date ? new Date(i.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'}) : '';
   const eligibility = i.eligibility || {};
   const eligDesc = (() => {
-    if(eligibility.baseMode === 'ratingMin') return `Rating ${eligibility.ratingMin}+`;
-    if(eligibility.baseMode === 'ratingRange') return `Rating ${eligibility.ratingMin} to ${eligibility.ratingMax}`;
-    if(eligibility.baseMode === 'group'){
+    let label;
+    if(eligibility.baseMode === 'ratingMin') label = `Rating ${eligibility.ratingMin}+`;
+    else if(eligibility.baseMode === 'ratingRange') label = `Rating ${eligibility.ratingMin} to ${eligibility.ratingMax}`;
+    else if(eligibility.baseMode === 'group'){
       const g = (D.groups||{})[eligibility.groupId];
-      return 'Group: '+(g ? g.name : 'unknown');
+      label = 'Group: '+(g ? g.name : 'unknown');
     }
-    return 'Open to all';
+    else if(eligibility.baseMode === 'inviteOnly') label = 'Invite only';
+    else label = 'Open to all';
+    return label;
   })();
 
   let actionHTML = '';
@@ -2966,6 +3006,14 @@ function optInInvite(){
   if(!me){ toast('Pick your name first'); return; }
   if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
   if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+  // Phase B sign-up gate: only allow the RSVP if the selected player is in the
+  // currently-active eligible circle (primary + activated widening tiers).
+  // Gate the action only; the RSVP write path below is unchanged.
+  const meKey = me.key || Identity.nameKey(me.name);
+  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === meKey)){
+    toast('This pickup is not open to you yet');
+    return;
+  }
   const rsvps = i.rsvps || {};
   const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
   const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
@@ -3093,7 +3141,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // the right key. identity.js uses localStorage; auth uses
       // sessionStorage. We mirror the auth identity into identity.js.
       if(window.Identity && Identity.setCurrent && player && player.name){
-        Identity.setCurrent(player.name);
+        Identity.setCurrent(nameStr(player));
       }
     },
     onLogout: () => {

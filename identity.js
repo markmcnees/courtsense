@@ -69,7 +69,14 @@
     } catch(e){ return null; }
   }
   function setCurrent(name){
-    const trimmed = String(name||'').trim();
+    // Resolve an object name ({first,last} or {displayName}) to a display string
+    // before keying. A string name passes through unchanged, so its key is byte
+    // for byte identical to before this change.
+    let resolved = name;
+    if(name && typeof name === 'object'){
+      resolved = name.displayName ? name.displayName : ((name.first||'')+' '+(name.last||'')).trim();
+    }
+    const trimmed = String(resolved||'').trim();
     if(!trimmed) return null;
     const obj = { name: trimmed, key: nameKey(trimmed), setAt: Date.now() };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch(e){}
