@@ -367,6 +367,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         </select>
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">Saved for a later phase. Nothing cancels automatically yet.</div>
       </div>
+      <div class="fg" id="iv-rsvp-me-fg" style="margin-top:14px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="iv-rsvp-me" style="width:18px;height:18px;">
+          <span style="font-size:14px;font-weight:600;">RSVP me to this game</span>
+        </label>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Adds you to your own game as confirmed when you create it.</div>
+      </div>
       <div class="fg" style="margin-top:14px;">
         <label style="display:flex;align-items:center;gap:10px;cursor:not-allowed;opacity:0.6;">
           <input type="checkbox" id="iv-counts-rankings" disabled style="width:18px;height:18px;">
@@ -2347,6 +2354,8 @@ function startNewInvite(){
       if($('iv-game-format')) $('iv-game-format').value = '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = '';
       if($('iv-counts-rankings')) $('iv-counts-rankings').checked = false;
+      if($('iv-rsvp-me')) $('iv-rsvp-me').checked = true;
+      if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = '';
       $('iv-rec').checked = false;
       toggleRecurring();
       $('iv-elig-mode').value = 'open';
@@ -2396,6 +2405,9 @@ function startEditInvite(id){
       if($('iv-game-format')) $('iv-game-format').value = inviteGameType.format || '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = (inviteCancelDeadlineOffsetMins == null) ? '' : String(inviteCancelDeadlineOffsetMins);
       if($('iv-counts-rankings')) $('iv-counts-rankings').checked = !!inviteCountsTowardRankings;
+      // Auto-RSVP is a create-time action only; hide and uncheck on edit.
+      if($('iv-rsvp-me')) $('iv-rsvp-me').checked = false;
+      if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = 'none';
       $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
       toggleRecurring();
       const e = i.eligibility || {};
@@ -2784,6 +2796,12 @@ async function saveInvite(){
   const startDate = new Date(base.date+'T12:00:00');
   const updates = {};
   let firstId = null;
+  // Host auto-RSVP (create-path only): read the checkbox and identity once. When
+  // checked with a valid identity, each occurrence embeds the host as a confirmed
+  // RSVP at build time (atomic, no second write). The Phase B eligibility gate is
+  // bypassed by design here: this is the host's explicit choice on their own game.
+  const rsvpMe = $('iv-rsvp-me') && $('iv-rsvp-me').checked;
+  const me = window.Identity ? Identity.getCurrent() : null;
   for(let n=0; n<occurrences; n++){
     const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
     const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -2806,7 +2824,11 @@ async function saveInvite(){
       status: 'open',
       recurringGroupId,
       createdAt: Date.now(),
-      rsvps: {}
+      // Embedded host auto-RSVP when checked + valid identity; otherwise empty.
+      // Shape matches optInInvite exactly: { name, status, position, respondedAt }.
+      rsvps: (rsvpMe && me && me.key)
+        ? { [me.key]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now() } }
+        : {}
     };
     updates['tally_kotb_pickup/invites/'+id] = rec;
   }
