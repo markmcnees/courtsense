@@ -126,6 +126,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .rpill{padding:9px 16px;border-radius:24px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;cursor:pointer;min-height:44px;color:var(--gray);}
 .rpill.on{background:var(--primary);border-color:var(--primary);color:#fff;}
 .rpill.done{background:var(--sand);border-color:var(--sand-border);color:var(--win);}
+.rpill:disabled{opacity:.45;cursor:not-allowed;}
 .matchup{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:14px;}
 .tname{font-weight:700;font-size:15px;line-height:1.2;}
 .tname.right{text-align:right;}
@@ -2044,6 +2045,9 @@ let activeInvite = null;
 let inviteEditId = null;
 let inviteIncSelected = new Set();
 let inviteExcSelected = new Set();
+// Phase C: games-list filter. false = show all games (default, opt-in). true =
+// only games the current player is eligible to join. Effective only with an identity.
+let _pickupEligibleOnly = false;
 
 // A1 pickup data-model fields. Held in module state between form-open and save,
 // mirroring inviteIncSelected/inviteExcSelected. No A1 UI populates these yet
@@ -2280,8 +2284,27 @@ function renderInviteList(){
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = me ? me.key : null;
 
-  let h = `<div class="ctitle"><span class="bar"></span>Upcoming Pickups (${upcoming.length})</div>`;
-  h += upcoming.map(i => {
+  // Phase C filter: "I can join" shows only games the current player is eligible
+  // for. Reads activeEligibleNames (never modifies it). Effective only with an
+  // identity; default is all games (opt-in, never hides by default).
+  const filterOn = _pickupEligibleOnly && !!myKey;
+  const shown = filterOn
+    ? upcoming.filter(i => activeEligibleNames(i, now).some(n => Identity.nameKey(n) === myKey))
+    : upcoming;
+
+  const dis = myKey ? '' : 'disabled';
+  const toggle = `<div class="round-pills" style="margin-bottom:12px;">
+      <button type="button" class="rpill ${filterOn?'':'on'}" ${dis} onclick="setPickupFilter(false)">All games</button>
+      <button type="button" class="rpill ${filterOn?'on':''}" ${dis} onclick="setPickupFilter(true)">I can join</button>
+    </div>${myKey ? '' : '<div class="evmeta" style="margin:-4px 0 12px;color:var(--gray);">Pick your name to filter to games you can join.</div>'}`;
+
+  let h = `<div class="ctitle"><span class="bar"></span>Upcoming Pickups (${shown.length})</div>` + toggle;
+  if(!shown.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No games open to you right now.</div>';
+    cont.innerHTML = h;
+    return;
+  }
+  h += shown.map(i => {
     const rsvps = i.rsvps || {};
     const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
     const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
@@ -2303,6 +2326,16 @@ function renderInviteList(){
     </div>`;
   }).join('');
   cont.innerHTML = h;
+}
+
+// Phase C: flip the games-list filter and re-render. Guards the no-identity case
+// (cannot filter to eligible without a key) as defense in depth beyond the
+// disabled pills.
+function setPickupFilter(on){
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(on && !(me && me.key)) return;
+  _pickupEligibleOnly = !!on;
+  renderInviteList();
 }
 
 // SETUP / EDIT
