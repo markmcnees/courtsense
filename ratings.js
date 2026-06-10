@@ -23,6 +23,14 @@
   const TAU = 0.5;
   const SCALE = 173.7178;
 
+  // Per-game rating-change cap (magnitude, in rating points). A player's rating
+  // moves at most CAP_DEFAULT per game, or CAP_SEEDED per game if they carry a
+  // TruVolley seed (seededFromTruVolley present on their state). Compute the game
+  // normally, then clamp the final post-margin delta before committing.
+  const CAP_DEFAULT = 10;
+  const CAP_SEEDED = 5;
+  function capFor(rec){ return (rec && rec.seededFromTruVolley != null) ? CAP_SEEDED : CAP_DEFAULT; }
+
   function nameKey(name){
     return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
   }
@@ -175,20 +183,30 @@
         );
         const baseDelta = upd.rating - me.rating;
         const scaledDelta = baseDelta * mult;
-        const newRating = me.rating + scaledDelta;
         const newRD = upd.rd;
         const newVol = upd.volatility;
+
+        // Per-game cap: clamp the final post-margin delta to ±capFor(me). RD and
+        // volatility are NOT clamped (they update as the engine computes). We
+        // recompute the new rating from the clamped delta so that
+        // ratingAfter - ratingBefore === ratingChange stays exact, which also
+        // keeps reverseGame (subtracts ratingChange) correct.
+        const cap = capFor(me);
+        let clampedDelta = scaledDelta;
+        if (clampedDelta >  cap) clampedDelta =  cap;
+        if (clampedDelta < -cap) clampedDelta = -cap;
+        const newRatingClamped = me.rating + clampedDelta;
 
         const rec = states[n].ref;
         const ratingBefore = rec.rating;
         const rdBefore = rec.rd;
 
-        rec.rating = newRating;
+        rec.rating = newRatingClamped;
         rec.rd = newRD;
         rec.volatility = newVol;
         rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
-        if(newRating > (rec.peakRating||0)){
-          rec.peakRating = newRating;
+        if(newRatingClamped > (rec.peakRating||0)){
+          rec.peakRating = newRatingClamped;
           rec.peakRatingDate = ts;
         }
         rec.lastUpdated = ts;
@@ -205,7 +223,7 @@
             opponent2: oppNames[1] || null,
             score: won ? winnerScore : loserScore,
             opponentScore: won ? loserScore : winnerScore,
-            ratingBefore, ratingAfter: newRating, ratingChange: scaledDelta,
+            ratingBefore, ratingAfter: newRatingClamped, ratingChange: clampedDelta,
             rdBefore, rdAfter: newRD,
             won: !!won
           }
@@ -246,7 +264,10 @@
           gamesPlayed: cur.gamesPlayed || 0,
           peakRating: cur.peakRating ?? DEFAULT_RATING,
           peakRatingDate: cur.peakRatingDate || null,
-          lastUpdated: cur.lastUpdated || null
+          lastUpdated: cur.lastUpdated || null,
+          // Carry the TruVolley seed flag so capFor() applies the 5-point cap to
+          // seeded players in LIVE scoring, not just in offline re-rate runs.
+          seededFromTruVolley: cur.seededFromTruVolley ?? null
         };
       } else {
         ratingsByKey[k] = newPlayerState(n);
