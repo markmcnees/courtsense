@@ -164,6 +164,21 @@ h2 .accent{color:var(--gold);}
   color:var(--white);
   box-shadow:none;
 }
+/* Teal Community-pillar tour button. Scoped to .hero-cta.hero-cta-tour so the
+   gold Sign up (.hero-cta) and outlined Log in (.hero-cta-secondary) are unaffected.
+   Inherits .hero-cta size/shape; overrides color + centers the label. */
+.hero-cta.hero-cta-tour{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  background:var(--teal);
+  color:var(--white);
+}
+.hero-cta.hero-cta-tour:hover{
+  background:var(--teal-deep);
+  color:var(--white);
+}
 
 /* PROMISE (three beats) */
 .promise{background:var(--sand);}
@@ -356,6 +371,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.5;padding-top:12px;}
     <div class="hero-actions">
       <a class="hero-cta" href="/community/signup/">Sign up</a>
       <a class="hero-cta hero-cta-secondary" href="/community/dashboard/">Log in</a>
+      <a class="hero-cta hero-cta-tour" href="/community/tour/">Take Self-Guided Tour</a>
     </div>
   </div>
 </section>
