@@ -176,6 +176,15 @@ body{
   justify-content:center;
   flex-wrap:wrap;
 }
+/* Center the label both ways inside the two hero CTA buttons (scoped to .cta-row
+   so other uses of .btn-primary/.btn-outline-light are unaffected). */
+.cta-row .btn-primary,
+.cta-row .btn-outline-light{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
 .btn-primary{
   font-family:'Bebas Neue',sans-serif;
   font-size:15px;
