@@ -521,6 +521,27 @@ select.inp{
   transform:translateY(-1px);
 }
 .btn-secondary:active{transform:translateY(0);}
+/* Light outlined secondary, for use on the dark navy hero (matches .btn-secondary size/shape) */
+.btn-outline-light{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;
+  letter-spacing:2px;
+  padding:11px 26px;
+  border-radius:24px;
+  background:transparent;
+  color:#fff;
+  border:2px solid #fff;
+  text-decoration:none;
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+.btn-outline-light:hover{
+  background:#fff;
+  color:var(--navy-deep);
+  transform:translateY(-1px);
+}
+.btn-outline-light:active{transform:translateY(0);}
 
 /* FOOTER */
 footer{
@@ -567,7 +588,7 @@ footer{
   .brand-swatch{width:44px;height:44px;border-width:2.5px;box-shadow:0 4px 12px rgba(15,35,71,0.16);}
   .demo-cta{padding:28px 20px 30px;}
   .demo-cta-line{font-size:14.5px;}
-  .btn-secondary{padding:10px 22px;font-size:13px;letter-spacing:1.8px;}
+  .btn-secondary,.btn-outline-light{padding:10px 22px;font-size:13px;letter-spacing:1.8px;}
 }
 @media (max-width:420px){
   .hdr-wordmark{display:none;}
@@ -593,7 +614,7 @@ footer{
     <p>Built for high school and college beach volleyball programs. Beta-tested in 2026, launching for the 2027 season.</p>
     <div class="cta-row">
       <a href="#notify" class="btn-primary">Get Notified of the Next Demo</a>
-      <a href="/teams/tour/" class="btn-secondary">Take Self-Guided Tour</a>
+      <a href="/teams/tour/" class="btn-outline-light">Take Self-Guided Tour</a>
     </div>
   </div>
 </section>
