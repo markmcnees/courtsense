@@ -229,9 +229,9 @@ a{color:inherit;}
 </div>
 
 <header class="hero">
-  <div class="eyebrow">A SELF-GUIDED TOUR · BEACH &amp; GRASS VOLLEYBALL</div>
-  <h1>Run your whole league in <span class="alt">one place.</span></h1>
-  <p class="sub">CourtSense gives you everything to run a season, scheduling, scoring, standings, and ratings, with public pages your players actually want. Built for Parks &amp; Rec, college clubs, and travel programs alike.</p>
+  <div class="eyebrow" id="heroEyebrow">A SELF-GUIDED TOUR · BEACH &amp; GRASS VOLLEYBALL</div>
+  <h1 id="heroH1">Run your whole <span id="heroWord">program</span> in <span class="alt">one place.</span></h1>
+  <p class="sub" id="heroSub">CourtSense gives you everything to run your program, scheduling, scoring, standings, and ratings, with public pages your players actually want. Built for Parks &amp; Rec leagues, college clubs, and travel programs alike.</p>
   <p class="tag">Built for the sand, not the spreadsheet.</p>
   <div class="pills" id="trackpills">
     <button class="trackpill t2" data-track="city">City League</button>
@@ -890,6 +890,34 @@ a{color:inherit;}
   var btns = document.querySelectorAll('.trackpill');
   var panels = document.querySelectorAll('.tabpanel');
 
+  // Per-track hero copy. Neutral state used on load and when cleared.
+  var HERO = {
+    neutral: {
+      word: 'program',
+      sub: 'CourtSense gives you everything to run your program, scheduling, scoring, standings, and ratings, with public pages your players actually want. Built for Parks &amp; Rec leagues, college clubs, and travel programs alike.'
+    },
+    city: {
+      word: 'league',
+      sub: 'CourtSense gives you everything to run a season, scheduling, scoring, standings, and ratings, with public pages your players actually want. Built for Parks &amp; Rec directors running multiple leagues at once.'
+    },
+    college: {
+      word: 'club',
+      sub: 'CourtSense gives you everything to run your club, roster and tryouts, partner finding, comms, and ratings, with public pages your players actually want. Built for student-run beach and grass clubs.'
+    },
+    travel: {
+      word: 'club',
+      sub: 'CourtSense gives you everything to run your club, lesson scheduling, parent comms, payment tracking, and ratings, with public pages your players actually want. Built for travel clubs and coaching programs.'
+    }
+  };
+
+  function setHero(key){
+    var h = HERO[key] || HERO.neutral;
+    var w = document.getElementById('heroWord');
+    var s = document.getElementById('heroSub');
+    if(w) w.textContent = h.word;
+    if(s) s.innerHTML = h.sub;
+  }
+
   function clearActive(){
     btns.forEach(function(b){ b.classList.remove('active'); });
     panels.forEach(function(p){ p.classList.remove('active'); });
@@ -901,10 +929,15 @@ a{color:inherit;}
     var panel = document.getElementById('track-'+name);
     if(btn) btn.classList.add('active');
     if(panel) panel.classList.add('active');
-    // panel must be visible before measuring, then scroll its top into view
+    setHero(name);
+    // panel must be visible before measuring, then scroll its top into view,
+    // offsetting for the sticky logo bar so the track intro is not hidden behind it
     if(panel){
       requestAnimationFrame(function(){
-        var y = panel.getBoundingClientRect().top + window.pageYOffset - 14;
+        var bar = document.querySelector('.topbar');
+        var barH = bar ? bar.getBoundingClientRect().height : 0;
+        var y = panel.getBoundingClientRect().top + window.pageYOffset - barH - 16;
+        if(y < 0) y = 0;
         window.scrollTo({ top: y, behavior: 'smooth' });
       });
     }
@@ -912,6 +945,7 @@ a{color:inherit;}
 
   window.showChooser = function(){
     clearActive();
+    setHero('neutral');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
