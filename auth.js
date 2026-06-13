@@ -160,6 +160,7 @@
         <div class="cs-auth-view" id="cs-auth-view-register">
           <input type="email" class="cs-auth-input" id="cs-auth-reg-email" placeholder="Email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false">
           <input type="password" class="cs-auth-input" id="cs-auth-reg-pw" placeholder="Password (at least 8 characters)" autocomplete="new-password">
+          <input type="password" class="cs-auth-input" id="cs-auth-reg-pw2" placeholder="Confirm password" autocomplete="new-password">
           <input type="text" class="cs-auth-input" id="cs-auth-reg-name" placeholder="Display name" autocomplete="nickname" maxlength="40">
           <label class="cs-auth-keep"><input type="checkbox" id="cs-auth-reg-keep" checked> Keep me signed in on this device</label>
           <div class="cs-auth-err" id="cs-auth-reg-err"></div>
@@ -182,7 +183,7 @@
 
     // Register view wiring
     overlay.querySelector('#cs-auth-reg-go').addEventListener('click', handleRegisterClick);
-    ['#cs-auth-reg-email','#cs-auth-reg-pw','#cs-auth-reg-name'].forEach(sel => {
+    ['#cs-auth-reg-email','#cs-auth-reg-pw','#cs-auth-reg-pw2','#cs-auth-reg-name'].forEach(sel => {
       overlay.querySelector(sel).addEventListener('keydown', e => {
         if(e.key === 'Enter') handleRegisterClick();
       });
@@ -283,12 +284,17 @@
   async function handleRegisterClick(){
     const emailEl = document.getElementById('cs-auth-reg-email');
     const pwEl    = document.getElementById('cs-auth-reg-pw');
+    const pw2El   = document.getElementById('cs-auth-reg-pw2');
     const nameEl  = document.getElementById('cs-auth-reg-name');
     const keepEl  = document.getElementById('cs-auth-reg-keep');
     const errEl   = document.getElementById('cs-auth-reg-err');
     const btnEl   = document.getElementById('cs-auth-reg-go');
     if(!emailEl || !pwEl || !nameEl || !errEl || !btnEl) return;
     errEl.textContent = '';
+    if(pw2El && pwEl.value !== pw2El.value){
+      errEl.textContent = 'Passwords do not match';
+      return;
+    }
     btnEl.disabled = true;
     btnEl.textContent = 'Creating account...';
     try {
@@ -309,6 +315,7 @@
       }
       // createPlayer wrote the session and fired onLogin; just close the overlay.
       pwEl.value = '';
+      if(pw2El) pw2El.value = '';
       nameEl.value = '';
       hideLogin();
     } finally {
@@ -384,6 +391,7 @@
     });
     const pw  = document.getElementById('cs-auth-pw');      if(pw)  pw.value = '';
     const rpw = document.getElementById('cs-auth-reg-pw');  if(rpw) rpw.value = '';
+    const rpw2 = document.getElementById('cs-auth-reg-pw2'); if(rpw2) rpw2.value = '';
     const keep  = document.getElementById('cs-auth-keep');     if(keep)  keep.checked = true;
     const rkeep = document.getElementById('cs-auth-reg-keep'); if(rkeep) rkeep.checked = true;
   }

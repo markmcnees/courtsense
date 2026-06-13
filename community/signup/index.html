@@ -118,6 +118,15 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
     </div>
 
     <div class="fg">
+      <label class="lbl" for="f-password2">Confirm Password <span class="req">*</span></label>
+      <div class="pw-wrap">
+        <input class="inp" id="f-password2" type="password" autocomplete="new-password" required minlength="8" placeholder="Re-enter your password" style="padding-right:64px;">
+        <button type="button" class="pw-toggle" id="pw-toggle2" onclick="togglePw2()" aria-label="Show password">Show</button>
+      </div>
+      <div class="fld-err" id="err-password2"></div>
+    </div>
+
+    <div class="fg">
       <label class="lbl" for="f-displayName">Display name <span class="req">*</span></label>
       <input class="inp" id="f-displayName" type="text" autocomplete="name" required maxlength="40" placeholder="First and last">
       <div class="help">This is the name other players see. Letters, numbers, spaces. 40 characters max.</div>
@@ -207,13 +216,26 @@ function setFieldErr(field, msg){
   }
 }
 function clearFieldErrs(){
-  ['email','password','displayName','city','skillLevel'].forEach(f => setFieldErr(f, ''));
+  ['email','password','password2','displayName','city','skillLevel'].forEach(f => setFieldErr(f, ''));
   $('form-err').textContent = '';
 }
 
 function togglePw(){
   const inp = $('f-password');
   const btn = $('pw-toggle');
+  if(inp.type === 'password'){
+    inp.type = 'text';
+    btn.textContent = 'Hide';
+    btn.setAttribute('aria-label', 'Hide password');
+  } else {
+    inp.type = 'password';
+    btn.textContent = 'Show';
+    btn.setAttribute('aria-label', 'Show password');
+  }
+}
+function togglePw2(){
+  const inp = $('f-password2');
+  const btn = $('pw-toggle2');
   if(inp.type === 'password'){
     inp.type = 'text';
     btn.textContent = 'Hide';
@@ -250,8 +272,10 @@ function validate(){
   else if(!/^\S+@\S+\.\S+$/.test(email)){ setFieldErr('email', "That email doesn't look right."); ok = false; if(!firstBad) firstBad = 'f-email'; }
 
   const pw = $('f-password').value;
+  const pw2 = $('f-password2').value;
   if(!pw){ setFieldErr('password', 'Password is required.'); ok = false; if(!firstBad) firstBad = 'f-password'; }
   else if(pw.length < 8){ setFieldErr('password', 'Password must be at least 8 characters.'); ok = false; if(!firstBad) firstBad = 'f-password'; }
+  else if(pw2 !== pw){ setFieldErr('password2', 'Passwords do not match.'); ok = false; if(!firstBad) firstBad = 'f-password2'; }
 
   const dn = $('f-displayName').value.trim();
   if(!dn){ setFieldErr('displayName', 'Display name is required.'); ok = false; if(!firstBad) firstBad = 'f-displayName'; }
