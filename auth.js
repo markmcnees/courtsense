@@ -42,6 +42,9 @@
   const BCRYPT_URL = 'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js';
   const LOGO_URL = '/logo.png';
   const ADMIN_MAIL = 'mailto:mark@markmcnees.com';
+  // Cloudflare worker that verifies passwords server-side, so the client never
+  // reads passwordHash from the roster. See courtsense-email-worker /auth/verify.
+  const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 
   let _db = null;
   let _rosterPath = '';
@@ -219,74 +222,36 @@
     return key;
   }
 
-  async function populatePlayerSelect(){
-    const sel = document.getElementById('cs-auth-player');
-    if(!sel) return;
-    const cur = sel.value;
-    try {
-      const snap = await _db.ref(_rosterPath).once('value');
-      const players = snap.val() || {};
-      const list = Object.entries(players)
-        .filter(([, p]) => p && p.passwordHash && !p.blocked)
-        .map(([id, p]) => ({ id, name: displayNameOf(p, id), lastName: lastNameOf(p) }))
-        .sort((a, b) => (a.lastName || '').localeCompare(b.lastName || '') || a.name.localeCompare(b.name));
-      sel.innerHTML = '<option value="">— Choose Player —</option>' +
-        list.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-      if(cur) sel.value = cur;
-    } catch(e) {
-      console.error('CourtSenseAuth: failed to load roster', e);
-    }
-  }
-
   async function attemptLogin(email, password){
     if(!email) return { success: false, error: 'Enter your email' };
     if(!password) return { success: false, error: 'Enter your password' };
-    const target = String(email).trim().toLowerCase();
 
-    let roster;
+    // Password verification happens server-side in the worker so the client never
+    // reads passwordHash. The worker returns { ok:true, player } (player.id set,
+    // passwordHash stripped) or { ok:false, code, error } with a generic message.
+    let res;
     try {
-      const snap = await _db.ref(_rosterPath).once('value');
-      roster = snap.val() || {};
+      const r = await fetch(AUTH_WORKER + '/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rosterPath: _rosterPath,
+          email: String(email).trim().toLowerCase(),
+          password: password
+        })
+      });
+      res = await r.json();
     } catch(e) {
-      console.error(e);
+      console.error('CourtSenseAuth verify failed', e);
       return { success: false, error: 'Network error. Try again.' };
     }
 
-    // v1 limitation: if two records share an email, the first match wins.
-    let playerId = null, player = null;
-    for(const id in roster){
-      const p = roster[id];
-      if(!p) continue;
-      // Match on the top-level email OR the pre-created record's emails.primary
-      // (activation reconciles these by writing a top-level email, but older
-      // pre-created rows may still only carry emails.primary). Both lowercased.
-      const e1 = typeof p.email === 'string' ? p.email.toLowerCase() : null;
-      const e2 = (p.emails && typeof p.emails.primary === 'string') ? p.emails.primary.toLowerCase() : null;
-      if((e1 && e1 === target) || (e2 && e2 === target)){
-        playerId = id;
-        player = p;
-        break;
-      }
-    }
-    if(!player){
-      return { success: false, error: 'No account found for that email. New here? Create an account.' };
-    }
-    if(!player.passwordHash){
-      return { success: false, error: 'No password set. Contact admin.' };
+    if(!res || res.ok !== true){
+      return { success: false, error: (res && res.error) || 'Login failed' };
     }
 
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); }
-    catch(e) { console.error(e); return { success: false, error: 'Could not load login. Refresh and try again.' }; }
-
-    let ok = false;
-    try { ok = bcrypt.compareSync(password, player.passwordHash); }
-    catch(e) { console.error(e); return { success: false, error: 'Login failed. Try again.' }; }
-    if(!ok) return { success: false, error: 'Incorrect password' };
-
-    _currentPlayer = Object.assign({ id: playerId }, player);
-    delete _currentPlayer.passwordHash;
-    return { success: true, player: _currentPlayer, playerId: playerId };
+    _currentPlayer = res.player;
+    return { success: true, player: _currentPlayer, playerId: res.player.id };
   }
 
   async function handleLoginClick(){
@@ -394,7 +359,7 @@
     try {
       const snap = await _db.ref(_rosterPath + '/' + parsed.playerId).once('value');
       const player = snap.val();
-      if(!player || !player.passwordHash || player.blocked){
+      if(!player || player.blocked){
         try { localStorage.removeItem(SS_KEY); } catch(e){}
         try { sessionStorage.removeItem(SS_KEY); } catch(e){}
         return null;
@@ -441,41 +406,51 @@
   async function changePassword(oldPw, newPw){
     if(!_currentPlayer) return { ok:false, code:'no_account' };
     if(!oldPw) return { ok:false, code:'wrong_password' };
-    if(!newPw || newPw.length < 6) return { ok:false, code:'failed' };
+    if(!newPw || newPw.length < 8) return { ok:false, code:'failed' };
     if(newPw === oldPw) return { ok:false, code:'same_password' };
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); } catch(e) { return { ok:false, code:'failed' }; }
-    let player;
-    try {
-      const snap = await _db.ref(_rosterPath + '/' + _currentPlayer.id).once('value');
-      player = snap.val();
-    } catch(e) { return { ok:false, code:'failed' }; }
-    if(!player || !player.passwordHash) return { ok:false, code:'no_account' };
-    let verified = false;
-    try { verified = bcrypt.compareSync(oldPw, player.passwordHash); } catch(e) { return { ok:false, code:'failed' }; }
-    if(!verified) return { ok:false, code:'wrong_password' };
-    let newHash;
-    try { newHash = bcrypt.hashSync(newPw, 10); } catch(e) { return { ok:false, code:'failed' }; }
 
-    const now = Date.now();
-    const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
-    const updates = {};
-    updates[_rosterPath + '/' + _currentPlayer.id + '/passwordHash'] = newHash;
-    updates[_rosterPath + '/' + _currentPlayer.id + '/updatedAt'] = now;
-    updates['tally_kotb_pickup/email_queue/' + eid] = {
-      type: 'password_changed',
-      to: player.email || null,
-      data: {
-        player_name: player.name || null,
-        player_email: player.email || null,
-        changed_at_iso: new Date(now).toISOString()
-      },
-      relatedRegistration: null,
-      status: 'queued',
-      createdAt: now
-    };
-    try { await _db.ref().update(updates); }
-    catch(e) { return { ok:false, code:'failed' }; }
+    const email = _currentPlayer.email || (_currentPlayer.emails && _currentPlayer.emails.primary) || '';
+
+    // Verify the old password and write the new hash server-side. The worker
+    // writes only to the locked-down credentials node; the client never touches
+    // passwordHash.
+    let res;
+    try {
+      const r = await fetch(AUTH_WORKER + '/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: _rosterPath, email: email, oldPassword: oldPw, newPassword: newPw })
+      });
+      res = await r.json();
+    } catch(e) {
+      console.error('CourtSenseAuth changePassword failed', e);
+      return { ok:false, code:'failed' };
+    }
+    if(!res || res.ok !== true){
+      // Map worker codes onto the codes the UI already understands.
+      return { ok:false, code: (res && res.code === 'invalid') ? 'wrong_password' : 'failed' };
+    }
+
+    // Queue the password_changed notification (the worker only writes the hash).
+    // Best-effort: the password change already succeeded if we reached here.
+    try {
+      const now = Date.now();
+      const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
+      await _db.ref('tally_kotb_pickup/email_queue/' + eid).set({
+        type: 'password_changed',
+        to: email || null,
+        data: {
+          player_name: _currentPlayer.name || null,
+          player_email: email || null,
+          changed_at_iso: new Date(now).toISOString()
+        },
+        relatedRegistration: null,
+        status: 'queued',
+        createdAt: now
+      });
+    } catch(e) {
+      console.warn('CourtSenseAuth changePassword: notification enqueue failed', e);
+    }
     return { ok:true };
   }
 
@@ -554,26 +529,13 @@
     // still succeeds when the league roster is unreachable.
     const leagueMatch = await findLeagueMatch(displayName);
 
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); }
-    catch(e){
-      console.error('CourtSenseAuth.createPlayer: bcrypt load failed', e);
-      return { ok:false, error:'Could not load signup. Refresh and try again.' };
-    }
-
-    let passwordHash;
-    try { passwordHash = bcrypt.hashSync(password, 10); }
-    catch(e){
-      console.error('CourtSenseAuth.createPlayer: hash failed', e);
-      return { ok:false, error:'Signup failed. Try again.' };
-    }
-
     const now = Date.now();
     const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
     const emailLower = email.toLowerCase();
+    // No passwordHash here: the password is set server-side via /auth/register
+    // below, which writes the hash to the locked-down credentials node.
     const playerRecord = {
       email: emailLower,
-      passwordHash: passwordHash,
       displayName: displayName,
       name: displayName, // legacy field used by the login picker (auth.js displayNameOf)
       city: city,
@@ -604,13 +566,38 @@
       return { ok:false, error:'Could not create account. Try again.' };
     }
 
+    // Set the password server-side: the worker hashes it and writes to the
+    // locked-down credentials node, so the hash is never written from the client.
+    let regOk = false;
+    try {
+      const rr = await fetch(AUTH_WORKER + '/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: _rosterPath, playerId: playerKey, password: password })
+      });
+      const reg = await rr.json();
+      regOk = !!(reg && reg.ok === true);
+    } catch(e){
+      console.error('CourtSenseAuth.createPlayer: register failed', e);
+    }
+    if(!regOk){
+      // Clean undo: remove the just-written record AND its welcome email so a
+      // retry sees no existing account/email and proceeds cleanly.
+      try {
+        const undo = {};
+        undo[_rosterPath + '/' + playerKey] = null;
+        undo['tally_kotb_pickup/email_queue/' + eid] = null;
+        await _db.ref().update(undo);
+      } catch(e){ console.warn('CourtSenseAuth.createPlayer: undo failed', e); }
+      return { ok:false, error:'Could not finish creating your account. Please try again.', code:'REGISTER_FAILED' };
+    }
+
     // Set session so the new account is immediately logged in. keepSignedIn
     // defaults to false to preserve prior behavior for callers that omit it;
     // the in-overlay register flow passes the checkbox value explicitly.
     persistSession(playerKey, !!o.keepSignedIn);
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
-    delete _currentPlayer.passwordHash;
 
     if(typeof _onLogin === 'function'){
       try { _onLogin(_currentPlayer); }
