@@ -1,1 +1,9 @@
 node_modules/
+scripts/recon-report.json
+scripts/precreate-staged.json
+*courtsense_population_locked*.csv
+scripts/activation-links.csv
+scripts/activation-links.json
+scripts/pre-execute-snapshot_*.json
+scripts/firebase-rules-backup_*.json
+scripts/firebase-rules-proposed.json
