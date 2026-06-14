@@ -89,7 +89,7 @@ tr.blocked td{background:#fef2f2;}
 
   <div class="card">
     <h2>Pending Registrations (<span id="pending-count">0</span>)</h2>
-    <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Public submissions from <a href="/kotb-pickup/join" target="_blank" rel="noopener" style="color:var(--primary);">/kotb-pickup/join</a>. Approve to create their player + rating record. Reject to dismiss.</p>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Public submissions from <a href="/pickup/join" target="_blank" rel="noopener" style="color:var(--primary);">/pickup/join</a>. Approve to create their player + rating record. Reject to dismiss.</p>
     <div id="pending-list"></div>
   </div>
 
@@ -707,7 +707,7 @@ async function doGenerateInvite(){
   const payload = { name, createdBy: 'mark', createdAt: Date.now(), used: false, usedAt: null, usedBy: null };
   try {
     await db.ref(INVITES_ROOT+'/'+code).set(payload);
-    const url = BASE_URL + '/kotb-pickup/join?invite=' + code;
+    const url = BASE_URL + '/pickup/join?invite=' + code;
     closeModal('invite-modal');
     $('invite-result-name').textContent = name;
     $('invite-result-url').textContent = url;

@@ -624,7 +624,7 @@
     _rosterPath = opts.rosterPath;
     _onLogin = typeof opts.onLogin === 'function' ? opts.onLogin : null;
     _onLogout = typeof opts.onLogout === 'function' ? opts.onLogout : null;
-    // autoShowLogin defaults to true (gating apps like kotb-pickup). Browse
+    // autoShowLogin defaults to true (gating apps like pickup). Browse
     // surfaces like /community pass false so the page stays public unless
     // the user explicitly opens the login overlay.
     const autoShow = opts.autoShowLogin !== false;

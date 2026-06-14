@@ -1,0 +1,3375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>KotB Pickup</title>
+<meta name="description" content="Beach volleyball pickup tournaments and ratings. Run by CourtSense.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="CourtSense Pickup">
+<meta property="og:description" content="Beach volleyball, organized. Run a league, manage a team, find a pickup game.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/pickup">
+<meta property="og:site_name" content="CourtSense">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CourtSense Pickup">
+<meta name="twitter:description" content="Beach volleyball, organized. Run a league, manage a team, find a pickup game.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/ratings.js"></script>
+<script src="/identity.js"></script>
+<script src="/auth.js"></script>
+<style>
+:root{
+  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
+  --primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--light:#e8f0fb;
+  --win:#059669;--loss:#dc2626;
+  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--black:#111827;
+  --shadow:0 2px 12px rgba(0,0,0,0.08);--shadow-lg:0 8px 32px rgba(0,0,0,0.14);--radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--sand);font-family:'Barlow',sans-serif;color:var(--black);}
+
+.hdr{background:linear-gradient(150deg,var(--dark) 0%,var(--primary) 100%);padding:14px 16px 0;box-shadow:0 4px 20px rgba(0,0,0,0.25);position:relative;z-index:50;}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+.brand{font-family:'Bebas Neue';font-size:20px;letter-spacing:3px;color:var(--accent);display:flex;align-items:center;gap:8px;cursor:pointer;}
+.event-title{font-size:14px;color:#fff;letter-spacing:1px;font-family:'Bebas Neue';opacity:.9;}
+.sync{width:8px;height:8px;border-radius:50%;}
+.sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:blink 2s infinite;}
+.sync.off{background:#ef4444;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+.tabs{display:flex;gap:1px;overflow-x:auto;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{flex:1;padding:11px 4px 10px;text-align:center;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;color:rgba(255,255,255,.5);cursor:pointer;border-radius:8px 8px 0 0;border:none;background:transparent;white-space:nowrap;min-width:60px;}
+.tab.on{background:var(--sand);color:var(--primary);}
+
+.content{padding:14px 12px;max-width:600px;margin:0 auto;}
+.pane{display:none;}.pane.on{display:block;}
+.epane{display:none;}.epane.on{display:block;}
+
+.card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);}
+.ctitle{font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--primary);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.ctitle .bar{width:3px;height:16px;border-radius:2px;background:var(--primary);}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 20px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;transition:all .15s;min-height:48px;}
+.btn-p{background:var(--primary);color:#fff;}
+.btn-p:active{filter:brightness(.85);}
+.btn-a{background:var(--accent);color:#1a1a1a;}
+.btn-a:active{filter:brightness(.9);}
+.btn-g{background:transparent;border:1.5px solid var(--gray-light);color:var(--gray);}
+.btn-d{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;}
+.btn-w{width:100%;}
+.btn-sm{padding:9px 14px;font-size:12px;min-height:40px;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
+.fg{margin-bottom:10px;}
+.lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
+.inp{width:100%;padding:13px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:var(--black);background:var(--white);min-height:48px;}
+.inp:focus{outline:none;border-color:var(--primary);}
+select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+
+.evcard{background:var(--white);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-left:4px solid var(--primary);margin-bottom:10px;cursor:pointer;}
+.evcard:active{filter:brightness(.97);}
+.evcard.ar{border-left-color:var(--gray-light);opacity:.92;}
+.evname{font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--primary);}
+.evcard.ar .evname{color:var(--gray);}
+.evmeta{font-size:12px;color:var(--gray);margin-top:4px;}
+
+.tbl{width:100%;border-collapse:collapse;}
+.tbl th{font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);padding:8px 8px;text-align:left;border-bottom:2px solid var(--sand-border);cursor:pointer;white-space:nowrap;}
+.tbl th.sorted{color:var(--primary);}
+.tbl td{padding:12px 8px;border-bottom:1px solid var(--sand-border);font-size:13px;vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr.tappable{cursor:pointer;}
+.tbl tr.tappable:active td{background:var(--light);}
+.pname{font-weight:700;font-size:14px;}
+.gp{color:var(--gray);font-size:12px;}
+.win{color:var(--win);font-weight:700;}
+.loss{color:var(--loss);font-weight:700;}
+.pos{color:var(--win);font-weight:700;}
+.neg{color:var(--loss);font-weight:700;}
+.neu{color:var(--gray);}
+.rnk{font-family:'Bebas Neue';font-size:16px;min-width:22px;text-align:center;}
+.r1{color:#d4a843;}.r2{color:#9ca3af;}.r3{color:#b45309;}
+
+.pitem{display:flex;align-items:center;gap:10px;padding:13px 14px;background:var(--sand);border-radius:10px;border:1.5px solid var(--sand-border);margin-bottom:6px;}
+.pnum{font-family:'Bebas Neue';font-size:18px;color:var(--gray-light);min-width:26px;text-align:right;}
+.pname2{flex:1;font-weight:700;font-size:15px;}
+.psource{font-size:10px;color:var(--gray);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-right:4px;}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;}
+.chip{padding:8px 12px;border-radius:18px;border:1.5px solid var(--gray-light);background:var(--white);font-size:13px;font-weight:600;color:var(--black);cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:36px;}
+.chip:active{background:var(--light);}
+.chip.added{background:var(--gray-lighter);color:var(--gray);border-color:var(--gray-lighter);text-decoration:line-through;cursor:default;}
+.chip .src{font-family:'Bebas Neue';font-size:9px;letter-spacing:1px;color:var(--gray);background:var(--sand);padding:2px 6px;border-radius:6px;}
+.chip.added .src{color:var(--gray-light);background:var(--gray-lighter);}
+
+.rblock{background:var(--white);border-radius:var(--radius);padding:12px;margin-bottom:10px;box-shadow:var(--shadow);border-left:4px solid var(--primary);}
+.rtitle{font-family:'Bebas Neue';font-size:12px;letter-spacing:2px;color:var(--gray);margin-bottom:8px;}
+.crow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--sand-border);font-size:14px;}
+.crow:last-child{border-bottom:none;}
+.cbadge{font-family:'Bebas Neue';font-size:11px;background:var(--primary);color:#fff;padding:4px 9px;border-radius:4px;letter-spacing:1px;white-space:nowrap;}
+.sit{font-size:12px;color:var(--gray);margin-top:6px;font-style:italic;}
+
+.scard{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:var(--shadow);border-top:4px solid var(--primary);}
+.scard.done{border-top-color:var(--win);}
+.round-pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.rpill{padding:9px 16px;border-radius:24px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;cursor:pointer;min-height:44px;color:var(--gray);}
+.rpill.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+.rpill.done{background:var(--sand);border-color:var(--sand-border);color:var(--win);}
+.rpill:disabled{opacity:.45;cursor:not-allowed;}
+.matchup{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:14px;}
+.tname{font-weight:700;font-size:15px;line-height:1.2;}
+.tname.right{text-align:right;}
+.vs{font-family:'Bebas Neue';font-size:16px;color:var(--gray-light);text-align:center;}
+.score-grid{display:grid;grid-template-columns:1fr 40px 1fr;gap:8px;align-items:center;}
+.scol{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.scol-lbl{font-family:'Bebas Neue';font-size:11px;letter-spacing:1.5px;color:var(--gray);}
+.sbtn{width:100%;padding:14px 0;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:28px;cursor:pointer;transition:transform .08s;-webkit-user-select:none;user-select:none;touch-action:manipulation;min-height:56px;}
+.sbtn:active{transform:scale(.9);}
+.sbtn-p{background:var(--primary);color:#fff;}
+.sbtn-m{background:var(--gray-lighter);color:var(--gray);}
+.snum{font-family:'Bebas Neue';font-size:56px;line-height:1;width:100%;text-align:center;border:none;background:transparent;color:var(--black);padding:4px 0;-moz-appearance:textfield;min-height:70px;}
+.snum::-webkit-inner-spin-button,.snum::-webkit-outer-spin-button{-webkit-appearance:none;}
+.snum:focus{outline:none;background:var(--light);border-radius:8px;}
+.sdash{font-family:'Bebas Neue';font-size:28px;color:var(--gray-light);text-align:center;}
+.done-result{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:12px 0;}
+.done-score{font-family:'Bebas Neue';font-size:36px;text-align:center;line-height:1;}
+.done-name{font-weight:700;font-size:14px;line-height:1.3;}
+.done-name.right{text-align:right;}
+
+.banner{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--radius);margin-bottom:14px;box-shadow:var(--shadow);}
+.banner.complete{background:linear-gradient(135deg,#059669 0%,#047857 100%);color:#fff;}
+.banner.complete .btxt{flex:1;font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;}
+.banner.complete .bsub{font-size:12px;font-weight:400;opacity:.85;letter-spacing:.5px;display:block;margin-top:2px;font-family:'Barlow';text-transform:none;}
+
+.toolbar{display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;}
+.toolbar .btn{box-shadow:var(--shadow);}
+
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:flex-end;justify-content:center;padding:0;}
+.overlay.on{display:flex;}
+.overlay.center{align-items:center;padding:16px;}
+.modal{background:var(--white);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-width:540px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow-lg);}
+.modal.center{border-radius:20px;padding:22px 18px 22px;max-width:420px;}
+.mtitle{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--primary);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
+.mclose{background:none;border:none;font-size:22px;cursor:pointer;color:var(--gray);padding:10px 12px;margin:-10px -12px 0 0;}
+
+.empty{text-align:center;padding:40px 20px;color:var(--gray);}
+.eico{font-size:40px;margin-bottom:10px;}
+.etxt{font-size:14px;line-height:1.6;}
+.ai-load{display:flex;flex-direction:column;align-items:center;padding:28px;color:var(--gray);font-size:13px;gap:12px;}
+.spin{width:28px;height:28px;border:3px solid var(--gray-light);border-top-color:var(--primary);border-radius:50%;animation:rot .8s linear infinite;}
+@keyframes rot{to{transform:rotate(360deg);}}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:13px 24px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+
+.row-input{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand-border);}
+.row-input:last-child{border-bottom:none;}
+.row-input .lblname{flex:1;font-weight:700;font-size:14px;}
+.row-input .num-step{display:flex;align-items:center;gap:6px;}
+.num-step button{width:34px;height:34px;border-radius:8px;border:1.5px solid var(--gray-light);background:var(--white);font-size:18px;font-weight:700;cursor:pointer;color:var(--gray);}
+.num-step input{width:48px;text-align:center;padding:8px 4px;border:1.5px solid var(--gray-light);border-radius:8px;font-family:'Barlow';font-size:15px;font-weight:700;-moz-appearance:textfield;}
+.num-step input::-webkit-inner-spin-button,.num-step input::-webkit-outer-spin-button{-webkit-appearance:none;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-top">
+    <div class="brand" onclick="goHome()">
+      <span>👑</span>
+      KotB Pickup
+      <span class="sync off" id="sync" title="Connecting..."></span>
+    </div>
+    <div class="event-title" id="event-title" style="display:none;"></div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
+      <button id="logout-btn" onclick="doLogout()" title="Log Out" style="display:none;background:rgba(0,0,0,.25);border:none;color:#fff;height:36px;padding:0 12px;border-radius:18px;cursor:pointer;font-family:'Bebas Neue';font-size:12px;letter-spacing:1.2px;">Log Out</button>
+    </div>
+  </div>
+  <div class="tabs" id="hdr-tabs" style="display:none;">
+    <button class="tab" data-tab="roster">Roster</button>
+    <button class="tab on" data-tab="score">Score</button>
+    <button class="tab" data-tab="standings">Standings</button>
+    <button class="tab" data-tab="ratings">Ratings</button>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- LIST VIEW -->
+  <div class="pane" id="view-list">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn btn-a" style="flex:1;min-width:160px;" onclick="startNewInvite()">📅 Schedule a Pickup</button>
+      <button class="btn btn-g" onclick="openGroupsModal()">👥 Groups</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-g btn-w" onclick="startNewEvent()">＋ New Pickup Tournament</button>
+    </div>
+    <div id="invite-list"></div>
+    <div id="event-list"></div>
+  </div>
+
+  <!-- INVITE SETUP VIEW -->
+  <div class="pane" id="view-invite-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Schedule a Pickup</span></div>
+      <div class="fg">
+        <label class="lbl">Event Name</label>
+        <input class="inp" id="iv-name" placeholder="Saturday Pickup">
+      </div>
+      <div class="fg">
+        <label class="lbl">Date</label>
+        <input class="inp" id="iv-date" type="date">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Start</label>
+          <input class="inp" id="iv-start" type="time" value="09:00">
+        </div>
+        <div>
+          <label class="lbl">End</label>
+          <input class="inp" id="iv-end" type="time" value="11:00">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Location</label>
+        <input class="inp" id="iv-loc" placeholder="Enter location">
+      </div>
+      <div class="fg">
+        <label class="lbl">Notes (optional)</label>
+        <textarea class="inp" id="iv-desc" rows="3" placeholder="Bring water and sunscreen"></textarea>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Maximum slots</label>
+          <input class="inp" id="iv-slots" type="number" min="2" max="32" value="6" oninput="validateMinSlots()">
+        </div>
+        <div>
+          <label class="lbl">Minimum slots</label>
+          <input class="inp" id="iv-min-slots" type="number" min="1" max="32" value="4" oninput="validateMinSlots()">
+          <div id="iv-min-slots-err" style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px;min-height:14px;"></div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">RSVP Deadline</label>
+        <input class="inp" id="iv-deadline" type="datetime-local">
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Game Type</div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Vibe</label>
+          <select class="inp" id="iv-game-vibe" onchange="syncGameType()">
+            <option value="fun">Fun</option>
+            <option value="competitive">Competitive</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Format</label>
+          <select class="inp" id="iv-game-format" onchange="syncGameType()">
+            <option value="2s">2s (doubles)</option>
+            <option value="3s">3s (triples)</option>
+            <option value="4s">4s</option>
+            <option value="combo">Combo</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Recurring</div>
+      <label style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
+        <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
+        <span style="font-size:14px;font-weight:600;">Repeat this event</span>
+      </label>
+      <div id="iv-rec-fields" style="display:none;margin-top:10px;">
+        <div class="row2">
+          <div>
+            <label class="lbl">Frequency</label>
+            <select class="inp" id="iv-rec-freq">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Total occurrences</label>
+            <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Eligibility</div>
+      <div class="fg">
+        <label class="lbl">Who's invited?</label>
+        <select class="inp" id="iv-elig-mode" onchange="renderEligibilityFields()">
+          <option value="open">Open to all</option>
+          <option value="ratingMin">Rating minimum</option>
+          <option value="ratingRange">Rating range</option>
+          <option value="group">Specific group</option>
+          <option value="inviteOnly">Invite only (named list)</option>
+        </select>
+      </div>
+      <div id="iv-elig-fields"></div>
+
+      <div class="fg" style="margin-top:14px;">
+        <label class="lbl">Always invite (overrides up)</label>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
+        </div>
+        <div id="iv-inc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+      </div>
+
+      <div class="fg" style="margin-top:14px;">
+        <label class="lbl">Never invite (overrides down)</label>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <input class="inp" id="iv-exc-search" placeholder="Search players..." oninput="renderExclude()" style="flex:1;">
+        </div>
+        <div id="iv-exc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+      </div>
+
+      <div id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Widening Schedule</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it. Saved for a later phase; nothing widens automatically yet.</div>
+      <div id="iv-tiers-list"></div>
+      <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Game Options</div>
+      <div class="fg">
+        <label class="lbl">Auto-cancel if minimum not met</label>
+        <select class="inp" id="iv-cancel-offset" onchange="syncCancelOffset()">
+          <option value="">No auto-cancel</option>
+          <option value="60">1 hour before start</option>
+          <option value="120">2 hours before start</option>
+          <option value="240">4 hours before start</option>
+          <option value="480">8 hours before start</option>
+          <option value="720">12 hours before start</option>
+          <option value="1440">24 hours before start</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Saved for a later phase. Nothing cancels automatically yet.</div>
+      </div>
+      <div class="fg" id="iv-rsvp-me-fg" style="margin-top:14px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="iv-rsvp-me" style="width:18px;height:18px;">
+          <span style="font-size:14px;font-weight:600;">RSVP me to this game</span>
+        </label>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Adds you to your own game as confirmed when you create it.</div>
+      </div>
+      <div class="fg" style="margin-top:14px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:not-allowed;opacity:0.6;">
+          <input type="checkbox" id="iv-counts-rankings" disabled style="width:18px;height:18px;">
+          <span style="font-size:14px;font-weight:600;">Count this game toward player rankings</span>
+        </label>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Coming soon.</div>
+      </div>
+    </div>
+
+    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
+  </div>
+
+  <!-- INVITE DETAIL VIEW -->
+  <div class="pane" id="view-invite-detail">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div id="iv-detail-body"></div>
+  </div>
+
+  <!-- SETUP VIEW -->
+  <div class="pane" id="view-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="cancelSetup()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>New Event</div>
+      <div class="fg">
+        <label class="lbl">Event Name</label>
+        <input class="inp" id="su-name" placeholder="Pickup Saturday">
+      </div>
+      <div class="row3">
+        <div>
+          <label class="lbl">Date</label>
+          <input class="inp" id="su-date" type="date">
+        </div>
+        <div>
+          <label class="lbl">Courts</label>
+          <input class="inp" id="su-courts" type="number" min="1" max="8" value="2">
+        </div>
+        <div>
+          <label class="lbl">Win Score</label>
+          <input class="inp" id="su-score" type="number" min="11" max="25" value="15">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Games per Player</label>
+        <input class="inp" id="su-games" type="number" min="3" max="12" value="6">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Tonight's Roster <span id="su-rcnt" style="color:var(--gray);font-size:12px;font-weight:400;letter-spacing:0;margin-left:6px;">0</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input class="inp" id="su-newname" placeholder="Add a new player" onkeypress="if(event.key==='Enter')addRosterFromInput()" style="flex:1;">
+        <button class="btn btn-p" onclick="addRosterFromInput()">Add</button>
+      </div>
+      <div id="su-roster"></div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Quick Add</div>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Tap to add. Pulled from league rosters and past pickups.</p>
+      <div id="su-quick" class="chips"></div>
+    </div>
+
+    <button class="btn btn-p btn-w" id="su-generate" onclick="generateSetsFromSetup()">🤖 Generate Sets</button>
+    <p style="font-size:12px;color:var(--gray);text-align:center;margin-top:8px;">Games per player locks once you generate.</p>
+  </div>
+
+  <!-- EVENT VIEW -->
+  <div class="pane" id="view-event">
+
+    <div class="epane" id="epane-roster">
+      <div id="ev-banner-roster"></div>
+      <div class="toolbar"><button class="btn btn-d btn-sm" onclick="openEndExtend()">End / Extend Event</button></div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>Tonight's Roster <span id="ev-rcnt" style="color:var(--gray);font-size:12px;font-weight:400;letter-spacing:0;margin-left:6px;">0</span></div>
+        <div id="ev-rlist"></div>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>Add Late Player</div>
+        <p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Their game count gets pro-rated based on what's left. Unplayed rounds rebuild after the active round finishes.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input class="inp" id="ev-newname" placeholder="Player name" onkeypress="if(event.key==='Enter')addLateFromInput()" style="flex:1;">
+          <button class="btn btn-p" onclick="addLateFromInput()">Add</button>
+        </div>
+        <div id="ev-late-quick" class="chips"></div>
+      </div>
+    </div>
+
+    <div class="epane on" id="epane-score">
+      <div id="ev-banner-score"></div>
+      <div class="toolbar"><button class="btn btn-d btn-sm" onclick="openEndExtend()">End / Extend Event</button></div>
+      <div id="round-pills" class="round-pills"></div>
+      <div id="live-courts"></div>
+    </div>
+
+    <div class="epane" id="epane-standings">
+      <div id="ev-banner-standings"></div>
+      <div class="toolbar"><button class="btn btn-d btn-sm" onclick="openEndExtend()">End / Extend Event</button></div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="tbl" id="stbl">
+            <thead><tr>
+              <th style="width:28px;padding-left:14px;">#</th>
+              <th>Player</th>
+              <th data-sort="gp">GP</th>
+              <th data-sort="w">W</th>
+              <th data-sort="l">L</th>
+              <th data-sort="pct">Win%</th>
+              <th data-sort="pf">PF/PA</th>
+              <th data-sort="diff">+/-</th>
+            </tr></thead>
+            <tbody id="sbody"></tbody>
+          </table>
+        </div>
+        <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player to see their full rating breakdown.</p>
+      </div>
+    </div>
+
+    <div class="epane" id="epane-ratings">
+      <div id="ratings-header"></div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="tbl" id="rtbl">
+            <thead><tr>
+              <th style="width:28px;padding-left:14px;">#</th>
+              <th>Player</th>
+              <th data-rsort="rating">Rating</th>
+              <th data-rsort="rd">RD</th>
+              <th data-rsort="gamesPlayed">GP</th>
+            </tr></thead>
+            <tbody id="rbody"></tbody>
+          </table>
+        </div>
+        <p style="padding:10px 14px;font-size:11px;color:var(--gray);">Tap a player for full rating breakdown. Persistent across all leagues + pickups. <a href="/admin-ratings.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Ratings</a> · <a href="/admin-players.html" target="_blank" rel="noopener" style="color:var(--gray);text-decoration:underline;">Manage Players</a></p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Edit result modal -->
+<div class="overlay" id="edit-modal">
+  <div class="modal">
+    <div class="mtitle"><span>Edit Result</span><button class="mclose" onclick="closeModal('edit-modal')">✕</button></div>
+    <div id="edit-body"></div>
+    <button class="btn btn-p btn-w" style="margin-top:16px;" onclick="saveEditResult()">Save Changes</button>
+  </div>
+</div>
+
+<!-- Archive view modal -->
+<div class="overlay" id="arch-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="arch-title">Past Event</span><button class="mclose" onclick="closeModal('arch-modal')">✕</button></div>
+    <div id="arch-meta" style="font-size:13px;color:var(--gray);margin-bottom:14px;"></div>
+    <div id="arch-body"></div>
+  </div>
+</div>
+
+<!-- Player rating breakdown modal -->
+<div class="overlay" id="ph-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="ph-title">Player</span><button class="mclose" onclick="closeModal('ph-modal')">✕</button></div>
+    <div id="ph-body"></div>
+  </div>
+</div>
+
+<!-- How ratings work modal -->
+<div class="overlay center" id="how-modal">
+  <div class="modal center">
+    <div class="mtitle"><span>How Ratings Work</span><button class="mclose" onclick="closeModal('how-modal')">✕</button></div>
+    <div style="font-size:14px;line-height:1.55;color:var(--black);">
+      <p style="margin-bottom:10px;">Every player starts at <strong>1500</strong>. Win games and your rating climbs; lose games and it dips.</p>
+      <p style="margin-bottom:10px;">The number next to your rating is your <strong>RD</strong> (rating deviation). It shows how confident the system is in your rating. Lower RD means more confident.</p>
+      <p style="margin-bottom:10px;">New players have RD around 350 and move a lot in their first few games. As you play more, RD shrinks and your rating gets steadier.</p>
+      <p style="margin-bottom:10px;">Beating someone way above you is a bigger jump than beating someone at your level. Blowouts count for more than nail-biters.</p>
+      <p>One rating per name across the league app and pickup events. Subs do not earn rating changes.</p>
+    </div>
+  </div>
+</div>
+
+<!-- End/Extend modal -->
+<div class="overlay" id="ee-modal">
+  <div class="modal">
+    <div class="mtitle"><span>End or Extend</span><button class="mclose" onclick="closeModal('ee-modal')">✕</button></div>
+    <button class="btn btn-d btn-w" style="margin-bottom:18px;" onclick="confirmEndEvent()">End Event</button>
+    <div class="ctitle" style="margin-top:6px;"><span class="bar"></span>Or Extend with More Games</div>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Set extra games per player. Anyone left at 0 sits out the new rounds.</p>
+    <div id="ee-roster"></div>
+    <button class="btn btn-p btn-w" style="margin-top:14px;" onclick="generateExtension()">🤖 Generate Extension</button>
+    <button class="btn btn-g btn-w" style="margin-top:8px;" onclick="closeModal('ee-modal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Confirm-end modal -->
+<div class="overlay center" id="confirm-end-modal">
+  <div class="modal center">
+    <div class="mtitle" style="margin-bottom:10px;"><span>End this event?</span></div>
+    <p style="font-size:14px;color:var(--black);margin-bottom:6px;">Final standings will save to Past Events.</p>
+    <p style="font-size:13px;color:var(--loss);font-weight:600;margin-bottom:18px;">Any games in progress will not be saved.</p>
+    <button class="btn btn-d btn-w" onclick="doEndEvent()">Yes, End Event</button>
+    <button class="btn btn-g btn-w" style="margin-top:8px;" onclick="closeModal('confirm-end-modal')">Cancel</button>
+  </div>
+</div>
+
+<!-- GROUPS LIST MODAL -->
+<div class="overlay" id="groups-modal">
+  <div class="modal">
+    <div class="mtitle"><span>Saved Groups</span><button class="mclose" onclick="closeModal('groups-modal')">✕</button></div>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:14px;">Reusable lists for inviting people to events. Anyone can create or edit.</p>
+    <button class="btn btn-p btn-w" style="margin-bottom:14px;" onclick="openGroupEditor(null)">＋ New Group</button>
+    <div id="groups-list"></div>
+  </div>
+</div>
+
+<!-- GROUP EDITOR MODAL -->
+<div class="overlay" id="group-editor-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="ge-title">New Group</span><button class="mclose" onclick="closeModal('group-editor-modal')">✕</button></div>
+    <div class="fg">
+      <label class="lbl">Group Name</label>
+      <input class="inp" id="ge-name" placeholder="Saturday Regulars">
+    </div>
+    <div class="fg">
+      <label class="lbl">Members <span id="ge-mcount" style="color:var(--gray);font-weight:400;letter-spacing:0;text-transform:none;">(0 selected)</span></label>
+      <input class="inp" id="ge-search" placeholder="Search players..." oninput="renderGroupMembers()" style="margin-bottom:8px;">
+      <div id="ge-members" style="max-height:340px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+    </div>
+    <button class="btn btn-p btn-w" onclick="saveGroup()">Save Group</button>
+    <button class="btn btn-g btn-w" style="margin-top:8px;" onclick="closeModal('group-editor-modal')">Cancel</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div id="dbg-panel" style="display:none;position:fixed;top:60px;right:6px;width:300px;max-width:calc(100vw - 12px);max-height:50vh;overflow-y:auto;background:rgba(15,23,42,.92);color:#bae6fd;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;padding:6px 8px;border-radius:8px;z-index:9998;white-space:pre-wrap;line-height:1.4;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4);">
+  <strong style="color:#fde68a;">debug log (taps pass through)</strong>
+  <pre id="dbg-log" style="margin:4px 0 0;color:inherit;font:inherit;"></pre>
+</div>
+
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+const DB_ROOT = 'tally_kotb_pickup';
+const LEAGUE_KINGS_PATH  = 'tally_kotb/kings/players';
+const LEAGUE_QUEENS_PATH = 'tally_kotb/queens/players';
+const AI_URL  = 'https://leon-beach-ai.markmcnees-479.workers.dev';
+
+let db = null;
+let view = 'list';
+let activeEvent = null;
+let tab = 'score';
+let liveRound = 1;
+const lscore = {};
+let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invites:{} };
+let leagueKings  = {};
+let leagueQueens = {};
+let _pendingRoundsUpdate = null;
+let _pendingInviteOverrides = {}; // inviteId -> { ts, apply: (invite)=>void }
+let sortK = { key:'diff', dir:'desc' };
+
+function pendInviteOverride(invId, applyFn){
+  _pendingInviteOverrides[invId] = { ts: Date.now(), apply: applyFn };
+}
+
+let setupState = null;
+
+const $ = id => document.getElementById(id);
+function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function td(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function fD(s){if(!s)return'';return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function fDshort(s){if(!s)return'';return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});}
+function pm(v){return(v>0?'+':'')+v;}
+function pmc(v){return v>0?'pos':v<0?'neg':'neu';}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
+function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
+function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
+function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function nameKey(name){return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');}
+function ev(){return D.events[activeEvent]||null;}
+function evMeta(){const e=ev();return e&&e.meta?e.meta:{};}
+function gP(id){const e=ev();return e&&e.players?e.players[id]:null;}
+function pN(id){const p=gP(id);return p?p.name:String(id);}
+function closeModal(id){$(id).classList.remove('on');}
+
+// FIREBASE
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db = firebase.database();
+    setSS(true);
+    db.ref(DB_ROOT).on('value', snap=>{
+      const v = snap.val()||{};
+      D.events         = v.events||{};
+      D.archive        = v.archive||{};
+      D.player_history = v.player_history||{};
+      D.ratings        = v.ratings||{};
+      D.groups         = v.groups||{};
+      D.invites        = v.invites||{};
+      if(_pendingRoundsUpdate && Date.now()-_pendingRoundsUpdate.ts<8000){
+        const eid = _pendingRoundsUpdate.eventId;
+        if(D.events[eid]) D.events[eid].rounds = _pendingRoundsUpdate.rounds;
+      }
+      // Re-apply any pending optimistic invite overrides so the listener's
+      // wholesale D.invites replace doesn't clobber a just-clicked RSVP.
+      const now = Date.now();
+      const overrideIds = Object.keys(_pendingInviteOverrides);
+      overrideIds.forEach(invId=>{
+        const o = _pendingInviteOverrides[invId];
+        if(now - o.ts > 10000){ delete _pendingInviteOverrides[invId]; return; }
+        if(D.invites[invId]) o.apply(D.invites[invId]);
+      });
+      if(typeof dbgLog === 'function' && overrideIds.length) dbgLog('listener fired, overrides reapplied', { count: overrideIds.length, view });
+      refreshAll();
+    }, e=>{console.error(e);setSS(false);});
+    db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
+    db.ref(LEAGUE_QUEENS_PATH).on('value', s=>{ leagueQueens = s.val()||{}; refreshAll(); }, e=>console.warn('queens read failed',e));
+    db.ref('.info/connected').on('value', s=>setSS(s.val()===true));
+  }catch(e){console.error(e);setSS(false);}
+}
+function setSS(on){const d=$('sync');d.className='sync '+(on?'on':'off');d.title=on?'Connected':'Offline';}
+
+// QUICK-SELECT SOURCE LIST
+function quickSourceNames(){
+  const out = []; const seen = new Set();
+  function add(name, src){
+    const n = String(name||'').trim();
+    if(!n) return;
+    const k = n.toLowerCase();
+    if(seen.has(k)) return;
+    seen.add(k);
+    out.push({ name:n, source:src });
+  }
+  Object.values(leagueKings ).forEach(p=>{ if(p&&p.name && p.active!==false) add(p.name,'KINGS'); });
+  Object.values(leagueQueens).forEach(p=>{ if(p&&p.name && p.active!==false) add(p.name,'QUEENS'); });
+  Object.values(D.player_history||{}).forEach(p=>{ if(p&&p.name) add(p.name,'PICKUP'); });
+  out.sort((a,b)=>a.name.localeCompare(b.name));
+  return out;
+}
+
+// VIEW ROUTING
+function showView(v){
+  view = v;
+  // Per-game chat: attach the scoped game_messages listener only while the
+  // invite-detail pane is open for the active game; detach on every other view.
+  if(v==='invite-detail' && activeInvite) attachGameChat(activeInvite);
+  else detachGameChat();
+  $('view-list').classList.toggle('on',  v==='list');
+  $('view-setup').classList.toggle('on', v==='setup');
+  $('view-event').classList.toggle('on', v==='event');
+  $('view-invite-setup').classList.toggle('on',  v==='invite-setup');
+  $('view-invite-detail').classList.toggle('on', v==='invite-detail');
+  $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
+  $('event-title').style.display = v==='event' ? 'inline' : 'none';
+  refreshAll();
+}
+function goHome(){
+  if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
+  if(view==='setup'){ cancelSetup(); return; }
+  if(view==='invite-setup' || view==='invite-detail'){ backToList(); return; }
+}
+function openProfile(){
+  if(window.Identity) Identity.openProfile({ db });
+  else toast('Profile module not loaded yet, refresh the page');
+}
+function pickTab(t){
+  tab = t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
+  document.querySelectorAll('.epane').forEach(p=>p.classList.toggle('on', p.id==='epane-'+t));
+  refreshTab(t);
+}
+function refreshAll(){
+  if(view==='list'){ renderInviteList(); renderEventList(); }
+  else if(view==='setup')  renderSetup();
+  else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
+  else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
+  else if(view==='invite-detail'){ renderInviteDetail(); }
+}
+function refreshTab(t){
+  if(t==='roster'){ renderEventRoster(); renderLateQuick(); renderBanner('roster'); }
+  else if(t==='score'){ renderRoundPills(); renderLiveCourts(); renderBanner('score'); }
+  else if(t==='standings'){ renderStandings(); renderBanner('standings'); }
+  else if(t==='ratings'){ renderRatings(); renderRatingsHeader(); }
+}
+
+// LIST VIEW
+function renderEventList(){
+  const events   = Object.values(D.events ||{}).filter(e=>e&&e.meta).sort((a,b)=>(b.meta.createdAt||0)-(a.meta.createdAt||0));
+  const archives = Object.values(D.archive||{}).filter(e=>e&&(e.meta||e.name)).sort((a,b)=>{
+    const am = a.meta||a, bm = b.meta||b;
+    return (bm.closedAt||bm.createdAt||0)-(am.closedAt||am.createdAt||0);
+  });
+
+  let h = '';
+  if(events.length){
+    h += `<div class="ctitle"><span class="bar"></span>Active Events</div>`;
+    h += events.map(e=>{
+      const m = e.meta||{};
+      const playerCount = Object.keys(e.players||{}).length;
+      return `<div class="evcard" onclick="openEvent('${m.id}')">
+        <div class="evname">${escapeHTML(m.name||'Event')}</div>
+        <div class="evmeta">${fD(m.date)} · ${m.courts||2} courts · ${playerCount} player${playerCount===1?'':'s'}</div>
+      </div>`;
+    }).join('');
+  }
+  if(archives.length){
+    h += `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Past Events</div>`;
+    h += archives.map(e=>{
+      const m = e.meta||e;
+      const playerCount = Object.keys(e.players||{}).length;
+      const gameCount   = Object.keys(e.results||{}).length;
+      return `<div class="evcard ar" onclick="viewArchive('${m.id}')">
+        <div class="evname">${escapeHTML(m.name||'Event')}</div>
+        <div class="evmeta">${fD(m.date)} · ${playerCount} player${playerCount===1?'':'s'} · ${gameCount} game${gameCount===1?'':'s'}</div>
+      </div>`;
+    }).join('');
+  }
+  if(!events.length && !archives.length){
+    h += `<div class="empty"><div class="eico">🏐</div><p class="etxt">No events yet. Start one above.</p></div>`;
+  }
+  $('event-list').innerHTML = h;
+}
+
+// SETUP VIEW
+function startNewEvent(){
+  setupState = {
+    name:   'Pickup, '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+    date:   td(),
+    courts: 2,
+    targetScore: 15,
+    gamesPerPlayer: 6,
+    roster: []
+  };
+  showView('setup');
+  setTimeout(()=>{
+    $('su-name').value   = setupState.name;
+    $('su-date').value   = setupState.date;
+    $('su-courts').value = setupState.courts;
+    $('su-score').value  = setupState.targetScore;
+    $('su-games').value  = setupState.gamesPerPlayer;
+  }, 0);
+}
+function cancelSetup(){ setupState = null; showView('list'); }
+
+function readSetupMeta(){
+  if(!setupState) return;
+  setupState.name           = ($('su-name').value||'').trim() || 'Pickup';
+  setupState.date           = $('su-date').value || td();
+  setupState.courts         = parseInt($('su-courts').value)||2;
+  setupState.targetScore    = parseInt($('su-score').value)||15;
+  setupState.gamesPerPlayer = parseInt($('su-games').value)||6;
+}
+
+function renderSetup(){
+  if(!setupState) return;
+  $('su-rcnt').textContent = setupState.roster.length;
+  $('su-roster').innerHTML = setupState.roster.length
+    ? setupState.roster.map((p,i)=>`<div class="pitem">
+        <span class="pnum">${i+1}</span>
+        ${p.source?`<span class="psource">${p.source}</span>`:''}
+        <span class="pname2">${escapeHTML(p.name)}</span>
+        <button class="btn btn-d btn-sm" onclick="removeSetupPlayer(${i})">✕</button>
+      </div>`).join('')
+    : '<p style="color:var(--gray);font-size:14px;padding:14px;text-align:center;">Tap a name below or type one above.</p>';
+
+  const taken = new Set(setupState.roster.map(p=>p.name.toLowerCase()));
+  const sources = quickSourceNames();
+  $('su-quick').innerHTML = sources.length
+    ? sources.map(s=>{
+        const added = taken.has(s.name.toLowerCase());
+        return `<button class="chip ${added?'added':''}" ${added?'disabled':`onclick="addSetupPlayer('${escapeHTML(s.name)}','${s.source}')"`}>
+          <span class="src">${s.source}</span>${escapeHTML(s.name)}
+        </button>`;
+      }).join('')
+    : '<p style="font-size:12px;color:var(--gray);">No suggestions yet. Add players above.</p>';
+
+  const enough = setupState.roster.length >= 4;
+  $('su-generate').disabled = !enough;
+  $('su-generate').textContent = enough ? '🤖 Generate Sets' : 'Need at least 4 players';
+}
+
+function addSetupPlayer(name, source){
+  if(!setupState) return;
+  const n = String(name||'').trim(); if(!n) return;
+  const taken = setupState.roster.some(p=>p.name.toLowerCase()===n.toLowerCase());
+  if(taken){ toast(n+' is already on the roster'); return; }
+  setupState.roster.push({ name:n, source: source||null });
+  renderSetup();
+}
+function addRosterFromInput(){
+  const inp = $('su-newname'); const n = (inp.value||'').trim();
+  if(!n){ toast('Type a name first'); return; }
+  addSetupPlayer(n, null);
+  inp.value = ''; inp.focus();
+}
+function removeSetupPlayer(i){
+  if(!setupState) return;
+  setupState.roster.splice(i,1);
+  renderSetup();
+}
+
+async function generateSetsFromSetup(){
+  if(!setupState) return;
+  readSetupMeta();
+  if(setupState.roster.length<4){ toast('Need at least 4 players'); return; }
+
+  const id = gi('e');
+  const meta = {
+    id,
+    name: setupState.name,
+    date: setupState.date,
+    courts: setupState.courts,
+    targetScore: setupState.targetScore,
+    gamesPerPlayer: setupState.gamesPerPlayer,
+    gamesLocked: true,
+    createdAt: Date.now(),
+    status: 'active'
+  };
+  const playersObj = {};
+  setupState.roster.forEach(p=>{
+    const pid = gi('p');
+    playersObj[pid] = { id: pid, name: p.name };
+  });
+  fbSet('events/'+id+'/meta', meta);
+  fbSet('events/'+id+'/players', playersObj);
+  D.events[id] = { meta, players: playersObj, rounds: null, results: {} };
+
+  $('su-generate').disabled = true;
+  $('su-generate').textContent = 'Building rotation...';
+
+  const players = Object.values(playersObj);
+  const targets = {};
+  players.forEach(p => targets[p.id] = setupState.gamesPerPlayer);
+
+  let rounds;
+  try{
+    rounds = await buildRoundsAI({
+      eventId: id,
+      players,
+      courts: meta.courts,
+      targets,
+      startRound: 1,
+      pCounts: emptyCounts(players),
+      header: 'You are scheduling a King of the Beach pickup tournament. Optimize for partner variety only.'
+    });
+  }catch(err){
+    console.error(err);
+    toast("Couldn't build the rotation. Try again.");
+    fbDel('events/'+id);
+    delete D.events[id];
+    setupState = null;
+    showView('list');
+    return;
+  }
+  fbSet('events/'+id+'/rounds', rounds);
+  _pendingRoundsUpdate = { eventId: id, rounds, ts: Date.now() };
+  setTimeout(()=>{ _pendingRoundsUpdate = null; }, 10000);
+  if(D.events[id]) D.events[id].rounds = rounds;
+
+  setupState = null;
+  activeEvent = id;
+  liveRound = 1;
+  showView('event');
+  pickTab('score');
+  toast('Schedule ready ✓');
+}
+
+// EVENT VIEW
+function openEvent(id){
+  if(!D.events[id]){ toast('Event not found'); return; }
+  activeEvent = id; tab='score'; liveRound=1;
+  showView('event');
+  pickTab('score');
+}
+function updateEventTitle(){ const m=evMeta(); $('event-title').textContent = m.name||''; }
+
+// EVENT ROSTER TAB
+function renderEventRoster(){
+  const e = ev(); if(!e) return;
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name).sort((a,b)=>a.name.localeCompare(b.name));
+  $('ev-rcnt').textContent = players.length;
+  $('ev-rlist').innerHTML = players.length
+    ? players.map((p,i)=>{
+        const games = countCompleted(p.id);
+        return `<div class="pitem">
+          <span class="pnum">${i+1}</span>
+          <span class="pname2">${escapeHTML(p.name)}</span>
+          <span style="font-size:12px;color:var(--gray);margin-right:6px;">${games} game${games===1?'':'s'}</span>
+          <button class="btn btn-d btn-sm" onclick="confirmDropPlayer('${p.id}')">Drop</button>
+        </div>`;
+      }).join('')
+    : '<p style="color:var(--gray);font-size:14px;padding:14px;text-align:center;">No players.</p>';
+}
+function renderLateQuick(){
+  const e = ev(); if(!e) return;
+  const taken = new Set(Object.values(e.players||{}).filter(p=>p&&p.name).map(p=>p.name.toLowerCase()));
+  const sources = quickSourceNames();
+  $('ev-late-quick').innerHTML = sources.length
+    ? sources.map(s=>{
+        const added = taken.has(s.name.toLowerCase());
+        return `<button class="chip ${added?'added':''}" ${added?'disabled':`onclick="addLatePlayer('${escapeHTML(s.name)}','${s.source}')"`}>
+          <span class="src">${s.source}</span>${escapeHTML(s.name)}
+        </button>`;
+      }).join('')
+    : '<p style="font-size:12px;color:var(--gray);">No suggestions yet.</p>';
+}
+
+function confirmDropPlayer(pid){
+  const p = gP(pid); if(!p) return;
+  if(!confirm('Remove '+p.name+' from the rotation? Their finished games still count. The current round plays out, then unplayed rounds get rebuilt.')) return;
+  dropPlayer(pid).catch(err=>{ console.error(err); toast("Couldn't update rotation"); });
+}
+
+async function dropPlayer(pid){
+  const e = ev(); if(!e) return;
+  const p = gP(pid); if(!p) return;
+  await db.ref(DB_ROOT+'/events/'+activeEvent+'/players/'+pid).remove();
+  if(D.events[activeEvent] && D.events[activeEvent].players) delete D.events[activeEvent].players[pid];
+  toast(p.name+' dropped');
+  await rebuildUnplayedRounds();
+}
+
+function addLateFromInput(){
+  const inp = $('ev-newname'); const n = (inp.value||'').trim();
+  if(!n){ toast('Type a name first'); return; }
+  addLatePlayer(n, null);
+  inp.value = ''; inp.focus();
+}
+async function addLatePlayer(name, source){
+  const e = ev(); if(!e) return;
+  const n = String(name||'').trim(); if(!n) return;
+  const taken = Object.values(e.players||{}).some(p=>p&&p.name && p.name.toLowerCase()===n.toLowerCase());
+  if(taken){ toast(n+' is already in tonight\'s roster'); return; }
+  const pid = gi('p');
+  const playerObj = { id: pid, name: n, lateAdd: true };
+  fbSet('events/'+activeEvent+'/players/'+pid, playerObj);
+  if(!D.events[activeEvent].players) D.events[activeEvent].players = {};
+  D.events[activeEvent].players[pid] = playerObj;
+  toast(n+' added');
+  await rebuildUnplayedRounds(pid);
+}
+
+// REBUILD UNPLAYED ROUNDS (drop / late add)
+async function rebuildUnplayedRounds(lateAddPid){
+  const e = ev(); if(!e) return;
+  const m = evMeta();
+  const rounds = e.rounds||[];
+  if(!rounds.length) return;
+
+  const activeRoundNum = computeActiveRound(e);
+  const totalRounds = rounds.length;
+
+  const remainingPlayers = Object.values(e.players||{}).filter(p=>p&&p.name);
+  if(remainingPlayers.length<4){ toast('Need 4+ players to keep rebuilding the schedule'); return; }
+
+  if(activeRoundNum==null){ refreshAll(); return; }
+  const rebuildFromIdx = rounds.findIndex(r=>r.round===activeRoundNum) + 1;
+  if(rebuildFromIdx>=rounds.length){ refreshAll(); return; }
+
+  const keptRounds = rounds.slice(0, rebuildFromIdx);
+  const regenRoundCount = rounds.length - rebuildFromIdx;
+
+  const targets = {};
+  remainingPlayers.forEach(p=>{
+    if(p.id===lateAddPid){
+      const pro = Math.max(1, Math.round((m.gamesPerPlayer||6) * regenRoundCount / totalRounds));
+      targets[p.id] = pro;
+      return;
+    }
+    const completed = countCompleted(p.id);
+    const inActive = activeRoundNum!=null ? countInRound(rounds, activeRoundNum, p.id) : 0;
+    const remain = Math.max(0, (m.gamesPerPlayer||6) - completed - inActive);
+    targets[p.id] = remain;
+  });
+
+  const totalSlots = Object.values(targets).reduce((a,b)=>a+b,0);
+  const slotsPerRound = (m.courts||2) * 4;
+  const needed = Math.max(0, Math.max(...Object.values(targets), Math.ceil(totalSlots/slotsPerRound)));
+  const useRoundCount = Math.max(regenRoundCount, needed);
+
+  const startRound = keptRounds.length ? (keptRounds[keptRounds.length-1].round + 1) : 1;
+  const pCounts = countPartnersFromRounds(keptRounds, e.results||{}, remainingPlayers);
+
+  let newRounds;
+  try{
+    newRounds = await buildRoundsAI({
+      eventId: activeEvent,
+      players: remainingPlayers,
+      courts: m.courts||2,
+      targets,
+      startRound,
+      pCounts,
+      forcedRoundCount: useRoundCount,
+      header: 'You are rebuilding a King of the Beach pickup tournament mid-event after a roster change. Optimize for partner variety only.'
+    });
+  }catch(err){
+    console.error(err);
+    toast("Couldn't rebuild rotation. Try again.");
+    return;
+  }
+  const merged = [...keptRounds, ...newRounds];
+  fbSet('events/'+activeEvent+'/rounds', merged);
+  _pendingRoundsUpdate = { eventId: activeEvent, rounds: merged, ts: Date.now() };
+  setTimeout(()=>{ _pendingRoundsUpdate = null; }, 10000);
+  if(D.events[activeEvent]) D.events[activeEvent].rounds = merged;
+  toast('Rotation updated');
+  refreshAll();
+}
+
+function computeActiveRound(e){
+  const rounds = e.rounds||[];
+  if(!rounds.length) return null;
+  const results = Object.values(e.results||{});
+  for(const rd of rounds){
+    const courts = rd.courts||[];
+    const allDone = courts.length>0 && courts.every(c=>results.some(r=>r.round===rd.round && r.court===c.court));
+    if(!allDone) return rd.round;
+  }
+  return null;
+}
+function countCompleted(pid){
+  const e = ev(); if(!e) return 0;
+  let n=0;
+  Object.values(e.results||{}).forEach(r=>{
+    if((r.t1||[]).includes(pid) || (r.t2||[]).includes(pid)) n++;
+  });
+  return n;
+}
+function countInRound(rounds, roundNum, pid){
+  const rd = (rounds||[]).find(r=>r.round===roundNum); if(!rd) return 0;
+  let n=0;
+  (rd.courts||[]).forEach(ct=>{
+    if((ct.t1||[]).includes(pid) || (ct.t2||[]).includes(pid)) n++;
+  });
+  return n;
+}
+function emptyCounts(players){
+  const c={}; players.forEach(p=>{ c[p.id]={}; players.forEach(q=>{ if(p.id!==q.id) c[p.id][q.id]=0; }); });
+  return c;
+}
+function countPartnersFromRounds(rounds, results, players){
+  const c = emptyCounts(players);
+  // Partner counts in scheduled rounds (kept rounds)
+  (rounds||[]).forEach(rd=>(rd.courts||[]).forEach(ct=>{
+    [ct.t1||[], ct.t2||[]].forEach(team=>{
+      if(team.length<2) return;
+      const [a,b] = team;
+      if(c[a]&&c[a][b]!=null) c[a][b]++;
+      if(c[b]&&c[b][a]!=null) c[b][a]++;
+    });
+  }));
+  // Plus partner counts from any results that aren't reflected in the kept rounds (defensive)
+  Object.values(results||{}).forEach(r=>{
+    [r.t1||[], r.t2||[]].forEach(team=>{
+      if(team.length<2) return;
+      const [a,b] = team;
+      // Only count if not already represented (cheap heuristic: skip; rounds drive this)
+    });
+  });
+  return c;
+}
+
+// AI ROUND BUILDER (per-player targets)
+async function buildRoundsAI(opts){
+  const { players, courts, targets, startRound, header } = opts;
+  if(!players.length) return [];
+  const slotsPerRound = courts*4;
+  const totalSlots = Object.values(targets).reduce((a,b)=>a+b,0);
+  const maxPerPlayer = Math.max(0, ...Object.values(targets));
+  const computedRounds = Math.max(maxPerPlayer, Math.ceil(totalSlots/slotsPerRound));
+  const totalRounds = opts.forcedRoundCount || computedRounds;
+  if(totalRounds<=0) return [];
+
+  const shortId={}, shortIdRev={};
+  players.forEach((p,i)=>{ const sid='P'+(i+1); shortId[p.id]=sid; shortIdRev[sid]=p.id; });
+
+  const playerList = players.map(p=>shortId[p.id]+':'+p.name).join(', ');
+  const targetList = players.map(p=>`${p.name}(${shortId[p.id]}): ${targets[p.id]||0} game${(targets[p.id]||0)===1?'':'s'}`).join('\n');
+  const pCounts = opts.pCounts || emptyCounts(players);
+  const pSummary = players.map(p=>{
+    const partners = Object.entries(pCounts[p.id]||{}).filter(([,c])=>c>0).map(([id,c])=>(players.find(q=>q.id===id)?.name||id)+' x'+c).join(', ');
+    return `${p.name}(${shortId[p.id]}) partnered with: ${partners||'nobody yet'}`;
+  }).join('\n');
+
+  const sittingHint = Math.max(0, players.length - slotsPerRound);
+
+  const prompt = `${header}
+
+PLAYERS (${players.length} total, ${courts} courts):
+${playerList}
+
+TARGET GAMES PER PLAYER FOR THESE ${totalRounds} ROUNDS:
+${targetList}
+
+EXISTING PARTNER PAIRINGS (avoid repeating):
+${pSummary}
+
+RULES:
+- Each round: ${courts} courts running simultaneously, 2v2 each (4 players per court).
+- Active per round: up to ${slotsPerRound} players. Sitting out: ~${sittingHint} per round (varies if some players have low targets).
+- Generate EXACTLY ${totalRounds} rounds.
+- HARD GOAL: each player must appear in exactly the number of t1/t2 slots specified above.
+- Players with target 0 must NEVER appear in t1 or t2.
+- Distribute sit-outs so a player with target N plays N rounds and sits ${totalRounds}-N rounds.
+- PARTNER VARIETY: never pair the same two players together twice if avoidable. Prioritize pairs who haven't partnered before.
+- Round numbers should start at ${startRound} and increment by 1.
+
+Return ONLY a valid JSON array, no markdown, no explanation:
+[
+  {"round":${startRound},"courts":[{"court":1,"t1":["P1","P2"],"t2":["P3","P4"]}],"sitting":["P5"]},
+  ...${totalRounds} rounds total
+]
+
+VERIFICATION: Before returning, count the appearances of each P-code across all t1+t2 arrays. Each must equal its target exactly.
+
+Use ONLY the listed P-codes. NEVER use "?" or any placeholder. Return only the JSON array.`;
+
+  const res = await fetch(AI_URL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:8000, messages:[{role:'user',content:prompt}] })
+  });
+  const data = await res.json();
+  const text = data.content?.map(c=>c.text||'').join('')||'';
+  const clean = text.replace(/```json|```/g,'').trim();
+  const s = clean.indexOf('['), en = clean.lastIndexOf(']');
+  if(s<0||en<0) throw new Error('AI did not return JSON');
+  let parsed = JSON.parse(clean.slice(s, en+1));
+
+  const nameToId = {}; players.forEach(p=>{ nameToId[p.name.toLowerCase().trim()] = p.id; });
+  parsed.forEach(rd=>{
+    (rd.courts||[]).forEach(ct=>['t1','t2'].forEach(team=>{
+      ct[team] = (ct[team]||[]).map(sid=>shortIdRev[sid] || nameToId[String(sid).toLowerCase().trim()] || sid);
+    }));
+    rd.sitting = (rd.sitting||[]).map(sid=>shortIdRev[sid] || nameToId[String(sid).toLowerCase().trim()] || sid);
+  });
+
+  parsed = healSchedule(parsed, players, pCounts, targets, startRound);
+  return parsed;
+}
+
+function healSchedule(parsed, pool, pCounts, targets, startRound){
+  const validIds = pool.map(p=>p.id);
+  const poolSet = new Set(validIds);
+  const poolWithTarget = validIds.filter(id=>(targets[id]||0)>0);
+
+  parsed.forEach((rd,i)=>{ rd.round = startRound + i; });
+
+  function countGames(sched){
+    const c={}; validIds.forEach(id=>c[id]=0);
+    sched.forEach(rd=>(rd.courts||[]).forEach(ct=>[...(ct.t1||[]),...(ct.t2||[])].forEach(id=>{ if(c[id]!=null) c[id]++; })));
+    return c;
+  }
+  function pickBest(cands, partners, gc){
+    return cands.slice().sort((a,b)=>{
+      const sc = id => (gc[id]||0)*1
+        + partners.reduce((s,q)=>s+(pCounts[id]&&pCounts[id][q]!=null?pCounts[id][q]:0)*3, 0);
+      return sc(a)-sc(b);
+    })[0];
+  }
+
+  // Pass 1: replace placeholders / out-of-pool / target-zero IDs with valid ones
+  parsed.forEach(rd=>{
+    const used = new Set();
+    (rd.courts||[]).forEach(ct=>[...(ct.t1||[]),...(ct.t2||[])].forEach(id=>{
+      if(poolSet.has(id) && (targets[id]||0)>0) used.add(id);
+    }));
+    const sittingSet = new Set((rd.sitting||[]).filter(id=>poolSet.has(id)));
+    (rd.courts||[]).forEach(ct=>{
+      const fix = (team) => team.forEach((id,i)=>{
+        const bad = !id || (typeof id==='string' && id.trim()==='?') || !poolSet.has(id) || (targets[id]||0)<=0;
+        if(bad){
+          let avail = poolWithTarget.filter(pid=>!used.has(pid));
+          if(!avail.length) avail = [...sittingSet].filter(pid=>(targets[pid]||0)>0);
+          if(!avail.length) return;
+          const partners = team.filter((_,j)=>j!==i && poolSet.has(_));
+          const chosen = pickBest(avail, partners, countGames(parsed));
+          if(!chosen) return;
+          team[i] = chosen; used.add(chosen); sittingSet.delete(chosen);
+        }
+      });
+      fix(ct.t1); fix(ct.t2);
+    });
+    rd.sitting = [...sittingSet];
+  });
+
+  // Pass 2: enforce per-player targets
+  for(let it=0; it<60; it++){
+    const counts = countGames(parsed);
+    const under = validIds.filter(id => counts[id] < (targets[id]||0));
+    const over  = validIds.filter(id => counts[id] > (targets[id]||0));
+    if(!under.length && !over.length) break;
+    let swapped = false;
+    for(const u of under){
+      // Find a round where u is not playing, and one over-target player IS playing, then swap.
+      for(const rd of parsed){
+        const inRound = (rd.courts||[]).some(ct=>[...(ct.t1||[]),...(ct.t2||[])].includes(u));
+        if(inRound) continue;
+        for(const ct of (rd.courts||[])){
+          for(const team of [ct.t1, ct.t2]){
+            for(let i=0; i<team.length; i++){
+              if(over.includes(team[i])){
+                team[i] = u; swapped = true; break;
+              }
+            } if(swapped) break;
+          } if(swapped) break;
+        } if(swapped) break;
+      }
+      if(swapped) break;
+    }
+    if(!swapped) break;
+  }
+
+  // Recompute sitting per round to reflect the final state
+  parsed.forEach(rd=>{
+    const present = new Set();
+    (rd.courts||[]).forEach(ct=>[...(ct.t1||[]),...(ct.t2||[])].forEach(id=>present.add(id)));
+    rd.sitting = validIds.filter(id => !present.has(id) && (targets[id]||0)>0);
+  });
+
+  return parsed;
+}
+
+// SCORE
+function renderRoundPills(){
+  const e = ev(); const rounds = e ? (e.rounds||[]) : [];
+  if(!rounds.length){
+    $('round-pills').innerHTML = '<p style="font-size:13px;color:var(--gray);text-align:center;padding:12px;width:100%;">No schedule yet.</p>';
+    return;
+  }
+  $('round-pills').innerHTML = rounds.map(rd=>{
+    const done = isRoundDone(rd);
+    return `<button class="rpill ${liveRound===rd.round?(done?'on done':'on'):(done?'done':'')}" onclick="pickRound(${rd.round})">R${rd.round}${done?' ✓':''}</button>`;
+  }).join('');
+}
+function pickRound(r){ liveRound=r; renderRoundPills(); renderLiveCourts(); }
+function isRoundDone(rd){
+  const e = ev(); if(!e) return false;
+  const res = Object.values(e.results||{});
+  const rRes = res.filter(r=>r.round===rd.round);
+  return rRes.length>=(rd.courts||[]).length && (rd.courts||[]).length>0;
+}
+function isEventComplete(){
+  const e = ev(); if(!e) return false;
+  const rounds = e.rounds||[];
+  if(!rounds.length) return false;
+  return rounds.every(rd=>isRoundDone(rd));
+}
+
+function renderLiveCourts(){
+  const cont = $('live-courts'); const e = ev();
+  if(!e){ cont.innerHTML=''; return; }
+  const rounds = e.rounds||[];
+  if(!rounds.length){ cont.innerHTML=''; return; }
+  const rd = rounds.find(r=>r.round===liveRound);
+  if(!rd){
+    const lowest = rounds[0];
+    if(lowest){ liveRound = lowest.round; return renderLiveCourts(); }
+    cont.innerHTML = `<div class="empty"><div class="eico">📅</div><p class="etxt">Pick a round above.</p></div>`;
+    return;
+  }
+  const results = Object.values(e.results||{});
+  const target  = evMeta().targetScore||15;
+
+  let h = '';
+  (rd.courts||[]).forEach((c,idx)=>{
+    const t1html = (c.t1||[]).map(id=>escapeHTML(pN(id))).join(' &amp; ');
+    const t2html = (c.t2||[]).map(id=>escapeHTML(pN(id))).join(' &amp; ');
+    const existing = results.find(r=>r.round===liveRound && r.court===c.court);
+    const cls = existing ? 'done' : '';
+    h += `<div class="scard ${cls}" id="sc-${idx}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-family:'Bebas Neue';font-size:11px;letter-spacing:2px;color:var(--primary);">Round ${rd.round} · Court ${c.court}</div>
+        <div style="font-size:11px;color:var(--gray);">play to ${target}</div>
+      </div>`;
+    if(existing){
+      const w1 = existing.s1 > existing.s2;
+      h += `<div class="done-result">
+        <div class="done-name" style="color:${w1?'var(--win)':'var(--loss)'}">${t1html}</div>
+        <div class="done-score" style="color:${w1?'var(--win)':'var(--loss)'}">${existing.s1}-${existing.s2}</div>
+        <div class="done-name right" style="color:${!w1?'var(--win)':'var(--loss)'}">${t2html}</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+        <button class="btn btn-g btn-sm" onclick="openEditResult('${existing.id}')">✏️ Edit</button>
+        <button class="btn btn-g btn-sm" onclick="delResult('${existing.id}')">✕ Clear</button>
+      </div>`;
+    } else {
+      const us = lscore[idx]?.us||0, them = lscore[idx]?.them||0;
+      h += `<div class="matchup" style="margin-bottom:12px;">
+        <div class="tname">${t1html}</div><div class="vs">vs</div><div class="tname right">${t2html}</div>
+      </div>
+      <div class="score-grid">
+        <div class="scol">
+          <div class="scol-lbl">Score</div>
+          <button class="sbtn sbtn-p" onclick="adj(${idx},'us',1)">+</button>
+          <input type="number" class="snum" id="su-${idx}" value="${us}" min="0" oninput="setS(${idx},'us',this.value)">
+          <button class="sbtn sbtn-m" onclick="adj(${idx},'us',-1)">-</button>
+        </div>
+        <div class="sdash">-</div>
+        <div class="scol">
+          <div class="scol-lbl">Score</div>
+          <button class="sbtn sbtn-p" onclick="adj(${idx},'them',1)">+</button>
+          <input type="number" class="snum" id="st-${idx}" value="${them}" min="0" oninput="setS(${idx},'them',this.value)">
+          <button class="sbtn sbtn-m" onclick="adj(${idx},'them',-1)">-</button>
+        </div>
+      </div>
+      <button class="btn btn-p btn-w" style="margin-top:12px;" onclick="saveScore(${liveRound},${c.court},'${(c.t1||[]).join(',')}','${(c.t2||[]).join(',')}',${idx})">✓ Save Score</button>`;
+    }
+    h += `</div>`;
+  });
+
+  if(rd.sitting && rd.sitting.length){
+    h += `<div class="card" style="opacity:.7;"><div style="font-size:14px;color:var(--gray);">Sitting Round ${rd.round}: <strong>${rd.sitting.map(id=>escapeHTML(pN(id))).join(', ')}</strong></div></div>`;
+  }
+  cont.innerHTML = h;
+}
+
+function adj(idx, side, d){
+  if(!lscore[idx]) lscore[idx] = { us:0, them:0 };
+  lscore[idx][side] = Math.max(0, (lscore[idx][side]||0) + d);
+  const el = $(side==='us' ? 'su-'+idx : 'st-'+idx);
+  if(el) el.value = lscore[idx][side];
+}
+function setS(idx, side, v){
+  if(!lscore[idx]) lscore[idx] = { us:0, them:0 };
+  lscore[idx][side] = Math.max(0, parseInt(v)||0);
+}
+
+function namesForTeam(ids){
+  return (ids||[]).map(pid => { const p = gP(pid); return p ? p.name : null; }).filter(Boolean);
+}
+
+function applyRatingsForResult(id, t1, t2, s1, s2){
+  if(!window.Ratings || !db) return;
+  const team1Names = namesForTeam(t1);
+  const team2Names = namesForTeam(t2);
+  if(team1Names.length<1 || team2Names.length<1) return;
+  Ratings.applyGame({
+    db, dbRoot: DB_ROOT,
+    gameId: id,
+    source: 'pickup',
+    ts: Date.now(),
+    team1Names, team2Names,
+    s1, s2
+  }).catch(err => console.warn('rating apply failed', err));
+}
+
+function reverseRatingsForResult(id, t1, t2){
+  if(!window.Ratings || !db) return;
+  Ratings.reverseGame({
+    db, dbRoot: DB_ROOT, gameId: id,
+    team1Names: namesForTeam(t1),
+    team2Names: namesForTeam(t2)
+  }).catch(err => console.warn('rating reverse failed', err));
+}
+
+function saveScore(round, court, t1s, t2s, idx){
+  const s1 = parseInt($('su-'+idx)?.value)||0;
+  const s2 = parseInt($('st-'+idx)?.value)||0;
+  if(s1===s2){ toast("Scores can't be tied"); return; }
+  const t1 = t1s.split(',').filter(Boolean);
+  const t2 = t2s.split(',').filter(Boolean);
+  const id = gi('r');
+  fbSet('events/'+activeEvent+'/results/'+id, { id, round, court, t1, t2, s1, s2, ts: Date.now() });
+  applyRatingsForResult(id, t1, t2, s1, s2);
+  lscore[idx] = { us:0, them:0 };
+  toast((s1>s2?'Win':'Loss')+' · '+s1+'-'+s2+' saved ✓');
+  const sy = window.scrollY;
+  setTimeout(()=>{ renderRoundPills(); renderLiveCourts(); renderBanner(tab); window.scrollTo({top:sy, behavior:'instant'}); }, 400);
+}
+
+function delResult(id){
+  const e = ev();
+  const r = e ? (e.results||{})[id] : null;
+  if(r) reverseRatingsForResult(id, r.t1||[], r.t2||[]);
+  fbDel('events/'+activeEvent+'/results/'+id);
+  toast('Cleared');
+  const sy = window.scrollY;
+  setTimeout(()=>{ renderRoundPills(); renderLiveCourts(); renderBanner(tab); window.scrollTo({top:sy, behavior:'instant'}); }, 400);
+}
+
+function openEditResult(id){
+  const e = ev(); if(!e) return;
+  const r = (e.results||{})[id]; if(!r) return;
+  window._editId = id;
+  const allP = Object.values(e.players||{}).filter(p=>p&&p.name).sort((a,b)=>a.name.localeCompare(b.name));
+  const sel = (fid,val) => `<select class="inp" id="${fid}" style="font-size:13px;padding:10px;">${allP.map(p=>`<option value="${p.id}" ${p.id===val?'selected':''}>${escapeHTML(p.name)}</option>`).join('')}</select>`;
+  $('edit-body').innerHTML = `
+    <label class="lbl">Team 1</label>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">${sel('er-t1p1', r.t1[0]||'')}${sel('er-t1p2', r.t1[1]||'')}</div>
+    <label class="lbl">Team 2</label>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">${sel('er-t2p1', r.t2[0]||'')}${sel('er-t2p2', r.t2[1]||'')}</div>
+    <label class="lbl">Score</label>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <input class="inp" type="number" id="er-s1" value="${r.s1}" min="0" style="font-size:20px;font-weight:700;text-align:center;flex:1;">
+      <span style="font-family:'Bebas Neue';font-size:18px;color:var(--gray);">to</span>
+      <input class="inp" type="number" id="er-s2" value="${r.s2}" min="0" style="font-size:20px;font-weight:700;text-align:center;flex:1;">
+    </div>`;
+  $('edit-modal').classList.add('on');
+}
+function saveEditResult(){
+  const id = window._editId; if(!id) return;
+  const e = ev(); if(!e) return;
+  const r = (e.results||{})[id]; if(!r) return;
+  const t1 = [$('er-t1p1').value, $('er-t1p2').value].filter(Boolean);
+  const t2 = [$('er-t2p1').value, $('er-t2p2').value].filter(Boolean);
+  const s1 = parseInt($('er-s1').value)||0;
+  const s2 = parseInt($('er-s2').value)||0;
+  if(s1===s2){ toast("Scores can't be tied"); return; }
+  reverseRatingsForResult(id, r.t1||[], r.t2||[]);
+  fbSet('events/'+activeEvent+'/results/'+id, { ...r, t1, t2, s1, s2 });
+  applyRatingsForResult(id, t1, t2, s1, s2);
+  closeModal('edit-modal');
+  toast('Updated ✓');
+  setTimeout(()=>{ renderRoundPills(); renderLiveCourts(); renderBanner(tab); }, 300);
+}
+
+// STANDINGS
+function calcStats(pid){
+  const e = ev(); if(!e) return { gp:0, w:0, l:0, pf:0, pa:0, diff:0, pct:'-' };
+  let gp=0, w=0, l=0, pf=0, pa=0;
+  Object.values(e.results||{}).forEach(r=>{
+    const in1 = (r.t1||[]).includes(pid), in2 = (r.t2||[]).includes(pid);
+    if(!in1 && !in2) return;
+    gp++;
+    const ms = in1 ? r.s1 : r.s2;
+    const os = in1 ? r.s2 : r.s1;
+    pf += ms; pa += os;
+    ms>os ? w++ : l++;
+  });
+  return { gp, w, l, pct: gp>0 ? Math.round(w/gp*100)+'%' : '-', pf, pa, diff: pf-pa };
+}
+
+function renderStandings(){
+  const e = ev(); if(!e) return;
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name);
+  if(!players.length){
+    $('sbody').innerHTML = `<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--gray);">No players yet.</td></tr>`;
+    return;
+  }
+  let rows = players.map(p=>({p, s:calcStats(p.id)}));
+  rows.sort((a,b)=>{
+    const k = sortK.key;
+    let va = k==='name' ? a.p.name : k==='pct' ? parseFloat(a.s.pct)||0 : a.s[k]||0;
+    let vb = k==='name' ? b.p.name : k==='pct' ? parseFloat(b.s.pct)||0 : b.s[k]||0;
+    if(typeof va==='string') return sortK.dir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortK.dir==='asc' ? va-vb : vb-va;
+  });
+  const rc = ['r1','r2','r3'];
+  $('sbody').innerHTML = rows.map(({p,s},i)=>`
+    <tr class="tappable" onclick="showPlayerRatingDetailById('${p.id}')">
+      <td style="padding-left:14px;"><span class="rnk ${rc[i]||''}">${i+1}</span></td>
+      <td class="pname">${escapeHTML(p.name)}</td>
+      <td class="gp">${s.gp}</td>
+      <td class="win">${s.w}</td>
+      <td class="loss">${s.l}</td>
+      <td style="font-size:12px;">${s.pct}</td>
+      <td style="font-size:12px;color:var(--gray);">${s.pf}/${s.pa}</td>
+      <td class="${pmc(s.diff)}">${s.gp>0 ? pm(s.diff) : '-'}</td>
+    </tr>`).join('');
+
+  document.querySelectorAll('#stbl th[data-sort]').forEach(th=>{
+    const isSorted = th.dataset.sort===sortK.key;
+    th.classList.toggle('sorted', isSorted);
+    const labels = { pct:'Win%', diff:'+/-', pf:'PF/PA', gp:'GP', w:'W', l:'L' };
+    th.textContent = (labels[th.dataset.sort]||th.dataset.sort.toUpperCase()) + (isSorted ? (sortK.dir==='asc'?' ▲':' ▼') : '');
+  });
+}
+
+// RATING DETAIL MODAL (replaces partner-history modal; partner table is one section of it)
+function showPlayerRatingDetailById(pid){
+  const p = gP(pid); if(!p) return;
+  showPlayerRatingDetail(p.name);
+}
+function showPlayerRatingDetailForArchive(name){ showPlayerRatingDetail(name); }
+
+function showPlayerRatingDetail(name){
+  if(!name) return;
+  const k = window.Ratings ? Ratings.nameKey(name) : '';
+  const rec = (D.ratings||{})[k] || {};
+  const rating = rec.rating ?? 1500;
+  const rd = rec.rd ?? 350;
+  const gp = rec.gamesPlayed || 0;
+  const peak = rec.peakRating ?? rating;
+  const history = rec.history ? Object.values(rec.history) : [];
+  history.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+  const wins = history.filter(h=>h.won).length;
+  const losses = history.length - wins;
+
+  // Build partner aggregation
+  const partnerAgg = {};
+  history.forEach(h=>{
+    const pn = h.partner; if(!pn) return;
+    if(!partnerAgg[pn]) partnerAgg[pn] = { gp:0, w:0, l:0, pf:0, pa:0 };
+    partnerAgg[pn].gp++;
+    partnerAgg[pn].pf += (h.score||0);
+    partnerAgg[pn].pa += (h.opponentScore||0);
+    if(h.won) partnerAgg[pn].w++; else partnerAgg[pn].l++;
+  });
+  const partnerRows = Object.entries(partnerAgg)
+    .sort((a,b)=>b[1].gp-a[1].gp || (b[1].w-b[1].l)-(a[1].w-a[1].l));
+
+  // Best win / worst loss using opponents' CURRENT ratings
+  function ratingOf(nm){ const k = Ratings.nameKey(nm); return (D.ratings||{})[k]?.rating ?? 1500; }
+  let bestWin = null, worstLoss = null;
+  history.forEach(h=>{
+    const opps = [h.opponent1, h.opponent2].filter(Boolean);
+    if(!opps.length) return;
+    const oppRatings = opps.map(ratingOf);
+    const oppPeak = Math.max(...oppRatings);
+    const oppWeak = Math.min(...oppRatings);
+    if(h.won && (!bestWin || oppPeak > bestWin.r)) bestWin = { r:oppPeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
+    if(!h.won && (!worstLoss || oppWeak < worstLoss.r)) worstLoss = { r:oppWeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
+  });
+
+  // Recent 20 games
+  const recent = history.slice(0, 20);
+
+  // Sparkline SVG
+  const chartH = 90, chartW = 320, pad = 6;
+  let chartHTML;
+  if(history.length<2){
+    chartHTML = `<p style="font-size:12px;color:var(--gray);text-align:center;padding:18px 0;">Need at least 2 games for a chart.</p>`;
+  } else {
+    const sortedAsc = history.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+    const ratings = sortedAsc.map(h=>h.ratingAfter);
+    const minR = Math.min(...ratings), maxR = Math.max(...ratings);
+    const span = Math.max(1, maxR - minR);
+    const xStep = (chartW - pad*2) / (sortedAsc.length-1);
+    const points = sortedAsc.map((h,i)=>{
+      const x = pad + i*xStep;
+      const y = pad + (1 - (h.ratingAfter - minR)/span) * (chartH - pad*2);
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    chartHTML = `<svg viewBox="0 0 ${chartW} ${chartH}" style="width:100%;height:${chartH}px;display:block;background:var(--sand);border-radius:8px;">
+      <polyline fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${points}"/>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray);margin-top:4px;">
+      <span>${Math.round(minR)}</span><span>${sortedAsc.length} games</span><span>${Math.round(maxR)}</span>
+    </div>`;
+  }
+
+  const sourceBadge = src => {
+    const map = { league_kings:['KINGS','#1a3a6b'], league_queens:['QUEENS','#6b21a8'], pickup:['PICKUP','#d4a843'] };
+    const v = map[src] || [src||'?', '#6b7280'];
+    return `<span style="font-family:'Bebas Neue';font-size:9px;letter-spacing:1px;background:${v[1]};color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;">${v[0]}</span>`;
+  };
+
+  $('ph-title').textContent = name;
+  $('ph-body').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-family:'Bebas Neue';font-size:42px;line-height:1;color:var(--primary);">${Math.round(rating)}</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:2px;">± ${Math.round(rd)} · ${gp} game${gp===1?'':'s'} · peak ${Math.round(peak)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;"><span class="win">${wins}W</span> · <span class="loss">${losses}L</span></div>
+        <div style="font-size:12px;color:var(--gray);">${gp>0 ? Math.round(wins/gp*100)+'% win rate' : ''}</div>
+      </div>
+    </div>
+
+    <div class="ctitle" style="margin-top:8px;"><span class="bar"></span>Rating Trend</div>
+    ${chartHTML}
+
+    <div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Recent Games</div>
+    ${recent.length ? `<div style="border-top:1px solid var(--sand-border);">${recent.map(h=>{
+      const dStr = h.timestamp ? new Date(h.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+      const partner = h.partner ? `with ${escapeHTML(h.partner)}` : 'solo';
+      const opps = [h.opponent1,h.opponent2].filter(Boolean).map(escapeHTML).join(' & ') || '?';
+      const change = (h.ratingChange||0);
+      const sign = change>=0?'+':'';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand-border);">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">${h.won?'✓':'✕'} ${h.score||0}-${h.opponentScore||0} ${sourceBadge(h.source)}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px;">${dStr} · ${partner} vs ${opps}</div>
+        </div>
+        <div style="font-family:'Bebas Neue';font-size:14px;color:${change>=0?'var(--win)':'var(--loss)'};min-width:48px;text-align:right;">${sign}${change.toFixed(1)}</div>
+      </div>`;
+    }).join('')}</div>` : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No rated games yet.</p>'}
+
+    ${(bestWin || worstLoss) ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Highlights</div>
+    ${bestWin ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Best Win</div>
+      <div style="font-weight:700;">vs ${escapeHTML(bestWin.opp)} (${Math.round(bestWin.r)})</div>
+      <div style="font-size:12px;color:var(--gray);">${bestWin.score} on ${new Date(bestWin.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+    </div>` : ''}
+    ${worstLoss ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Toughest Loss</div>
+      <div style="font-weight:700;">vs ${escapeHTML(worstLoss.opp)} (${Math.round(worstLoss.r)})</div>
+      <div style="font-size:12px;color:var(--gray);">${worstLoss.score} on ${new Date(worstLoss.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+    </div>` : ''}` : ''}
+
+    ${partnerRows.length ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Partners</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);">
+        <th style="padding:6px 0;text-align:left;">Partner</th>
+        <th style="padding:6px;text-align:center;">GP</th>
+        <th style="padding:6px;text-align:center;">W</th>
+        <th style="padding:6px;text-align:center;">L</th>
+        <th style="padding:6px;text-align:center;">+/-</th>
+      </tr></thead>
+      <tbody>${partnerRows.map(([nm,s])=>`
+        <tr style="border-top:1px solid var(--sand-border);font-size:13px;">
+          <td style="padding:10px 0;font-weight:700;">${escapeHTML(nm)}</td>
+          <td style="padding:10px;text-align:center;color:var(--gray);">${s.gp}</td>
+          <td style="padding:10px;text-align:center;" class="win">${s.w}</td>
+          <td style="padding:10px;text-align:center;" class="loss">${s.l}</td>
+          <td style="padding:10px;text-align:center;" class="${pmc(s.pf-s.pa)}">${pm(s.pf-s.pa)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : ''}
+  `;
+  $('ph-modal').classList.add('on');
+}
+
+// RATINGS TAB
+let ratingSort = { key:'rating', dir:'desc' };
+function renderRatingsHeader(){
+  const cont = $('ratings-header'); if(!cont) return;
+  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
+  const total = all.length;
+  const avg = total ? Math.round(all.reduce((s,r)=>s+(r.rating||1500),0)/total) : 1500;
+  const lastTs = all.reduce((m,r)=>Math.max(m, r.lastUpdated||0), 0);
+  const ago = lastTs ? timeAgo(lastTs) : 'never';
+  cont.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:160px;">
+      <div style="font-family:'Bebas Neue';font-size:24px;color:var(--primary);">${total}</div>
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Players Ranked</div>
+    </div>
+    <div style="flex:1;min-width:160px;">
+      <div style="font-family:'Bebas Neue';font-size:24px;">${avg}</div>
+      <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Avg Rating</div>
+    </div>
+    <div style="flex:1;min-width:160px;">
+      <div style="font-size:13px;font-weight:700;">Updated ${ago}</div>
+      <button class="btn btn-g btn-sm" style="margin-top:6px;" onclick="$('how-modal').classList.add('on')">ⓘ How ratings work</button>
+    </div>
+  </div>`;
+}
+function timeAgo(ts){
+  const d = Date.now() - ts;
+  if(d < 60*1000) return 'just now';
+  if(d < 60*60*1000) return Math.round(d/60000)+' min ago';
+  if(d < 24*60*60*1000) return Math.round(d/3600000)+' hr ago';
+  return Math.round(d/86400000)+' day'+(Math.round(d/86400000)===1?'':'s')+' ago';
+}
+function renderRatings(){
+  const tbody = $('rbody'); if(!tbody) return;
+  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
+  if(!all.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--gray);">No ratings yet. Score a game to get started.</td></tr>';
+    return;
+  }
+  const k = ratingSort.key;
+  all.sort((a,b)=>{
+    const va = a[k]||0, vb = b[k]||0;
+    return ratingSort.dir==='asc' ? va-vb : vb-va;
+  });
+  const rc = ['r1','r2','r3'];
+  tbody.innerHTML = all.map((r,i)=>`
+    <tr class="tappable" onclick="showPlayerRatingDetail('${escapeHTML(r.name).replace(/'/g,"&#39;")}')">
+      <td style="padding-left:14px;"><span class="rnk ${rc[i]||''}">${i+1}</span></td>
+      <td class="pname">${escapeHTML(r.name)}</td>
+      <td style="font-family:'Bebas Neue';font-size:18px;color:var(--primary);">${Math.round(r.rating||1500)}</td>
+      <td style="font-size:12px;color:var(--gray);">± ${Math.round(r.rd||350)}</td>
+      <td class="gp">${r.gamesPlayed||0}</td>
+    </tr>`).join('');
+  document.querySelectorAll('#rtbl th[data-rsort]').forEach(th=>{
+    const isSorted = th.dataset.rsort===ratingSort.key;
+    th.classList.toggle('sorted', isSorted);
+    const labels = { rating:'Rating', rd:'RD', gamesPlayed:'GP' };
+    th.textContent = (labels[th.dataset.rsort]||th.dataset.rsort) + (isSorted ? (ratingSort.dir==='asc'?' ▲':' ▼') : '');
+  });
+}
+
+// COMPLETION BANNER
+function renderBanner(t){
+  const slot = $('ev-banner-'+t);
+  if(!slot) return;
+  if(isEventComplete()){
+    slot.innerHTML = `<div class="banner complete">
+      <div style="font-size:24px;">🏆</div>
+      <div class="btxt">Event Complete<span class="bsub">All scheduled games scored. Final standings ready.</span></div>
+      <button class="btn btn-a btn-sm" onclick="openEndExtend()">End / Extend</button>
+    </div>`;
+  } else {
+    slot.innerHTML = '';
+  }
+}
+
+// END / EXTEND
+function openEndExtend(){
+  const e = ev(); if(!e) return;
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name).sort((a,b)=>a.name.localeCompare(b.name));
+  $('ee-roster').innerHTML = players.map(p=>`<div class="row-input">
+    <span class="lblname">${escapeHTML(p.name)}</span>
+    <div class="num-step">
+      <button onclick="bumpExt('${p.id}',-1)">-</button>
+      <input id="ext-${p.id}" type="number" min="0" max="20" value="0">
+      <button onclick="bumpExt('${p.id}',1)">+</button>
+    </div>
+  </div>`).join('') || '<p style="color:var(--gray);font-size:13px;">No players to extend.</p>';
+  $('ee-modal').classList.add('on');
+}
+function bumpExt(pid, d){
+  const inp = $('ext-'+pid); if(!inp) return;
+  inp.value = Math.max(0, (parseInt(inp.value)||0)+d);
+}
+function confirmEndEvent(){ closeModal('ee-modal'); $('confirm-end-modal').classList.add('on'); }
+
+async function doEndEvent(){
+  const e = ev(); if(!e) return;
+  const m = evMeta();
+  closeModal('confirm-end-modal');
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name);
+  const playedSet = new Set();
+  Object.values(e.results||{}).forEach(r=>{
+    [...(r.t1||[]), ...(r.t2||[])].forEach(pid=>playedSet.add(pid));
+  });
+  const participantNames = players.filter(p=>playedSet.has(p.id)).map(p=>p.name);
+
+  const snap = {
+    meta: { ...m, closedAt: Date.now(), status: 'archived' },
+    players: e.players||{},
+    rounds:  e.rounds||null,
+    results: e.results||{}
+  };
+  try{
+    await db.ref(DB_ROOT+'/archive/'+activeEvent).set(snap);
+    await db.ref(DB_ROOT+'/events/'+activeEvent).remove();
+    await Promise.all(participantNames.map(n=>bumpPlayerHistory(n)));
+    toast('Event closed');
+    activeEvent = null;
+    showView('list');
+  }catch(err){
+    console.error(err);
+    toast("Couldn't close event, try again");
+  }
+}
+
+async function bumpPlayerHistory(name){
+  const k = nameKey(name); if(!k) return;
+  const ref = db.ref(DB_ROOT+'/player_history/'+k);
+  try{
+    const snap = await ref.once('value');
+    const cur = snap.val()||{ name, count: 0 };
+    await ref.set({ name: cur.name||name, count: (cur.count||0)+1, lastPlayed: Date.now() });
+  }catch(err){ console.error('history bump failed for '+name, err); }
+}
+
+async function generateExtension(){
+  const e = ev(); if(!e) return;
+  const m = evMeta();
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name);
+  const targets = {};
+  let total = 0;
+  players.forEach(p=>{
+    const v = parseInt($('ext-'+p.id)?.value)||0;
+    if(v>0){ targets[p.id] = v; total += v; }
+  });
+  if(total===0){ toast('Set at least one player to a number above zero'); return; }
+  const playingPool = players.filter(p=>(targets[p.id]||0)>0);
+  if(playingPool.length<4){ toast('Need at least 4 players in the extension'); return; }
+
+  closeModal('ee-modal');
+
+  const existingRounds = e.rounds||[];
+  const startRound = existingRounds.length ? (existingRounds[existingRounds.length-1].round + 1) : 1;
+  const pCounts = countPartnersFromRounds(existingRounds, e.results||{}, playingPool);
+
+  let newRounds;
+  try{
+    newRounds = await buildRoundsAI({
+      eventId: activeEvent,
+      players: playingPool,
+      courts: m.courts||2,
+      targets,
+      startRound,
+      pCounts,
+      header: 'You are scheduling extra rounds at the end of a King of the Beach pickup tournament. Optimize for partner variety only.'
+    });
+  }catch(err){
+    console.error(err);
+    toast("Couldn't build extension. Try again.");
+    return;
+  }
+  const merged = [...existingRounds, ...newRounds];
+  fbSet('events/'+activeEvent+'/rounds', merged);
+  _pendingRoundsUpdate = { eventId: activeEvent, rounds: merged, ts: Date.now() };
+  setTimeout(()=>{ _pendingRoundsUpdate = null; }, 10000);
+  if(D.events[activeEvent]) D.events[activeEvent].rounds = merged;
+  if(newRounds.length) liveRound = newRounds[0].round;
+  toast('Extension added ✓');
+  pickTab('score');
+}
+
+// ARCHIVE VIEW
+function viewArchive(id){
+  const e = D.archive[id]; if(!e) return;
+  const m = e.meta||e;
+  const players = Object.values(e.players||{}).filter(p=>p&&p.name);
+  const stats = {};
+  players.forEach(p=>{ stats[p.id] = { id:p.id, name:p.name, gp:0, w:0, l:0, pf:0, pa:0 }; });
+  Object.values(e.results||{}).forEach(r=>{
+    const proc = (team, sf, sa) => (team||[]).forEach(pid=>{
+      if(!stats[pid]) stats[pid] = { id:pid, name:String(pid), gp:0, w:0, l:0, pf:0, pa:0 };
+      stats[pid].gp++;
+      stats[pid].pf += sf; stats[pid].pa += sa;
+      sf>sa ? stats[pid].w++ : stats[pid].l++;
+    });
+    proc(r.t1, r.s1, r.s2);
+    proc(r.t2, r.s2, r.s1);
+  });
+  const ranked = Object.values(stats).filter(p=>p.gp>0)
+    .sort((a,b)=>(b.w-b.l)-(a.w-a.l)||(b.pf-b.pa)-(a.pf-a.pa));
+  const rows = ranked.map((p,i)=>{
+    const pct = p.gp>0 ? Math.round(p.w/p.gp*100)+'%' : '-';
+    const diff = p.pf-p.pa;
+    return `<tr class="tappable" onclick="showPlayerRatingDetail('${escapeHTML(p.name).replace(/'/g,"&#39;")}')">
+      <td style="padding:8px 4px;">${i+1}</td>
+      <td style="padding:8px 4px;font-weight:700;">${escapeHTML(p.name)}</td>
+      <td style="padding:8px 4px;text-align:center;">${p.gp}</td>
+      <td style="padding:8px 4px;text-align:center;color:var(--win);font-weight:700;">${p.w}</td>
+      <td style="padding:8px 4px;text-align:center;color:var(--loss);font-weight:700;">${p.l}</td>
+      <td style="padding:8px 4px;text-align:center;font-size:12px;">${pct}</td>
+      <td style="padding:8px 4px;text-align:center;font-size:12px;color:var(--gray);">${p.pf}/${p.pa}</td>
+      <td style="padding:8px 4px;text-align:center;font-weight:700;color:${diff>=0?'var(--win)':'var(--loss)'};">${diff>=0?'+':''}${diff}</td>
+    </tr>`;
+  }).join('');
+
+  $('arch-title').textContent = m.name||'Past Event';
+  $('arch-meta').textContent = fD(m.date)+' · '+players.length+' player'+(players.length===1?'':'s')+' · '+Object.keys(e.results||{}).length+' games';
+  $('arch-body').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="font-size:11px;color:var(--gray);border-bottom:2px solid var(--sand-border);">
+      <th style="text-align:left;padding:6px 4px;">#</th>
+      <th style="text-align:left;padding:6px 4px;">Player</th>
+      <th style="padding:6px 4px;">GP</th>
+      <th style="padding:6px 4px;">W</th>
+      <th style="padding:6px 4px;">L</th>
+      <th style="padding:6px 4px;">Win%</th>
+      <th style="padding:6px 4px;">PF/PA</th>
+      <th style="padding:6px 4px;">+/-</th>
+    </tr></thead>
+    <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px;">No games recorded</td></tr>'}</tbody>
+  </table>
+  <p style="font-size:11px;color:var(--gray);margin-top:10px;">Tap a player for partner history.</p>`;
+  $('arch-modal').classList.add('on');
+}
+
+// SAVED GROUPS
+let groupEditId = null;
+let groupEditMembers = new Set();
+
+function openGroupsModal(){
+  renderGroupsList();
+  $('groups-modal').classList.add('on');
+}
+
+function renderGroupsList(){
+  const groups = Object.values(D.groups||{}).filter(g=>g&&g.name)
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  if(!groups.length){
+    $('groups-list').innerHTML = '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No groups yet. Tap + New Group to create one.</p>';
+    return;
+  }
+  $('groups-list').innerHTML = groups.map(g=>{
+    const memberCount = (g.members||[]).length;
+    const memberPreview = (g.members||[]).slice(0,8).map(escapeHTML).join(', ') + (memberCount>8 ? ', +'+(memberCount-8)+' more' : '');
+    const creator = g.createdBy ? ' · created by '+escapeHTML(g.createdBy) : '';
+    return `<div style="border:1px solid var(--sand-border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--sand);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div style="flex:1;">
+          <div style="font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;color:var(--primary);">${escapeHTML(g.name)}</div>
+          <div style="font-size:12px;color:var(--gray);margin-top:2px;">${memberCount} member${memberCount===1?'':'s'}${creator}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-g btn-sm" onclick="openGroupEditor('${escapeHTML(g.id).replace(/'/g,"\\'")}')">Edit</button>
+          <button class="btn btn-d btn-sm" onclick="deleteGroup('${escapeHTML(g.id).replace(/'/g,"\\'")}')">Delete</button>
+        </div>
+      </div>
+      ${memberCount ? `<div style="font-size:12px;color:var(--gray);line-height:1.5;">${memberPreview}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openGroupEditor(id){
+  closeModal('groups-modal');
+  groupEditId = id || null;
+  if(id && D.groups[id]){
+    const g = D.groups[id];
+    $('ge-title').textContent = 'Edit Group';
+    $('ge-name').value = g.name || '';
+    groupEditMembers = new Set(g.members||[]);
+  } else {
+    $('ge-title').textContent = 'New Group';
+    $('ge-name').value = '';
+    groupEditMembers = new Set();
+  }
+  $('ge-search').value = '';
+  renderGroupMembers();
+  $('group-editor-modal').classList.add('on');
+  setTimeout(()=>$('ge-name').focus(), 50);
+}
+
+function renderGroupMembers(){
+  const q = ($('ge-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
+  // Include any currently-selected names that aren't in the roster (defensive)
+  groupEditMembers.forEach(m=>{ if(!allRated.includes(m)) allRated.push(m); });
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
+  if(!filtered.length){
+    $('ge-members').innerHTML = '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No players match.</p>';
+    return;
+  }
+  $('ge-members').innerHTML = filtered.map(name=>{
+    const checked = groupEditMembers.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleGroupMember('${safe}',this.checked)" style="width:18px;height:18px;flex-shrink:0;">
+      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+
+function toggleGroupMember(name, isChecked){
+  // Decode HTML entities that escapeHTML adds back
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) groupEditMembers.add(decoded);
+  else groupEditMembers.delete(decoded);
+  $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
+}
+
+function saveGroup(){
+  const name = ($('ge-name').value||'').trim();
+  if(!name){ toast('Group needs a name'); $('ge-name').focus(); return; }
+  const id = groupEditId || gi('grp');
+  const existing = D.groups[id];
+  const identity = (window.Identity && Identity.getCurrent && Identity.getCurrent());
+  const record = {
+    id,
+    name,
+    createdBy: existing && existing.createdBy ? existing.createdBy : (identity ? identity.name : 'Anonymous'),
+    createdAt: existing && existing.createdAt ? existing.createdAt : Date.now(),
+    members: [...groupEditMembers].sort(),
+    updatedAt: Date.now()
+  };
+  fbSet('groups/'+id, record);
+  closeModal('group-editor-modal');
+  toast(existing ? 'Group updated' : 'Group created');
+  setTimeout(()=>openGroupsModal(), 250);
+}
+
+function deleteGroup(id){
+  const g = D.groups[id]; if(!g) return;
+  if(!confirm('Delete "'+g.name+'"? This can\'t be undone.')) return;
+  fbDel('groups/'+id);
+  toast('Deleted');
+  setTimeout(()=>renderGroupsList(), 250);
+}
+
+// PICKUP INVITES (RSVP-based)
+let activeInvite = null;
+let inviteEditId = null;
+let inviteIncSelected = new Set();
+let inviteExcSelected = new Set();
+// Phase C: games-list filter. false = show all games (default, opt-in). true =
+// only games the current player is eligible to join. Effective only with an identity.
+let _pickupEligibleOnly = false;
+
+// A1 pickup data-model fields. Held in module state between form-open and save,
+// mirroring inviteIncSelected/inviteExcSelected. No A1 UI populates these yet
+// (the form lands in A2); buildInviteRecord reads them so edits round-trip and
+// the { ...existing, ...base } merge in saveInvite never clobbers a saved value.
+let inviteGameType = { vibe: 'fun', format: '2s' };
+let inviteWideningTiers = [];
+let inviteCancelDeadlineOffsetMins = null;
+let inviteCountsTowardRankings = false;
+
+// Deep-copy helper for nested invite fields (eligibility, gameType, wideningTiers).
+// structuredClone when available, else a JSON round-trip. Gives each recurring
+// occurrence its own copies instead of references shared with base.
+function deepCopy(v){
+  if(v == null) return v;
+  if(typeof structuredClone === 'function') return structuredClone(v);
+  return JSON.parse(JSON.stringify(v));
+}
+
+function backToList(){
+  activeInvite = null;
+  inviteEditId = null;
+  setupState = null;
+  showView('list');
+}
+
+function fmtTime(t){
+  if(!t) return '';
+  const [h,m] = String(t).split(':');
+  if(h==null) return t;
+  const hr = parseInt(h);
+  const mer = hr>=12?'pm':'am';
+  const h12 = ((hr+11)%12)+1;
+  return h12+(m&&m!=='00'?':'+m:'')+mer;
+}
+function fmtDateTime(ts){
+  if(!ts) return '';
+  return new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+}
+function defaultDeadlineISO(date, startTime){
+  if(!date || !startTime) return '';
+  const start = new Date(date+'T'+startTime+':00');
+  const dl = new Date(start.getTime() - 2*60*60*1000);
+  // Format for datetime-local input: YYYY-MM-DDTHH:MM
+  const pad = n => String(n).padStart(2,'0');
+  return dl.getFullYear()+'-'+pad(dl.getMonth()+1)+'-'+pad(dl.getDate())+'T'+pad(dl.getHours())+':'+pad(dl.getMinutes());
+}
+
+// ELIGIBILITY RESOLVER
+//
+// Two distinct concepts, kept separate on purpose:
+//
+//   ELIGIBILITY (event creation): who is allowed to RSVP for this event?
+//     Union of (ratings, profiles, league Kings, league Queens) deduped by
+//     normalized name. The only subtractive filter is admin-blocked, since a
+//     blocked player has been formally removed from the community. Notification
+//     preferences (email opt-in, mute, no email on file) DO NOT affect
+//     eligibility. A player without an email can still find the event in the
+//     pickup app and RSVP themselves.
+//
+//   NOTIFICATION REACH (Phase 5 send code): of the eligible set, who do we
+//     actually email or banner? Answered by notifiableForInvite() below. Phase
+//     5 Worker code MUST call notifiableForInvite, never re-implement the
+//     filtering on its own. If the order of operations inverts there, the
+//     "Open to all = 7 players" bug comes right back.
+
+// Build {nameKey -> displayName} of every player the system knows about,
+// deduped, with admin-blocked profiles excluded. Inactive league players are
+// skipped by default; hosts can override per-event with the include list.
+// Resolve a player/profile record to a display STRING. Pickup profiles store
+// name as { first, last } plus a string displayName, while league rosters and
+// ratings store name as a plain string. Mirrors the displayNameOf pattern used
+// in the community pages (implemented locally here). Returns '' if unresolvable.
+function nameStr(p){
+  if(!p) return '';
+  if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p.name;
+  if(n && typeof n === 'object'){ const f = ((n.first||'')+' '+(n.last||'')).trim(); if(f) return f; }
+  if(typeof n === 'string' && n.trim()) return n.trim();
+  return '';
+}
+
+function allKnownPlayerNames(){
+  const byKey = {};
+  const blocked = new Set();
+  Object.values(window._profilesCache||{}).forEach(p=>{
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
+    if(p.blocked){ blocked.add(k); return; }
+    byKey[k] = nm;
+  });
+  Object.values(D.ratings||{}).forEach(r=>{
+    const nm = nameStr(r);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = nm;
+  });
+  Object.values(leagueKings||{}).forEach(p=>{
+    if(p && p.active===false) return;
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = nm;
+  });
+  Object.values(leagueQueens||{}).forEach(p=>{
+    if(p && p.active===false) return;
+    const nm = nameStr(p);
+    if(!nm) return;
+    const k = Identity.nameKey(nm);
+    if(blocked.has(k) || byKey[k]) return;
+    byKey[k] = nm;
+  });
+  return byKey;
+}
+
+function computeEligible(e){
+  e = e || {};
+  const allByKey = allKnownPlayerNames();
+  let names;
+  if(e.baseMode === 'ratingMin'){
+    const min = +e.ratingMin || 0;
+    names = Object.entries(allByKey)
+      .filter(([k]) => { const r=(D.ratings||{})[k]; return r && (r.rating||0) >= min; })
+      .map(([,n]) => n);
+  } else if(e.baseMode === 'ratingRange'){
+    const min = +e.ratingMin || 0, max = +e.ratingMax || 9999;
+    names = Object.entries(allByKey)
+      .filter(([k]) => { const r=(D.ratings||{})[k]; const rt=(r&&r.rating)||0; return rt>=min && rt<=max; })
+      .map(([,n]) => n);
+  } else if(e.baseMode === 'group'){
+    const g = (D.groups||{})[e.groupId];
+    if(!g) return [];
+    names = (g.members||[])
+      .map(n => { const k = Identity.nameKey(n); return allByKey[k] || null; })
+      .filter(Boolean);
+  } else if(e.baseMode === 'inviteOnly'){
+    // Phase B: empty base so the additive includeList below becomes the whole circle.
+    names = [];
+  } else {
+    names = Object.values(allByKey);
+  }
+  // includeList overrides up: even if not in any source, an explicit invite stands
+  (e.includeList||[]).forEach(n => {
+    if(!names.some(x => Identity.nameKey(x)===Identity.nameKey(n))) names.push(n);
+  });
+  // excludeList overrides down
+  const excSet = new Set((e.excludeList||[]).map(n => Identity.nameKey(n)));
+  names = names.filter(n => !excSet.has(Identity.nameKey(n)));
+  return names.sort((a,b) => a.localeCompare(b));
+}
+
+// Phase B resolver: the eligible name set in force right now = the primary
+// eligibility circle UNIONED with every widening tier whose activation time has
+// passed. Union/grow-only: the pool only expands as start approaches; nobody
+// eligible earlier loses eligibility. Pure function (invite + D.ratings/D.groups
+// + clock); no user reference. A tier activates when now >= (start - atOffsetMins),
+// start = new Date(date+'T'+startTime+':00').getTime(). Absolute times are derived
+// here at read time from each occurrence's own start, so stored minute-offsets stay
+// per-occurrence correct through recurring expansion.
+function activeEligibleNames(invite, now){
+  invite = invite || {};
+  now = now || Date.now();
+  const byKey = new Map(); // nameKey -> displayName, dedupe across primary + tiers
+  const addAll = list => (list||[]).forEach(n => {
+    const k = Identity.nameKey(n);
+    if(!byKey.has(k)) byKey.set(k, n);
+  });
+  addAll(computeEligible(invite.eligibility || {}));
+  const tiers = Array.isArray(invite.wideningTiers) ? invite.wideningTiers : [];
+  if(tiers.length && invite.date && invite.startTime){
+    const start = new Date(invite.date+'T'+invite.startTime+':00').getTime();
+    if(Number.isFinite(start)){
+      tiers.forEach(t => {
+        if(!t || !Number.isFinite(+t.atOffsetMins)) return;
+        const activatesAt = start - (+t.atOffsetMins)*60000;
+        if(now >= activatesAt) addAll(computeEligible(t.spec || {}));
+      });
+    }
+  }
+  return [...byKey.values()].sort((a,b) => a.localeCompare(b));
+}
+
+// Phase 5 entry point: who actually receives email/banner notifications?
+// Filters the eligible set down to profiles with notifications enabled, not
+// muted, with an email on file. Worker code should call only this function.
+function notifiableForInvite(invite){
+  // Phase B: route through the time-aware resolver (primary + activated tiers).
+  // Tier resolution stays HERE, never in the Worker.
+  const eligible = activeEligibleNames(invite, Date.now());
+  const profiles = window._profilesCache || {};
+  const now = Date.now();
+  return eligible.filter(name => {
+    const p = profiles[Identity.nameKey(name)];
+    if(!p) return false;
+    if(p.blocked) return false;
+    if(p.notificationsEnabled === false) return false;
+    if(p.muteUntil && p.muteUntil > now) return false;
+    if(!p.email) return false;
+    return true;
+  });
+}
+
+async function ensureProfilesLoaded(){
+  if(window._profilesCacheTs && Date.now()-window._profilesCacheTs < 30000) return;
+  if(!db) return;
+  const snap = await db.ref('tally_kotb_pickup/players').once('value');
+  window._profilesCache = snap.val() || {};
+  window._profilesCacheTs = Date.now();
+}
+
+// LIST: Upcoming Pickups
+function renderInviteList(){
+  const cont = $('invite-list'); if(!cont) return;
+  const now = Date.now();
+  const all = Object.values(D.invites||{}).filter(i => i && i.id && i.status !== 'cancelled');
+  // Mark past events as past
+  const upcoming = all.filter(i => {
+    const start = i.date && i.startTime ? new Date(i.date+'T'+i.startTime+':00').getTime() : 0;
+    return !start || start > now - 4*60*60*1000; // include events that started up to 4 hours ago
+  }).sort((a,b)=>{
+    const ta = new Date(a.date+'T'+(a.startTime||'00:00')+':00').getTime();
+    const tb = new Date(b.date+'T'+(b.startTime||'00:00')+':00').getTime();
+    return ta - tb;
+  });
+
+  if(!upcoming.length){
+    cont.innerHTML = '';
+    return;
+  }
+
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+
+  // Phase C filter: "I can join" shows only games the current player is eligible
+  // for. Reads activeEligibleNames (never modifies it). Effective only with an
+  // identity; default is all games (opt-in, never hides by default).
+  const filterOn = _pickupEligibleOnly && !!myKey;
+  const shown = filterOn
+    ? upcoming.filter(i => activeEligibleNames(i, now).some(n => Identity.nameKey(n) === myKey))
+    : upcoming;
+
+  const dis = myKey ? '' : 'disabled';
+  const toggle = `<div class="round-pills" style="margin-bottom:12px;">
+      <button type="button" class="rpill ${filterOn?'':'on'}" ${dis} onclick="setPickupFilter(false)">All games</button>
+      <button type="button" class="rpill ${filterOn?'on':''}" ${dis} onclick="setPickupFilter(true)">I can join</button>
+    </div>${myKey ? '' : '<div class="evmeta" style="margin:-4px 0 12px;color:var(--gray);">Pick your name to filter to games you can join.</div>'}`;
+
+  let h = `<div class="ctitle"><span class="bar"></span>Upcoming Pickups (${shown.length})</div>` + toggle;
+  if(!shown.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No games open to you right now.</div>';
+    cont.innerHTML = h;
+    return;
+  }
+  h += shown.map(i => {
+    const rsvps = i.rsvps || {};
+    const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
+    const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
+    const myRsvp = myKey ? rsvps[myKey] : null;
+    const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
+    const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    let badge = '';
+    if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
+    else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
+    return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="flex:1;">
+          <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
+          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}</div>
+          <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||8} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
+        </div>
+        ${badge}
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = h;
+}
+
+// Phase C: flip the games-list filter and re-render. Guards the no-identity case
+// (cannot filter to eligible without a key) as defense in depth beyond the
+// disabled pills.
+function setPickupFilter(on){
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(on && !(me && me.key)) return;
+  _pickupEligibleOnly = !!on;
+  renderInviteList();
+}
+
+// SETUP / EDIT
+let _userEditedTitle = false;
+
+function autoTitle(dateISO){
+  if(!dateISO) return 'Pickup';
+  return 'Pickup, '+new Date(dateISO+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function wireSetupListeners(){
+  $('iv-name').oninput = ()=>{ _userEditedTitle = true; };
+  const onDateOrStart = ()=>{
+    $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value);
+    if(!_userEditedTitle) $('iv-name').value = autoTitle($('iv-date').value);
+  };
+  $('iv-date').onchange = onDateOrStart;
+  $('iv-start').onchange = onDateOrStart;
+}
+
+function startNewInvite(){
+  inviteEditId = null;
+  inviteIncSelected = new Set();
+  inviteExcSelected = new Set();
+  // A1 data-model fields reset to defaults for a fresh form (no A1 UI yet).
+  inviteGameType = { vibe: 'fun', format: '2s' };
+  inviteWideningTiers = [];
+  inviteCancelDeadlineOffsetMins = null;
+  inviteCountsTowardRankings = false;
+  _userEditedTitle = false;
+  ensureProfilesLoaded().then(()=>{
+    showView('invite-setup');
+    setTimeout(()=>{
+      $('iv-su-title').textContent = 'Schedule a Pickup';
+      $('iv-save-btn').textContent = 'Schedule Pickup';
+      const today = td();
+      $('iv-name').value = autoTitle(today);
+      $('iv-date').value = today;
+      $('iv-start').value = '09:00';
+      $('iv-end').value = '11:00';
+      $('iv-loc').value = '';
+      $('iv-desc').value = '';
+      $('iv-slots').value = 6;
+      $('iv-min-slots').value = 4;
+      if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
+      $('iv-deadline').value = defaultDeadlineISO(today, '09:00');
+      // A2 new-game defaults for the added controls (module state already reset above).
+      if($('iv-game-vibe')) $('iv-game-vibe').value = 'fun';
+      if($('iv-game-format')) $('iv-game-format').value = '2s';
+      if($('iv-cancel-offset')) $('iv-cancel-offset').value = '';
+      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = false;
+      if($('iv-rsvp-me')) $('iv-rsvp-me').checked = true;
+      if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = '';
+      $('iv-rec').checked = false;
+      toggleRecurring();
+      $('iv-elig-mode').value = 'open';
+      wireSetupListeners();
+      renderEligibilityFields();
+      renderInclude(); renderExclude();
+      updateInvitePreview();
+      renderWideningTiers();
+    }, 0);
+  });
+}
+
+function startEditInvite(id){
+  const i = (D.invites||{})[id]; if(!i) return;
+  inviteEditId = id;
+  inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
+  inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
+  // A1 data-model fields: load from the existing record into module state so they
+  // round-trip on save. Deep-copy the nested ones so editing never mutates the
+  // live D.invites copy. Defaults applied for older records that lack them.
+  inviteGameType = deepCopy(i.gameType) || { vibe: 'fun', format: '2s' };
+  if(!inviteGameType.vibe) inviteGameType.vibe = 'fun';
+  if(!inviteGameType.format) inviteGameType.format = '2s';
+  inviteWideningTiers = Array.isArray(i.wideningTiers) ? deepCopy(i.wideningTiers) : [];
+  inviteCancelDeadlineOffsetMins = Number.isInteger(i.cancelDeadlineOffsetMins) ? i.cancelDeadlineOffsetMins : null;
+  inviteCountsTowardRankings = !!i.countsTowardRankings;
+  _userEditedTitle = true; // existing title is whatever the host saved; do not auto-overwrite on date change
+  ensureProfilesLoaded().then(()=>{
+    showView('invite-setup');
+    setTimeout(()=>{
+      $('iv-su-title').textContent = 'Edit Pickup';
+      $('iv-save-btn').textContent = 'Save Changes';
+      $('iv-name').value = i.name || '';
+      $('iv-date').value = i.date || td();
+      $('iv-start').value = i.startTime || '09:00';
+      $('iv-end').value = i.endTime || '11:00';
+      $('iv-loc').value = i.location || '';
+      $('iv-desc').value = i.description || '';
+      $('iv-slots').value = i.slots || 6;
+      $('iv-min-slots').value = i.minSlots || 4;
+      if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
+      $('iv-deadline').value = i.rsvpDeadline ? new Date(i.rsvpDeadline).toISOString().slice(0,16) : defaultDeadlineISO(i.date, i.startTime);
+      // A2 edit: reflect the loaded A1 module state into the added controls. All stored
+      // cancel-offset values are select presets (or null), so the option matches; a null
+      // shows "No auto-cancel".
+      if($('iv-game-vibe')) $('iv-game-vibe').value = inviteGameType.vibe || 'fun';
+      if($('iv-game-format')) $('iv-game-format').value = inviteGameType.format || '2s';
+      if($('iv-cancel-offset')) $('iv-cancel-offset').value = (inviteCancelDeadlineOffsetMins == null) ? '' : String(inviteCancelDeadlineOffsetMins);
+      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = !!inviteCountsTowardRankings;
+      // Auto-RSVP is a create-time action only; hide and uncheck on edit.
+      if($('iv-rsvp-me')) $('iv-rsvp-me').checked = false;
+      if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = 'none';
+      $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
+      toggleRecurring();
+      const e = i.eligibility || {};
+      $('iv-elig-mode').value = e.baseMode || 'open';
+      wireSetupListeners();
+      renderEligibilityFields(e);
+      renderInclude(); renderExclude();
+      updateInvitePreview();
+      renderWideningTiers();
+    }, 0);
+  });
+}
+
+function toggleRecurring(){
+  const on = $('iv-rec').checked;
+  $('iv-rec-fields').style.display = on ? 'block' : 'none';
+}
+
+// A2 game-type sync: keep module state aligned with the two selects. buildInviteRecord
+// reads the elements directly when present; this keeps inviteGameType in sync too so
+// any other reader of module state sees the latest choice.
+function syncGameType(){
+  const vibeEl = $('iv-game-vibe'), formatEl = $('iv-game-format');
+  inviteGameType = {
+    vibe: (vibeEl && vibeEl.value) || 'fun',
+    format: (formatEl && formatEl.value) || '2s'
+  };
+}
+
+// A2 cancel-offset sync: the select value is MINUTES before start (labels show hours),
+// matching the cancelDeadlineOffsetMins contract buildInviteRecord reads. Empty = null
+// = no auto-cancel. Stored only; no auto-cancel engine acts on it yet.
+function syncCancelOffset(){
+  const el = $('iv-cancel-offset');
+  const v = el ? el.value : '';
+  inviteCancelDeadlineOffsetMins = (v === '') ? null : (parseInt(v) || null);
+}
+
+// =====================================================================
+// A2 WIDENING-TIER BUILDER (UI + capture only; nothing resolves tiers yet)
+//
+// Reduced per-tier control (decided): each tier's eligibility spec is skill
+// based only (ratingMin / ratingRange / group), NO open-to-all and NO per-tier
+// include/exclude. This is a self-contained builder; it does not touch the
+// primary-eligibility functions (renderEligibilityFields/getCurrentEligibilitySpec).
+//
+// Storage: inviteWideningTiers is an ordered array of { atOffsetMins, spec },
+// where spec = { baseMode, ratingMin?, ratingMax?, groupId? } and atOffsetMins
+// is MINUTES before start. Absolute activation times are derived later (Phase B)
+// at read time from each occurrence's start. Ordering rule (decided): offsets
+// strictly DECREASING down the list, so each later tier activates closer to
+// start than the one above it. Validated at save by validateWideningTiers().
+// =====================================================================
+
+// Activation presets, minutes before start (label rendered as hours).
+const TIER_OFFSET_PRESETS = [
+  [2880, '48 hours'], [1440, '24 hours'], [720, '12 hours'],
+  [480, '8 hours'], [240, '4 hours'], [120, '2 hours'], [60, '1 hour']
+];
+
+function renderWideningTiers(){
+  const cont = $('iv-tiers-list'); if(!cont) return;
+  const tiers = inviteWideningTiers || [];
+  if(!tiers.length){
+    cont.innerHTML = '<p style="font-size:12px;color:var(--gray);padding:4px 0;">No widening tiers. The primary circle applies the whole time.</p>';
+    return;
+  }
+  const groups = Object.values(D.groups||{}).filter(g=>g&&g.name).sort((a,b)=>a.name.localeCompare(b.name));
+  cont.innerHTML = tiers.map((t, idx) => {
+    const spec = t.spec || {};
+    const offsetOpts = TIER_OFFSET_PRESETS.map(([v,l]) => `<option value="${v}" ${v===t.atOffsetMins?'selected':''}>${l} before start</option>`).join('');
+    let specFields;
+    if(spec.baseMode === 'ratingRange'){
+      specFields = `<div class="row2">
+        <div><label class="lbl">Min rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMin!=null?spec.ratingMin:1400}" oninput="setTierField(${idx},'ratingMin',this.value)"></div>
+        <div><label class="lbl">Max rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMax!=null?spec.ratingMax:1800}" oninput="setTierField(${idx},'ratingMax',this.value)"></div>
+      </div>`;
+    } else if(spec.baseMode === 'group'){
+      if(!groups.length){
+        specFields = '<p style="font-size:12px;color:var(--gray);">No saved groups yet. Create one in Groups first.</p>';
+      } else {
+        const sel = spec.groupId || groups[0].id;
+        specFields = `<div class="fg"><label class="lbl">Group</label><select class="inp" onchange="setTierField(${idx},'groupId',this.value)">${groups.map(g=>`<option value="${escapeHTML(g.id)}" ${g.id===sel?'selected':''}>${escapeHTML(g.name)} (${(g.members||[]).length})</option>`).join('')}</select></div>`;
+      }
+    } else {
+      specFields = `<div class="fg"><label class="lbl">Minimum rating</label><input class="inp" type="number" min="0" max="3000" value="${spec.ratingMin!=null?spec.ratingMin:1500}" oninput="setTierField(${idx},'ratingMin',this.value)"></div>`;
+    }
+    return `<div style="border:1px solid var(--sand-border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--sand);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+        <span style="font-weight:700;font-size:13px;color:var(--primary);">Tier ${idx+1}</span>
+        <button type="button" class="btn btn-d btn-sm" onclick="removeWideningTier(${idx})">Remove</button>
+      </div>
+      <div class="fg"><label class="lbl">Activates</label><select class="inp" onchange="setTierOffset(${idx},this.value)">${offsetOpts}</select></div>
+      <div class="fg"><label class="lbl">Widen to (skill based)</label><select class="inp" onchange="setTierMode(${idx},this.value)">
+        <option value="ratingMin" ${(spec.baseMode==='ratingMin'||!spec.baseMode)?'selected':''}>Rating minimum</option>
+        <option value="ratingRange" ${spec.baseMode==='ratingRange'?'selected':''}>Rating range</option>
+        <option value="group" ${spec.baseMode==='group'?'selected':''}>Specific group</option>
+      </select></div>
+      ${specFields}
+    </div>`;
+  }).join('');
+}
+
+function addWideningTier(){
+  const tiers = inviteWideningTiers;
+  // Default a new tier's activation to the largest preset still strictly below
+  // the current smallest offset, so additions trend toward the decreasing-offset
+  // rule the host must satisfy. Falls back to the smallest preset.
+  let offset = 1440;
+  if(tiers.length){
+    const minExisting = Math.min(...tiers.map(t => t.atOffsetMins || 0));
+    const below = TIER_OFFSET_PRESETS.map(p => p[0]).filter(v => v < minExisting);
+    offset = below.length ? below[0] : TIER_OFFSET_PRESETS[TIER_OFFSET_PRESETS.length-1][0];
+  }
+  tiers.push({ atOffsetMins: offset, spec: { baseMode: 'ratingMin', ratingMin: 1500 } });
+  renderWideningTiers();
+}
+
+function removeWideningTier(idx){
+  if(idx >= 0 && idx < inviteWideningTiers.length){
+    inviteWideningTiers.splice(idx, 1);
+    renderWideningTiers();
+  }
+}
+
+function setTierOffset(idx, val){
+  const t = inviteWideningTiers[idx]; if(!t) return;
+  t.atOffsetMins = parseInt(val) || 0;
+}
+
+function setTierMode(idx, mode){
+  const t = inviteWideningTiers[idx]; if(!t) return;
+  const prev = t.spec || {};
+  const spec = { baseMode: mode };
+  if(mode === 'ratingRange'){
+    spec.ratingMin = prev.ratingMin != null ? prev.ratingMin : 1400;
+    spec.ratingMax = prev.ratingMax != null ? prev.ratingMax : 1800;
+  } else if(mode === 'group'){
+    spec.groupId = prev.groupId || null;
+  } else {
+    spec.ratingMin = prev.ratingMin != null ? prev.ratingMin : 1500;
+  }
+  t.spec = spec;
+  renderWideningTiers(); // mode change swaps the spec fields, so re-render this tier
+}
+
+function setTierField(idx, field, val){
+  const t = inviteWideningTiers[idx]; if(!t || !t.spec) return;
+  if(field === 'groupId'){
+    t.spec.groupId = val || null;
+  } else {
+    t.spec[field] = (val === '') ? null : parseFloat(val);
+  }
+}
+
+// Save-time validation. Returns { ok, msg }. Empty schedule is valid (no widening).
+function validateWideningTiers(){
+  const tiers = inviteWideningTiers || [];
+  if(!tiers.length) return { ok: true };
+  for(let idx = 0; idx < tiers.length; idx++){
+    const t = tiers[idx] || {};
+    if(!Number.isInteger(t.atOffsetMins) || t.atOffsetMins <= 0){
+      return { ok: false, msg: 'Tier ' + (idx+1) + ': choose when it activates.' };
+    }
+    const spec = t.spec || {};
+    if(spec.baseMode === 'group'){
+      if(!spec.groupId) return { ok: false, msg: 'Tier ' + (idx+1) + ': pick a group.' };
+    } else if(spec.baseMode === 'ratingRange'){
+      const lo = parseFloat(spec.ratingMin), hi = parseFloat(spec.ratingMax);
+      if(!(lo >= 0) || !(hi >= 0) || lo > hi) return { ok: false, msg: 'Tier ' + (idx+1) + ': rating range is invalid.' };
+    } else if(spec.baseMode === 'ratingMin'){
+      if(!(parseFloat(spec.ratingMin) >= 0)) return { ok: false, msg: 'Tier ' + (idx+1) + ': enter a minimum rating.' };
+    } else {
+      return { ok: false, msg: 'Tier ' + (idx+1) + ': choose a skill based circle.' };
+    }
+  }
+  // Offsets must strictly decrease (each later tier activates closer to start).
+  for(let idx = 1; idx < tiers.length; idx++){
+    if(!(tiers[idx-1].atOffsetMins > tiers[idx].atOffsetMins)){
+      return { ok: false, msg: 'Order tiers so each activates closer to start (fewer hours before) than the one above it.' };
+    }
+  }
+  return { ok: true };
+}
+
+function renderEligibilityFields(prefill){
+  const mode = $('iv-elig-mode').value;
+  const fields = $('iv-elig-fields');
+  let h = '';
+  if(mode === 'ratingMin'){
+    h = `<div class="fg"><label class="lbl">Minimum rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1500}" oninput="updateInvitePreview()"></div>`;
+  } else if(mode === 'ratingRange'){
+    h = `<div class="row2">
+      <div><label class="lbl">Min rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1400}" oninput="updateInvitePreview()"></div>
+      <div><label class="lbl">Max rating</label><input class="inp" id="iv-r-max" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMax) || 1800}" oninput="updateInvitePreview()"></div>
+    </div>`;
+  } else if(mode === 'group'){
+    const groups = Object.values(D.groups||{}).filter(g=>g&&g.name).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!groups.length){
+      h = '<p style="font-size:13px;color:var(--gray);">No saved groups yet. <a href="#" onclick="event.preventDefault();openGroupsModal();" style="color:var(--primary);">Create one</a> first.</p>';
+    } else {
+      const sel = (prefill && prefill.groupId) || groups[0].id;
+      h = `<div class="fg"><label class="lbl">Group</label><select class="inp" id="iv-r-group" onchange="updateInvitePreview()">${groups.map(g=>`<option value="${escapeHTML(g.id)}" ${g.id===sel?'selected':''}>${escapeHTML(g.name)} (${(g.members||[]).length})</option>`).join('')}</select></div>`;
+    }
+  }
+  fields.innerHTML = h;
+  updateInvitePreview();
+}
+
+function getCurrentEligibilitySpec(){
+  const mode = $('iv-elig-mode').value;
+  const e = { baseMode: mode };
+  if(mode === 'ratingMin'){
+    e.ratingMin = parseFloat($('iv-r-min')?.value) || 0;
+  } else if(mode === 'ratingRange'){
+    e.ratingMin = parseFloat($('iv-r-min')?.value) || 0;
+    e.ratingMax = parseFloat($('iv-r-max')?.value) || 9999;
+  } else if(mode === 'group'){
+    e.groupId = $('iv-r-group')?.value || null;
+  }
+  e.includeList = [...inviteIncSelected];
+  e.excludeList = [...inviteExcSelected];
+  return e;
+}
+
+function updateInvitePreview(){
+  const e = getCurrentEligibilitySpec();
+  const eligible = computeEligible(e);
+  const count = eligible.length;
+  let source;
+  if(e.baseMode === 'ratingMin')        source = ' (rating '+(e.ratingMin||0)+'+)';
+  else if(e.baseMode === 'ratingRange') source = ' (rating '+(e.ratingMin||0)+' to '+(e.ratingMax||9999)+')';
+  else if(e.baseMode === 'group'){
+    const g = (D.groups||{})[e.groupId];
+    source = ' from group: '+(g ? g.name : '?');
+  } else {
+    source = ' from league + pickup rosters';
+  }
+  let text = count+' player'+(count===1?'':'s')+' currently eligible in your area'+source;
+  if(count){
+    const PREVIEW_N = 3;
+    const head = eligible.slice(0, PREVIEW_N).join(', ');
+    const rest = count - PREVIEW_N;
+    text += ': '+head+(rest>0 ? ', and '+rest+' other'+(rest===1?'':'s')+'.' : '.');
+  } else {
+    text += '.';
+  }
+  $('iv-elig-preview').textContent = text;
+}
+
+function renderInclude(){
+  const q = ($('iv-inc-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  if(!filtered.length){ $('iv-inc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  $('iv-inc-list').innerHTML = filtered.map(name=>{
+    const checked = inviteIncSelected.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleIncMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+function renderExclude(){
+  const q = ($('iv-exc-search').value||'').toLowerCase().trim();
+  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
+  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
+  if(!filtered.length){ $('iv-exc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  $('iv-exc-list').innerHTML = filtered.map(name=>{
+    const checked = inviteExcSelected.has(name);
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'#fee2e2':'transparent'};">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+    </label>`;
+  }).join('');
+}
+function toggleIncMember(name, isChecked){
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) inviteIncSelected.add(decoded); else inviteIncSelected.delete(decoded);
+  updateInvitePreview();
+}
+function toggleExcMember(name, isChecked){
+  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  if(isChecked) inviteExcSelected.add(decoded); else inviteExcSelected.delete(decoded);
+  updateInvitePreview();
+}
+
+// Validate minimum slots: must be a positive integer and not greater than the
+// maximum-slots value. Shows a clean inline error; returns true when valid
+// (and true when the fields are absent, so it never blocks unrelated flows).
+function validateMinSlots(){
+  const errEl = $('iv-min-slots-err');
+  const maxEl = $('iv-slots'), minEl = $('iv-min-slots');
+  if(!maxEl || !minEl) return true;
+  const max = parseInt(maxEl.value);
+  const min = parseInt(minEl.value);
+  if(!Number.isInteger(min) || min < 1){
+    if(errEl) errEl.textContent = 'Enter a positive number.';
+    return false;
+  }
+  if(Number.isInteger(max) && min > max){
+    if(errEl) errEl.textContent = 'Minimum cannot be more than maximum (' + max + ').';
+    return false;
+  }
+  if(errEl) errEl.textContent = '';
+  return true;
+}
+
+function buildInviteRecord(){
+  const name = ($('iv-name').value||'').trim() || 'Pickup';
+  const date = $('iv-date').value || td();
+  const startTime = $('iv-start').value || '09:00';
+  const endTime = $('iv-end').value || '';
+  const location = ($('iv-loc').value||'').trim();
+  const description = ($('iv-desc').value||'').trim();
+  const slots = Math.max(2, parseInt($('iv-slots').value)||6);
+  // minSlots: minimum players for the game to be considered "on". Captured and
+  // stored only for now; no logic acts on it yet (no auto-cancel-under-minimum).
+  const minSlots = Math.max(1, parseInt($('iv-min-slots').value)||4);
+  const dl = $('iv-deadline').value;
+  const rsvpDeadline = dl ? new Date(dl).getTime() : (date && startTime ? new Date(date+'T'+startTime+':00').getTime() - 2*60*60*1000 : null);
+  const eligibility = getCurrentEligibilitySpec();
+  const me = window.Identity ? Identity.getCurrent() : null;
+
+  // A1 data-model fields (stored only; no logic acts on them yet). Read from an
+  // A2 form input when it exists, else from module state (loaded by
+  // startEditInvite from the existing record, or reset to defaults by
+  // startNewInvite). Always emitted so the edit-path merge in saveInvite never
+  // drops or clobbers a previously saved value.
+  const vibeEl = $('iv-game-vibe');
+  const formatEl = $('iv-game-format');
+  const gameType = {
+    vibe: (vibeEl && vibeEl.value) || (inviteGameType && inviteGameType.vibe) || 'fun',
+    format: (formatEl && formatEl.value) || (inviteGameType && inviteGameType.format) || '2s'
+  };
+  // wideningTiers: no A1 UI; carried in module state, always an array. Deep-copied
+  // so the returned record never shares the module-state reference.
+  const wideningTiers = deepCopy(Array.isArray(inviteWideningTiers) ? inviteWideningTiers : []);
+  // Offsets in minutes before start. Absolute activation/cancel times are derived
+  // later (post-A1) at read time from each occurrence's start; stored as offsets
+  // so they stay per-occurrence correct through recurring expansion.
+  const cancelEl = $('iv-cancel-offset');
+  const cancelDeadlineOffsetMins = (cancelEl && cancelEl.value !== '')
+    ? (parseInt(cancelEl.value) || null)
+    : (Number.isInteger(inviteCancelDeadlineOffsetMins) ? inviteCancelDeadlineOffsetMins : null);
+  const rankEl = $('iv-counts-rankings');
+  const countsTowardRankings = rankEl ? !!rankEl.checked : !!inviteCountsTowardRankings;
+
+  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', gameType, wideningTiers, cancelDeadlineOffsetMins, countsTowardRankings };
+}
+
+async function saveInvite(){
+  const base = buildInviteRecord();
+  if(!base.date){ toast('Pick a date'); return; }
+  if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
+  const tierCheck = validateWideningTiers();
+  if(!tierCheck.ok){ toast(tierCheck.msg); return; }
+
+  const recurring = $('iv-rec').checked;
+  const recFreq   = $('iv-rec-freq').value;
+  const recCount  = Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
+
+  if(inviteEditId){
+    // Update existing record (only this occurrence)
+    const existing = (D.invites||{})[inviteEditId] || {};
+    const merged = {
+      ...existing,
+      ...base,
+      id: inviteEditId,
+      status: existing.status || 'open',
+      updatedAt: Date.now()
+    };
+    fbSet('invites/'+inviteEditId, merged);
+    toast('Saved');
+    activeInvite = inviteEditId;
+    inviteEditId = null;
+    showView('invite-detail');
+    return;
+  }
+
+  const recurringGroupId = recurring ? gi('rg') : null;
+  const occurrences = recurring ? recCount : 1;
+  const stepDays = recFreq === 'biweekly' ? 14 : 7;
+  const startDate = new Date(base.date+'T12:00:00');
+  const updates = {};
+  let firstId = null;
+  // Host auto-RSVP (create-path only): read the checkbox and identity once. When
+  // checked with a valid identity, each occurrence embeds the host as a confirmed
+  // RSVP at build time (atomic, no second write). The Phase B eligibility gate is
+  // bypassed by design here: this is the host's explicit choice on their own game.
+  const rsvpMe = $('iv-rsvp-me') && $('iv-rsvp-me').checked;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  for(let n=0; n<occurrences; n++){
+    const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
+    const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const id = gi('inv');
+    if(!firstId) firstId = id;
+    const dl = base.startTime ? new Date(iso+'T'+base.startTime+':00').getTime() - 2*60*60*1000 : null;
+    const rec = {
+      ...base,
+      id,
+      date: iso,
+      rsvpDeadline: n===0 ? base.rsvpDeadline : dl,
+      // Deep-copy nested fields so each occurrence owns its objects instead of
+      // sharing the single base reference (the prior shallow-spread bug). Offset
+      // fields (cancelDeadlineOffsetMins, wideningTiers[].atOffsetMins) are stored
+      // as minutes-before-start, so absolute activation/cancel times get derived
+      // later at read time from each occurrence's own start; no recompute here.
+      eligibility: deepCopy(base.eligibility),
+      gameType: deepCopy(base.gameType),
+      wideningTiers: deepCopy(base.wideningTiers),
+      status: 'open',
+      recurringGroupId,
+      createdAt: Date.now(),
+      // Embedded host auto-RSVP when checked + valid identity; otherwise empty.
+      // Shape matches optInInvite exactly: { name, status, position, respondedAt }.
+      rsvps: (rsvpMe && me && me.key)
+        ? { [me.key]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now() } }
+        : {}
+    };
+    updates['tally_kotb_pickup/invites/'+id] = rec;
+  }
+  try {
+    await db.ref().update(updates);
+    toast(occurrences>1 ? occurrences+' pickups scheduled ✓' : 'Pickup scheduled ✓');
+    activeInvite = firstId;
+    showView('invite-detail');
+  } catch(err){
+    console.error(err);
+    toast("Couldn't schedule");
+  }
+}
+
+// DETAIL + RSVP
+function openInviteDetail(id){
+  if(!(D.invites||{})[id]){ toast('Pickup not found'); return; }
+  activeInvite = id;
+  ensureProfilesLoaded().then(()=>showView('invite-detail'));
+}
+
+function renderInviteDetail(){
+  const cont = $('iv-detail-body'); if(!cont) return;
+  const i = (D.invites||{})[activeInvite];
+  if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  if(typeof dbgLog === 'function') dbgLog('renderInviteDetail', { activeInvite, myKey, myStatus: myKey ? (i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status) : null });
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed').sort((a,b)=>(a.position||0)-(b.position||0));
+  const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist').sort((a,b)=>(a.position||0)-(b.position||0));
+  const declined = Object.values(rsvps).filter(r => r.status==='declined');
+  const myRsvp = myKey ? rsvps[myKey] : null;
+  const slotsLeft = Math.max(0, (i.slots||8) - confirmed.length);
+  const now = Date.now();
+  const dt = i.date && i.startTime ? new Date(i.date+'T'+i.startTime+':00').getTime() : 0;
+  const isPast = dt && dt < now - 4*60*60*1000;
+  const isCancelled = i.status === 'cancelled';
+  const deadlinePassed = i.rsvpDeadline && i.rsvpDeadline < now;
+
+  const dateStr = i.date ? new Date(i.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'}) : '';
+  const eligibility = i.eligibility || {};
+  const eligDesc = (() => {
+    let label;
+    if(eligibility.baseMode === 'ratingMin') label = `Rating ${eligibility.ratingMin}+`;
+    else if(eligibility.baseMode === 'ratingRange') label = `Rating ${eligibility.ratingMin} to ${eligibility.ratingMax}`;
+    else if(eligibility.baseMode === 'group'){
+      const g = (D.groups||{})[eligibility.groupId];
+      label = 'Group: '+(g ? g.name : 'unknown');
+    }
+    else if(eligibility.baseMode === 'inviteOnly') label = 'Invite only';
+    else label = 'Open to all';
+    return label;
+  })();
+
+  let actionHTML = '';
+  if(isCancelled){
+    actionHTML = '<div style="background:#fee2e2;color:#7f1d1d;border-radius:10px;padding:12px;text-align:center;font-weight:700;">Pickup cancelled.</div>';
+  } else if(isPast){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
+  } else if(!myKey){
+    actionHTML = '<button class="btn btn-p btn-w" onclick="rsvpFlow()">RSVP to this Event</button>';
+  } else if(myRsvp && myRsvp.status==='confirmed'){
+    actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
+      <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
+  } else if(myRsvp && myRsvp.status==='waitlist'){
+    actionHTML = `<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're on the waitlist (#${myRsvp.position||'?'}).</div>
+      <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
+  } else {
+    if(deadlinePassed){
+      actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">RSVP deadline has passed.</div>';
+    } else {
+      const label = slotsLeft > 0 ? `Opt In (${slotsLeft} slot${slotsLeft===1?'':'s'} left)` : 'Join Waitlist';
+      actionHTML = `<button class="btn btn-p btn-w" onclick="optInInvite()">${label}</button>`;
+    }
+  }
+
+  const promptCard = _showEmailPrompt ? `<div class="card" style="background:#fef3c7;border:1px solid #fde68a;">
+    <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:#92400e;margin-bottom:6px;">🏐 You're in!</div>
+    <div style="font-size:13px;color:#92400e;margin-bottom:12px;line-height:1.5;">Want email reminders for future pickups? You can add it now or skip.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-p btn-sm" onclick="emailPromptAdd()">Add email</button>
+      <button class="btn btn-g btn-sm" onclick="emailPromptSkip()">Skip</button>
+    </div>
+  </div>` : '';
+
+  let h = promptCard + `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+      <div style="flex:1;">
+        <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
+        <div style="font-size:13px;color:var(--gray);margin-top:4px;">${dateStr}</div>
+        <div style="font-size:13px;margin-top:2px;">${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}</div>
+        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}</div>`:''}
+      </div>
+      ${isCancelled?'<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>':''}
+    </div>
+    ${i.description?`<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:10px;padding:10px 12px;background:var(--sand);border-radius:8px;">${escapeHTML(i.description)}</div>`:''}
+    <div style="font-size:12px;color:var(--gray);margin-top:10px;">
+      ${eligDesc} · Hosted by ${escapeHTML(i.hostName||'Anonymous')}${i.rsvpDeadline?' · RSVP by '+fmtDateTime(i.rsvpDeadline):''}
+    </div>
+  </div>
+
+  <div class="card">${actionHTML}</div>
+
+  <div class="card">
+    <div class="ctitle"><span class="bar"></span>Confirmed (${confirmed.length}/${i.slots||8})</div>
+    ${confirmed.length ? confirmed.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <span class="rnk">${idx+1}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+    </div>`).join('') : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No one confirmed yet.</p>'}
+  </div>
+
+  ${waitlist.length ? `<div class="card">
+    <div class="ctitle"><span class="bar"></span>Waitlist (${waitlist.length})</div>
+    ${waitlist.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <span class="rnk" style="color:var(--gray);">#${idx+1}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+    </div>`).join('')}
+  </div>` : ''}
+
+  ${declined.length ? `<div class="card" style="opacity:.7;">
+    <div class="ctitle"><span class="bar"></span>Dropped (${declined.length})</div>
+    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)).join(', ')}</div>
+  </div>` : ''}
+
+  <div class="card">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
+      ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
+    </div>
+  </div>`;
+
+  // Per-game chat (coordination, not confidentiality). Visible and postable only
+  // to players currently eligible for this game; reuses activeEligibleNames.
+  const chatEligible = !!myKey && activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  let chatBody;
+  if(!myKey){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see and join the game chat.</p>'
+      + (window.Identity ? '<button class="btn btn-g btn-sm" onclick="chatPickName()">Pick your name</button>' : '');
+  } else if(!chatEligible){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Chat opens to players eligible for this game.</p>';
+  } else {
+    chatBody = '<div id="gc-list"></div>'
+      + '<div style="margin-top:10px;">'
+      +   '<textarea id="gc-text" maxlength="2000" oninput="updateGameChatCount()" placeholder="Message players in this pickup" style="width:100%;border:1px solid var(--sand-border);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;"></textarea>'
+      +   '<div id="gc-err" style="font-size:12px;color:#b91c1c;margin-top:4px;min-height:1px;"></div>'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">'
+      +     '<span id="gc-count" style="font-size:12px;color:var(--gray);">0/2000</span>'
+      +     '<button class="btn btn-p btn-sm" id="gc-post" onclick="postGameChat()">Post</button>'
+      +   '</div>'
+      + '</div>';
+  }
+  h += '\n\n  <div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Game Chat</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin:-2px 0 8px;">Coordinate this pickup with eligible players.</div>'
+    + chatBody
+    + '</div>';
+
+  cont.innerHTML = h;
+  renderGameChatMessages();
+}
+
+// ── PER-GAME CHAT ───────────────────────────────────────────────────────────
+// Scoped to the open invite-detail pane. Messages live in a SEPARATE flat node
+// tally_kotb_pickup/game_messages/$gameId/$msgId = { authorKey, authorName, text,
+// createdAt } so the invite record stays lean and the main namespace listener
+// never carries chat traffic. The scoped listener attaches on view open and
+// detaches on view exit (see showView). All gates are client-side.
+let _gameMsgs = {};
+let _gameChatRef = null;
+let _gameChatGameId = null;
+
+function attachGameChat(gameId){
+  if(_gameChatRef && _gameChatGameId === gameId) return; // already listening to this game
+  detachGameChat();
+  if(!db || !gameId) return;
+  _gameChatGameId = gameId;
+  _gameChatRef = db.ref('tally_kotb_pickup/game_messages/'+gameId);
+  _gameChatRef.on('value', _onGameChat, e => console.warn('game chat read failed', e));
+}
+function _onGameChat(snap){
+  _gameMsgs = snap.val() || {};
+  renderGameChatMessages();
+}
+function detachGameChat(){
+  if(_gameChatRef){ _gameChatRef.off('value', _onGameChat); _gameChatRef = null; }
+  _gameChatGameId = null;
+  _gameMsgs = {};
+}
+
+async function chatPickName(){
+  if(!window.Identity){ toast('Identity module missing'); return; }
+  const id = await Identity.openPicker({ db, dismissable: true, addLabel: 'Set my name' });
+  if(id) renderInviteDetail();
+}
+
+function updateGameChatCount(){
+  const ta = document.getElementById('gc-text');
+  const el = document.getElementById('gc-count');
+  if(!ta || !el) return;
+  const len = (ta.value || '').length;
+  el.textContent = len + '/2000';
+  el.style.color = len > 2000 ? '#b91c1c' : 'var(--gray)';
+}
+
+function postGameChat(){
+  const ta = document.getElementById('gc-text');
+  const errEl = document.getElementById('gc-err');
+  if(errEl) errEl.textContent = '';
+  if(!ta) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite];
+  if(!myKey || !i){ if(errEl) errEl.textContent = 'Pick your name to post.'; return; }
+  // Re-check eligibility at post time (same client-side gate the UI used to show this).
+  const eligible = activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  if(!eligible){ if(errEl) errEl.textContent = 'Chat is open to players eligible for this game.'; return; }
+  const text = (ta.value || '').trim();
+  if(!text) return;
+  if(text.length > 2000){ if(errEl) errEl.textContent = 'Message must be 2000 characters or fewer.'; return; }
+  const btn = document.getElementById('gc-post');
+  if(btn) btn.disabled = true;
+  // Write-confirmed: success toast only after the write resolves; error on catch.
+  db.ref('tally_kotb_pickup/game_messages/'+activeInvite).push().set({
+    authorKey: myKey,
+    authorName: me.name || 'Player',
+    text: text,
+    createdAt: Date.now()
+  })
+  .then(() => { ta.value = ''; updateGameChatCount(); toast('Posted'); })
+  .catch(e => { console.error('chat post failed', e); if(errEl) errEl.textContent = "Couldn't post. Try again."; })
+  .finally(() => { if(btn) btn.disabled = false; });
+}
+
+function delGameChat(msgId){
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite];
+  if(!myKey || !i) return;
+  const m = (_gameMsgs||{})[msgId];
+  if(!m) return;
+  // Author can delete their own message; the game host can delete any message in
+  // their game. Host is matched by name key since the record stores hostName only.
+  const isHost = !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  if(!(m.authorKey === myKey || isHost)){ toast('You can only delete your own messages.'); return; }
+  if(!confirm('Delete this message?')) return;
+  db.ref('tally_kotb_pickup/game_messages/'+activeInvite+'/'+msgId).remove()
+    .then(() => toast('Deleted'))
+    .catch(e => { console.error('chat delete failed', e); toast("Couldn't delete. Try again."); });
+}
+
+function renderGameChatMessages(){
+  const list = document.getElementById('gc-list');
+  if(!list) return; // chat not rendered (not eligible / not logged in)
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite] || {};
+  const isHost = !!myKey && !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  const rows = Object.keys(_gameMsgs || {})
+    .map(id => ({ id, m: _gameMsgs[id] }))
+    .filter(x => x.m && typeof x.m === 'object')
+    .sort((a, b) => (a.m.createdAt || 0) - (b.m.createdAt || 0)); // oldest first, chat order
+  if(!rows.length){
+    list.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No messages yet. Say hello to coordinate this pickup.</p>';
+    return;
+  }
+  list.innerHTML = rows.map(({ id, m }) => {
+    const canDel = !!myKey && (m.authorKey === myKey || isHost);
+    const del = canDel
+      ? '<button class="btn btn-d btn-sm" style="margin-top:6px;padding:4px 10px;min-height:0;font-size:11px;" onclick="delGameChat(\'' + escapeHTML(id).replace(/'/g, "\\'") + '\')">Delete</button>'
+      : '';
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--sand-border);">'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">'
+      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(m.authorName || 'Player') + '</span>'
+      +   '<span style="font-size:11px;color:var(--gray);white-space:nowrap;">' + escapeHTML(fmtDateTime(m.createdAt)) + '</span>'
+      + '</div>'
+      + '<div style="font-size:14px;color:var(--black);white-space:pre-wrap;word-break:break-word;margin-top:2px;">' + escapeHTML(m.text || '') + '</div>'
+      + del
+      + '</div>';
+  }).join('');
+}
+
+// Cheap no-op in production. When ?debug=1 is set, the boot block enables the
+// panel and routes calls into the visible log.
+const _DEBUG = typeof location !== 'undefined' && /[?&]debug=1/.test(location.search);
+function dbgLog(msg, data){
+  if(!_DEBUG) return;
+  const dl = document.getElementById('dbg-log');
+  if(!dl) return;
+  const t = new Date().toLocaleTimeString();
+  dl.textContent = t+' '+msg+(data?' '+JSON.stringify(data):'')+'\n'+dl.textContent;
+  if(dl.textContent.length > 4000) dl.textContent = dl.textContent.slice(0, 4000);
+}
+
+// First-time-user RSVP path: pick a name, then opt in. Profile setup deferred.
+let _showEmailPrompt = false;
+
+async function rsvpFlow(){
+  let identity = window.Identity ? Identity.getCurrent() : null;
+  const wasNew = !identity;
+  if(!identity){
+    if(!window.Identity){ toast('Identity module missing'); return; }
+    identity = await Identity.openPicker({ db, dismissable: true, addLabel: 'RSVP me in' });
+    if(!identity) return; // user dismissed
+  }
+  optInInvite();
+  // After RSVP succeeds, prompt brand-new users for an email once.
+  if(wasNew && db){
+    setTimeout(async ()=>{
+      try {
+        const snap = await db.ref('tally_kotb_pickup/players/'+identity.key).once('value');
+        const profile = snap.val() || {};
+        if(!profile.email && !profile.emailPromptDismissed){
+          _showEmailPrompt = true;
+          renderInviteDetail();
+        }
+      } catch(err){ console.warn('email prompt check failed', err); }
+    }, 600);
+  }
+}
+
+function emailPromptAdd(){
+  const identity = window.Identity ? Identity.getCurrent() : null;
+  if(identity && db){
+    fbSet('players/'+identity.key+'/emailPromptDismissed', true);
+  }
+  _showEmailPrompt = false;
+  renderInviteDetail();
+  if(window.Identity) Identity.openProfile({ db });
+}
+
+function emailPromptSkip(){
+  const identity = window.Identity ? Identity.getCurrent() : null;
+  if(identity && db){
+    fbSet('players/'+identity.key+'/emailPromptDismissed', true);
+  }
+  _showEmailPrompt = false;
+  renderInviteDetail();
+}
+
+function optInInvite(){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(!me){ toast('Pick your name first'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+  // Phase B sign-up gate: only allow the RSVP if the selected player is in the
+  // currently-active eligible circle (primary + activated widening tiers).
+  // Gate the action only; the RSVP write path below is unchanged.
+  const meKey = me.key || Identity.nameKey(me.name);
+  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === meKey)){
+    toast('This pickup is not open to you yet');
+    return;
+  }
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+  const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
+  const slotsLeft = (i.slots||8) - confirmed.length;
+  const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
+  const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
+  const newRsvp = { name: me.name, status, position, respondedAt: Date.now() };
+
+  // Optimistic local update so UI reflects state immediately.
+  if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+  D.invites[activeInvite].rsvps[me.key] = newRsvp;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.rsvps) inv.rsvps = {};
+    inv.rsvps[me.key] = newRsvp;
+  });
+  renderInviteDetail();
+
+  fbSet('invites/'+activeInvite+'/rsvps/'+me.key, newRsvp);
+  toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
+}
+
+function dropOutInvite(){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  if(!me) return;
+  const rsvps = i.rsvps || {};
+  const myRsvp = rsvps[me.key]; if(!myRsvp) return;
+  const wasConfirmed = myRsvp.status === 'confirmed';
+
+  // Build full new RSVP map (cheap to recompute, easier than per-field updates).
+  const newRsvps = {};
+  Object.entries(rsvps).forEach(([k,r])=>{ newRsvps[k] = { ...r }; });
+  newRsvps[me.key].status = 'declined';
+  newRsvps[me.key].respondedAt = Date.now();
+  newRsvps[me.key].position = null;
+
+  let promotedName = null;
+  if(wasConfirmed){
+    const remainingConfirmed = Object.entries(newRsvps)
+      .filter(([k,r])=>r.status==='confirmed')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+    const waitlist = Object.entries(newRsvps)
+      .filter(([k,r])=>r.status==='waitlist')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+
+    // Renumber confirmed 1..N
+    remainingConfirmed.forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
+
+    // Promote first waitlister
+    if(waitlist.length){
+      const [topKey] = waitlist[0];
+      newRsvps[topKey].status = 'confirmed';
+      newRsvps[topKey].position = remainingConfirmed.length + 1;
+      promotedName = newRsvps[topKey].name;
+      // Renumber remaining waitlist 1..M-1
+      waitlist.slice(1).forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
+    }
+  }
+
+  // Optimistic local update + immediate render
+  D.invites[activeInvite].rsvps = newRsvps;
+  pendInviteOverride(activeInvite, inv => { inv.rsvps = newRsvps; });
+  renderInviteDetail();
+
+  // Persist as a single multi-update so all renumbers land atomically
+  const updates = {};
+  Object.entries(newRsvps).forEach(([k,r])=>{
+    updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k] = r;
+  });
+  if(promotedName){
+    const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    updates['tally_kotb_pickup/email_queue/'+eid] = {
+      type: 'waitlist_promotion',
+      to: null,
+      data: { playerName: promotedName, inviteId: activeInvite },
+      createdAt: Date.now(),
+      status: 'queued'
+    };
+  }
+  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
+  toast('Dropped out');
+}
+
+function cancelInvite(){
+  if(!confirm('Cancel this pickup? Everyone confirmed or waitlisted will see it as cancelled.')) return;
+  D.invites[activeInvite].status = 'cancelled';
+  pendInviteOverride(activeInvite, inv => { inv.status = 'cancelled'; });
+  renderInviteDetail();
+  fbSet('invites/'+activeInvite+'/status', 'cancelled');
+  toast('Cancelled');
+}
+
+// BOOT
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click', ()=>pickTab(b.dataset.tab)));
+  document.querySelectorAll('#stbl th[data-sort]').forEach(th=>{
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', ()=>{
+      if(sortK.key===th.dataset.sort) sortK.dir = sortK.dir==='asc' ? 'desc' : 'asc';
+      else sortK = { key: th.dataset.sort, dir: 'desc' };
+      renderStandings();
+    });
+  });
+  document.querySelectorAll('#rtbl th[data-rsort]').forEach(th=>{
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', ()=>{
+      if(ratingSort.key===th.dataset.rsort) ratingSort.dir = ratingSort.dir==='asc' ? 'desc' : 'asc';
+      else ratingSort = { key: th.dataset.rsort, dir: 'desc' };
+      renderRatings();
+    });
+  });
+  initFB();
+  showView('list');
+
+  // CourtSense auth gate (D.40). Players need a passwordHash on their
+  // tally_kotb_pickup/players/{key} record (set by admin-players Approve
+  // or Reset Password). The overlay blocks the UI until login succeeds;
+  // after login, the existing identity.js still drives in-app identity.
+  CourtSenseAuth.init({
+    firebaseDb: db,
+    rosterPath: 'tally_kotb_pickup/players',
+    onLogin: (player) => {
+      $('logout-btn').style.display = 'inline-flex';
+      // Sync identity.js to the authenticated player so RSVPs land on
+      // the right key. identity.js uses localStorage; auth uses
+      // sessionStorage. We mirror the auth identity into identity.js.
+      if(window.Identity && Identity.setCurrent && player && player.name){
+        Identity.setCurrent(nameStr(player));
+      }
+    },
+    onLogout: () => {
+      $('logout-btn').style.display = 'none';
+    }
+  });
+
+  if(/[?&]debug=1/.test(location.search)){
+    $('dbg-panel').style.display = 'block';
+    dbgLog('debug mode enabled');
+    document.addEventListener('click', e=>{
+      const t = e.target;
+      const text = ((t && t.textContent)||'').trim().slice(0,40);
+      dbgLog('click', { tag: t && t.tagName, text });
+    }, true);
+  }
+});
+
+function doLogout(){
+  if(window.CourtSenseAuth) CourtSenseAuth.logout();
+  if(window.Identity && Identity.clear) Identity.clear();
+}
+</script>
+</body>
+</html>

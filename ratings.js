@@ -3,7 +3,7 @@
  * Glicko-2 (Glickman 2012) with logarithmic margin-of-victory weighting.
  * One module, used by:
  *   - courtsense.app/kotb         (league, Kings/Queens toggle)
- *   - courtsense.app/kotb-pickup  (pickup tournaments)
+ *   - courtsense.app/pickup  (pickup tournaments)
  *   - courtsense.app/seed-ratings (one-shot historical replay)
  *
  * Storage: tally_kotb_pickup/ratings/{nameKey}/

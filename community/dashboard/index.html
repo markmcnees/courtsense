@@ -164,7 +164,7 @@ main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
   <section class="section">
     <h3>Pickups you qualify for</h3>
     <div class="actions" style="margin-bottom:14px;">
-      <a class="btn btn-gold btn-w" href="/kotb-pickup/">Schedule a Pickup</a>
+      <a class="btn btn-gold btn-w" href="/pickup/">Schedule a Pickup</a>
     </div>
     <div id="card-pickups"><div class="empty">Loading...</div></div>
   </section>
@@ -454,7 +454,7 @@ function renderPickups(invitesAll, myRating, groupsAll, hasMyRating){
     const when = fmtEventDate(inv.date) + (fmtTime(inv.startTime) ? ' at ' + fmtTime(inv.startTime) : '');
     const where = inv.location ? ' · ' + esc(inv.location) : '';
 
-    return '<a class="ev" href="/kotb-pickup">' +
+    return '<a class="ev" href="/pickup">' +
         '<div class="ev-top">' +
           '<div class="ev-name">' + esc(inv.name || 'Pickup') + '</div>' + badge +
         '</div>' +

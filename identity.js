@@ -1,6 +1,6 @@
 /* Tally KotB shared identity + profile module
  *
- * Loaded by /kotb (league) and /kotb-pickup. Provides:
+ * Loaded by /kotb (league) and /pickup. Provides:
  *   - localStorage-backed "current player" identity
  *   - first-run / switch picker modal (search + pick from rated players, or type a new name)
  *   - profile modal (email, notification toggle, mute-until, switch)
