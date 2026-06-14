@@ -800,9 +800,10 @@ function renderEventList(){
       </div>`;
     }).join('');
   }
-  if(!events.length && !archives.length){
-    h += `<div class="empty"><div class="eico">🏐</div><p class="etxt">No events yet. Start one above.</p></div>`;
-  }
+  // No tournaments (no active events and no archives): render nothing for this
+  // section so the empty-state does not read as a contradiction under the
+  // Upcoming Pickups list. The New Pickup Tournament button above remains for
+  // discoverability. (h is already an empty string in that case.)
   $('event-list').innerHTML = h;
 }
 
