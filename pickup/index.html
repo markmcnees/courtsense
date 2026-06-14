@@ -244,7 +244,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <div class="fg">
         <label class="lbl">Location</label>
-        <input class="inp" id="iv-loc" placeholder="Enter location">
+        <select class="inp" id="iv-loc" onchange="onLocPreset()">
+          <option value="Tom Brown Park">Tom Brown Park</option>
+          <option value="Four Oaks Park">Four Oaks Park</option>
+          <option value="Optimist Park">Optimist Park</option>
+          <option value="Downtown Sand Volleyball Courts">Downtown Sand Volleyball Courts</option>
+          <option value="FSU Lakefront Park &amp; Retreat Center (The Rez)">FSU Lakefront Park &amp; Retreat Center (The Rez)</option>
+          <option value="__other__">Other</option>
+        </select>
+        <input class="inp" id="iv-loc-other" placeholder="Enter location" style="display:none;margin-top:8px;">
       </div>
       <div class="fg">
         <label class="lbl">Notes (optional)</label>
@@ -2369,6 +2377,13 @@ function wireSetupListeners(){
   $('iv-start').onchange = onDateOrStart;
 }
 
+// Location dropdown: reveal the custom text field only when "Other" is chosen.
+function onLocPreset(){
+  const sel = $('iv-loc'); const other = $('iv-loc-other');
+  if(!sel || !other) return;
+  other.style.display = (sel.value === '__other__') ? '' : 'none';
+}
+
 function startNewInvite(){
   inviteEditId = null;
   inviteIncSelected = new Set();
@@ -2389,7 +2404,8 @@ function startNewInvite(){
       $('iv-date').value = today;
       $('iv-start').value = '09:00';
       $('iv-end').value = '11:00';
-      $('iv-loc').value = '';
+      $('iv-loc').value = 'Tom Brown Park';
+      if($('iv-loc-other')){ $('iv-loc-other').value = ''; $('iv-loc-other').style.display = 'none'; }
       $('iv-desc').value = '';
       $('iv-slots').value = 6;
       $('iv-min-slots').value = 4;
@@ -2438,7 +2454,18 @@ function startEditInvite(id){
       $('iv-date').value = i.date || td();
       $('iv-start').value = i.startTime || '09:00';
       $('iv-end').value = i.endTime || '11:00';
-      $('iv-loc').value = i.location || '';
+      // Location: preselect a matching preset; otherwise fall to Other with the
+      // existing value prefilled so a custom or legacy location (e.g. "Tom Brown
+      // Court 4") is preserved on edit.
+      (function(){
+        const locVal = i.location || '';
+        const sel = $('iv-loc'); const other = $('iv-loc-other');
+        if(!sel) return;
+        const presets = Array.from(sel.options).map(o => o.value);
+        if(!locVal){ sel.value = 'Tom Brown Park'; if(other){ other.value = ''; other.style.display = 'none'; } }
+        else if(presets.includes(locVal)){ sel.value = locVal; if(other){ other.value = ''; other.style.display = 'none'; } }
+        else { sel.value = '__other__'; if(other){ other.value = locVal; other.style.display = ''; } }
+      })();
       $('iv-desc').value = i.description || '';
       $('iv-slots').value = i.slots || 6;
       $('iv-min-slots').value = i.minSlots || 4;
@@ -2769,7 +2796,11 @@ function buildInviteRecord(){
   const date = $('iv-date').value || td();
   const startTime = $('iv-start').value || '09:00';
   const endTime = $('iv-end').value || '';
-  const location = ($('iv-loc').value||'').trim();
+  // Location comes from the preset dropdown, or the custom text field when Other.
+  const _locSel = $('iv-loc') ? $('iv-loc').value : '';
+  const location = (_locSel === '__other__'
+    ? (($('iv-loc-other') && $('iv-loc-other').value) || '')
+    : _locSel).trim();
   const description = ($('iv-desc').value||'').trim();
   const slots = Math.max(2, parseInt($('iv-slots').value)||6);
   // minSlots: minimum players for the game to be considered "on". Captured and
