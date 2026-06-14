@@ -208,23 +208,31 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- LIST VIEW -->
   <div class="pane" id="view-list">
-    <!-- Each action is a stacked block: button plus a short gray subtitle, so new
-         players can tell what each one does at a glance. -->
-    <div style="margin-bottom:14px;">
-      <button class="btn btn-a btn-w" onclick="startNewInvite()">📅 Schedule a Pickup</button>
-      <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a casual game and let players join.</div>
+    <!-- Two categories, not a hierarchy: a "Create a game" card (two equal event
+         types) and a "Community" card (two equal community actions). Plain white
+         cards plus ctitle headings group each pair and lift the outline buttons
+         off the sand background so they no longer wash out. -->
+    <div class="card" style="padding:14px;">
+      <div class="ctitle"><span class="bar"></span>Create a game</div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-g btn-w" onclick="startNewInvite()">📅 Schedule a Pickup</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a casual game and let players join.</div>
+      </div>
+      <div>
+        <button class="btn btn-g btn-w" onclick="startNewEvent()">＋ New Pickup Tournament</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
+      </div>
     </div>
-    <div style="margin-bottom:14px;">
-      <button class="btn btn-g btn-w" onclick="openGroupsModal()">👥 Groups</button>
-      <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Save a crew to invite just them.</div>
-    </div>
-    <div style="margin-bottom:14px;">
-      <button class="btn btn-g btn-w" onclick="startNewEvent()">＋ New Pickup Tournament</button>
-      <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
-    </div>
-    <div style="margin-bottom:14px;">
-      <button class="btn btn-g btn-w" onclick="shareJoinLink()">🔗 Invite a friend to CourtSense</button>
-      <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
+    <div class="card" style="padding:14px;">
+      <div class="ctitle"><span class="bar"></span>Community</div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-g btn-w" onclick="openGroupsModal()">👥 Groups</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Save a crew to invite just them.</div>
+      </div>
+      <div>
+        <button class="btn btn-g btn-w" onclick="shareJoinLink()">🔗 Invite a friend to CourtSense</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
+      </div>
     </div>
     <div id="invite-list"></div>
     <div id="event-list"></div>
