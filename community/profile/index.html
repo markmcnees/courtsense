@@ -408,14 +408,17 @@ function doSave(e){
     $('welcome').style.display = 'none';
   }
 
-  // Fire-and-forget per spec. The page UX does not wait on the network.
-  // On a successful save, seed the Glicko-2 rating from the TruVolley Rating.
-  // No-op when TruVolley is blank/non-numeric or a rating already exists.
+  // On a successful save, seed the Glicko-2 rating from the TruVolley Rating
+  // (no-op when TruVolley is blank/non-numeric or a rating already exists),
+  // then confirm to the user only after the write resolves so the toast is
+  // write-confirmed rather than optimistic.
   db.ref(ROSTER_PATH+'/'+currentPid+'/profile').set(profile)
-    .then(() => seedRatingFromTruVolley(currentDisplayName, profile.truvolleyRankingNumber))
+    .then(() => {
+      seedRatingFromTruVolley(currentDisplayName, profile.truvolleyRankingNumber);
+      toast('Profile saved');
+    })
     .catch(err => { console.error('profile save failed', err); toast("Couldn't save. Try again."); });
 
-  toast('Profile saved');
   return false;
 }
 
@@ -426,7 +429,7 @@ async function doChangePassword(){
   const err = $('pw-err');
   err.textContent = '';
   if(!cur || !nw || !cf){ err.textContent = 'Fill in all three fields.'; return; }
-  if(nw.length < 6){ err.textContent = 'New password must be at least 6 characters.'; return; }
+  if(nw.length < 8){ err.textContent = 'New password must be at least 8 characters.'; return; }
   if(nw !== cf){ err.textContent = 'New passwords do not match.'; return; }
   if(nw === cur){ err.textContent = 'New password must be different from current password.'; return; }
   const res = await CourtSenseAuth.changePassword(cur, nw);
