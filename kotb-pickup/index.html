@@ -726,6 +726,10 @@ function quickSourceNames(){
 // VIEW ROUTING
 function showView(v){
   view = v;
+  // Per-game chat: attach the scoped game_messages listener only while the
+  // invite-detail pane is open for the active game; detach on every other view.
+  if(v==='invite-detail' && activeInvite) attachGameChat(activeInvite);
+  else detachGameChat();
   $('view-list').classList.toggle('on',  v==='list');
   $('view-setup').classList.toggle('on', v==='setup');
   $('view-event').classList.toggle('on', v==='event');
@@ -2994,7 +2998,154 @@ function renderInviteDetail(){
     </div>
   </div>`;
 
+  // Per-game chat (coordination, not confidentiality). Visible and postable only
+  // to players currently eligible for this game; reuses activeEligibleNames.
+  const chatEligible = !!myKey && activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  let chatBody;
+  if(!myKey){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see and join the game chat.</p>'
+      + (window.Identity ? '<button class="btn btn-g btn-sm" onclick="chatPickName()">Pick your name</button>' : '');
+  } else if(!chatEligible){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Chat opens to players eligible for this game.</p>';
+  } else {
+    chatBody = '<div id="gc-list"></div>'
+      + '<div style="margin-top:10px;">'
+      +   '<textarea id="gc-text" maxlength="2000" oninput="updateGameChatCount()" placeholder="Message players in this pickup" style="width:100%;border:1px solid var(--sand-border);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;"></textarea>'
+      +   '<div id="gc-err" style="font-size:12px;color:#b91c1c;margin-top:4px;min-height:1px;"></div>'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">'
+      +     '<span id="gc-count" style="font-size:12px;color:var(--gray);">0/2000</span>'
+      +     '<button class="btn btn-p btn-sm" id="gc-post" onclick="postGameChat()">Post</button>'
+      +   '</div>'
+      + '</div>';
+  }
+  h += '\n\n  <div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Game Chat</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin:-2px 0 8px;">Coordinate this pickup with eligible players.</div>'
+    + chatBody
+    + '</div>';
+
   cont.innerHTML = h;
+  renderGameChatMessages();
+}
+
+// ── PER-GAME CHAT ───────────────────────────────────────────────────────────
+// Scoped to the open invite-detail pane. Messages live in a SEPARATE flat node
+// tally_kotb_pickup/game_messages/$gameId/$msgId = { authorKey, authorName, text,
+// createdAt } so the invite record stays lean and the main namespace listener
+// never carries chat traffic. The scoped listener attaches on view open and
+// detaches on view exit (see showView). All gates are client-side.
+let _gameMsgs = {};
+let _gameChatRef = null;
+let _gameChatGameId = null;
+
+function attachGameChat(gameId){
+  if(_gameChatRef && _gameChatGameId === gameId) return; // already listening to this game
+  detachGameChat();
+  if(!db || !gameId) return;
+  _gameChatGameId = gameId;
+  _gameChatRef = db.ref('tally_kotb_pickup/game_messages/'+gameId);
+  _gameChatRef.on('value', _onGameChat, e => console.warn('game chat read failed', e));
+}
+function _onGameChat(snap){
+  _gameMsgs = snap.val() || {};
+  renderGameChatMessages();
+}
+function detachGameChat(){
+  if(_gameChatRef){ _gameChatRef.off('value', _onGameChat); _gameChatRef = null; }
+  _gameChatGameId = null;
+  _gameMsgs = {};
+}
+
+async function chatPickName(){
+  if(!window.Identity){ toast('Identity module missing'); return; }
+  const id = await Identity.openPicker({ db, dismissable: true, addLabel: 'Set my name' });
+  if(id) renderInviteDetail();
+}
+
+function updateGameChatCount(){
+  const ta = document.getElementById('gc-text');
+  const el = document.getElementById('gc-count');
+  if(!ta || !el) return;
+  const len = (ta.value || '').length;
+  el.textContent = len + '/2000';
+  el.style.color = len > 2000 ? '#b91c1c' : 'var(--gray)';
+}
+
+function postGameChat(){
+  const ta = document.getElementById('gc-text');
+  const errEl = document.getElementById('gc-err');
+  if(errEl) errEl.textContent = '';
+  if(!ta) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite];
+  if(!myKey || !i){ if(errEl) errEl.textContent = 'Pick your name to post.'; return; }
+  // Re-check eligibility at post time (same client-side gate the UI used to show this).
+  const eligible = activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  if(!eligible){ if(errEl) errEl.textContent = 'Chat is open to players eligible for this game.'; return; }
+  const text = (ta.value || '').trim();
+  if(!text) return;
+  if(text.length > 2000){ if(errEl) errEl.textContent = 'Message must be 2000 characters or fewer.'; return; }
+  const btn = document.getElementById('gc-post');
+  if(btn) btn.disabled = true;
+  // Write-confirmed: success toast only after the write resolves; error on catch.
+  db.ref('tally_kotb_pickup/game_messages/'+activeInvite).push().set({
+    authorKey: myKey,
+    authorName: me.name || 'Player',
+    text: text,
+    createdAt: Date.now()
+  })
+  .then(() => { ta.value = ''; updateGameChatCount(); toast('Posted'); })
+  .catch(e => { console.error('chat post failed', e); if(errEl) errEl.textContent = "Couldn't post. Try again."; })
+  .finally(() => { if(btn) btn.disabled = false; });
+}
+
+function delGameChat(msgId){
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite];
+  if(!myKey || !i) return;
+  const m = (_gameMsgs||{})[msgId];
+  if(!m) return;
+  // Author can delete their own message; the game host can delete any message in
+  // their game. Host is matched by name key since the record stores hostName only.
+  const isHost = !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  if(!(m.authorKey === myKey || isHost)){ toast('You can only delete your own messages.'); return; }
+  if(!confirm('Delete this message?')) return;
+  db.ref('tally_kotb_pickup/game_messages/'+activeInvite+'/'+msgId).remove()
+    .then(() => toast('Deleted'))
+    .catch(e => { console.error('chat delete failed', e); toast("Couldn't delete. Try again."); });
+}
+
+function renderGameChatMessages(){
+  const list = document.getElementById('gc-list');
+  if(!list) return; // chat not rendered (not eligible / not logged in)
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = me ? me.key : null;
+  const i = (D.invites||{})[activeInvite] || {};
+  const isHost = !!myKey && !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  const rows = Object.keys(_gameMsgs || {})
+    .map(id => ({ id, m: _gameMsgs[id] }))
+    .filter(x => x.m && typeof x.m === 'object')
+    .sort((a, b) => (a.m.createdAt || 0) - (b.m.createdAt || 0)); // oldest first, chat order
+  if(!rows.length){
+    list.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No messages yet. Say hello to coordinate this pickup.</p>';
+    return;
+  }
+  list.innerHTML = rows.map(({ id, m }) => {
+    const canDel = !!myKey && (m.authorKey === myKey || isHost);
+    const del = canDel
+      ? '<button class="btn btn-d btn-sm" style="margin-top:6px;padding:4px 10px;min-height:0;font-size:11px;" onclick="delGameChat(\'' + escapeHTML(id).replace(/'/g, "\\'") + '\')">Delete</button>'
+      : '';
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--sand-border);">'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">'
+      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(m.authorName || 'Player') + '</span>'
+      +   '<span style="font-size:11px;color:var(--gray);white-space:nowrap;">' + escapeHTML(fmtDateTime(m.createdAt)) + '</span>'
+      + '</div>'
+      + '<div style="font-size:14px;color:var(--black);white-space:pre-wrap;word-break:break-word;margin-top:2px;">' + escapeHTML(m.text || '') + '</div>'
+      + del
+      + '</div>';
+  }).join('');
 }
 
 // Cheap no-op in production. When ?debug=1 is set, the boot block enables the
