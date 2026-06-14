@@ -609,6 +609,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   </div>
 </div>
 
+<!-- WHO IS INVITED MODAL -->
+<div class="overlay" id="invited-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="invited-title">Eligible players</span><button class="mclose" onclick="closeModal('invited-modal')">✕</button></div>
+    <div id="invited-body"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <div id="dbg-panel" style="display:none;position:fixed;top:60px;right:6px;width:300px;max-width:calc(100vw - 12px);max-height:50vh;overflow-y:auto;background:rgba(15,23,42,.92);color:#bae6fd;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;padding:6px 8px;border-radius:8px;z-index:9998;white-space:pre-wrap;line-height:1.4;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4);">
@@ -2967,6 +2975,9 @@ function renderInviteDetail(){
     <div style="font-size:12px;color:var(--gray);margin-top:10px;">
       ${eligDesc} · Hosted by ${escapeHTML(i.hostName||'Anonymous')}${i.rsvpDeadline?' · RSVP by '+fmtDateTime(i.rsvpDeadline):''}
     </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-g btn-sm" onclick="openInvitedModal()">Who's invited</button>
+    </div>
   </div>
 
   <div class="card">${actionHTML}</div>
@@ -3027,6 +3038,46 @@ function renderInviteDetail(){
 
   cont.innerHTML = h;
   renderGameChatMessages();
+}
+
+// "Who's invited" popup: lists the players currently eligible for the open game
+// (activeEligibleNames) and, for games with widening tiers, when the next circle
+// opens and how many players it adds. Purely client-side; no Firebase read. Same
+// audience that already shares the chat, so this surfaces no new exposure.
+function openInvitedModal(){
+  const i = (D.invites||{})[activeInvite];
+  if(!i){ toast('Pickup not found'); return; }
+  const now = Date.now();
+  const eligible = activeEligibleNames(i, now);
+  if($('invited-title')) $('invited-title').textContent = 'Eligible players (' + eligible.length + ')';
+
+  let body = eligible.length
+    ? eligible.map(n => '<div style="padding:7px 0;border-bottom:1px solid var(--sand-border);font-weight:600;font-size:14px;">' + escapeHTML(n) + '</div>').join('')
+    : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No eligible players yet.</p>';
+
+  // Next circle: only for games with a not-yet-active widening tier. Find the
+  // earliest tier whose activation time is still in the future, show when it
+  // opens and how many players it would newly add. Nothing shown otherwise.
+  const tiers = Array.isArray(i.wideningTiers) ? i.wideningTiers : [];
+  if(tiers.length && i.date && i.startTime){
+    const start = new Date(i.date+'T'+i.startTime+':00').getTime();
+    if(Number.isFinite(start)){
+      const eligKeys = new Set(eligible.map(n => Identity.nameKey(n)));
+      const upcoming = tiers
+        .filter(t => t && Number.isFinite(+t.atOffsetMins) && now < start - (+t.atOffsetMins)*60000)
+        .map(t => ({ at: start - (+t.atOffsetMins)*60000, spec: t.spec || {} }))
+        .sort((a,b) => a.at - b.at);
+      if(upcoming.length){
+        const next = upcoming[0];
+        const adds = computeEligible(next.spec).filter(n => !eligKeys.has(Identity.nameKey(n))).length;
+        body += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sand-border);font-size:13px;color:var(--gray);">'
+          + 'Next circle opens ' + escapeHTML(fmtDateTime(next.at)) + ' (adds ' + adds + ' player' + (adds===1?'':'s') + ')'
+          + '</div>';
+      }
+    }
+  }
+  if($('invited-body')) $('invited-body').innerHTML = body;
+  $('invited-modal').classList.add('on');
 }
 
 // ── PER-GAME CHAT ───────────────────────────────────────────────────────────
