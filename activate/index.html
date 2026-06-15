@@ -162,10 +162,11 @@ const FB_CFG = {
 };
 const ROSTER_PATH = 'tally_kotb_pickup/players';
 
-// Mirror auth.js internals (SS_KEY + bcrypt CDN are not exported, so we
-// replicate the exact same values/behavior here).
+// Session key matches auth.js (so the profile page's autoLogin restores it).
+// Auth runs server-side via the worker; this page never hashes or reads
+// passwordHash.
 const SS_KEY = 'courtsenseAuth';
-const BCRYPT_URL = 'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js';
+const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 
 let db = null;
 let matchedKey = null;     // the record's stable_id key (never changed)
@@ -188,26 +189,6 @@ function togglePw(){
   const inp = $('f-password'), btn = $('pw-toggle');
   if(inp.type === 'password'){ inp.type = 'text'; btn.textContent = 'Hide'; btn.setAttribute('aria-label','Hide password'); }
   else { inp.type = 'password'; btn.textContent = 'Show'; btn.setAttribute('aria-label','Show password'); }
-}
-
-// bcrypt loader: identical strategy to auth.js loadBcrypt (same CDN, same
-// global probing). bcryptjs is loaded lazily on demand.
-let _bcryptPromise = null;
-function loadBcrypt(){
-  if(_bcryptPromise) return _bcryptPromise;
-  _bcryptPromise = new Promise((resolve, reject) => {
-    const existing = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
-    if(existing) return resolve(existing);
-    const s = document.createElement('script');
-    s.src = BCRYPT_URL;
-    s.onload = () => {
-      const lib = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
-      lib ? resolve(lib) : reject(new Error('bcrypt loaded but global missing'));
-    };
-    s.onerror = () => reject(new Error('Failed to load bcryptjs'));
-    document.head.appendChild(s);
-  });
-  return _bcryptPromise;
 }
 
 // Session writer: identical to auth.js persistSession (single 'courtsenseAuth'
@@ -307,50 +288,50 @@ async function doClaim(e){
   btn.textContent = 'Setting your password...';
 
   try {
-    // Defensive re-read of just this record so a link used in another tab cannot
-    // be claimed twice. We never create a new record, so there is no duplicate
-    // risk; this only avoids overwriting an already-activated account.
-    let fresh;
+    // Set the credential server-side: the worker writes the bcrypt hash to the
+    // separate credentials node. The client never hashes or writes passwordHash.
+    // register returns a conflict (409 / code:'conflict') if a credential already
+    // exists, meaning the account is already active and the user should log in.
+    let res, status;
     try {
-      const snap = await db.ref(ROSTER_PATH + '/' + matchedKey).once('value');
-      fresh = snap.val();
+      const r = await fetch(AUTH_WORKER + '/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, playerId: matchedKey, password: pw })
+      });
+      status = r.status;
+      res = await r.json();
     } catch(err){
-      console.error('activation re-read failed', err);
+      console.error('register failed', err);
       $('form-err').textContent = 'Network error. Try again.';
       return false;
     }
-    if(!fresh || fresh.activationToken !== getToken() || isAlreadyClaimed(fresh)){
-      showInvalid('This account is already active', "This account has already been activated. Log in with your email and password instead.");
+
+    if(status === 409 || (res && res.code === 'conflict')){
+      showInvalid('This account is already active', "This account already has a password. Log in with your email and password instead.");
+      return false;
+    }
+    if(!res || res.ok !== true){
+      $('form-err').textContent = (res && res.error) || 'Could not set your password. Try again.';
       return false;
     }
 
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); }
-    catch(err){ console.error(err); $('form-err').textContent = 'Could not load activation. Refresh and try again.'; return false; }
-
-    let passwordHash;
-    try { passwordHash = bcrypt.hashSync(pw, 10); }
-    catch(err){ console.error(err); $('form-err').textContent = 'Activation failed. Try again.'; return false; }
-
-    // Reconcile the pre-created record with what login/profile expect, in ONE
-    // multi-path update against the SAME stable_id key (no rekey):
-    //   passwordHash, activated:true, activationToken:null, top-level email
-    //   (from emails.primary, lowercased), verified:true, updatedAt.
-    const primary = (fresh.emails && typeof fresh.emails.primary === 'string')
-      ? fresh.emails.primary.toLowerCase()
+    // Credential is set. Reconcile the non-credential player fields (no
+    // passwordHash) so login/profile see an activated, verified record with a
+    // top-level email. Best-effort: the credential is what matters for login.
+    const primary = (matchedRecord.emails && typeof matchedRecord.emails.primary === 'string')
+      ? matchedRecord.emails.primary.toLowerCase()
       : null;
     const now = Date.now();
     const base = ROSTER_PATH + '/' + matchedKey + '/';
     const updates = {};
-    updates[base + 'passwordHash']    = passwordHash;
     updates[base + 'activated']       = true;
     updates[base + 'activationToken'] = null;
     updates[base + 'email']           = primary;
     updates[base + 'verified']        = true;
     updates[base + 'updatedAt']       = now;
-
     try { await db.ref().update(updates); }
-    catch(err){ console.error('activation write failed', err); $('form-err').textContent = 'Could not save. Try again.'; return false; }
+    catch(err){ console.warn('activation profile-field update failed (credential already set)', err); }
 
     // Log the player in immediately using the same session mechanism auth.js
     // uses, then hand off to the profile editor (first-time welcome).

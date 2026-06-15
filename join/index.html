@@ -163,7 +163,7 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
         <button type="submit" class="btn btn-p btn-w" id="login-btn">Log in</button>
       </div>
       <div class="alt-row">
-        Forgot your password? <a href="mailto:mark@markmcnees.com">Contact admin.</a>
+        Forgot your password? <a href="mailto:markmcnees@gmail.com">Contact admin.</a>
       </div>
     </form>
   </section>
@@ -198,10 +198,11 @@ const FB_CFG = {
 };
 const ROSTER_PATH = 'tally_kotb_pickup/players';
 
-// Mirror auth.js internals (SS_KEY + bcrypt CDN are not exported, so we
-// replicate the exact same values/behavior here, same as activate/index.html).
+// Session key matches auth.js (so the profile page's autoLogin restores it).
+// Auth runs server-side via the worker; this page never hashes or reads
+// passwordHash. Same pattern as activate/index.html.
 const SS_KEY = 'courtsenseAuth';
-const BCRYPT_URL = 'https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js';
+const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 
 let db = null;
 let matchedKey = null;     // the matched record's key (never changed)
@@ -227,26 +228,6 @@ function setErr(field, msg){
   const inp = $('f-' + field), err = $('err-' + field);
   if(inp) inp.classList.toggle('invalid', !!msg);
   if(err){ err.textContent = msg || ''; err.classList.toggle('on', !!msg); }
-}
-
-// bcrypt loader: identical strategy to auth.js loadBcrypt (same CDN, same global
-// probing). Lazy, loaded on demand. Same as activate/index.html.
-let _bcryptPromise = null;
-function loadBcrypt(){
-  if(_bcryptPromise) return _bcryptPromise;
-  _bcryptPromise = new Promise((resolve, reject) => {
-    const existing = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
-    if(existing) return resolve(existing);
-    const s = document.createElement('script');
-    s.src = BCRYPT_URL;
-    s.onload = () => {
-      const lib = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt;
-      lib ? resolve(lib) : reject(new Error('bcrypt loaded but global missing'));
-    };
-    s.onerror = () => reject(new Error('Failed to load bcryptjs'));
-    document.head.appendChild(s);
-  });
-  return _bcryptPromise;
 }
 
 // Session writer: identical to auth.js persistSession (single 'courtsenseAuth'
@@ -328,7 +309,7 @@ async function doContinue(e){
       setTimeout(() => { try { $('f-login-pw').focus(); } catch(e){} }, 0);
     } else {
       // CASE A: unclaimed -> set password (claim).
-      $('claim-welcome').textContent = 'Welcome, ' + name + ' — set your password';
+      $('claim-welcome').textContent = 'Welcome, ' + name + '. Set your password';
       showState('claim');
       setTimeout(() => { try { $('f-password').focus(); } catch(e){} }, 0);
     }
@@ -355,55 +336,56 @@ async function doClaim(e){
   btn.textContent = 'Setting your password...';
 
   try {
-    // Defensive re-read of just this record so it cannot be claimed twice. We
-    // never create a record, so there is no duplicate risk; this only avoids
-    // overwriting an account that got claimed in the meantime.
-    let fresh;
+    // Set the credential server-side: the worker writes the bcrypt hash to the
+    // separate credentials node. The client never hashes or writes passwordHash.
+    // register requires the player record to already exist and returns a conflict
+    // (409 / code:'conflict') if a credential already exists, in which case the
+    // account is already claimed and the user should log in instead.
+    let res, status;
     try {
-      const snap = await db.ref(ROSTER_PATH + '/' + matchedKey).once('value');
-      fresh = snap.val();
+      const r = await fetch(AUTH_WORKER + '/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, playerId: matchedKey, password: pw })
+      });
+      status = r.status;
+      res = await r.json();
     } catch(err){
-      console.error('claim re-read failed', err);
+      console.error('register failed', err);
       $('claim-form-err').textContent = 'Network error. Try again.';
       return false;
     }
-    if(!fresh){ $('claim-form-err').textContent = 'This account is no longer available. Start over.'; return false; }
-    if(isAlreadyClaimed(fresh)){
-      // It became claimed since the scan: send them to the login form instead.
-      matchedRecord = fresh;
-      $('login-welcome').textContent = 'Welcome back, ' + (fresh.displayName || 'player');
+
+    if(status === 409 || (res && res.code === 'conflict')){
+      // Already has a credential: route to login instead of erroring out.
+      matchedRecord = matchedRecord || {};
+      $('login-welcome').textContent = 'Welcome back, ' + (matchedRecord.displayName || 'player');
       showState('login');
+      $('login-form-err').textContent = 'Looks like this account already has a password. Log in below.';
       setTimeout(() => { try { $('f-login-pw').focus(); } catch(e){} }, 0);
       return false;
     }
+    if(!res || res.ok !== true){
+      $('claim-form-err').textContent = (res && res.error) || 'Could not set your password. Try again.';
+      return false;
+    }
 
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); }
-    catch(err){ console.error(err); $('claim-form-err').textContent = 'Could not load activation. Refresh and try again.'; return false; }
-
-    let passwordHash;
-    try { passwordHash = bcrypt.hashSync(pw, 10); }
-    catch(err){ console.error(err); $('claim-form-err').textContent = 'Activation failed. Try again.'; return false; }
-
-    // Reconcile the pre-created record with what login/profile expect, in ONE
-    // multi-path update against the SAME key (no rekey):
-    //   passwordHash, activated:true, activationToken:null, top-level email
-    //   (from emails.primary, lowercased), verified:true, updatedAt.
-    const primary = (fresh.emails && typeof fresh.emails.primary === 'string')
-      ? fresh.emails.primary.toLowerCase()
+    // Credential is set. Reconcile the non-credential player fields (no
+    // passwordHash) so login/profile see an activated, verified record with a
+    // top-level email. Best-effort: the credential is what matters for login.
+    const primary = (matchedRecord.emails && typeof matchedRecord.emails.primary === 'string')
+      ? matchedRecord.emails.primary.toLowerCase()
       : enteredEmail || null;
     const now = Date.now();
     const base = ROSTER_PATH + '/' + matchedKey + '/';
     const updates = {};
-    updates[base + 'passwordHash']    = passwordHash;
     updates[base + 'activated']       = true;
     updates[base + 'activationToken'] = null;
     updates[base + 'email']           = primary;
     updates[base + 'verified']        = true;
     updates[base + 'updatedAt']       = now;
-
     try { await db.ref().update(updates); }
-    catch(err){ console.error('claim write failed', err); $('claim-form-err').textContent = 'Could not save. Try again.'; return false; }
+    catch(err){ console.warn('claim profile-field update failed (credential already set)', err); }
 
     // Log in immediately using the same session mechanism auth.js uses, then
     // hand off to the profile editor (first-time welcome).
@@ -416,10 +398,10 @@ async function doClaim(e){
   }
 }
 
-// ── CASE B: log in (mirrors auth.js attemptLogin verification) ───────────────
-// attemptLogin is internal (not exported), so we replicate its verify exactly:
-// look up the record (already matched), bcrypt.compareSync against passwordHash,
-// then persistSession. This NEVER writes or re-claims the record.
+// ── CASE B: log in (mirrors auth.js attemptLogin) ────────────────────────────
+// Verification happens server-side in the worker (/auth/verify); the client
+// never reads passwordHash. On success we persistSession and hand off to the
+// dashboard. This NEVER writes or re-claims the record.
 async function doLogin(e){
   if(e) e.preventDefault();
   $('login-form-err').textContent = ''; setErr('login-pw','');
@@ -434,29 +416,28 @@ async function doLogin(e){
   btn.textContent = 'Logging in...';
 
   try {
-    // Fresh read of the single record (like attemptLogin reads the roster fresh).
-    let rec;
+    // Verify server-side: the worker reads the credentials node and checks the
+    // password. The client never reads passwordHash. Mirrors auth.js attemptLogin.
+    let res;
     try {
-      const snap = await db.ref(ROSTER_PATH + '/' + matchedKey).once('value');
-      rec = snap.val();
+      const r = await fetch(AUTH_WORKER + '/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, email: enteredEmail, password: pw })
+      });
+      res = await r.json();
     } catch(err){
-      console.error('login read failed', err);
+      console.error('verify failed', err);
       $('login-form-err').textContent = 'Network error. Try again.';
       return false;
     }
-    if(!rec || !rec.passwordHash){ $('login-form-err').textContent = 'No password set. Contact admin.'; return false; }
-
-    let bcrypt;
-    try { bcrypt = await loadBcrypt(); }
-    catch(err){ console.error(err); $('login-form-err').textContent = 'Could not load login. Refresh and try again.'; return false; }
-
-    let ok = false;
-    try { ok = bcrypt.compareSync(pw, rec.passwordHash); }
-    catch(err){ console.error(err); $('login-form-err').textContent = 'Login failed. Try again.'; return false; }
-    if(!ok){ $('login-form-err').textContent = 'Incorrect password'; return false; }
+    if(!res || res.ok !== true){
+      $('login-form-err').textContent = (res && res.error) || 'Incorrect password';
+      return false;
+    }
 
     const keep = !!($('f-login-keep') && $('f-login-keep').checked);
-    persistSession(matchedKey, keep);
+    persistSession(res.player.id, keep);
     window.location.href = '/community/dashboard/';
     return false;
   } finally {
