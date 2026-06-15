@@ -289,7 +289,7 @@ body.admin-locked .card-admin-export{display:none;}
       <span class="sync off" id="sync" title="Connecting..."></span>
     </a>
     <div style="display:flex;align-items:center;gap:8px;">
-      <button id="lc-btn" onclick="openLeagueChat()" title="League Chat" aria-label="League Chat" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">💬</button>
+      <button id="lc-btn" onclick="openLeagueChat()" title="League Chat" aria-label="League Chat" style="display:inline-flex;align-items:center;padding:7px 14px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;background:var(--accent);color:#1a1a1a;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.2);">League Chat</button>
       <div class="side-toggle">
         <button class="side-btn on" id="btn-rec" onclick="switchDiv('rec')">Rec</button>
         <button class="side-btn" id="btn-comp" onclick="switchDiv('comp')">Comp</button>
@@ -489,8 +489,7 @@ body.admin-locked .card-admin-export{display:none;}
 <div class="overlay" id="lc-modal" onclick="if(event.target===this)closeLeagueChat()">
   <div class="modal" style="border-radius:20px 20px 0 0;max-width:540px;margin:0 auto;">
     <div class="mtitle"><span id="lc-title">League Chat</span><button class="mclose" onclick="closeLeagueChat()">&#10005;</button></div>
-    <div id="lc-sub" style="font-size:12px;color:var(--gray);margin:-10px 0 12px;"></div>
-    <div id="lc-as" style="font-size:12px;color:var(--gray);margin-bottom:6px;"></div>
+    <div id="lc-as" style="font-size:12px;color:var(--gray);margin:-8px 0 6px;"></div>
     <textarea class="inp" id="lc-text" maxlength="2000" placeholder="Share a heads up for the league." style="min-height:80px;resize:vertical;" oninput="lcUpdateCount()"></textarea>
     <div id="lc-err" style="color:var(--loss);font-size:13px;min-height:16px;margin-top:6px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 14px;">
@@ -685,8 +684,8 @@ function switchDiv(s){
   $('btn-comp').classList.toggle('on', s==='comp');
   _selectedWeek = null;
   _previewBannerDismissed = false;
-  // Board follows the active division: re-point its scoped listener to the new div.
-  if(_lcOpen){ lcAttach(); $('lc-sub').textContent = lcDivLabel() + ' division'; }
+  // Board follows the active division: re-point its scoped listener and retitle to the new div.
+  if(_lcOpen){ lcAttach(); $('lc-title').textContent = lcDivLabel() + ' League Chat'; }
   loadDivState();
   refreshAll();
 }
@@ -2881,13 +2880,12 @@ function lcOnLogout(){
 function openLeagueChat(){
   if(!_lcPid){
     _lcPendingOpen = true;
-    if(window.CourtSenseAuth){ toast('Log in to join the league chat.'); CourtSenseAuth.showLogin(); }
+    if(window.CourtSenseAuth){ toast('Log in to read and post in League Chat.'); CourtSenseAuth.showLogin(); }
     else toast('Login unavailable, refresh the page');
     return;
   }
   _lcOpen = true;
-  $('lc-title').textContent = 'League Chat';
-  $('lc-sub').textContent = lcDivLabel() + ' division';
+  $('lc-title').textContent = lcDivLabel() + ' League Chat';
   $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : '';
   $('lc-text').value = ''; if($('lc-err')) $('lc-err').textContent='';
   lcUpdateCount();
@@ -2956,10 +2954,18 @@ function postBoardMsg(){
   .catch(e=>{ console.error('league chat post failed', e); if(err) err.textContent="Couldn't post. Try again."; })
   .finally(()=>{ if(btn) btn.disabled = false; });
 }
-// Admin delete, gated by the existing ADMIN_PIN session (requireAdmin). When the
-// session is expired this pops the PIN modal and returns; tap Delete again once authed.
+// Delete: a player's own post deletes without a PIN; anyone else's post requires the
+// existing ADMIN_PIN session (requireAdmin pops the PIN modal and returns when the
+// session is expired -> tap Delete again once authed). All deletes are client-side;
+// <div>/messages is open-write per the chosen tier.
 function delBoardMsg(id){
-  if(!requireAdmin('boardDelete')) return;
+  const m = (_lcMsgs||{})[id];
+  const own = !!m && m.authorKey === _lcPid;
+  if(own){
+    if(!confirm('Delete your message?')) return;
+  } else {
+    if(!requireAdmin('boardDelete')) return;
+  }
   const div = _lcDiv || DIV;
   db.ref(DB_ROOT+'/'+div+'/messages/'+id).remove()
     .then(()=>toast('Deleted'))

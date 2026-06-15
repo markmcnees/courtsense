@@ -30,7 +30,7 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 
 /* ── HEADER ── */
 .hdr{background:linear-gradient(150deg,var(--dark) 0%,var(--primary) 100%);padding:14px 16px 0;box-shadow:0 4px 20px rgba(0,0,0,0.25);position:relative;z-index:50;}
-.hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
 .brand{font-family:'Bebas Neue';font-size:20px;letter-spacing:3px;color:var(--accent);display:flex;align-items:center;gap:8px;}
 .sync{width:8px;height:8px;border-radius:50%;}
 .sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:blink 2s infinite;}
@@ -41,7 +41,7 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .side-btn{padding:7px 18px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:2px;cursor:pointer;transition:all .2s;color:rgba(255,255,255,.55);background:transparent;}
 .side-btn.on{background:var(--accent);color:#1a1a1a;}
 
-.hdr-right{display:flex;align-items:center;gap:8px;}
+.hdr-right{display:flex;align-items:center;gap:8px;margin-left:auto;}
 .pickup-btn{display:inline-flex;align-items:center;padding:7px 14px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;text-decoration:none;background:var(--accent);color:#1a1a1a;transition:all .2s;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.2);}
 .pickup-btn:active{transform:scale(.95);background:#b8902f;}
 
@@ -190,14 +190,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <span class="sync off" id="sync" title="Connecting..."></span>
     </a>
     <div class="hdr-right">
-      <a class="pickup-btn" href="https://courtsense.app/pickup" target="_blank" rel="noopener" title="Launch one-day pickup tournament">Pickup Games</a>
+      <button id="lc-btn" class="pickup-btn" onclick="openLeagueChat()" title="League Chat" aria-label="League Chat">League Chat</button>
       <div class="side-toggle">
         <button class="side-btn on" id="btn-k" onclick="switchSide('kings')">Kings</button>
         <button class="side-btn" id="btn-q" onclick="switchSide('queens')">Queens</button>
       </div>
-      <button id="lc-btn" onclick="openLeagueChat()" title="League Chat" aria-label="League Chat" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">💬</button>
       <button id="profile-btn" onclick="openProfile()" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">👤</button>
     </div>
+  </div>
+  <div class="hdr-sub" style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+    <a class="pickup-btn" href="https://courtsense.app/pickup" target="_blank" rel="noopener" title="Launch one-day pickup tournament">Pickup Games</a>
   </div>
   <div class="tabs">
     <button class="tab on" data-tab="standings">Standings</button>
@@ -390,8 +392,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 <div class="overlay" id="lc-modal" onclick="if(event.target===this)closeLeagueChat()">
   <div class="modal" style="border-radius:20px 20px 0 0;max-width:540px;margin:0 auto;">
     <div class="mtitle"><span id="lc-title">League Chat</span><button class="mclose" onclick="closeLeagueChat()">✕</button></div>
-    <div id="lc-sub" style="font-size:12px;color:var(--gray);margin:-10px 0 12px;"></div>
-    <div id="lc-as" style="font-size:12px;color:var(--gray);margin-bottom:6px;"></div>
+    <div id="lc-as" style="font-size:12px;color:var(--gray);margin:-8px 0 6px;"></div>
     <textarea class="inp" id="lc-text" maxlength="2000" placeholder="Share a heads up for the league." style="min-height:80px;resize:vertical;" oninput="lcUpdateCount()"></textarea>
     <div id="lc-err" style="color:var(--loss);font-size:13px;min-height:16px;margin-top:6px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 14px;">

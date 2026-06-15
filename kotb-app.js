@@ -211,8 +211,8 @@ function switchSide(s){
   $('btn-k').classList.toggle('on',s==='kings');
   $('btn-q').classList.toggle('on',s==='queens');
   $('brand-ico').textContent=s==='kings'?'👑':'👸';
-  // Board follows the active side: re-point its scoped listener to the new side.
-  if(_lcOpen){ lcAttach(); $('lc-sub').textContent=(SIDE==='kings'?'Kings':'Queens')+' division'; }
+  // Board follows the active side: re-point its scoped listener and retitle to the new side.
+  if(_lcOpen){ lcAttach(); $('lc-title').textContent=lcSideLabel()+' League Chat'; }
   refreshAll();
 }
 
@@ -2180,13 +2180,12 @@ function lcOnLogout(){
 function openLeagueChat(){
   if(!_lcPid){
     _lcPendingOpen = true;
-    if(window.CourtSenseAuth){ toast('Log in to join the league chat.'); CourtSenseAuth.showLogin(); }
+    if(window.CourtSenseAuth){ toast('Log in to read and post in League Chat.'); CourtSenseAuth.showLogin(); }
     else toast('Login unavailable, refresh the page');
     return;
   }
   _lcOpen = true;
-  $('lc-title').textContent = 'League Chat';
-  $('lc-sub').textContent = lcSideLabel() + ' division';
+  $('lc-title').textContent = lcSideLabel() + ' League Chat';
   $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : '';
   $('lc-text').value = ''; if($('lc-err')) $('lc-err').textContent='';
   lcUpdateCount();
@@ -2255,8 +2254,16 @@ function postBoardMsg(){
   .catch(e=>{ console.error('league chat post failed', e); if(err) err.textContent="Couldn't post. Try again."; })
   .finally(()=>{ if(btn) btn.disabled = false; });
 }
-// Admin delete, gated by the existing ADMIN_PIN flow (_pinAction='boarddelete').
+// Delete: a player's own post deletes without a PIN; anyone else's post routes
+// through the existing ADMIN_PIN flow (_pinAction='boarddelete'). All deletes are
+// client-side; <side>/messages is open-write per the chosen tier.
 function delBoardMsg(id){
+  const m = (_lcMsgs||{})[id];
+  if(m && m.authorKey === _lcPid){
+    if(!confirm('Delete your message?')) return;
+    doBoardDeleteById(id);
+    return;
+  }
   _lcPendingDelId = id;
   _pinAction='boarddelete'; _pinEntry=''; updatePinDots();
   $('pin-error').textContent=''; $('pin-modal-title').textContent='Admin PIN';
@@ -2265,6 +2272,9 @@ function delBoardMsg(id){
 function doBoardDelete(){
   const id = _lcPendingDelId; _lcPendingDelId = null;
   if(!id) return;
+  doBoardDeleteById(id);
+}
+function doBoardDeleteById(id){
   const side = _lcSide || SIDE;
   db.ref(DB_ROOT+'/'+side+'/messages/'+id).remove()
     .then(()=>toast('Deleted'))
