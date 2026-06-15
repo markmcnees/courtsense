@@ -494,28 +494,29 @@
     // Email-based dedup, runs FIRST (before the snake_case-key check below). A
     // pre-created league player (keyed by stable_id) or any prior signup may
     // already own this email under a DIFFERENT key than snake_case(displayName),
-    // so the key check alone would miss them and create a duplicate. Scan the
-    // roster once and match the SAME way attemptLogin and the join page do:
-    // top-level email OR emails.primary, both lowercased. On a match, route them
-    // to claim / log in instead of creating a second record. Read-only; this
-    // adds no write path (createPlayer still has exactly one write below).
+    // so the key check alone would miss them and create a duplicate. Resolve
+    // server-side via /auth/lookup (private node first, public fallback), which
+    // matches the SAME email shapes attemptLogin and the join page use (top-level
+    // email OR emails.primary). No client roster read, so this survives the
+    // players-PII rules flip. Read-only; createPlayer still has one write below.
     const emailTarget = email.toLowerCase();
-    let roster;
     try {
-      const snap = await _db.ref(_rosterPath).once('value');
-      roster = snap.val() || {};
-    } catch(e){
-      console.error('CourtSenseAuth.createPlayer: email dedup scan failed', e);
-      return { ok:false, error:'Network error. Try again.' };
-    }
-    for(const id in roster){
-      const p = roster[id];
-      if(!p) continue;
-      const e1 = typeof p.email === 'string' ? p.email.toLowerCase() : null;
-      const e2 = (p.emails && typeof p.emails.primary === 'string') ? p.emails.primary.toLowerCase() : null;
-      if((e1 && e1 === emailTarget) || (e2 && e2 === emailTarget)){
+      const lr = await fetch(AUTH_WORKER + '/auth/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: _rosterPath, email: emailTarget })
+      });
+      const lookup = await lr.json();
+      if(!lookup || lookup.ok !== true){
+        console.error('CourtSenseAuth.createPlayer: email dedup lookup error', lookup);
+        return { ok:false, error:'Network error. Try again.' };
+      }
+      if(lookup.found){
         return { ok:false, code:'EMAIL_EXISTS', error:'It looks like you already have an account. Head to the join page to claim it or log in.' };
       }
+    } catch(e){
+      console.error('CourtSenseAuth.createPlayer: email dedup lookup failed', e);
+      return { ok:false, error:'Network error. Try again.' };
     }
 
     // Snake-case key matches Ratings.nameKey convention: lowercase, strip

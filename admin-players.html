@@ -337,6 +337,24 @@ function loadPending(){
   }).catch(err => { console.error(err); logLine('Pending load error: '+(err && err.message || err)); toast("Couldn't read pending registrations"); });
 }
 
+// Server-side freshness check for the approve/reject double-process guard, so we
+// never client-read the (soon-to-be deny-read) pending node. Resolves to
+// { exists, status, reviewedBy, reviewedAt } or null on transport/key failure
+// (guard fails open exactly like the old once() try/catch; the atomic write
+// remains the real double-process protection).
+function checkPendingStatus(id){
+  const key = ensureAdminKey();
+  if(!key) return Promise.resolve(null);
+  return fetch(AUTH_WORKER + '/auth/admin-pending-status', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminKey: key, registrationId: id })
+  }).then(r => r.json().then(res => ({ status: r.status, res }))).then(({ status, res }) => {
+    if(status === 403 && res && res.code === 'forbidden'){ clearAdminKey('status'); return null; }
+    if(!res || !res.ok) return null;
+    return res;
+  }).catch(err => { console.error(err); return null; });
+}
+
 function loadPlayers(){
   db.ref(ROOT).on('value', snap=>{
     PLAYERS = snap.val()||{};
@@ -442,12 +460,12 @@ async function doApprove(id){
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
   logLine('Approving '+r.name+' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')');
 
-  // Re-check status server-side to avoid double processing.
-  try {
-    const fresh = (await db.ref(PENDING_ROOT+'/'+id).once('value')).val();
-    if(!fresh){ toast('Registration was deleted'); return; }
+  // Re-check status via the worker (no client read of the deny-read pending node).
+  const fresh = await checkPendingStatus(id);
+  if(fresh){
+    if(!fresh.exists){ toast('Registration was deleted'); return; }
     if(fresh.status !== 'pending'){ toast('Already reviewed by '+(fresh.reviewedBy||'someone')); return; }
-  } catch(e){ console.error(e); }
+  }
 
   // Build atomic multi-update
   const now = Date.now();
@@ -516,11 +534,12 @@ async function doReject(){
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
 
   logLine('Rejecting '+r.name+(reason?' ('+reason+')':'')+(sendEmail?' [decline email queued]':''));
-  try {
-    const fresh = (await db.ref(PENDING_ROOT+'/'+id).once('value')).val();
-    if(!fresh){ toast('Registration was deleted'); return; }
+  // Re-check status via the worker (no client read of the deny-read pending node).
+  const fresh = await checkPendingStatus(id);
+  if(fresh){
+    if(!fresh.exists){ toast('Registration was deleted'); return; }
     if(fresh.status !== 'pending'){ toast('Already reviewed by '+(fresh.reviewedBy||'someone')); return; }
-  } catch(e){ console.error(e); }
+  }
 
   const now = Date.now();
   const updates = {};
