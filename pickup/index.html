@@ -3421,17 +3421,15 @@ function dropOutInvite(){
   Object.entries(newRsvps).forEach(([k,r])=>{
     updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k] = r;
   });
-  if(promotedName){
-    const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-    updates['tally_kotb_pickup/email_queue/'+eid] = {
-      type: 'waitlist_promotion',
-      to: null,
-      data: { playerName: promotedName, inviteId: activeInvite },
-      createdAt: Date.now(),
-      status: 'queued'
-    };
-  }
-  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
+  if(db) db.ref().update(updates).then(()=>{
+    if(promotedName){
+      // Notify the admin of the waitlist promotion via /notify (no direct email_queue write).
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'waitlist_promotion', data: { playerName: promotedName, inviteId: activeInvite } })
+      }).catch(function(e){ console.warn('notify failed', e); });
+    }
+  }).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
   toast('Dropped out');
 }
 

@@ -299,7 +299,13 @@ document.addEventListener('DOMContentLoaded', function(){
       createdAt: now,
       status: 'queued'
     };
-    try { db.ref('tally_kotb_pickup/email_queue/' + eid()).set(emailItem); } catch(e){ console.error(e); }
+    // Enqueue via the worker /notify endpoint (no direct email_queue write).
+    try {
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: emailItem.type, data: emailItem.data })
+      }).catch(function(e){ console.warn('notify failed', e); });
+    } catch(e){ console.error(e); }
 
     // fire-and-forget; show success shortly after
     setTimeout(function(){

@@ -439,22 +439,25 @@
       return { ok:false, code: (res && res.code === 'invalid') ? 'wrong_password' : 'failed' };
     }
 
-    // Queue the password_changed notification (the worker only writes the hash).
-    // Best-effort: the password change already succeeded if we reached here.
+    // Queue the password_changed notification via the worker /notify endpoint
+    // (the client no longer writes email_queue directly). The worker resolves the
+    // recipient server-side from the player record. Best-effort.
     try {
       const now = Date.now();
-      const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
-      await _db.ref('tally_kotb_pickup/email_queue/' + eid).set({
-        type: 'password_changed',
-        to: email || null,
-        data: {
-          player_name: _currentPlayer.name || null,
-          player_email: email || null,
-          changed_at_iso: new Date(now).toISOString()
-        },
-        relatedRegistration: null,
-        status: 'queued',
-        createdAt: now
+      await fetch(AUTH_WORKER + '/auth/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'password_changed',
+          rosterPath: _rosterPath,
+          playerId: _currentPlayer.id,
+          email: email || undefined,
+          data: {
+            player_name: _currentPlayer.name || null,
+            player_email: email || null,
+            changed_at_iso: new Date(now).toISOString()
+          }
+        })
       });
     } catch(e) {
       console.warn('CourtSenseAuth changePassword: notification enqueue failed', e);
@@ -538,7 +541,6 @@
     const leagueMatch = await findLeagueMatch(displayName);
 
     const now = Date.now();
-    const eid = 'em' + now.toString(36) + Math.random().toString(36).slice(2, 5);
     const emailLower = email.toLowerCase();
     // No passwordHash here: the password is set server-side via /auth/register
     // below, which writes the hash to the locked-down credentials node.
@@ -555,18 +557,6 @@
     };
     const updates = {};
     updates[_rosterPath + '/' + playerKey] = playerRecord;
-    updates['tally_kotb_pickup/email_queue/' + eid] = {
-      type: 'welcome',
-      to: emailLower,
-      data: {
-        player_name: displayName,
-        player_email: emailLower,
-        generated_password: null // user picked their own password during signup
-      },
-      relatedRegistration: null,
-      createdAt: now,
-      status: 'queued'
-    };
 
     try { await _db.ref().update(updates); }
     catch(e){
@@ -589,12 +579,12 @@
       console.error('CourtSenseAuth.createPlayer: register failed', e);
     }
     if(!regOk){
-      // Clean undo: remove the just-written record AND its welcome email so a
-      // retry sees no existing account/email and proceeds cleanly.
+      // Clean undo: remove the just-written record so a retry sees no existing
+      // account and proceeds cleanly. (No welcome email was written; the worker
+      // /notify call only fires after a successful register, below.)
       try {
         const undo = {};
         undo[_rosterPath + '/' + playerKey] = null;
-        undo['tally_kotb_pickup/email_queue/' + eid] = null;
         await _db.ref().update(undo);
       } catch(e){ console.warn('CourtSenseAuth.createPlayer: undo failed', e); }
       return { ok:false, error:'Could not finish creating your account. Please try again.', code:'REGISTER_FAILED' };
@@ -606,6 +596,22 @@
     persistSession(playerKey, !!o.keepSignedIn);
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
+
+    // Welcome email via the worker /notify endpoint (recipient resolved
+    // server-side from the just-created record). Fire-and-forget.
+    try {
+      fetch(AUTH_WORKER + '/auth/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'welcome',
+          rosterPath: _rosterPath,
+          playerId: playerKey,
+          email: emailLower,
+          data: { player_name: displayName, player_email: emailLower, generated_password: null }
+        })
+      }).catch(function(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); });
+    } catch(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); }
 
     if(typeof _onLogin === 'function'){
       try { _onLogin(_currentPlayer); }

@@ -1003,7 +1003,11 @@ function sendLead(){
     createdAt: now,
     status: 'queued'
   };
-  db.ref('tally_kotb_pickup/email_queue/' + eid).set(emailItem);
+  // Enqueue via the worker /notify endpoint (no direct email_queue write).
+  fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: emailItem.type, data: emailItem.data })
+  }).catch(function(e){ console.warn('notify failed', e); });
 
   // UI feedback. Fire-and-forget writes do not resolve a promise reliably,
   // so we show success after a short delay rather than awaiting.

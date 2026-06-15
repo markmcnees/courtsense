@@ -584,7 +584,12 @@ function submitFeedback(){
     createdAt: now,
     status: 'queued'
   };
-  db.ref('tally_kotb_pickup/email_queue/' + eid).set(emailItem);
+  // Enqueue via the worker /notify endpoint (no direct email_queue write; the
+  // worker resolves the admin recipient server-side). Fire-and-forget.
+  fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: emailItem.type, data: emailItem.data })
+  }).catch(function(e){ console.warn('notify failed', e); });
 
   // Fire-and-forget UI swap, matching the existing pattern.
   setTimeout(function(){

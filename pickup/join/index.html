@@ -256,17 +256,8 @@ function submitForm(e){
     reviewedBy: null,
     rejectionNote: null
   };
-  // Queue admin-notification email so the eventual Worker can drain it.
-  const eid = 'em'+now.toString(36)+Math.random().toString(36).slice(2,5);
   const updates = {};
   updates['tally_kotb_pickup/pending_registrations/'+id] = record;
-  updates['tally_kotb_pickup/email_queue/'+eid] = {
-    type: 'admin_new_registration',
-    data: { name, email, truvolleyName: truvolley || null, referrer: referrer || null },
-    relatedRegistration: id,
-    createdAt: now,
-    status: 'queued'
-  };
   if(inviteContext){
     updates[INVITES_ROOT+'/'+inviteContext.code+'/used']   = true;
     updates[INVITES_ROOT+'/'+inviteContext.code+'/usedAt'] = now;
@@ -274,7 +265,18 @@ function submitForm(e){
   }
 
   db.ref().update(updates)
-    .then(()=>{ showThanks(); })
+    .then(()=>{
+      // Notify the admin via the worker /notify endpoint (no direct email_queue write).
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'admin_new_registration',
+          relatedRegistration: id,
+          data: { name: name, email: email, truvolleyName: truvolley || null, referrer: referrer || null }
+        })
+      }).catch(function(e){ console.warn('notify failed', e); });
+      showThanks();
+    })
     .catch(err=>{
       console.error(err);
       errEl.textContent = "Couldn't submit, try again in a minute.";

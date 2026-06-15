@@ -245,26 +245,6 @@ function persistSession(playerId, keepSignedIn){
   }
 }
 
-function isAlreadyClaimed(rec){
-  return !!(rec && (rec.activated === true || (rec.passwordHash != null && rec.passwordHash !== '')));
-}
-
-// Scan the roster for a record whose email matches `target`. Matches BOTH the
-// top-level email field AND emails.primary, both lowercased, exactly like the
-// attemptLogin loop in auth.js. First match wins. Returns {key, record} or null.
-function findByEmail(players, target){
-  for(const id in players){
-    const p = players[id];
-    if(!p) continue;
-    const e1 = typeof p.email === 'string' ? p.email.toLowerCase() : null;
-    const e2 = (p.emails && typeof p.emails.primary === 'string') ? p.emails.primary.toLowerCase() : null;
-    if((e1 && e1 === target) || (e2 && e2 === target)){
-      return { key: id, record: p };
-    }
-  }
-  return null;
-}
-
 // ── Step 1 -> route ──────────────────────────────────────────────────────────
 async function doContinue(e){
   if(e) e.preventDefault();
@@ -281,28 +261,36 @@ async function doContinue(e){
   btn.textContent = 'Checking...';
 
   try {
-    let players;
+    // Resolve the account server-side (worker reads the private node; the client
+    // no longer reads the players roster or any email). Returns found + claimed.
+    let res;
     try {
-      const snap = await db.ref(ROSTER_PATH).once('value');
-      players = snap.val() || {};
+      const r = await fetch(AUTH_WORKER + '/auth/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, email: enteredEmail })
+      });
+      res = await r.json();
     } catch(err){
-      console.error('roster read failed', err);
+      console.error('lookup failed', err);
       $('email-form-err').textContent = 'Network error. Try again.';
       return false;
     }
-
-    const match = findByEmail(players, enteredEmail);
-    if(!match){
+    if(!res || res.ok !== true){
+      $('email-form-err').textContent = (res && res.error) || 'Network error. Try again.';
+      return false;
+    }
+    if(!res.found){
       // CASE C: no match -> hand off to signup (no write here).
       showState('signup');
       return false;
     }
 
-    matchedKey = match.key;
-    matchedRecord = match.record;
-    const name = matchedRecord.displayName || 'player';
+    matchedKey = res.playerId;
+    matchedRecord = { displayName: res.displayName };
+    const name = res.displayName || 'player';
 
-    if(isAlreadyClaimed(matchedRecord)){
+    if(res.claimed){
       // CASE B: returning player -> log in.
       $('login-welcome').textContent = 'Welcome back, ' + name;
       showState('login');

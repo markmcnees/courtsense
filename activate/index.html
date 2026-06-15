@@ -206,25 +206,6 @@ function persistSession(playerId, keepSignedIn){
   }
 }
 
-function isAlreadyClaimed(rec){
-  return !!(rec && (rec.activated === true || (rec.passwordHash != null && rec.passwordHash !== '')));
-}
-
-// Scan the roster for a record whose activationToken === token. Mirrors the
-// read-only scan in scripts/rebuild-activation-links.js (no token index exists;
-// ~48 records, so a single read + linear scan is fine). Never fabricates.
-async function findByToken(token){
-  const snap = await db.ref(ROSTER_PATH).once('value');
-  const players = snap.val() || {};
-  for(const id in players){
-    const rec = players[id] || {};
-    if(rec.activationToken && rec.activationToken === token){
-      return { key: id, record: rec };
-    }
-  }
-  return null;
-}
-
 function showInvalid(title, msg){
   if(title) $('invalid-title').textContent = title;
   if(msg) $('invalid-msg').textContent = msg;
@@ -241,26 +222,30 @@ async function init(){
     return;
   }
 
-  let match;
-  try { match = await findByToken(token); }
-  catch(e){
+  // Resolve the token server-side (worker reads the private node; the client no
+  // longer reads the players roster). A token that is already claimed will be
+  // caught at set-password time by /auth/register (409 -> "already active").
+  let res;
+  try {
+    const r = await fetch(AUTH_WORKER + '/auth/lookup-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rosterPath: ROSTER_PATH, token })
+    });
+    res = await r.json();
+  } catch(e){
     console.error('activation lookup failed', e);
     showInvalid('Something went wrong', "We could not check your link just now. Refresh and try again, or log in if you already set a password.");
     return;
   }
-
-  if(!match){
+  if(!res || res.ok !== true || !res.found){
     showInvalid('This link is no longer valid', "This activation link is no longer valid or has already been used. If you already set a password, log in instead.");
     return;
   }
-  if(isAlreadyClaimed(match.record)){
-    showInvalid('This account is already active', "This account has already been activated. Log in with your email and password instead.");
-    return;
-  }
 
-  matchedKey = match.key;
-  matchedRecord = match.record;
-  const name = matchedRecord.displayName || 'player';
+  matchedKey = res.playerId;
+  matchedRecord = { displayName: res.displayName };
+  const name = res.displayName || 'player';
   $('welcome-line').textContent = 'Welcome, ' + name;
   showState('form');
   setTimeout(() => { try { $('f-password').focus(); } catch(e){} }, 0);
@@ -317,17 +302,15 @@ async function doClaim(e){
     }
 
     // Credential is set. Reconcile the non-credential player fields (no
-    // passwordHash) so login/profile see an activated, verified record with a
-    // top-level email. Best-effort: the credential is what matters for login.
-    const primary = (matchedRecord.emails && typeof matchedRecord.emails.primary === 'string')
-      ? matchedRecord.emails.primary.toLowerCase()
-      : null;
+    // passwordHash) so login/profile see an activated, verified record. We do
+    // NOT touch the email field here: the token-flow record already carries its
+    // own email, and the client no longer reads it (PII lives in the private
+    // node). Writing it would only risk clobbering a good address with null.
     const now = Date.now();
     const base = ROSTER_PATH + '/' + matchedKey + '/';
     const updates = {};
     updates[base + 'activated']       = true;
     updates[base + 'activationToken'] = null;
-    updates[base + 'email']           = primary;
     updates[base + 'verified']        = true;
     updates[base + 'updatedAt']       = now;
     try { await db.ref().update(updates); }

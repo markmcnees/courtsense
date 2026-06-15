@@ -207,14 +207,16 @@ const FB_CFG = {
 const ROOT          = 'tally_kotb_pickup/players';
 const PENDING_ROOT  = 'tally_kotb_pickup/pending_registrations';
 const RATINGS_ROOT  = 'tally_kotb_pickup/ratings';
-const EMAIL_QUEUE   = 'tally_kotb_pickup/email_queue';
 const INVITES_ROOT  = 'tally_kotb_pickup/invites';
 const BASE_URL      = 'https://courtsense.app';
 
+const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 let db = null;
 let PLAYERS = {};
 let PENDING = {};
 let RATINGS_KEYS = {};
+let CONTACTS = {};       // playerId -> { email, phone }; loaded from /auth/admin-list (private PII node)
+let ADMIN_KEY = '';      // worker ADMIN_API_KEY, supplied at runtime, cached in localStorage, never hardcoded
 let actionKey = null;
 let rejectId  = null;
 
@@ -258,9 +260,81 @@ function checkPin(){
   const v = ($('pin-input').value||'').trim();
   if(v !== ADMIN_PIN){ $('pin-err').textContent = 'Wrong PIN'; return; }
   $('pin-err').textContent = '';
+  ensureAdminKey();
   $('pin-screen').style.display = 'none';
   $('main-screen').style.display = 'block';
   loadPlayers();
+  loadContacts();
+}
+
+// Worker admin key for the admin-gated endpoints (/auth/admin-list, /auth/admin-pending,
+// and admin-only /auth/notify types). Runtime-supplied, cached locally, never hardcoded.
+function ensureAdminKey(){
+  if(!ADMIN_KEY) ADMIN_KEY = (localStorage.getItem('courtsenseAdminKey') || '').trim();
+  if(!ADMIN_KEY){
+    ADMIN_KEY = ((window.prompt('Worker admin key (for contact info + admin emails):') || '').trim());
+    if(ADMIN_KEY) localStorage.setItem('courtsenseAdminKey', ADMIN_KEY);
+  }
+  return ADMIN_KEY;
+}
+function clearAdminKey(where){
+  localStorage.removeItem('courtsenseAdminKey'); ADMIN_KEY = '';
+  toast('Admin key rejected; cleared');
+  logLine((where ? where+': ' : '')+'admin key rejected; cleared.');
+}
+
+function contactEmail(key){ return (CONTACTS[key] && CONTACTS[key].email) || ''; }
+
+// Admin-gated /auth/notify call. Merges rosterPath + adminKey; NEVER sends "to"
+// (recipient is resolved server-side). Clears the key on a 403. Fire-and-forget.
+function adminNotify(payload){
+  const key = ensureAdminKey();
+  if(!key){ logLine('  notify skipped: no admin key.'); return Promise.resolve(false); }
+  return fetch(AUTH_WORKER + '/auth/notify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ rosterPath: ROOT, adminKey: key }, payload))
+  }).then(r => r.json().then(res => ({ status: r.status, res })))
+    .then(({ status, res }) => {
+      if(status === 403 && res && res.code === 'forbidden'){ clearAdminKey('notify'); return false; }
+      if(!res || !res.ok){ logLine('  notify failed: '+((res && res.error) || ('HTTP '+status))); return false; }
+      logLine('  email queued via worker.');
+      return true;
+    })
+    .catch(err => { console.warn('notify failed', err); logLine('  notify error: '+(err && err.message || err)); return false; });
+}
+
+function loadContacts(){
+  const key = ensureAdminKey();
+  if(!key){ logLine('No admin key set; contact info hidden. Reload to set one.'); return; }
+  fetch(AUTH_WORKER + '/auth/admin-list', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rosterPath: ROOT, adminKey: key })
+  }).then(r => r.json().then(res => ({ status: r.status, res }))).then(({ status, res }) => {
+    if(status === 403 && res && res.code === 'forbidden'){ clearAdminKey('contacts'); return; }
+    if(!res || !res.ok){ logLine('Contact load failed: '+((res && res.error) || ('HTTP '+status))); return; }
+    CONTACTS = {};
+    (res.players || []).forEach(p => { CONTACTS[p.playerId] = { email: p.email || '', phone: p.phone || '' }; });
+    logLine('Loaded contact info for '+Object.keys(CONTACTS).length+' players.');
+    renderList();
+  }).catch(err => { console.error(err); logLine('Contact load error: '+(err && err.message || err)); });
+}
+
+// Pending registrations now come from the admin-gated /auth/admin-pending endpoint
+// (one-shot, NOT a live listener), so applicant PII (email/phone) is never read
+// directly from Firebase. Refetched on load and after each approve/reject.
+function loadPending(){
+  const key = ensureAdminKey();
+  if(!key){ logLine('No admin key set; cannot load pending registrations.'); return; }
+  fetch(AUTH_WORKER + '/auth/admin-pending', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ adminKey: key })
+  }).then(r => r.json().then(res => ({ status: r.status, res }))).then(({ status, res }) => {
+    if(status === 403 && res && res.code === 'forbidden'){ clearAdminKey('pending'); return; }
+    if(!res || !res.ok){ logLine('Pending load failed: '+((res && res.error) || ('HTTP '+status))); toast("Couldn't read pending registrations"); return; }
+    PENDING = {};
+    (res.pending || []).forEach(p => { if(p && p.id) PENDING[p.id] = p; });
+    renderPending();
+  }).catch(err => { console.error(err); logLine('Pending load error: '+(err && err.message || err)); toast("Couldn't read pending registrations"); });
 }
 
 function loadPlayers(){
@@ -269,10 +343,8 @@ function loadPlayers(){
     renderList();
     renderPending();
   }, err=>{ console.error(err); toast("Couldn't read player profiles"); });
-  db.ref(PENDING_ROOT).on('value', snap=>{
-    PENDING = snap.val()||{};
-    renderPending();
-  }, err=>{ console.error(err); toast("Couldn't read pending registrations"); });
+  // Pending registrations are fetched (admin-gated), not live-listened. See loadPending().
+  loadPending();
   db.ref(RATINGS_ROOT).once('value').then(snap=>{
     const v = snap.val()||{};
     RATINGS_KEYS = {};
@@ -408,28 +480,18 @@ async function doApprove(id){
   updates[PENDING_ROOT+'/'+id+'/appliedRating'] = ratingVal;
   updates[PENDING_ROOT+'/'+id+'/appliedRD']     = rdVal;
   updates[PENDING_ROOT+'/'+id+'/preservedExistingRating'] = ratingExists;
-  // Queue welcome email for the eventual Worker (Phase 5) to drain.
-  // Plaintext password rides in the payload per D.40; the worker discards
-  // it after dispatch and only the hash remains in the player record.
-  const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  updates[EMAIL_QUEUE+'/'+eid] = {
-    type: 'welcome',
-    to: r.email || null,
-    data: {
-      player_name: r.name,
-      player_email: r.email || null,
-      generated_password: plaintextPw
-    },
-    relatedRegistration: id,
-    createdAt: now,
-    status: 'queued'
-  };
 
   try {
     await db.ref().update(updates);
+    // Welcome email via the worker /notify endpoint (no direct email_queue write).
+    // Recipient + delivery are resolved server-side from playerId. The plaintext
+    // password rides in the payload; the worker discards it after dispatch. This
+    // is admin-key gated because generated_password is present.
+    adminNotify({ type:'welcome', playerId:k, data:{ player_name:r.name, generated_password:plaintextPw } });
     logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' password set, welcome email queued.');
     toast('Approved ✓');
     showPasswordModal('Welcome password for '+r.name, plaintextPw, 'Email is queued. Save this as a backup in case the email never lands.');
+    loadPending();
   } catch(err){
     console.error(err);
     logLine('  FAILED: '+(err && err.message || err));
@@ -466,22 +528,18 @@ async function doReject(){
   updates[PENDING_ROOT+'/'+id+'/reviewedAt']     = now;
   updates[PENDING_ROOT+'/'+id+'/reviewedBy']     = reviewer;
   updates[PENDING_ROOT+'/'+id+'/rejectionNote']  = reason;
-  if(sendEmail && r.email){
-    const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-    updates[EMAIL_QUEUE+'/'+eid] = {
-      type: 'decline',
-      to: r.email,
-      data: { name: r.name },
-      relatedRegistration: id,
-      createdAt: now,
-      status: 'queued'
-    };
-  }
   try {
     await db.ref().update(updates);
+    // Decline email via the worker /notify endpoint, fired AFTER rejectionNote is
+    // committed (the worker reads the note + applicant email from the pending
+    // record by relatedRegistration). No direct email_queue write. Admin-key gated.
+    if(sendEmail){
+      adminNotify({ type:'decline', relatedRegistration:id, data:{ name:r.name } });
+    }
     closeModal('reject-modal');
     logLine('  rejected.');
     toast('Rejected');
+    loadPending();
   } catch(err){
     console.error(err);
     logLine('  FAILED: '+(err && err.message || err));
@@ -493,7 +551,7 @@ function recordsArray(){
   return Object.entries(PLAYERS||{}).map(([key, p])=>({
     key,
     name: (p && p.name) || key,
-    email: (p && p.email) || '',
+    email: contactEmail(key),
     notificationsEnabled: p && p.notificationsEnabled !== false,
     muteUntil: p && p.muteUntil || null,
     blocked: !!(p && p.blocked),
@@ -596,7 +654,7 @@ async function doUnblock(key){
 function openClearEmail(key){
   const p = PLAYERS[key]; if(!p) return;
   actionKey = key;
-  $('clear-msg').textContent = 'Clear email for '+(p.name||key)+'? Current address: '+(p.email||'-');
+  $('clear-msg').textContent = 'Clear email for '+(p.name||key)+'? Current address: '+(contactEmail(key)||'-');
   $('clear-modal').classList.add('on');
 }
 
@@ -610,39 +668,21 @@ async function doResetPassword(key){
   catch(err){ console.error(err); toast("Couldn't hash password"); return; }
   logLine('Resetting password for '+(p.name||key));
   const now = Date.now();
-  const email = (p.email || '').trim();
+  const email = contactEmail(key);
   try{
     await db.ref(ROOT+'/'+key).update({ passwordHash: newHash, updatedAt: now });
     logLine('  password reset.');
 
-    // Queue a welcome email best-effort. The hash write above already succeeded;
-    // a queue-write failure must NOT roll back the password reset.
+    // Welcome email via the worker /notify endpoint (recipient resolved
+    // server-side from playerId; no direct email_queue write). Admin-key gated
+    // because generated_password is present. Best-effort: the hash write already
+    // succeeded and must NOT roll back if the email enqueue fails.
     let footnote;
     if (email) {
-      const eid = 'em'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-      const queueItem = {
-        type: 'welcome',
-        to: email,
-        data: {
-          player_name: p.name,
-          player_email: email,
-          generated_password: newPw
-        },
-        relatedRegistration: null,
-        createdAt: now,
-        status: 'queued'
-      };
-      try {
-        await db.ref(EMAIL_QUEUE+'/'+eid).set(queueItem);
-        logLine('  welcome email queued ('+eid+').');
-        footnote = 'Email is queued. Save this as a backup in case the email never lands.';
-      } catch(qErr) {
-        console.error('Welcome email queue write failed:', qErr);
-        logLine('  welcome email queue FAILED: '+(qErr && qErr.message || qErr));
-        footnote = 'Password reset, but the welcome email could not be queued. Send this password to the player manually.';
-      }
+      adminNotify({ type:'welcome', playerId:key, data:{ player_name:p.name, generated_password:newPw } });
+      footnote = 'Email is queued. Save this as a backup in case the email never lands.';
     } else {
-      logLine('  no email on file; skipping welcome email queue.');
+      logLine('  no email on file; skipping welcome email.');
       footnote = 'No email on file for this player. Password reset, but no welcome email sent. Add an email to their record before next reset.';
     }
 
