@@ -10,6 +10,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="/auth.js"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -90,6 +91,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .empty{text-align:center;padding:40px 20px;color:var(--gray);}
 .eico{font-size:40px;margin-bottom:10px;}
 .etxt{font-size:14px;line-height:1.6;}
+/* LEAGUE CHAT */
+.lc-msg{border:1px solid var(--sand-border);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--sand);}
+.lc-msg-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:5px;flex-wrap:wrap;}
+.lc-author{font-weight:700;font-size:14px;color:var(--primary);word-break:break-word;}
+.lc-date{font-size:11px;color:var(--gray);white-space:nowrap;}
+.lc-text{font-size:14px;color:var(--black);white-space:pre-wrap;word-break:break-word;}
+.lc-del{margin-top:8px;background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;padding:5px 10px;cursor:pointer;}
+.lc-count.over{color:var(--loss);font-weight:700;}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:13px 24px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
 .toast.on{transform:translateX(-50%) translateY(0);}
 .stub-note{background:#fffbeb;border:1px solid #d4a843;border-radius:10px;padding:14px 16px;font-size:13px;color:#92400e;line-height:1.55;}
@@ -279,9 +288,12 @@ body.admin-locked .card-admin-export{display:none;}
       Tally 4v4
       <span class="sync off" id="sync" title="Connecting..."></span>
     </a>
-    <div class="side-toggle">
-      <button class="side-btn on" id="btn-rec" onclick="switchDiv('rec')">Rec</button>
-      <button class="side-btn" id="btn-comp" onclick="switchDiv('comp')">Comp</button>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="lc-btn" onclick="openLeagueChat()" title="League Chat" aria-label="League Chat" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">💬</button>
+      <div class="side-toggle">
+        <button class="side-btn on" id="btn-rec" onclick="switchDiv('rec')">Rec</button>
+        <button class="side-btn" id="btn-comp" onclick="switchDiv('comp')">Comp</button>
+      </div>
     </div>
   </div>
   <div class="tabs">
@@ -473,6 +485,22 @@ body.admin-locked .card-admin-export{display:none;}
 
 <div class="print-host" id="print-host"></div>
 
+<!-- LEAGUE CHAT MODAL (login-gated, follows active DIV) -->
+<div class="overlay" id="lc-modal" onclick="if(event.target===this)closeLeagueChat()">
+  <div class="modal" style="border-radius:20px 20px 0 0;max-width:540px;margin:0 auto;">
+    <div class="mtitle"><span id="lc-title">League Chat</span><button class="mclose" onclick="closeLeagueChat()">&#10005;</button></div>
+    <div id="lc-sub" style="font-size:12px;color:var(--gray);margin:-10px 0 12px;"></div>
+    <div id="lc-as" style="font-size:12px;color:var(--gray);margin-bottom:6px;"></div>
+    <textarea class="inp" id="lc-text" maxlength="2000" placeholder="Share a heads up for the league." style="min-height:80px;resize:vertical;" oninput="lcUpdateCount()"></textarea>
+    <div id="lc-err" style="color:var(--loss);font-size:13px;min-height:16px;margin-top:6px;"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 14px;">
+      <span class="lc-count" id="lc-count" style="font-size:12px;color:var(--gray);">0/2000</span>
+      <button class="btn btn-a btn-sm" id="lc-post" onclick="postBoardMsg()">Post</button>
+    </div>
+    <div id="lc-list"></div>
+  </div>
+</div>
+
 <div class="overlay" id="pin-modal" onclick="if(event.target===this)closeModal('pin-modal')">
   <div class="modal" style="border-radius:20px 20px 0 0;max-width:340px;margin:0 auto;">
     <div class="mtitle"><span id="pin-modal-title">Admin PIN</span><button class="mclose" onclick="closeModal('pin-modal')">&#10005;</button></div>
@@ -531,6 +559,7 @@ let db = null;
 let DIV = 'rec';
 let tab = 'schedule';
 let _pinAdminUntil = 0;
+let _mainFP = null; // fingerprint of the MAPPED children only; skips re-render when only unmapped nodes (e.g. messages) change
 const SESSION_PIN_MS = 60 * 60 * 1000;
 let D = {
   rec:  {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}, archive:{}},
@@ -617,9 +646,28 @@ function initFB(){
         D[s].results      = sv.results      || {};
         D[s].archive      = sv.archive      || {};
       });
+      // Skip the full re-render when only unmapped nodes (e.g. <div>/messages) changed.
+      // Fingerprint the MAPPED children only. First fire: _mainFP is null -> renders.
+      const fp = JSON.stringify([
+        D.rec.config,  D.rec.teams,  D.rec.schedule,  D.rec.scheduleMeta,  D.rec.results,  D.rec.archive,
+        D.comp.config, D.comp.teams, D.comp.schedule, D.comp.scheduleMeta, D.comp.results, D.comp.archive
+      ]);
+      if(fp === _mainFP) return;
+      _mainFP = fp;
       refreshAll();
     }, e => { console.error(e); setSS(false); });
     db.ref('.info/connected').on('value', s => setSS(s.val()===true));
+    // League Chat login: read/post require a CourtSense player login. autoShowLogin
+    // false keeps the league app usable without login; the board gates itself.
+    if(window.CourtSenseAuth){
+      CourtSenseAuth.init({
+        firebaseDb: db,
+        rosterPath: 'tally_kotb_pickup/players',
+        autoShowLogin: false,
+        onLogin: lcOnLogin,
+        onLogout: lcOnLogout
+      });
+    }
   }catch(e){ console.error(e); setSS(false); }
 }
 function setSS(on){
@@ -637,6 +685,8 @@ function switchDiv(s){
   $('btn-comp').classList.toggle('on', s==='comp');
   _selectedWeek = null;
   _previewBannerDismissed = false;
+  // Board follows the active division: re-point its scoped listener to the new div.
+  if(_lcOpen){ lcAttach(); $('lc-sub').textContent = lcDivLabel() + ' division'; }
   loadDivState();
   refreshAll();
 }
@@ -2778,6 +2828,142 @@ function updatePinDots(){
     const d = $('pd'+i);
     if(d) d.classList.toggle('filled', i < _pinEntry.length);
   }
+}
+
+// ─── LEAGUE CHAT (login-gated message board, scoped to active DIV) ───
+// Path: tally_4v4/<div>/messages/$id = { authorKey, authorName, text, createdAt }.
+// The board listener attaches only while the modal is open and detaches on close,
+// kept to the messages child so it never collides with the app's main .on('value').
+const LC_MAX = 2000;
+let _lcPid = null;            // logged-in player id (authorKey)
+let _lcName = '';             // logged-in display name (authorName)
+let _lcOpen = false;          // board modal open?
+let _lcRef = null;            // active scoped messages ref
+let _lcMsgs = {};             // current messages snapshot
+let _lcDiv = null;            // division the listener is currently bound to
+let _lcPendingOpen = false;   // open the board once login resolves
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+function lcDisplayNameOf(p){
+  p = p || {};
+  if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p.name;
+  if(n && typeof n === 'object'){
+    const full = ((n.first||'')+' '+(n.last||'')).trim();
+    if(full) return full;
+  }
+  if(typeof n === 'string' && n.trim()) return n.trim();
+  return 'Player';
+}
+function lcFmtDateTime(ms){
+  const n = (typeof ms === 'number' && isFinite(ms)) ? ms : null;
+  if(n == null) return 'Unknown date';
+  try { return new Date(n).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+  catch(e){ return 'Unknown date'; }
+}
+function lcDivLabel(){ return DIV==='rec' ? 'Recreational' : 'Competitive'; }
+
+function lcOnLogin(player){
+  _lcPid = player.id;
+  _lcName = player.displayName || lcDisplayNameOf(player);
+  if(_lcPendingOpen){ _lcPendingOpen = false; openLeagueChat(); }
+  else if(_lcOpen){ $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : ''; }
+}
+function lcOnLogout(){
+  _lcPid = null; _lcName = '';
+  if(_lcOpen) closeLeagueChat();
+}
+
+function openLeagueChat(){
+  if(!_lcPid){
+    _lcPendingOpen = true;
+    if(window.CourtSenseAuth){ toast('Log in to join the league chat.'); CourtSenseAuth.showLogin(); }
+    else toast('Login unavailable, refresh the page');
+    return;
+  }
+  _lcOpen = true;
+  $('lc-title').textContent = 'League Chat';
+  $('lc-sub').textContent = lcDivLabel() + ' division';
+  $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : '';
+  $('lc-text').value = ''; if($('lc-err')) $('lc-err').textContent='';
+  lcUpdateCount();
+  $('lc-modal').classList.add('on');
+  lcAttach();
+}
+function closeLeagueChat(){
+  _lcOpen = false;
+  lcDetach();
+  $('lc-modal').classList.remove('on');
+}
+function lcAttach(){
+  lcDetach();
+  _lcDiv = DIV;
+  _lcRef = db.ref(DB_ROOT+'/'+_lcDiv+'/messages');
+  _lcRef.on('value', _lcOnValue, e=>{ console.warn('league chat read failed', e); });
+}
+function lcDetach(){
+  if(_lcRef){ _lcRef.off('value', _lcOnValue); _lcRef = null; }
+  _lcMsgs = {};
+}
+function _lcOnValue(snap){ _lcMsgs = snap.val() || {}; lcRenderList(); }
+
+function lcUpdateCount(){
+  const el = $('lc-count'); if(!el) return;
+  const len = ($('lc-text').value || '').length;
+  el.textContent = len + '/' + LC_MAX;
+  el.classList.toggle('over', len > LC_MAX);
+}
+function lcRenderList(){
+  const list = $('lc-list'); if(!list) return;
+  const rows = Object.keys(_lcMsgs||{}).map(id=>({id, m:_lcMsgs[id]}))
+    .filter(x=>x.m && typeof x.m==='object')
+    .sort((a,b)=>(b.m.createdAt||0)-(a.m.createdAt||0));
+  if(!rows.length){
+    list.innerHTML = '<div class="empty"><div class="etxt">No messages yet. Start the conversation.</div></div>';
+    return;
+  }
+  list.innerHTML = rows.map(({id, m})=>{
+    const author = esc(m.authorName || 'Player');
+    const when   = esc(lcFmtDateTime(m.createdAt));
+    const text   = esc(m.text || '');
+    return '<div class="lc-msg"><div class="lc-msg-top"><span class="lc-author">'+author+'</span>'
+      + '<span class="lc-date">'+when+'</span></div>'
+      + '<div class="lc-text">'+text+'</div>'
+      + '<button class="lc-del" onclick="delBoardMsg(\''+id+'\')">Delete</button>'
+      + '</div>';
+  }).join('');
+}
+function postBoardMsg(){
+  const ta = $('lc-text'); const err = $('lc-err'); if(err) err.textContent='';
+  if(!_lcPid){ if(err) err.textContent='Please log in to post.'; return; }
+  const text = (ta.value || '').trim();
+  if(!text) return;
+  if(text.length > LC_MAX){ if(err) err.textContent='Message must be '+LC_MAX+' characters or fewer.'; return; }
+  const btn = $('lc-post'); if(btn) btn.disabled = true;
+  const div = _lcDiv || DIV;
+  // Write-confirmed: clear/toast only after the write resolves; error on catch.
+  db.ref(DB_ROOT+'/'+div+'/messages').push().set({
+    authorKey: _lcPid,
+    authorName: _lcName,
+    text: text,
+    createdAt: Date.now()
+  })
+  .then(()=>{ ta.value=''; lcUpdateCount(); toast('Posted'); })
+  .catch(e=>{ console.error('league chat post failed', e); if(err) err.textContent="Couldn't post. Try again."; })
+  .finally(()=>{ if(btn) btn.disabled = false; });
+}
+// Admin delete, gated by the existing ADMIN_PIN session (requireAdmin). When the
+// session is expired this pops the PIN modal and returns; tap Delete again once authed.
+function delBoardMsg(id){
+  if(!requireAdmin('boardDelete')) return;
+  const div = _lcDiv || DIV;
+  db.ref(DB_ROOT+'/'+div+'/messages/'+id).remove()
+    .then(()=>toast('Deleted'))
+    .catch(e=>{ console.error('league chat delete failed', e); toast("Couldn't delete. Try again."); });
 }
 
 // BOOT

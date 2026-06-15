@@ -12,6 +12,7 @@ const AI_URL    = LC.aiProxyUrl;
 let db = null;
 let SIDE = 'kings';
 let _pendingRoundsUpdate = null;
+let _mainFP = null; // fingerprint of the MAPPED children only; skips re-render when only unmapped nodes (e.g. messages) change
 let _genFromScore = false;
 let _editCourtCtx = null;
 let tab  = 'standings';
@@ -164,6 +165,15 @@ function initFB(){
         }
         D[s].results = sv.results||{};
       });
+      // Skip the full re-render when only unmapped nodes (e.g. <side>/messages) changed.
+      // Fingerprint the MAPPED children AFTER mapping + the _pendingRoundsUpdate patch so
+      // the optimistic-rounds render is never masked. First fire: _mainFP is null -> renders.
+      const fp = JSON.stringify([
+        D.kings.config,  D.kings.players,  D.kings.weeks,  D.kings.results,
+        D.queens.config, D.queens.players, D.queens.weeks, D.queens.results
+      ]);
+      if(fp === _mainFP) return;
+      _mainFP = fp;
       refreshAll();
     }, e=>{console.error(e);setSS(false);});
     db.ref('tally_kotb_pickup/ratings').on('value', snap=>{
@@ -171,6 +181,17 @@ function initFB(){
       if(tab==='ratings') refreshTab('ratings');
     }, e=>console.warn('ratings read failed', e));
     db.ref('.info/connected').on('value',s=>setSS(s.val()===true));
+    // League Chat login: read/post require a CourtSense player login. autoShowLogin
+    // false keeps the league app usable without login; the board gates itself.
+    if(window.CourtSenseAuth){
+      CourtSenseAuth.init({
+        firebaseDb: db,
+        rosterPath: 'tally_kotb_pickup/players',
+        autoShowLogin: false,
+        onLogin: lcOnLogin,
+        onLogout: lcOnLogout
+      });
+    }
   }catch(e){console.error(e);setSS(false);}
 }
 function setSS(on){
@@ -190,6 +211,8 @@ function switchSide(s){
   $('btn-k').classList.toggle('on',s==='kings');
   $('btn-q').classList.toggle('on',s==='queens');
   $('brand-ico').textContent=s==='kings'?'👑':'👸';
+  // Board follows the active side: re-point its scoped listener to the new side.
+  if(_lcOpen){ lcAttach(); $('lc-sub').textContent=(SIDE==='kings'?'Kings':'Queens')+' division'; }
   refreshAll();
 }
 
@@ -2055,6 +2078,7 @@ function pinTap(v){
       else if(_pinAction==='addplayer') _doAddPlayer();
       else if(_pinAction==='planner') _openPlanner();
       else if(_pinAction==='score'){ _scoreUnlocked=true; toast('Scoring unlocked for this session'); }
+      else if(_pinAction==='boarddelete'){ doBoardDelete(); }
     }else{
       $('pin-error').textContent='Incorrect PIN';
       setTimeout(()=>{_pinEntry='';updatePinDots();$('pin-error').textContent='';},700);
@@ -2102,6 +2126,149 @@ function doUncancelNight(){
   fbDel(SIDE+'/weeks/'+liveWeek+'/cancelMakeupId');
   if(makeupId)fbDel(SIDE+'/weeks/'+makeupId);
   toast('Night restored!');
+}
+
+// ─── LEAGUE CHAT (login-gated message board, scoped to active SIDE) ───
+// Path: tally_kotb/<side>/messages/$id = { authorKey, authorName, text, createdAt }.
+// The board listener attaches only while the modal is open and detaches on close,
+// kept to the messages child so it never collides with the app's main .on('value').
+const LC_MAX = 2000;
+let _lcPid = null;            // logged-in player id (authorKey)
+let _lcName = '';             // logged-in display name (authorName)
+let _lcOpen = false;          // board modal open?
+let _lcRef = null;            // active scoped messages ref
+let _lcMsgs = {};             // current messages snapshot
+let _lcSide = null;           // side the listener is currently bound to
+let _lcPendingDelId = null;   // message id awaiting PIN-confirmed delete
+let _lcPendingOpen = false;   // open the board once login resolves
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+function lcDisplayNameOf(p){
+  p = p || {};
+  if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p.name;
+  if(n && typeof n === 'object'){
+    const full = ((n.first||'')+' '+(n.last||'')).trim();
+    if(full) return full;
+  }
+  if(typeof n === 'string' && n.trim()) return n.trim();
+  return 'Player';
+}
+function lcFmtDateTime(ms){
+  const n = (typeof ms === 'number' && isFinite(ms)) ? ms : null;
+  if(n == null) return 'Unknown date';
+  try { return new Date(n).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+  catch(e){ return 'Unknown date'; }
+}
+function lcSideLabel(){ return SIDE==='kings' ? 'Kings' : 'Queens'; }
+
+function lcOnLogin(player){
+  _lcPid = player.id;
+  _lcName = player.displayName || lcDisplayNameOf(player);
+  if(_lcPendingOpen){ _lcPendingOpen = false; openLeagueChat(); }
+  else if(_lcOpen){ $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : ''; }
+}
+function lcOnLogout(){
+  _lcPid = null; _lcName = '';
+  if(_lcOpen) closeLeagueChat();
+}
+
+function openLeagueChat(){
+  if(!_lcPid){
+    _lcPendingOpen = true;
+    if(window.CourtSenseAuth){ toast('Log in to join the league chat.'); CourtSenseAuth.showLogin(); }
+    else toast('Login unavailable, refresh the page');
+    return;
+  }
+  _lcOpen = true;
+  $('lc-title').textContent = 'League Chat';
+  $('lc-sub').textContent = lcSideLabel() + ' division';
+  $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : '';
+  $('lc-text').value = ''; if($('lc-err')) $('lc-err').textContent='';
+  lcUpdateCount();
+  $('lc-modal').classList.add('on');
+  lcAttach();
+}
+function closeLeagueChat(){
+  _lcOpen = false;
+  lcDetach();
+  $('lc-modal').classList.remove('on');
+}
+function lcAttach(){
+  lcDetach();
+  _lcSide = SIDE;
+  _lcRef = db.ref(DB_ROOT+'/'+_lcSide+'/messages');
+  _lcRef.on('value', _lcOnValue, e=>{ console.warn('league chat read failed', e); });
+}
+function lcDetach(){
+  if(_lcRef){ _lcRef.off('value', _lcOnValue); _lcRef = null; }
+  _lcMsgs = {};
+}
+function _lcOnValue(snap){ _lcMsgs = snap.val() || {}; lcRenderList(); }
+
+function lcUpdateCount(){
+  const el = $('lc-count'); if(!el) return;
+  const len = ($('lc-text').value || '').length;
+  el.textContent = len + '/' + LC_MAX;
+  el.classList.toggle('over', len > LC_MAX);
+}
+function lcRenderList(){
+  const list = $('lc-list'); if(!list) return;
+  const rows = Object.keys(_lcMsgs||{}).map(id=>({id, m:_lcMsgs[id]}))
+    .filter(x=>x.m && typeof x.m==='object')
+    .sort((a,b)=>(b.m.createdAt||0)-(a.m.createdAt||0));
+  if(!rows.length){
+    list.innerHTML = '<div class="empty"><div class="etxt">No messages yet. Start the conversation.</div></div>';
+    return;
+  }
+  list.innerHTML = rows.map(({id, m})=>{
+    const author = esc(m.authorName || 'Player');
+    const when   = esc(lcFmtDateTime(m.createdAt));
+    const text   = esc(m.text || '');
+    return '<div class="lc-msg"><div class="lc-msg-top"><span class="lc-author">'+author+'</span>'
+      + '<span class="lc-date">'+when+'</span></div>'
+      + '<div class="lc-text">'+text+'</div>'
+      + '<button class="lc-del" onclick="delBoardMsg(\''+id+'\')">Delete</button>'
+      + '</div>';
+  }).join('');
+}
+function postBoardMsg(){
+  const ta = $('lc-text'); const err = $('lc-err'); if(err) err.textContent='';
+  if(!_lcPid){ if(err) err.textContent='Please log in to post.'; return; }
+  const text = (ta.value || '').trim();
+  if(!text) return;
+  if(text.length > LC_MAX){ if(err) err.textContent='Message must be '+LC_MAX+' characters or fewer.'; return; }
+  const btn = $('lc-post'); if(btn) btn.disabled = true;
+  const side = _lcSide || SIDE;
+  // Write-confirmed: clear/toast only after the write resolves; error on catch.
+  db.ref(DB_ROOT+'/'+side+'/messages').push().set({
+    authorKey: _lcPid,
+    authorName: _lcName,
+    text: text,
+    createdAt: Date.now()
+  })
+  .then(()=>{ ta.value=''; lcUpdateCount(); toast('Posted'); })
+  .catch(e=>{ console.error('league chat post failed', e); if(err) err.textContent="Couldn't post. Try again."; })
+  .finally(()=>{ if(btn) btn.disabled = false; });
+}
+// Admin delete, gated by the existing ADMIN_PIN flow (_pinAction='boarddelete').
+function delBoardMsg(id){
+  _lcPendingDelId = id;
+  _pinAction='boarddelete'; _pinEntry=''; updatePinDots();
+  $('pin-error').textContent=''; $('pin-modal-title').textContent='Admin PIN';
+  $('pin-modal').classList.add('on');
+}
+function doBoardDelete(){
+  const id = _lcPendingDelId; _lcPendingDelId = null;
+  if(!id) return;
+  const side = _lcSide || SIDE;
+  db.ref(DB_ROOT+'/'+side+'/messages/'+id).remove()
+    .then(()=>toast('Deleted'))
+    .catch(e=>{ console.error('league chat delete failed', e); toast("Couldn't delete. Try again."); });
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
