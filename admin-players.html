@@ -566,10 +566,22 @@ async function doReject(){
   }
 }
 
+// Coerce a player record's name to a display string. ~48 records store name as
+// an object { first, last } (pre-created league players), so p.name is often not
+// a string; using it raw breaks the sort's localeCompare. Prefer displayName,
+// then the {first,last} object, then a string name, then the key.
+function recordName(p, key){
+  if(p && typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+  const n = p && p.name;
+  if(n && typeof n === 'object') return (((n.first||'') + ' ' + (n.last||'')).trim()) || key;
+  if(typeof n === 'string' && n.trim()) return n;
+  return key;
+}
+
 function recordsArray(){
   return Object.entries(PLAYERS||{}).map(([key, p])=>({
     key,
-    name: (p && p.name) || key,
+    name: recordName(p, key),
     email: contactEmail(key),
     notificationsEnabled: p && p.notificationsEnabled !== false,
     muteUntil: p && p.muteUntil || null,

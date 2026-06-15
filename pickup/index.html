@@ -738,18 +738,23 @@ function initFB(){
     if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
     db = firebase.database();
     setSS(true);
-    db.ref(DB_ROOT).on('value', snap=>{
-      const v = snap.val()||{};
-      D.events         = v.events||{};
-      D.archive        = v.archive||{};
-      D.player_history = v.player_history||{};
-      D.ratings        = v.ratings||{};
-      D.groups         = v.groups||{};
-      D.invites        = v.invites||{};
+    // Per-child listeners instead of one parent-level read: the tally_kotb_pickup
+    // parent is no longer client-readable after the rules flip, so read each child
+    // we consume individually. D keeps the same shape it has today (initialized at
+    // declaration), so downstream consumers are unchanged. refreshAll() is called
+    // directly from each (correctness over optimization; on initial load this may
+    // fire a few times before all children arrive, which converges to the same
+    // state refreshAll already handles for empty children).
+    db.ref(DB_ROOT+'/events').on('value', s=>{
+      D.events = s.val()||{};
       if(_pendingRoundsUpdate && Date.now()-_pendingRoundsUpdate.ts<8000){
         const eid = _pendingRoundsUpdate.eventId;
         if(D.events[eid]) D.events[eid].rounds = _pendingRoundsUpdate.rounds;
       }
+      refreshAll();
+    }, e=>{console.error(e);setSS(false);});
+    db.ref(DB_ROOT+'/invites').on('value', s=>{
+      D.invites = s.val()||{};
       // Re-apply any pending optimistic invite overrides so the listener's
       // wholesale D.invites replace doesn't clobber a just-clicked RSVP.
       const now = Date.now();
@@ -762,6 +767,10 @@ function initFB(){
       if(typeof dbgLog === 'function' && overrideIds.length) dbgLog('listener fired, overrides reapplied', { count: overrideIds.length, view });
       refreshAll();
     }, e=>{console.error(e);setSS(false);});
+    db.ref(DB_ROOT+'/ratings').on('value', s=>{ D.ratings = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
+    db.ref(DB_ROOT+'/groups').on('value', s=>{ D.groups = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
+    db.ref(DB_ROOT+'/archive').on('value', s=>{ D.archive = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
+    db.ref(DB_ROOT+'/player_history').on('value', s=>{ D.player_history = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
     db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
     db.ref(LEAGUE_QUEENS_PATH).on('value', s=>{ leagueQueens = s.val()||{}; refreshAll(); }, e=>console.warn('queens read failed',e));
     db.ref('.info/connected').on('value', s=>setSS(s.val()===true));
