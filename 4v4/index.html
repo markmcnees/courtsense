@@ -124,6 +124,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .wpill{padding:9px 14px;border-radius:24px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;cursor:pointer;min-height:40px;color:var(--gray);transition:all .12s;}
 .wpill.on{background:var(--primary);border-color:var(--primary);color:#fff;}
 .wpill.past{color:var(--gray);border-color:var(--sand-border);}
+.wpill.cancelled{text-decoration:line-through;opacity:.6;}
+.week-card.is-cancelled{opacity:.78;}
+.week-actions{display:flex;justify-content:flex-end;margin-bottom:8px;}
+.week-badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:10px;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;vertical-align:middle;}
+.week-badge.cancelled{background:#fee2e2;color:#b91c1c;}
+.week-badge.makeup{background:#dbeafe;color:#1e40af;}
+.se-notice{background:#fffbeb;border:1px solid #d4a843;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px;}
 .week-card{background:var(--sand);border-radius:12px;border:1.5px solid var(--sand-border);padding:14px;margin-bottom:12px;}
 .week-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
 .week-label{font-family:'Bebas Neue';font-size:16px;letter-spacing:1.5px;color:var(--primary);}
@@ -1142,7 +1149,9 @@ function todayYMD(){
 }
 function currentWeekIndex(){
   const sched = D[DIV].schedule || {};
-  const weeks = Object.values(sched).filter(w=>w&&w.week).sort((a,b)=>a.week-b.week);
+  // Cancelled weeks are not eligible to be "tonight" so score entry and the
+  // public view default to a live week (or the makeup) instead.
+  const weeks = Object.values(sched).filter(w=>w&&w.week&&!w.cancelled).sort((a,b)=>a.week-b.week);
   if(!weeks.length) return null;
   const today = todayYMD();
   let best = weeks[0].week;
@@ -1855,6 +1864,175 @@ function lockSeason(){
   toast('Season locked');
 }
 
+// ─── WHOLE-NIGHT CANCEL / UNCANCEL / MAKEUP ───
+// KotB-style night cancellation ported to 4v4. A cancelled night keeps every
+// game already played (those results still count in standings, matching KotB);
+// the unplayed matchups are cloned onto a makeup week appended at the end of the
+// season. Everything is scoped to the active DIV. These functions NEVER call
+// genSchedule/writeSchedule and NEVER write or remove DIV/results.
+//
+// DRY-RUN: while CANCEL_DRYRUN is true, the functions compute the full plan and
+// console.log the exact object(s) and Firebase paths that WOULD be written or
+// deleted, but perform no writes. Flip to false only after Mark reviews the
+// console output in the browser.
+const CANCEL_DRYRUN = false;
+
+// Pure helper. Given the cancelled week, the season's last week, and the results
+// map, returns { makeupNum, makeupKey, record } for the makeup week, or null if
+// there are no unplayed matchups (so no makeup is needed). No Firebase access.
+// existingIds is the set of every matchup id already present in DIV/results or
+// any schedule week, used to guarantee cloned ids never collide.
+function buildMakeupWeek4v4(cancelledWeek, lastWeek, resultsMap, existingIds){
+  const W = cancelledWeek.week;
+  const results = resultsMap || {};
+  const unplayed = (cancelledWeek.matchups || []).filter(m => {
+    if(!m || !m.id) return false;
+    const r = results[m.id];
+    // Played iff a result exists for this matchup id. weekNumber===W is a
+    // secondary cross-check that the keyed result truly belongs to this week.
+    if(r && r.weekNumber === W) return false;
+    if(r) return false;
+    return true;
+  });
+  if(!unplayed.length) return null;
+  const makeupNum = lastWeek.week + 1;
+  const makeupKey = String(makeupNum);
+  const seen = existingIds instanceof Set ? existingIds : new Set();
+  const matchups = unplayed.map(m => {
+    let nid = gi('m');
+    while(seen.has(nid)) nid = gi('m'); // guarantee a fresh, non-colliding id
+    seen.add(nid);
+    const out = { id: nid, teamAId: m.teamAId, teamBId: m.teamBId, court: m.court, round: m.round };
+    if(m.time) out.time = m.time;
+    return out;
+  });
+  const record = {
+    week: makeupNum,
+    date: addDays(lastWeek.date, 7),
+    matchups: matchups,
+    byes: [],
+    isMakeup: true,
+    makeupOf: W
+  };
+  return { makeupNum: makeupNum, makeupKey: makeupKey, record: record };
+}
+
+// Collect every matchup id known to the active division (all schedule weeks plus
+// every results key), so cloned makeup ids can be checked against it.
+function _allMatchupIds4v4(){
+  const ids = new Set();
+  const sched = D[DIV].schedule || {};
+  Object.values(sched).forEach(w => (w && w.matchups || []).forEach(m => { if(m && m.id) ids.add(m.id); }));
+  Object.keys(D[DIV].results || {}).forEach(id => ids.add(id));
+  return ids;
+}
+
+function promptCancelNight4v4(weekNum){
+  if(!requireAdmin('cancelNight')) return;
+  const week = (D[DIV].schedule || {})[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  if(week.cancelled){ toast('Already cancelled'); return; }
+  if(!confirm('Cancel this night? Played games are kept and still count. Unplayed matchups move to a new makeup week at the end of the season. You can undo this with Uncancel Night.')) return;
+  doCancelNight4v4(weekNum);
+}
+
+function doCancelNight4v4(weekNum){
+  const sched = D[DIV].schedule || {};
+  const week = sched[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  if(week.cancelled){ toast('Already cancelled'); return; }
+  const W = week.week;
+
+  // Season's final week (largest .week), used as the anchor the makeup follows.
+  const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
+  const lastWeek = weeks[weeks.length - 1];
+
+  const makeup = buildMakeupWeek4v4(week, lastWeek, D[DIV].results || {}, _allMatchupIds4v4());
+
+  if(makeup && sched[makeup.makeupKey]){
+    toast('Makeup week slot already exists. Aborted.');
+    console.warn('[cancel] makeup key collision', makeup.makeupKey);
+    return;
+  }
+
+  // Recompute weekCount from the post-operation schedule size (never blind ++).
+  const newWeekCount = Object.keys(sched).length + (makeup ? 1 : 0);
+
+  // ONE atomic update under the active division so flag + makeup + weekCount land
+  // together. Keys are RELATIVE to DB_ROOT/DIV. No /results key ever appears here.
+  const updates = {};
+  updates['schedule/' + String(weekNum) + '/cancelled'] = true;
+  if(makeup){
+    updates['schedule/' + makeup.makeupKey] = makeup.record;
+    updates['schedule/' + String(weekNum) + '/cancelMakeupWeek'] = makeup.makeupNum;
+  }
+  updates['scheduleMeta/weekCount'] = newWeekCount;
+
+  if(CANCEL_DRYRUN){
+    console.log('[cancel DRYRUN] division:', DIV, '| cancelling week:', W);
+    console.log('[cancel DRYRUN] base path:', DB_ROOT + '/' + DIV);
+    console.log('[cancel DRYRUN] atomic update payload (keys relative to base):', JSON.parse(JSON.stringify(updates)));
+    if(makeup) console.log('[cancel DRYRUN] makeup week record:', JSON.parse(JSON.stringify(makeup.record)));
+    else console.log('[cancel DRYRUN] no unplayed matchups -> no makeup week, cancel flag only');
+    console.log('[cancel DRYRUN] NO WRITES PERFORMED.');
+    toast('Dry-run: cancel plan logged to console');
+    return;
+  }
+
+  if(db) db.ref(DB_ROOT + '/' + DIV).update(updates);
+  toast(makeup ? ('Night cancelled. Makeup added as Week ' + makeup.makeupNum) : 'Night cancelled');
+}
+
+function promptUncancelNight4v4(weekNum){
+  if(!requireAdmin('cancelNight')) return;
+  const week = (D[DIV].schedule || {})[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  if(!week.cancelled){ toast('This night is not cancelled'); return; }
+  if(!confirm('Uncancel this night? This restores it and removes the makeup week that was added.')) return;
+  doUncancelNight4v4(weekNum);
+}
+
+function doUncancelNight4v4(weekNum){
+  const sched = D[DIV].schedule || {};
+  const week = sched[String(weekNum)];
+  if(!week){ toast('Week not found'); return; }
+  if(!week.cancelled){ toast('This night is not cancelled'); return; }
+  const makeupNum = week.cancelMakeupWeek;
+  const results = D[DIV].results || {};
+
+  // CRITICAL edge guard: if scores were entered on the makeup week, removing it
+  // would destroy those games. Refuse and tell the admin to delete them first.
+  if(makeupNum != null){
+    const makeupWeek = sched[String(makeupNum)];
+    if(makeupWeek && Array.isArray(makeupWeek.matchups) && makeupWeek.matchups.some(m => m && results[m.id])){
+      toast('Scores were entered on the makeup week. Delete those results first, then uncancel.');
+      return;
+    }
+  }
+
+  // Recompute weekCount for the post-operation schedule size.
+  const removingMakeup = (makeupNum != null && sched[String(makeupNum)]);
+  const newWeekCount = Object.keys(sched).length - (removingMakeup ? 1 : 0);
+
+  if(CANCEL_DRYRUN){
+    console.log('[uncancel DRYRUN] division:', DIV, '| uncancelling week:', week.week);
+    console.log('[uncancel DRYRUN] base path:', DB_ROOT + '/' + DIV);
+    console.log('[uncancel DRYRUN] would DELETE path:', 'schedule/' + String(weekNum) + '/cancelled');
+    console.log('[uncancel DRYRUN] would DELETE path:', 'schedule/' + String(weekNum) + '/cancelMakeupWeek');
+    if(removingMakeup) console.log('[uncancel DRYRUN] would DELETE whole makeup week:', 'schedule/' + String(makeupNum));
+    console.log('[uncancel DRYRUN] would SET scheduleMeta/weekCount =', newWeekCount);
+    console.log('[uncancel DRYRUN] NO WRITES PERFORMED.');
+    toast('Dry-run: uncancel plan logged to console');
+    return;
+  }
+
+  fbDel(DIV + '/schedule/' + String(weekNum) + '/cancelled');
+  fbDel(DIV + '/schedule/' + String(weekNum) + '/cancelMakeupWeek');
+  if(removingMakeup) fbDel(DIV + '/schedule/' + String(makeupNum));
+  fbSet(DIV + '/scheduleMeta/weekCount', newWeekCount);
+  toast('Night restored');
+}
+
 // ─── PRINT SCHEDULE ───
 const DOW_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function fmtDateLong(s){
@@ -2207,11 +2385,30 @@ function renderWeekCard(w, opts){
     return '<div class="round-label">Round '+rn+(_roundTime ? ' — '+_roundTime : '')+'</div>'
       + sorted.map(it => renderMatchRow(it.m, w.week, it.idx, opts)).join('');
   }).join('') : '<div style="font-size:13px;color:var(--gray);padding:6px 2px;">No matchups for this week.</div>';
-  return '<div class="week-card">'
+  // Status badge: a cancelled night points at its makeup week; a makeup week
+  // points back at the night it covers. Played results still render either way.
+  let badge = '';
+  if(w.cancelled){
+    badge = '<span class="week-badge cancelled">Cancelled'
+      + (w.cancelMakeupWeek != null ? ' - makeup Wk '+w.cancelMakeupWeek : '')
+      + '</span>';
+  } else if(w.isMakeup){
+    badge = '<span class="week-badge makeup">Makeup'
+      + (w.makeupOf != null ? ' from Wk '+w.makeupOf : '')
+      + '</span>';
+  }
+  // Admin-only Cancel / Uncancel control lives in the week header.
+  const cancelBtn = opts.showAdmin
+    ? (w.cancelled
+        ? '<button class="btn btn-g btn-sm" onclick="promptUncancelNight4v4('+w.week+')">Uncancel Night</button>'
+        : '<button class="btn btn-g btn-sm" onclick="promptCancelNight4v4('+w.week+')">Cancel Night</button>')
+    : '';
+  return '<div class="week-card'+(w.cancelled?' is-cancelled':'')+'">'
     + '<div class="week-hdr">'
-    + '<span class="week-label">Week '+w.week+'</span>'
+    + '<span class="week-label">Week '+w.week+badge+'</span>'
     + '<span class="week-date">'+escapeHtml(fmtDate(w.date))+'</span>'
     + '</div>'
+    + (cancelBtn ? '<div class="week-actions">'+cancelBtn+'</div>' : '')
     + inner
     + '</div>';
 }
@@ -2274,7 +2471,7 @@ function renderPublicSchedule(){
   if(_selectedWeek == null) _selectedWeek = currentWeekIndex() || weeks[0].week;
   const today = todayYMD();
   const pills = weeks.map(w => {
-    const cls = 'wpill' + (w.week === _selectedWeek ? ' on' : (w.date < today ? ' past' : ''));
+    const cls = 'wpill' + (w.week === _selectedWeek ? ' on' : (w.date < today ? ' past' : '')) + (w.cancelled ? ' cancelled' : '');
     return '<button class="'+cls+'" onclick="selectWeek('+w.week+')">Wk '+w.week+'</button>';
   }).join('');
   const sel = weeks.find(w => w.week === _selectedWeek) || weeks[0];
@@ -2400,15 +2597,21 @@ function renderScoreEntry(){
   }
   if(_seWeek == null){ setSeWeek(currentWeekIndex() || weeks[0].week); }
   const pills = weeks.map(w => {
-    const cls = 'wpill' + (w.week === _seWeek ? ' on' : '');
+    const cls = 'wpill' + (w.week === _seWeek ? ' on' : '') + (w.cancelled ? ' cancelled' : '');
     return '<button class="'+cls+'" onclick="selectSeWeek('+w.week+')">Wk '+w.week+'</button>';
   }).join('');
   const sel = weeks.find(w => w.week === _seWeek) || weeks[0];
+  const cancelNotice = sel.cancelled
+    ? '<div class="se-notice">This night was cancelled'
+      + (sel.cancelMakeupWeek != null ? ' - enter scores on the makeup week (Wk '+sel.cancelMakeupWeek+')' : '')
+      + '.</div>'
+    : '';
   const ms = (sel.matchups || []).slice().sort((a,b)=>(a.round-b.round) || (a.court-b.court));
   const cards = ms.length ? ms.map(m => renderSeCard(sel.week, m)).join('') :
     '<div class="empty" style="padding:18px 12px;"><div class="etxt">No matchups scheduled for week '+sel.week+'.</div></div>';
   host.innerHTML = '<div class="week-pills" style="margin-top:4px;">'+pills+'</div>'
     + '<div style="font-size:12px;color:var(--gray);margin-bottom:10px;">'+escapeHtml(fmtDate(sel.date))+'</div>'
+    + cancelNotice
     + cards;
 
   // Restore focus + cursor after innerHTML reset
