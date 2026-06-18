@@ -359,17 +359,13 @@ async function doClaim(e){
     }
 
     // Credential is set. Reconcile the non-credential player fields (no
-    // passwordHash) so login/profile see an activated, verified record with a
-    // top-level email. Best-effort: the credential is what matters for login.
-    const primary = (matchedRecord.emails && typeof matchedRecord.emails.primary === 'string')
-      ? matchedRecord.emails.primary.toLowerCase()
-      : enteredEmail || null;
+    // passwordHash, no email) so login/profile see an activated, verified
+    // record. Best-effort: the credential is what matters for login.
     const now = Date.now();
     const base = ROSTER_PATH + '/' + matchedKey + '/';
     const updates = {};
     updates[base + 'activated']       = true;
     updates[base + 'activationToken'] = null;
-    updates[base + 'email']           = primary;
     updates[base + 'verified']        = true;
     updates[base + 'updatedAt']       = now;
     try { await db.ref().update(updates); }
