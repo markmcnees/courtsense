@@ -261,7 +261,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <p class="sub">Update your CourtSense password.</p>
     <div class="fg">
       <label class="lbl" for="pw-current">Current password</label>
-      <input class="inp" id="pw-current" type="password" autocomplete="current-password">
+      <input class="inp" id="pw-current" type="password" autocomplete="off">
     </div>
     <div class="fg">
       <label class="lbl" for="pw-new">New password</label>
@@ -422,6 +422,11 @@ function doSave(e){
   return false;
 }
 
+// Set true once the user actually types in #pw-current (wired in init). Guards
+// the "different from current" check below so a stale password-manager autofill
+// (a value the user never typed) cannot trip a false rejection.
+let pwCurrentTyped = false;
+
 async function doChangePassword(){
   const cur = $('pw-current').value;
   const nw  = $('pw-new').value;
@@ -431,7 +436,7 @@ async function doChangePassword(){
   if(!cur || !nw || !cf){ err.textContent = 'Fill in all three fields.'; return; }
   if(nw.length < 8){ err.textContent = 'New password must be at least 8 characters.'; return; }
   if(nw !== cf){ err.textContent = 'New passwords do not match.'; return; }
-  if(nw === cur){ err.textContent = 'New password must be different from current password.'; return; }
+  if(pwCurrentTyped && nw === cur){ err.textContent = 'New password must be different from current password.'; return; }
   const res = await CourtSenseAuth.changePassword(cur, nw);
   if(!res.ok){
     if(res.code === 'wrong_password')      err.textContent = 'Current password is incorrect';
@@ -552,6 +557,8 @@ function onLogout(){
 document.addEventListener('DOMContentLoaded', () => {
   if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
   db = firebase.database();
+  const pwCur = document.getElementById('pw-current');
+  if(pwCur) pwCur.addEventListener('input', () => { pwCurrentTyped = true; });
   CourtSenseAuth.init({
     firebaseDb: db,
     rosterPath: ROSTER_PATH,
