@@ -427,7 +427,7 @@
       const r = await fetch(AUTH_WORKER + '/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: _rosterPath, email: email, oldPassword: oldPw, newPassword: newPw })
+        body: JSON.stringify({ rosterPath: _rosterPath, playerId: (_currentPlayer && _currentPlayer.id) || '', email: email, oldPassword: oldPw, newPassword: newPw })
       });
       res = await r.json();
     } catch(e) {
