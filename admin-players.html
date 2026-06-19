@@ -45,6 +45,7 @@ tr.blocked td{background:#fef2f2;}
 .tag.notif-on{background:#d1fae5;color:#065f46;}
 .tag.notif-off{background:var(--gray-lighter);color:var(--gray);}
 .tag.muted{background:#fef3c7;color:#92400e;}
+.tag.claimed{background:#dbeafe;color:#1e40af;}
 .tag.blocked{background:#fee2e2;color:#b91c1c;}
 
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center;padding:16px;}
@@ -95,6 +96,7 @@ tr.blocked td{background:#fef2f2;}
 
   <div class="card">
     <h2>All Profiles (<span id="count">0</span>)</h2>
+    <div id="summary" class="sub" style="margin:-2px 0 12px;"></div>
     <input class="inp search" id="search" placeholder="Filter by name or email..." oninput="renderList()">
     <div style="overflow-x:auto;">
       <table>
@@ -588,7 +590,13 @@ function recordsArray(){
     blocked: !!(p && p.blocked),
     blockedReason: p && p.blockedReason || null,
     blockedAt: p && p.blockedAt || null,
-    updatedAt: p && p.updatedAt || 0
+    updatedAt: p && p.updatedAt || 0,
+    // Display-only derived flags (no writes). hasProfile = the player actually
+    // filled out a profile; claimed = they have an account (activated, or no
+    // pending activation token). claimed intentionally also trusts activated:true
+    // so a real, set-up record with a stale leftover token is not mislabeled.
+    hasProfile: !!(p && p.profile && p.profile.skillLevel),
+    claimed: !!(p && (p.activated === true || !p.activationToken))
   })).sort((a,b)=>{
     if(a.blocked !== b.blocked) return a.blocked ? 1 : -1;
     return a.name.localeCompare(b.name);
@@ -599,6 +607,14 @@ function renderList(){
   const filter = ($('search').value||'').toLowerCase().trim();
   const all = recordsArray().filter(r => !filter || r.name.toLowerCase().includes(filter) || (r.email||'').toLowerCase().includes(filter));
   $('count').textContent = all.length;
+  // Summary counts are computed from the FULL record set (not the filtered view).
+  // claimed and precreated partition the total; "with profile" is a subset of claimed.
+  const fullSet = recordsArray();
+  const nProfile = fullSet.filter(r => r.hasProfile).length;
+  const nClaimed = fullSet.filter(r => r.claimed).length;
+  const nPre = fullSet.filter(r => !r.claimed && !r.hasProfile).length;
+  if($('summary')) $('summary').textContent =
+    fullSet.length + ' total · ' + nClaimed + ' claimed (' + nProfile + ' with a profile) · ' + nPre + ' precreated';
   if(!all.length){
     $('rbody').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--gray);padding:18px;">No profiles yet. Players get listed here once they save a profile.</td></tr>';
     return;
@@ -612,6 +628,10 @@ function renderList(){
     if(!r.blocked && r.notificationsEnabled) tags += `<span class="tag notif-on">NOTIFY</span> `;
     if(!r.blocked && !r.notificationsEnabled) tags += `<span class="tag notif-off">SILENT</span> `;
     if(muted) tags += `<span class="tag muted">${esc(muteStr)}</span> `;
+    // Profile / claim state (display only): one badge per row.
+    if(r.hasProfile) tags += `<span class="tag notif-on">PROFILE ✓</span> `;
+    else if(r.claimed) tags += `<span class="tag claimed">CLAIMED</span> `;
+    else tags += `<span class="tag notif-off">PRECREATED</span> `;
     let actionBtns = '';
     if(r.blocked){
       actionBtns += `<button class="btn btn-g" onclick="doUnblock('${esc(r.key)}')">Unblock</button>`;
