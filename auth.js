@@ -154,7 +154,7 @@
           <div class="cs-auth-err" id="cs-auth-err"></div>
           <button class="cs-auth-btn" id="cs-auth-go">Log In</button>
           <button type="button" class="cs-auth-toggle" id="cs-auth-show-register">New here? Create an account</button>
-          <div class="cs-auth-foot">Forgot password? <a href="${ADMIN_MAIL}">Contact admin.</a></div>
+          <div class="cs-auth-foot">Forgot password? <a href="/community/reset/">Reset it.</a></div>
         </div>
 
         <div class="cs-auth-view" id="cs-auth-view-register">
@@ -166,7 +166,7 @@
           <div class="cs-auth-err" id="cs-auth-reg-err"></div>
           <button class="cs-auth-btn" id="cs-auth-reg-go">Create account</button>
           <button type="button" class="cs-auth-toggle" id="cs-auth-show-login">Already have an account? Sign in</button>
-          <div class="cs-auth-foot">Forgot password? <a href="${ADMIN_MAIL}">Contact admin.</a></div>
+          <div class="cs-auth-foot">Forgot password? <a href="/community/reset/">Reset it.</a></div>
         </div>
       </div>`;
     document.body.appendChild(overlay);

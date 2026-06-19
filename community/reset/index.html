@@ -87,6 +87,37 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
 
 <main>
 
+  <!-- Request mode (no token in URL): collect an email and POST /auth/reset-request -->
+  <section class="state" id="state-request">
+    <div id="req-ask">
+      <div class="intro">
+        <h2>Reset your password</h2>
+        <p>Enter your account email and we'll send you a reset link.</p>
+      </div>
+      <form class="section" id="request-form" onsubmit="return doRequest(event)" novalidate>
+        <div class="fg">
+          <label class="lbl" for="f-req-email">Email <span class="req">*</span></label>
+          <input class="inp" id="f-req-email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required placeholder="you@example.com">
+          <div class="fld-err" id="err-req-email"></div>
+        </div>
+        <div class="form-err" id="request-form-err"></div>
+        <div class="actions">
+          <button type="submit" class="btn btn-p btn-w" id="request-btn">Send reset link</button>
+        </div>
+        <div class="alt-row">
+          Remembered your password? <a href="/community/dashboard/">Log in</a>
+        </div>
+      </form>
+    </div>
+    <div class="intro" id="req-sent" style="display:none;">
+      <h2>Check your email</h2>
+      <p class="muted" id="req-sent-msg">If an account exists for that email, a reset link has been sent. Check your inbox, and your spam folder, for the link.</p>
+      <div class="alt-row" style="margin-top:14px;">
+        <a href="/community/dashboard/">Back to log in</a>
+      </div>
+    </div>
+  </section>
+
   <!-- Invalid / missing / expired link -->
   <section class="state intro" id="state-invalid">
     <h2 id="invalid-title">This reset link is invalid</h2>
@@ -159,7 +190,7 @@ let resetToken = '';
 const $ = id => document.getElementById(id);
 
 function showState(which){
-  ['state-invalid','state-form','state-success'].forEach(id => {
+  ['state-request','state-invalid','state-form','state-success'].forEach(id => {
     const el = $(id); if(el) el.classList.toggle('on', id === 'state-' + which);
   });
 }
@@ -184,11 +215,14 @@ function showInvalid(title, msg){
 function init(){
   resetToken = getToken();
   if(!resetToken){
-    showInvalid('This reset link is invalid', "This reset link is invalid or missing. Open the exact link from your email, or request a new one.");
+    // No token in the URL: this is the REQUEST entry point. Collect an email and
+    // ask the worker to send a reset link.
+    showState('request');
+    setTimeout(() => { try { $('f-req-email').focus(); } catch(e){} }, 0);
     return;
   }
   // Token present. The worker validates it (existence + expiry) at submit time,
-  // so we show the form directly rather than peeking at the single-use token.
+  // so we show the consume form directly rather than peeking at the single-use token.
   showState('form');
   setTimeout(() => { try { $('f-password').focus(); } catch(e){} }, 0);
 }
@@ -256,6 +290,64 @@ async function doReset(e){
     return false;
   } finally {
     if($('submit-btn')){ $('submit-btn').disabled = false; $('submit-btn').textContent = original; }
+  }
+}
+
+function looksLikeEmail(s){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+async function doRequest(e){
+  if(e) e.preventDefault();
+  setErr('req-email',''); $('request-form-err').textContent = '';
+
+  const email = ($('f-req-email').value || '').trim();
+  if(!email || !looksLikeEmail(email)){
+    setErr('req-email','Enter a valid email address.');
+    $('f-req-email').focus();
+    return false;
+  }
+
+  const btn = $('request-btn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Sending...';
+
+  try {
+    // Anti-enumeration: the worker returns the SAME generic response whether or
+    // not the email matches an account. Show that message verbatim and NEVER
+    // branch on existence. No Firebase writes from this page.
+    let res, status;
+    try {
+      const r = await fetch(AUTH_WORKER + '/auth/reset-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, email })
+      });
+      status = r.status;
+      res = await r.json();
+    } catch(err){
+      console.error('reset-request failed', err);
+      $('request-form-err').textContent = 'Network error. Try again.';
+      return false;
+    }
+
+    if(status === 200 && res && res.ok === true){
+      if(res.message) $('req-sent-msg').textContent = res.message + ' Check your inbox, and your spam folder, for the link.';
+      $('req-ask').style.display = 'none';
+      $('req-sent').style.display = 'block';
+      return false;
+    }
+    // Non-200 (bad_request / rate_limited / anything else). Stay generic; never
+    // reveal whether the account exists.
+    if(res && res.code === 'rate_limited'){
+      $('request-form-err').textContent = (res && res.error) || 'Too many attempts. Try again in a few minutes.';
+      return false;
+    }
+    $('request-form-err').textContent = (res && res.error) || 'Please try again.';
+    return false;
+  } finally {
+    if($('request-btn')){ $('request-btn').disabled = false; $('request-btn').textContent = original; }
   }
 }
 
