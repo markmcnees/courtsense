@@ -717,10 +717,15 @@ function shareJoinLink(game){
     message = `You've been invited to a pickup game on ${dayDate} at ${time} at ${park}. Claim Your Spot: ${url}`;
   } else {
     url = 'https://courtsense.app/pickup/join';
-    message = 'Join me on CourtSense for beach volleyball pickups';
+    // Append the link so the generic message is self-contained too. SMS and some
+    // apps drop a separate url field, so the link must ride inside the text.
+    message = 'Join me on CourtSense for beach volleyball pickups ' + url;
   }
   if(navigator.share){
-    navigator.share({ title: 'CourtSense', text: message, url }).catch(()=>{});
+    // No separate url field: SMS and others keep url and drop text, which would
+    // lose the message. Both branches end with the link inside message, so share
+    // text only and the link always travels with it.
+    navigator.share({ title: 'CourtSense', text: message }).catch(()=>{});
     return;
   }
   if(navigator.clipboard && navigator.clipboard.writeText){
