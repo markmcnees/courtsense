@@ -399,11 +399,6 @@ function renderLeaderboard(board, hasMyRating){
     el.innerHTML = '<div class="empty">No ratings yet.</div>';
     return;
   }
-  const TOP = 20;
-  const top = board.slice(0, TOP);
-  const meInTop = top.some(x => x.key === myKey);
-  const meRow = board.find(x => x.key === myKey);
-
   function row(x){
     const me = x.key === myKey ? ' me' : '';
     return '<div class="lb-row' + me + '">' +
@@ -413,10 +408,32 @@ function renderLeaderboard(board, hasMyRating){
       '</div>';
   }
 
-  let html = top.map(row).join('');
-  if(meRow && !meInTop){
-    html += '<div class="lb-sep">. . .</div>' + row(meRow);
+  // Always show the top 10.
+  const TOP = 10;
+  let html = board.slice(0, TOP).map(row).join('');
+
+  // Then the current player's neighborhood, only when they are rated AND ranked
+  // below the top 10. A player inside the top 10 (or with no matching row) needs no
+  // second section; their row is already highlighted in the top block.
+  const myIdx = board.findIndex(x => x.key === myKey);
+  if(myIdx >= TOP){
+    // Window of 4 above, me, and 5 below, clamped to the board so it shrinks at the
+    // bottom edge and never emits empty rows. Dedupe against the top 10 by starting
+    // no earlier than index TOP (rank 11), so a window that reaches up into the top
+    // 10 never renders a row twice.
+    const start = Math.max(TOP, myIdx - 4);
+    const end = Math.min(board.length - 1, myIdx + 5);
+    const windowRows = board.slice(start, end + 1);
+    if(windowRows.length){
+      // Separator only when there is a real gap below the top 10. start === TOP means
+      // the window begins at rank 11 and abuts the top 10 cleanly, so no separator.
+      if(start > TOP){
+        html += '<div class="lb-sep">. . .</div>';
+      }
+      html += windowRows.map(row).join('');
+    }
   }
+
   if(!hasMyRating){
     html += '<div class="note" style="margin-top:12px;">You are not yet ranked. Get a rating to join the board.</div>';
   }
