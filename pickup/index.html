@@ -3517,22 +3517,38 @@ async function claimSpot(){
   renderInviteDetail();
   fbSet('invites/'+activeInvite+'/rsvps/'+rsvpKey, newRsvp);
 
-  // New person: start the same admin-gated onboarding /pickup/join uses. A notify
-  // failure must not undo the RSVP (they are already in the game), so it is
-  // wrapped and swallowed.
+  // New person: start the same admin-gated onboarding /pickup/join uses. Capture
+  // submittedAt once so the pending row and the claim-notify applicant agree.
+  let regId = null, submittedAt = null;
   if(isNewPerson){
-    const regId = gi('reg');
+    regId = gi('reg');
+    submittedAt = Date.now();
     fbSet('pending_registrations/'+regId, {
       id: regId, name: fullName, email, phone: null, status: 'pending',
-      submittedAt: Date.now(), reviewedAt: null, reviewedBy: null, rejectionNote: null
+      submittedAt, reviewedAt: null, reviewedBy: null, rejectionNote: null
     });
-    try {
-      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'admin_new_registration', relatedRegistration: regId, data: { name: fullName, email } })
-      }).catch(function(e){ console.warn('notify failed', e); });
-    } catch(e){ console.warn('notify failed', e); }
   }
+
+  // Instant emails via the worker: a confirmation to the claimer always, plus a host
+  // notification for new people only. One fire-and-forget call so the claim UI never
+  // blocks; a failure must not undo the RSVP (they are already in the game).
+  try {
+    const payload = {
+      email,
+      playerName: rsvpName,
+      isReturning: !isNewPerson,
+      notifyAdmin: isNewPerson,
+      game: { gameName: i.name, date: i.date, startTime: i.startTime, location: i.location }
+    };
+    if(isNewPerson){
+      payload.relatedRegistration = regId;
+      payload.applicant = { name: fullName, email, phone: null, submittedAt };
+    }
+    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/claim-notify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(function(e){ console.warn('claim-notify failed', e); });
+  } catch(e){ console.warn('claim-notify failed', e); }
 
   toast(status==='confirmed' ? "You're in ✓" : 'Added to the waitlist');
 }
