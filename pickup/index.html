@@ -3538,7 +3538,7 @@ async function claimSpot(){
       playerName: rsvpName,
       isReturning: !isNewPerson,
       notifyAdmin: isNewPerson,
-      game: { gameName: i.name, date: i.date, startTime: i.startTime, location: i.location }
+      game: { gameId: activeInvite, gameName: i.name, date: i.date, startTime: i.startTime, location: i.location }
     };
     if(isNewPerson){
       payload.relatedRegistration = regId;
