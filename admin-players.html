@@ -7,7 +7,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js"></script>
 <script src="/ratings.js"></script>
 <script src="/identity.js"></script>
 <style>
@@ -141,17 +140,6 @@ tr.blocked td{background:#fef2f2;}
   </div>
 </div>
 
-<!-- PASSWORD DISPLAY MODAL -->
-<div class="overlay" id="pw-modal">
-  <div class="modal" style="max-width:440px;">
-    <div class="mtitle"><span id="pw-title">New Password</span><button class="mclose" onclick="closeModal('pw-modal')">✕</button></div>
-    <p id="pw-msg" style="font-size:14px;margin-bottom:10px;"></p>
-    <div id="pw-display" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:22px;font-weight:700;background:var(--gray-lighter);border-radius:10px;padding:14px 16px;text-align:center;letter-spacing:1px;margin-bottom:12px;user-select:all;"></div>
-    <p style="font-size:12px;color:var(--gray);margin-bottom:14px;line-height:1.5;">This is the only time the plaintext will be shown. Copy it now and text or email it to the player. We only store the hash.</p>
-    <button class="btn btn-p btn-lg btn-w" id="pw-copy" onclick="copyDisplayedPassword()">Copy Password</button>
-    <button class="btn btn-g btn-lg btn-w" style="margin-top:8px;" onclick="closeModal('pw-modal')">Done</button>
-  </div>
-</div>
 
 <!-- SEND INVITE MODAL (input) -->
 <div class="overlay" id="invite-modal" onclick="if(event.target===this)closeModal('invite-modal')">
@@ -222,24 +210,9 @@ let ADMIN_KEY = '';      // worker ADMIN_API_KEY, supplied at runtime, cached in
 let actionKey = null;
 let rejectId  = null;
 
-// Word-style memorable passwords: [noun][noun][2-digit-number].
-// Cost 10 bcrypt hashing per D.40. Plaintext is shown to admin once (modal),
-// included in the welcome email payload, and never persisted otherwise.
-const PW_WORDS = ['sand','court','ball','beach','palm','sun','wave','shore','tiger','lion','wing','net','set','dig','ace','spike','block','serve','dink','roll','pass','sea','surf','dune','shell','reef','tide','foam','sky','breeze','salt','pier','bay','rain','swell','gull','kite','sail','drift','point','score','jump','dive','bump','line','side','dawn','cove','crab','reef'];
-function generatePassword(){
-  const a = PW_WORDS[Math.floor(Math.random()*PW_WORDS.length)];
-  const b = PW_WORDS[Math.floor(Math.random()*PW_WORDS.length)];
-  const n = 10 + Math.floor(Math.random()*90);
-  return a + b + n;
-}
-function bcryptLib(){
-  return (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt || null;
-}
-function hashPassword(pw){
-  const lib = bcryptLib();
-  if(!lib) throw new Error('bcryptjs not loaded');
-  return lib.hashSync(pw, 10);
-}
+// Password generation and bcrypt hashing were removed: approve and reset now email
+// the player a set-password link via the worker /auth/admin-invite endpoint, so the
+// admin never generates, sees, or stores a credential.
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
@@ -731,59 +704,31 @@ function openClearEmail(key){
 
 async function doResetPassword(key){
   const p = PLAYERS[key]; if(!p) return;
-  if(!confirm('Reset password for '+(p.name||key)+'? Their current password stops working immediately.')) return;
-  if(!bcryptLib()){ toast('Password library still loading. Try again in a second.'); return; }
-  const newPw = generatePassword();
-  let newHash;
-  try { newHash = hashPassword(newPw); }
-  catch(err){ console.error(err); toast("Couldn't hash password"); return; }
-  logLine('Resetting password for '+(p.name||key));
-  const now = Date.now();
-  const email = contactEmail(key);
-  try{
-    await db.ref(ROOT+'/'+key).update({ passwordHash: newHash, updatedAt: now });
-    logLine('  password reset.');
-
-    // Welcome email via the worker /notify endpoint (recipient resolved
-    // server-side from playerId; no direct email_queue write). Admin-key gated
-    // because generated_password is present. Best-effort: the hash write already
-    // succeeded and must NOT roll back if the email enqueue fails.
-    let footnote;
-    if (email) {
-      adminNotify({ type:'welcome', playerId:key, data:{ player_name:p.name, generated_password:newPw } });
-      footnote = 'Email is queued. Save this as a backup in case the email never lands.';
-    } else {
-      logLine('  no email on file; skipping welcome email.');
-      footnote = 'No email on file for this player. Password reset, but no welcome email sent. Add an email to their record before next reset.';
+  if(!confirm('Send '+(p.name||key)+' a password-reset email? They will set a new password via a link. Their current password keeps working until they do.')) return;
+  // No password is generated, shown, or stored here. The worker mints a set-password
+  // token and emails the player a reset link; they set their own password.
+  logLine('Sending reset link for '+(p.name||key));
+  try {
+    const akey = ensureAdminKey();
+    if(!akey){ toast('No admin key to send the reset. Re-enter it and try again.'); return; }
+    const resp = await fetch(AUTH_WORKER + '/auth/admin-invite', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rosterPath: ROOT, adminKey: akey, playerId: key, playerName: p.name, reason: 'reset' })
+    });
+    const res = await resp.json().catch(()=>null);
+    if(resp.status === 403 && res && res.code === 'forbidden'){
+      clearAdminKey('admin-invite');
+      toast('Admin key rejected. Re-enter it and try again.');
+      return;
     }
-
-    toast('Password reset ✓');
-    showPasswordModal('New password for '+(p.name||key), newPw, footnote);
-  }catch(err){
-    console.error(err);
-    logLine('  FAILED: '+(err && err.message || err));
-    toast("Couldn't reset password");
-  }
-}
-
-function showPasswordModal(title, plaintext, footnote){
-  $('pw-title').textContent = title || 'New Password';
-  $('pw-display').textContent = plaintext;
-  $('pw-msg').textContent = footnote || '';
-  $('pw-modal').classList.add('on');
-}
-
-function copyDisplayedPassword(){
-  const v = $('pw-display').textContent || '';
-  if(!v) return;
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(v).then(()=>toast('Copied'), ()=>toast('Copy failed'));
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = v; document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); toast('Copied'); }
-    catch(e){ toast('Copy failed'); }
-    finally { document.body.removeChild(ta); }
+    if(res && res.ok && res.sent){ logLine('  reset link sent.'); toast('Reset link sent to ' + (contactEmail(key) || p.name)); }
+    else if(res && res.ok && res.queued){ logLine('  reset link queued.'); toast('Reset link queued for ' + (contactEmail(key) || p.name)); }
+    else if(res && res.error === 'no_email'){ toast('No email on file for this player. Add an email before resetting.'); }
+    else if(res && res.error === 'player_not_found'){ toast('Player record not found.'); }
+    else { logLine('  reset link FAILED.'); toast('Reset link failed to send. Try again.'); }
+  } catch(e){
+    console.error('reset admin-invite failed', e);
+    toast('Reset link failed to send. Try again.');
   }
 }
 
