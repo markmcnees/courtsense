@@ -3574,6 +3574,8 @@ async function claimSpot(){
       playerName: rsvpName,
       isReturning: !isNewPerson,
       notifyAdmin: isNewPerson,
+      status: status,
+      position: position,
       game: { gameId: activeInvite, gameName: i.name, date: i.date, startTime: i.startTime, location: i.location }
     };
     if(isNewPerson){
