@@ -453,11 +453,14 @@ async function doApprove(id){
   const k = nameKey(r.name);
   if(!k){ toast('Name normalizes to empty'); return; }
 
-  if(!bcryptLib()){ toast('Password library still loading. Try again in a second.'); return; }
-  const plaintextPw = generatePassword();
-  let passwordHash;
-  try { passwordHash = hashPassword(plaintextPw); }
-  catch(err){ console.error(err); toast("Couldn't hash password"); return; }
+  // Require an email: onboarding now happens by emailing a set-password link, so a
+  // player with no email cannot be onboarded. No password is generated, shown, or
+  // stored here; the worker emails the player a link and they set their own.
+  const approveEmail = (r.email || '').trim();
+  if(!approveEmail){
+    toast('This applicant has no email on file, so we cannot send a set-password link. Add an email or reject the application.');
+    return;
+  }
 
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
   logLine('Approving '+r.name+' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')');
@@ -478,7 +481,6 @@ async function doApprove(id){
   updates[ROOT+'/'+k+'/phone']                 = r.phone || null;
   updates[ROOT+'/'+k+'/notificationsEnabled']  = r.notificationsOptIn !== false;
   updates[ROOT+'/'+k+'/blocked']               = false;
-  updates[ROOT+'/'+k+'/passwordHash']          = passwordHash;
   updates[ROOT+'/'+k+'/updatedAt']             = now;
   // Rating record (only if not already existing, to preserve history)
   const ratingExists = !!RATINGS_KEYS[k];
@@ -503,15 +505,33 @@ async function doApprove(id){
 
   try {
     await db.ref().update(updates);
-    // Welcome email via the worker /notify endpoint (no direct email_queue write).
-    // Recipient + delivery are resolved server-side from playerId. The plaintext
-    // password rides in the payload; the worker discards it after dispatch. This
-    // is admin-key gated because generated_password is present.
-    adminNotify({ type:'welcome', playerId:k, data:{ player_name:r.name, generated_password:plaintextPw } });
-    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' password set, welcome email queued.');
-    toast('Approved ✓');
-    showPasswordModal('Welcome password for '+r.name, plaintextPw, 'Email is queued. Save this as a backup in case the email never lands.');
+    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' no password stored; sending set-password invite.');
     loadPending();
+    // Onboarding: the worker mints a set-password token and emails the player a
+    // link. No password is generated, shown, or stored here. The approval already
+    // landed above, so an invite-email failure must NOT undo it.
+    try {
+      const key = ensureAdminKey();
+      if(!key){ toast('Approved, but no admin key to send the invite. Use Reset Password to resend.'); return; }
+      const resp = await fetch(AUTH_WORKER + '/auth/admin-invite', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterPath: ROOT, adminKey: key, playerId: k, playerName: r.name })
+      });
+      const res = await resp.json().catch(()=>null);
+      if(resp.status === 403 && res && res.code === 'forbidden'){
+        clearAdminKey('admin-invite');
+        toast('Admin key rejected. Re-enter it, then use Reset Password to resend the invite.');
+        return;
+      }
+      if(res && res.ok && res.sent){ toast('Approved. Set-password invite sent to ' + approveEmail); }
+      else if(res && res.ok && res.queued){ toast('Approved. Invite queued for ' + approveEmail); }
+      else if(res && res.error === 'no_email'){ toast('Approved, but no email on file to send the invite.'); }
+      else if(res && res.error === 'player_not_found'){ toast('Approved, but the invite could not find the player record. Try Reset Password to resend.'); }
+      else { toast('Approved, but the invite email failed to send. Use Reset Password to resend.'); }
+    } catch(e){
+      console.error('admin-invite failed', e);
+      toast('Approved, but the invite email failed to send. Use Reset Password to resend.');
+    }
   } catch(err){
     console.error(err);
     logLine('  FAILED: '+(err && err.message || err));
