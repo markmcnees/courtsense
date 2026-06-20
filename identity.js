@@ -68,17 +68,21 @@
       return v ? JSON.parse(v) : null;
     } catch(e){ return null; }
   }
-  function setCurrent(name){
+  function setCurrent(name, explicitKey){
     // Resolve an object name ({first,last} or {displayName}) to a display string
     // before keying. A string name passes through unchanged, so its key is byte
     // for byte identical to before this change.
+    // Optional explicitKey pins the stored key when the caller must match a key
+    // that differs from nameKey(name), e.g. a league-imported player whose record
+    // key is not nameKey(displayName). Callers passing one arg are unchanged:
+    // explicitKey is undefined and the key falls back to nameKey(trimmed).
     let resolved = name;
     if(name && typeof name === 'object'){
       resolved = name.displayName ? name.displayName : ((name.first||'')+' '+(name.last||'')).trim();
     }
     const trimmed = String(resolved||'').trim();
     if(!trimmed) return null;
-    const obj = { name: trimmed, key: nameKey(trimmed), setAt: Date.now() };
+    const obj = { name: trimmed, key: explicitKey || nameKey(trimmed), setAt: Date.now() };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch(e){}
     return obj;
   }

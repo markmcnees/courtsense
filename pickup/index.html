@@ -694,23 +694,42 @@ function pm(v){return(v>0?'+':'')+v;}
 function pmc(v){return v>0?'pos':v<0?'neg':'neu';}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
 
-// Player-facing generic invite: shares the stable code-less join link. No DB
-// write and no per-game context. Uses the native share sheet when available,
-// else copies to clipboard, with a textarea + execCommand fallback for older
-// browsers (mirrors the admin-players copy pattern).
-function shareJoinLink(){
-  const url = 'https://courtsense.app/pickup/join';
+// Invite share. With no argument it shares the stable code-less join link
+// (generic, no per-game context). With a game record it builds a deep link to
+// that specific game plus a per-game message. Uses the native share sheet when
+// available, else copies to clipboard, with a textarea + execCommand fallback
+// for older browsers (mirrors the admin-players copy pattern). The clipboard and
+// textarea fallbacks copy the full message text (which already contains the url),
+// so WhatsApp, GroupMe, and copy-paste users get the whole wording, not a bare link.
+function shareJoinLink(game){
+  let url, message;
+  // Callers from injected HTML pass the game id as a string (the live record is
+  // not in scope at click time); resolve it to the record here. A record passed
+  // directly is used as-is. No argument stays the generic invite.
+  if(typeof game === 'string') game = (D.invites||{})[game] || null;
+  if(game){
+    url = 'https://courtsense.app/pickup/?game=' + game.id;
+    const dayDate = game.date
+      ? new Date(game.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})
+      : 'an upcoming day';
+    const time = game.startTime ? fmtTime(game.startTime) : 'TBD';
+    const park = game.location || 'the courts';
+    message = `You've been invited to a pickup game on ${dayDate} at ${time} at ${park}. Claim Your Spot: ${url}`;
+  } else {
+    url = 'https://courtsense.app/pickup/join';
+    message = 'Join me on CourtSense for beach volleyball pickups';
+  }
   if(navigator.share){
-    navigator.share({ title: 'CourtSense', text: 'Join me on CourtSense for beach volleyball pickups', url }).catch(()=>{});
+    navigator.share({ title: 'CourtSense', text: message, url }).catch(()=>{});
     return;
   }
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(url).then(()=>toast('Link copied'), ()=>toast('Copy failed'));
+    navigator.clipboard.writeText(message).then(()=>toast('Link copied'), ()=>toast('Copy failed'));
     return;
   }
   try {
     const ta = document.createElement('textarea');
-    ta.value = url;
+    ta.value = message;
     ta.style.position = 'fixed';
     ta.style.opacity = '0';
     document.body.appendChild(ta);
@@ -2984,6 +3003,27 @@ function openInviteDetail(id){
   ensureProfilesLoaded().then(()=>showView('invite-detail'));
 }
 
+// Logged-out-safe deep-link open. Unlike openInviteDetail this does its own
+// one-shot read (the global invites listener has not resolved at boot) and never
+// calls ensureProfilesLoaded (a logged-out read of the locked-down players node
+// is denied and would reject, leaving a blank screen). A failed or missing read
+// falls back to the normal list rather than a blank screen.
+function openDeepLinkGame(id){
+  if(!db || !id) return;
+  db.ref(DB_ROOT+'/invites/'+id).once('value').then(snap=>{
+    const rec = snap.val();
+    if(!rec){ toast('Pickup not found'); return; }
+    if(!D.invites) D.invites = {};
+    D.invites[id] = rec;            // stash so renderInviteDetail can find it
+    activeInvite = id;
+    showView('invite-detail');      // no ensureProfilesLoaded on this path
+    renderInviteDetail();
+  }).catch(e=>{
+    console.warn('deep-link game read failed', e);
+    toast('Pickup not found');
+  });
+}
+
 function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
@@ -3024,7 +3064,13 @@ function renderInviteDetail(){
   } else if(isPast){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
   } else if(!myKey){
-    actionHTML = '<button class="btn btn-p btn-w" onclick="rsvpFlow()">RSVP to this Event</button>';
+    // Logged-out deep-link visitor: inline claim form (first, last, email).
+    // The deep link is the invitation, so claimSpot bypasses the eligibility gate.
+    actionHTML = `<div style="font-weight:700;margin-bottom:10px;">Claim your spot</div>
+      <input class="inp" id="claim-first" placeholder="First name" autocomplete="given-name" style="margin-bottom:8px;">
+      <input class="inp" id="claim-last" placeholder="Last name" autocomplete="family-name" style="margin-bottom:8px;">
+      <input class="inp" id="claim-email" type="email" placeholder="Email" autocomplete="email" inputmode="email" autocapitalize="none" style="margin-bottom:10px;">
+      <button class="btn btn-p btn-w" onclick="claimSpot()">Claim Your Spot</button>`;
   } else if(myRsvp && myRsvp.status==='confirmed'){
     actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
       <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
@@ -3065,7 +3111,7 @@ function renderInviteDetail(){
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-p btn-sm" onclick="openInvitedModal()">Who's invited</button>
-      <button class="btn btn-g btn-sm" onclick="shareJoinLink()">Invite a friend</button>
+      <button class="btn btn-g btn-sm" onclick="shareJoinLink('${escapeHTML(i.id).replace(/'/g,"\\'")}')">Invite a friend</button>
     </div>
   </div>
 
@@ -3382,6 +3428,101 @@ function optInInvite(){
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
 }
 
+// Logged-out deep-link claim: first name, last name, email, then instant RSVP.
+// The deep link is the invitation, so the eligibility gate optInInvite applies
+// is intentionally bypassed here. An existing email reuses that player's identity;
+// a new email also starts the same admin-gated onboarding /pickup/join uses. No
+// password and no account are required to claim (creating a game still needs one).
+async function claimSpot(){
+  const i = (D.invites||{})[activeInvite]; if(!i){ toast('Pickup not found'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+
+  const first = (($('claim-first') && $('claim-first').value) || '').trim();
+  const last  = (($('claim-last')  && $('claim-last').value)  || '').trim();
+  const email = (($('claim-email') && $('claim-email').value) || '').trim();
+  if(!first || !last){ toast('Add your first and last name'); return; }
+  if(!/^\S+@\S+\.\S+$/.test(email)){ toast('Add a valid email'); return; }
+
+  const fullName = first + ' ' + last;
+  const claimKey = Identity.nameKey(fullName);
+
+  // Per-game collision nudge: someone with this exact name key is already on THIS
+  // game and has not dropped. Ask for a middle initial so they stay distinct.
+  const existingRsvps = (D.invites[activeInvite].rsvps) || {};
+  const clash = existingRsvps[claimKey];
+  if(clash && clash.status !== 'declined'){
+    toast('There is already a '+fullName+' on this game. Add a middle initial to your name so we can tell you apart.');
+    return;
+  }
+
+  // Email lookup: reuse an existing player's identity, else treat as a new person.
+  let rsvpName, rsvpKey, isNewPerson = false;
+  try {
+    const r = await fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/lookup', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rosterPath: 'tally_kotb_pickup/players', email: email.toLowerCase() })
+    });
+    const lookup = await r.json();
+    if(!lookup || lookup.ok !== true){ toast('Network error, try again'); return; }
+    if(lookup.found){
+      rsvpName = lookup.displayName || fullName;
+      rsvpKey  = lookup.playerId;   // write under the real player key from lookup
+    } else {
+      rsvpName = fullName;
+      rsvpKey  = claimKey;
+      isNewPerson = true;
+    }
+  } catch(e){
+    console.warn('claim lookup failed', e);
+    toast('Network error, try again');
+    return;
+  }
+
+  // Bridge in-app identity so the RSVP key and the post-claim panel agree. Pin the
+  // stored key to rsvpKey (the key the RSVP is written under) so a found player
+  // whose playerId differs from nameKey(displayName) still resolves to their RSVP.
+  if(window.Identity && Identity.setCurrent) Identity.setCurrent(rsvpName, rsvpKey);
+
+  // Compute slot (mirror optInInvite, no eligibility gate).
+  const rsvps = D.invites[activeInvite].rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+  const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
+  const slotsLeft = (i.slots||8) - confirmed.length;
+  const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
+  const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
+  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now() };
+
+  // Optimistic local update + persist (mirrors optInInvite).
+  if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+  D.invites[activeInvite].rsvps[rsvpKey] = newRsvp;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.rsvps) inv.rsvps = {};
+    inv.rsvps[rsvpKey] = newRsvp;
+  });
+  renderInviteDetail();
+  fbSet('invites/'+activeInvite+'/rsvps/'+rsvpKey, newRsvp);
+
+  // New person: start the same admin-gated onboarding /pickup/join uses. A notify
+  // failure must not undo the RSVP (they are already in the game), so it is
+  // wrapped and swallowed.
+  if(isNewPerson){
+    const regId = gi('reg');
+    fbSet('pending_registrations/'+regId, {
+      id: regId, name: fullName, email, phone: null, status: 'pending',
+      submittedAt: Date.now(), reviewedAt: null, reviewedBy: null, rejectionNote: null
+    });
+    try {
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'admin_new_registration', relatedRegistration: regId, data: { name: fullName, email } })
+      }).catch(function(e){ console.warn('notify failed', e); });
+    } catch(e){ console.warn('notify failed', e); }
+  }
+
+  toast(status==='confirmed' ? "You're in ✓" : 'Added to the waitlist');
+}
+
 function dropOutInvite(){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const me = window.Identity ? Identity.getCurrent() : null;
@@ -3473,13 +3614,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initFB();
   showView('list');
 
+  // Deep-link reader: courtsense.app/pickup/?game=<id> opens that one game's
+  // detail view, including for logged-out visitors. When present we suppress the
+  // blocking login overlay (autoShowLogin:false below) and open the game via a
+  // direct one-shot read, since the global invites listener has not resolved yet.
+  const _deepLinkGame = new URLSearchParams(location.search).get('game');
+  if(_deepLinkGame) openDeepLinkGame(_deepLinkGame);
+
   // CourtSense auth gate (D.40). Players need a passwordHash on their
   // tally_kotb_pickup/players/{key} record (set by admin-players Approve
   // or Reset Password). The overlay blocks the UI until login succeeds;
   // after login, the existing identity.js still drives in-app identity.
+  // Deep-link case passes autoShowLogin:false so the game stays viewable
+  // without login; the normal (no ?game=) path keeps the overlay gating as is.
   CourtSenseAuth.init({
     firebaseDb: db,
     rosterPath: 'tally_kotb_pickup/players',
+    autoShowLogin: !_deepLinkGame,
     onLogin: (player) => {
       $('logout-btn').style.display = 'inline-flex';
       // Sync identity.js to the authenticated player so RSVPs land on
