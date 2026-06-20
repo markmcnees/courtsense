@@ -2315,6 +2315,22 @@ function computeEligible(e){
 // start = new Date(date+'T'+startTime+':00').getTime(). Absolute times are derived
 // here at read time from each occurrence's own start, so stored minute-offsets stay
 // per-occurrence correct through recurring expansion.
+// Shared chat-eligibility predicate, used by BOTH the render gate and the post
+// gate so the composer never shows when posting would fail. A confirmed claimer is
+// eligible even when the invite's eligibility circle would not include them: the
+// host can always chat, anyone with a non-declined RSVP is playing so they can
+// chat, and otherwise the eligibility circle (plus activated widening tiers)
+// applies. myKey equals the key the RSVP was written under (see setCurrent's
+// explicitKey), so (inv.rsvps||{})[myKey] finds the claimer's own RSVP for both
+// new and existing claimers.
+function isChatEligible(inv, myKey){
+  if(!myKey || !inv) return false;
+  if(isLoggedInHost(inv)) return true;
+  const myRsvp = (inv.rsvps || {})[myKey];
+  if(myRsvp && myRsvp.status !== 'declined') return true;
+  return activeEligibleNames(inv, Date.now()).some(n => Identity.nameKey(n) === myKey);
+}
+
 function activeEligibleNames(invite, now){
   invite = invite || {};
   now = now || Date.now();
@@ -3168,8 +3184,9 @@ function renderInviteDetail(){
   </div>` : ''}`;
 
   // Per-game chat (coordination, not confidentiality). Visible and postable only
-  // to players currently eligible for this game; reuses activeEligibleNames.
-  const chatEligible = !!myKey && activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  // to players eligible for this game: host, anyone with a non-declined RSVP, or
+  // the eligibility circle. Same predicate as the post gate (isChatEligible).
+  const chatEligible = isChatEligible(i, myKey);
   let chatBody;
   if(!myKey){
     chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see and join the game chat.</p>'
@@ -3289,8 +3306,8 @@ function postGameChat(){
   const myKey = me ? me.key : null;
   const i = (D.invites||{})[activeInvite];
   if(!myKey || !i){ if(errEl) errEl.textContent = 'Pick your name to post.'; return; }
-  // Re-check eligibility at post time (same client-side gate the UI used to show this).
-  const eligible = activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+  // Re-check eligibility at post time with the same predicate the render gate used.
+  const eligible = isChatEligible(i, myKey);
   if(!eligible){ if(errEl) errEl.textContent = 'Chat is open to players eligible for this game.'; return; }
   const text = (ta.value || '').trim();
   if(!text) return;
