@@ -721,7 +721,10 @@ function shareJoinLink(game){
     // apps drop a separate url field, so the link must ride inside the text.
     message = 'Join me on CourtSense for beach volleyball pickups ' + url;
   }
-  if(navigator.share){
+  // Phones get the native share sheet (genuinely good there). Desktop falls through
+  // to a clipboard copy, since the desktop share dialog is clunky and hides copy.
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  if(isMobile && navigator.share){
     // No separate url field: SMS and others keep url and drop text, which would
     // lose the message. Both branches end with the link inside message, so share
     // text only and the link always travels with it.
