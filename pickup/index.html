@@ -2508,6 +2508,7 @@ function startNewInvite(){
 
 function startEditInvite(id){
   const i = (D.invites||{})[id]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can edit this game'); return; }
   inviteEditId = id;
   inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
   inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
@@ -3024,6 +3025,19 @@ function openDeepLinkGame(id){
   });
 }
 
+// Trusted host check: requires a REAL password login (CourtSenseAuth.currentPlayer),
+// not just a locally-picked Identity name (which anyone can set with no password),
+// then matches the authenticated name to the invite's hostName by name key. Use this
+// to gate every host-only control and action. hostName is the only creator field on
+// the record today, so the match is by name; the real-login requirement is what makes
+// it non-spoofable.
+function isLoggedInHost(inv){
+  if(!inv || !inv.hostName) return false;
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  if(!auth || !auth.name) return false;
+  return Identity.nameKey(auth.name) === Identity.nameKey(inv.hostName);
+}
+
 function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
@@ -3138,12 +3152,12 @@ function renderInviteDetail(){
     <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)).join(', ')}</div>
   </div>` : ''}
 
-  <div class="card">
+  ${isLoggedInHost(i) ? `<div class="card">
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
       ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
     </div>
-  </div>`;
+  </div>` : ''}`;
 
   // Per-game chat (coordination, not confidentiality). Visible and postable only
   // to players currently eligible for this game; reuses activeEligibleNames.
@@ -3295,8 +3309,8 @@ function delGameChat(msgId){
   const m = (_gameMsgs||{})[msgId];
   if(!m) return;
   // Author can delete their own message; the game host can delete any message in
-  // their game. Host is matched by name key since the record stores hostName only.
-  const isHost = !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  // their game. Host requires a real login (isLoggedInHost), not just a picked name.
+  const isHost = isLoggedInHost(i);
   if(!(m.authorKey === myKey || isHost)){ toast('You can only delete your own messages.'); return; }
   if(!confirm('Delete this message?')) return;
   db.ref('tally_kotb_pickup/game_messages/'+activeInvite+'/'+msgId).remove()
@@ -3310,7 +3324,7 @@ function renderGameChatMessages(){
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = me ? me.key : null;
   const i = (D.invites||{})[activeInvite] || {};
-  const isHost = !!myKey && !!i.hostName && Identity.nameKey(i.hostName) === myKey;
+  const isHost = isLoggedInHost(i);
   const rows = Object.keys(_gameMsgs || {})
     .map(id => ({ id, m: _gameMsgs[id] }))
     .filter(x => x.m && typeof x.m === 'object')
@@ -3584,6 +3598,7 @@ function dropOutInvite(){
 }
 
 function cancelInvite(){
+  if(!isLoggedInHost((D.invites||{})[activeInvite])){ toast('Only the host can cancel this game'); return; }
   if(!confirm('Cancel this pickup? Everyone confirmed or waitlisted will see it as cancelled.')) return;
   D.invites[activeInvite].status = 'cancelled';
   pendInviteOverride(activeInvite, inv => { inv.status = 'cancelled'; });
