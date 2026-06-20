@@ -845,8 +845,19 @@ function goHome(){
   if(view==='invite-setup' || view==='invite-detail'){ backToList(); return; }
 }
 function openProfile(){
-  if(window.Identity) Identity.openProfile({ db });
-  else toast('Profile module not loaded yet, refresh the page');
+  if(!window.Identity){ toast('Profile module not loaded yet, refresh the page'); return; }
+  // Gate the profile editor to people genuinely in the system: a real password
+  // login, or a current identity that actually holds an RSVP. A picked name alone
+  // is not proof (anyone can set it), and letting an anonymous visitor through would
+  // mint an emailless players record that shows as CLAIMED.
+  const authed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
+  const me = Identity.getCurrent();
+  const hasRsvp = !!(me && me.key && Object.values(D.invites||{}).some(inv => inv && inv.rsvps && inv.rsvps[me.key]));
+  if(!authed && !hasRsvp){
+    toast('Claim a spot in a game first to set up your profile.');
+    return;
+  }
+  Identity.openProfile({ db });
 }
 function pickTab(t){
   tab = t;

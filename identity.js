@@ -228,7 +228,6 @@
           <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;line-height:1.1;">${escHTML(identity.name)}</div>
           <div style="font-size:12px;color:#6b7280;margin-top:4px;">${rating ? Math.round(rating.rating)+' rating, '+(rating.gamesPlayed||0)+' games' : 'No rating yet'}</div>
         </div>
-        <button class="idy-btn idy-btn-g" id="idy-switch">Switch</button>
       </div>
       ${isBlocked ? `<div class="idy-blocked"><strong>Account blocked.</strong>${profile.blockedReason ? ' '+escHTML(profile.blockedReason)+'.' : ''} Contact the admin to update.</div>` : ''}
       <div class="idy-section">
@@ -254,17 +253,15 @@
     const ctl = showOverlay(html);
     ctl.overlay.querySelector('#idy-pclose').onclick = ctl.close;
     ctl.overlay.querySelector('#idy-cancel').onclick = ctl.close;
-    ctl.overlay.querySelector('#idy-switch').onclick = async () => {
-      ctl.close();
-      const newId = await openPicker({ db, dismissable: true });
-      if(newId) openProfile(opts);
-    };
+    // Switch removed: it reopened the picker and let someone invent a brand-new
+    // name, which Save would persist as a new emailless players record.
 
     if(!isBlocked){
       ctl.overlay.querySelector('#idy-save').onclick = async () => {
         const email = ctl.overlay.querySelector('#idy-email').value.trim();
-        if(email && !/^\S+@\S+\.\S+$/.test(email)){
-          alert('That email looks off. Try again.');
+        // Email is required: a blank email would persist an emailless players record.
+        if(!email || !/^\S+@\S+\.\S+$/.test(email)){
+          alert('Add a valid email to save your profile.');
           return;
         }
         const notif = ctl.overlay.querySelector('#idy-notif').checked;
