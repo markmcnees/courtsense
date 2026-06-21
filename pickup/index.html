@@ -3146,8 +3146,10 @@ function renderInviteDetail(){
   const myKey = gameplayKey();
   if(typeof dbgLog === 'function') dbgLog('renderInviteDetail', { activeInvite, myKey, myStatus: myKey ? (i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status) : null });
   const rsvps = i.rsvps || {};
-  const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed').sort((a,b)=>(a.position||0)-(b.position||0));
-  const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist').sort((a,b)=>(a.position||0)-(b.position||0));
+  // Confirmed/waitlist carry [key, value] so a host-drop can target each
+  // participant's own rsvps map key. Declined needs only values (display).
+  const confirmed = Object.entries(rsvps).filter(([k,r]) => r.status==='confirmed').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+  const waitlist = Object.entries(rsvps).filter(([k,r]) => r.status==='waitlist').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
   const declined = Object.values(rsvps).filter(r => r.status==='declined');
   const myRsvp = myKey ? rsvps[myKey] : null;
   const slotsLeft = Math.max(0, (i.slots||8) - confirmed.length);
@@ -3233,17 +3235,19 @@ function renderInviteDetail(){
 
   <div class="card">
     <div class="ctitle"><span class="bar"></span>Confirmed (${confirmed.length}/${i.slots||8})</div>
-    ${confirmed.length ? confirmed.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+    ${confirmed.length ? confirmed.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk">${idx+1}</span>
       <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+      ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('') : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No one confirmed yet.</p>'}
   </div>
 
   ${waitlist.length ? `<div class="card">
     <div class="ctitle"><span class="bar"></span>Waitlist (${waitlist.length})</div>
-    ${waitlist.map((r,idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+    ${waitlist.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk" style="color:var(--gray);">#${idx+1}</span>
       <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+      ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('')}
   </div>` : ''}
 
@@ -3658,22 +3662,22 @@ async function claimSpot(){
   toast(status==='confirmed' ? "You're in ✓" : 'Added to the waitlist');
 }
 
-function dropOutInvite(){
+// Decline one participant's RSVP on the active game by their rsvps map key, then
+// renumber and promote exactly as self-drop does. Shared by self-drop and
+// host-drop so the promotion algorithm lives in one place. Does NOT toast; callers
+// toast (self-drop says "Dropped out", host-drop says "Removed").
+function declineRsvp(targetKey){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  // Gameplay key (nameKey): find and decline the viewer's own RSVP, not the login
-  // id, so a logged-in player can drop the RSVP they actually hold.
-  const myKey = gameplayKey();
-  if(!myKey) return;
   const rsvps = i.rsvps || {};
-  const myRsvp = rsvps[myKey]; if(!myRsvp) return;
-  const wasConfirmed = myRsvp.status === 'confirmed';
+  const target = rsvps[targetKey]; if(!target) return;
+  const wasConfirmed = target.status === 'confirmed';
 
   // Build full new RSVP map (cheap to recompute, easier than per-field updates).
   const newRsvps = {};
   Object.entries(rsvps).forEach(([k,r])=>{ newRsvps[k] = { ...r }; });
-  newRsvps[myKey].status = 'declined';
-  newRsvps[myKey].respondedAt = Date.now();
-  newRsvps[myKey].position = null;
+  newRsvps[targetKey].status = 'declined';
+  newRsvps[targetKey].respondedAt = Date.now();
+  newRsvps[targetKey].position = null;
 
   let promotedName = null;
   if(wasConfirmed){
@@ -3717,7 +3721,30 @@ function dropOutInvite(){
       }).catch(function(e){ console.warn('notify failed', e); });
     }
   }).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
+}
+
+function dropOutInvite(){
+  // Gameplay key (nameKey): drop the viewer's own RSVP, the one they actually hold.
+  const k = gameplayKey();
+  if(!k) return;
+  const i = (D.invites||{})[activeInvite];
+  if(!i || !(i.rsvps||{})[k]) return;
+  declineRsvp(k);
   toast('Dropped out');
+}
+
+// Host-only: remove another participant by their rsvps map key (their nameKey),
+// which opens their spot and promotes the top waitlister via the shared
+// declineRsvp path. Host-gated at the handler (the render gate alone is
+// console-bypassable). The target is the participant's own key, never gameplayKey().
+function hostDropParticipant(targetKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can remove players'); return; }
+  if(!targetKey || !(i.rsvps||{})[targetKey]) return;
+  const nm = (i.rsvps[targetKey] && i.rsvps[targetKey].name) || 'this player';
+  if(!confirm('Remove '+nm+' from this game?')) return;
+  declineRsvp(targetKey);
+  toast('Removed');
 }
 
 function cancelInvite(){
