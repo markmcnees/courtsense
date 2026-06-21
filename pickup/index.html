@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>KotB Pickup</title>
+<title>Tallahassee Pickup</title>
 <meta name="description" content="Beach volleyball pickup tournaments and ratings. Run by CourtSense.">
 
 <meta property="og:type" content="website">
@@ -187,7 +187,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="hdr-top">
     <div class="brand" onclick="goHome()">
       <span>👑</span>
-      KotB Pickup
+      <span id="app-name"></span>
       <span class="sync off" id="sync" title="Connecting..."></span>
     </div>
     <div class="event-title" id="event-title" style="display:none;"></div>
@@ -662,6 +662,9 @@ const FB_CFG = {
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
 const DB_ROOT = 'tally_kotb_pickup';
+// Per-city display name for the header and tab title. Display only, not a data
+// path. A future city instance changes only this line.
+const APP_NAME = 'Tallahassee Pickup';
 const LEAGUE_KINGS_PATH  = 'tally_kotb/kings/players';
 const LEAGUE_QUEENS_PATH = 'tally_kotb/queens/players';
 const AI_URL  = 'https://leon-beach-ai.markmcnees-479.workers.dev';
@@ -3699,6 +3702,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
   initFB();
   showView('list');
+
+  // Header and tab title both read from APP_NAME (the single per-city value).
+  const _an = document.getElementById('app-name');
+  if(_an) _an.textContent = APP_NAME;
+  document.title = APP_NAME;
 
   // Deep-link reader: courtsense.app/pickup/?game=<id> opens that one game's
   // detail view, including for logged-out visitors. When present we suppress the
