@@ -866,6 +866,24 @@ function openProfile(){
     return;
   }
   Identity.openProfile({ db });
+  // Pickup-only expectations caption. The profile modal is rendered by the
+  // shared identity.js (also loaded by the KotB app), so we inject this here
+  // instead of editing identity.js, keeping it to pickup. Reuses the modal's
+  // existing .idy-msg helper style and sits just above the Save Profile button.
+  // Polls briefly because the modal renders after async Firebase reads.
+  let _visionTries = 0;
+  const _addNotifVision = () => {
+    const save = document.getElementById('idy-save');
+    if(!save){ if(_visionTries++ < 40) setTimeout(_addNotifVision, 50); return; }
+    if(document.getElementById('pk-notif-vision')) return;
+    const note = document.createElement('div');
+    note.id = 'pk-notif-vision';
+    note.className = 'idy-msg';
+    note.style.marginBottom = '10px';
+    note.textContent = "Notifications are email only for now because email is free and reliable. SMS alerts are coming, and a full app is on the roadmap.";
+    save.parentNode.insertBefore(note, save);
+  };
+  _addNotifVision();
 }
 function pickTab(t){
   tab = t;
