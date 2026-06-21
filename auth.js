@@ -223,6 +223,20 @@
     return key;
   }
 
+  // Resolve a player record's name to a display STRING. Some records store name as
+  // a { first, last } object; downstream code (host name match, display, name keys)
+  // assumes a string. Precedence mirrors nameStr/Identity.setCurrent: displayName,
+  // then first + last when name is an object, then a string name. Idempotent on
+  // records that already store a string name. In-memory only; never written back.
+  function normalizedName(p){
+    if(!p) return '';
+    if(typeof p.displayName === 'string' && p.displayName.trim()) return p.displayName.trim();
+    const n = p.name;
+    if(n && typeof n === 'object'){ const f = ((n.first||'')+' '+(n.last||'')).trim(); if(f) return f; }
+    if(typeof n === 'string' && n.trim()) return n.trim();
+    return '';
+  }
+
   async function attemptLogin(email, password){
     if(!email) return { success: false, error: 'Enter your email' };
     if(!password) return { success: false, error: 'Enter your password' };
@@ -252,6 +266,7 @@
     }
 
     _currentPlayer = res.player;
+    _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
     return { success: true, player: _currentPlayer, playerId: res.player.id };
   }
 
@@ -372,6 +387,7 @@
         return null;
       }
       _currentPlayer = Object.assign({ id: parsed.playerId }, player);
+      _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
       delete _currentPlayer.passwordHash;
       return _currentPlayer;
     } catch(e) {
@@ -597,6 +613,7 @@
     persistSession(playerKey, !!o.keepSignedIn);
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
+    _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
 
     // Welcome email via the worker /notify endpoint (recipient resolved
     // server-side from the just-created record). Fire-and-forget.

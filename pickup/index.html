@@ -3729,6 +3729,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const dn = nameStr(player);
         if(dn) Identity.setCurrent(dn, player.id || undefined);
       }
+      // Re-render the open invite detail so a login restored AFTER the detail
+      // first rendered (e.g. a deep-linked host) reflects the now-available auth
+      // and shows host controls. Host-card gating is already correct; the detail
+      // simply rendered pre-auth and only re-renders on Firebase data changes
+      // otherwise. Guarded so it runs only when that view is actually open.
+      if(view === 'invite-detail' && activeInvite) renderInviteDetail();
     },
     onLogout: () => {
       $('logout-btn').style.display = 'none';
