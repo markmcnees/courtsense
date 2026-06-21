@@ -607,7 +607,7 @@ function onLogin(player){
   currentDisplayName = player.displayName || displayNameOf(player);
   myKey = nameKey(currentDisplayName);
   $('who-name').textContent = displayNameOf(player);
-  $('who-email').textContent = player.email || '';
+  $('who-email').textContent = player.email || (player.emails && player.emails.primary) || '';
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');
   loadDashboard();

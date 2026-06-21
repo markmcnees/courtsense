@@ -543,7 +543,7 @@ async function onLogin(player){
   currentPid = player.id;
   currentDisplayName = player.displayName || displayNameOf(player);
   $('who-name').textContent = displayNameOf(player);
-  $('who-email').textContent = player.email || '';
+  $('who-email').textContent = player.email || (player.emails && player.emails.primary) || '';
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');
 

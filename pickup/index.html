@@ -860,12 +860,14 @@ function openProfile(){
   // mint an emailless players record that shows as CLAIMED.
   const authed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
   const me = Identity.getCurrent();
-  const hasRsvp = !!(me && me.key && Object.values(D.invites||{}).some(inv => inv && inv.rsvps && inv.rsvps[me.key]));
+  // Their RSVPs are keyed by nameKey (gameplay key), not the login id.
+  const gk = gameplayKey();
+  const hasRsvp = !!(gk && Object.values(D.invites||{}).some(inv => inv && inv.rsvps && inv.rsvps[gk]));
   if(!authed && !hasRsvp){
     toast('Claim a spot in a game first to set up your profile.');
     return;
   }
-  Identity.openProfile({ db });
+  Identity.openProfile({ db, nameKey: gameplayKey() });
   // Pickup-only expectations caption. The profile modal is rendered by the
   // shared identity.js (also loaded by the KotB app), so we inject this here
   // instead of editing identity.js, keeping it to pickup. Reuses the modal's
@@ -2440,7 +2442,9 @@ function renderInviteList(){
   }
 
   const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = me ? me.key : null;
+  // Gameplay key (nameKey) so a logged-in player's RSVP badges and eligibility
+  // match the keys RSVPs are stored under, not the login id.
+  const myKey = gameplayKey();
 
   // Phase C filter: "I can join" shows only games the current player is eligible
   // for. Reads activeEligibleNames (never modifies it). Effective only with an
@@ -2490,8 +2494,7 @@ function renderInviteList(){
 // (cannot filter to eligible without a key) as defense in depth beyond the
 // disabled pills.
 function setPickupFilter(on){
-  const me = window.Identity ? Identity.getCurrent() : null;
-  if(on && !(me && me.key)) return;
+  if(on && !gameplayKey()) return;
   _pickupEligibleOnly = !!on;
   renderInviteList();
 }
@@ -3047,8 +3050,8 @@ async function saveInvite(){
       createdAt: Date.now(),
       // Embedded host auto-RSVP when checked + valid identity; otherwise empty.
       // Shape matches optInInvite exactly: { name, status, position, respondedAt }.
-      rsvps: (rsvpMe && me && me.key)
-        ? { [me.key]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now() } }
+      rsvps: (rsvpMe && me && gameplayKey())
+        ? { [gameplayKey()]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now() } }
         : {}
     };
     updates['tally_kotb_pickup/invites/'+id] = rec;
@@ -3069,6 +3072,23 @@ function openInviteDetail(id){
   if(!(D.invites||{})[id]){ toast('Pickup not found'); return; }
   activeInvite = id;
   ensureProfilesLoaded().then(()=>showView('invite-detail'));
+}
+
+// Resolve the GAMEPLAY key for the current user. Gameplay data (ratings/{nameKey},
+// invites/{id}/rsvps/{nameKey}) is keyed by nameKey, while the account is keyed by
+// login id. For a logged-in user we use the account nameKey (falling back to a
+// nameKey derived from the display name, then the login id). For an anonymous user
+// we use the local picked-identity key, which is already a nameKey. Null-safe; never
+// throws on pages/states without CourtSenseAuth or Identity.
+function gameplayKey(){
+  var auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  if(auth){
+    if(auth.nameKey) return auth.nameKey;
+    if(auth.displayName && window.Identity && Identity.nameKey) return Identity.nameKey(auth.displayName);
+    if(auth.id) return auth.id;
+  }
+  var loc = (window.Identity && Identity.getCurrent) ? Identity.getCurrent() : null;
+  return loc ? loc.key : null;
 }
 
 // Logged-out-safe deep-link open. Unlike openInviteDetail this does its own
@@ -3121,7 +3141,9 @@ function renderInviteDetail(){
   const i = (D.invites||{})[activeInvite];
   if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
   const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = me ? me.key : null;
+  // Gameplay key (nameKey) so RSVP state / Drop Out resolve to the RSVP the
+  // logged-in player actually holds, not the login id.
+  const myKey = gameplayKey();
   if(typeof dbgLog === 'function') dbgLog('renderInviteDetail', { activeInvite, myKey, myStatus: myKey ? (i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status) : null });
   const rsvps = i.rsvps || {};
   const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed').sort((a,b)=>(a.position||0)-(b.position||0));
@@ -3357,7 +3379,7 @@ function postGameChat(){
   if(errEl) errEl.textContent = '';
   if(!ta) return;
   const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = me ? me.key : null;
+  const myKey = gameplayKey(); // chat author identity keyed like RSVPs (nameKey)
   const i = (D.invites||{})[activeInvite];
   if(!myKey || !i){ if(errEl) errEl.textContent = 'Pick your name to post.'; return; }
   // Re-check eligibility at post time with the same predicate the render gate used.
@@ -3381,8 +3403,7 @@ function postGameChat(){
 }
 
 function delGameChat(msgId){
-  const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = me ? me.key : null;
+  const myKey = gameplayKey(); // match chat author key (nameKey)
   const i = (D.invites||{})[activeInvite];
   if(!myKey || !i) return;
   const m = (_gameMsgs||{})[msgId];
@@ -3400,8 +3421,7 @@ function delGameChat(msgId){
 function renderGameChatMessages(){
   const list = document.getElementById('gc-list');
   if(!list) return; // chat not rendered (not eligible / not logged in)
-  const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = me ? me.key : null;
+  const myKey = gameplayKey(); // match chat author key (nameKey)
   const i = (D.invites||{})[activeInvite] || {};
   const isHost = isLoggedInHost(i);
   const rows = Object.keys(_gameMsgs || {})
@@ -3474,7 +3494,7 @@ function emailPromptAdd(){
   }
   _showEmailPrompt = false;
   renderInviteDetail();
-  if(window.Identity) Identity.openProfile({ db });
+  if(window.Identity) Identity.openProfile({ db, nameKey: gameplayKey() });
 }
 
 function emailPromptSkip(){
@@ -3495,7 +3515,8 @@ function optInInvite(){
   // Phase B sign-up gate: only allow the RSVP if the selected player is in the
   // currently-active eligible circle (primary + activated widening tiers).
   // Gate the action only; the RSVP write path below is unchanged.
-  const meKey = me.key || Identity.nameKey(me.name);
+  // Gameplay key: RSVPs are keyed by nameKey (see gameplayKey), not the login id.
+  const meKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === meKey)){
     toast('This pickup is not open to you yet');
     return;
@@ -3510,14 +3531,14 @@ function optInInvite(){
 
   // Optimistic local update so UI reflects state immediately.
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
-  D.invites[activeInvite].rsvps[me.key] = newRsvp;
+  D.invites[activeInvite].rsvps[meKey] = newRsvp;
   pendInviteOverride(activeInvite, inv => {
     if(!inv.rsvps) inv.rsvps = {};
-    inv.rsvps[me.key] = newRsvp;
+    inv.rsvps[meKey] = newRsvp;
   });
   renderInviteDetail();
 
-  fbSet('invites/'+activeInvite+'/rsvps/'+me.key, newRsvp);
+  fbSet('invites/'+activeInvite+'/rsvps/'+meKey, newRsvp);
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
 }
 
@@ -3560,7 +3581,10 @@ async function claimSpot(){
     if(!lookup || lookup.ok !== true){ toast('Network error, try again'); return; }
     if(lookup.found){
       rsvpName = lookup.displayName || fullName;
-      rsvpKey  = lookup.playerId;   // write under the real player key from lookup
+      // Key the RSVP by nameKey (the gameplay key reads use), not the account id,
+      // so a claimed/found player lands where renderInviteDetail looks. Prefer a
+      // looked-up nameKey, else derive it from the resolved display name.
+      rsvpKey  = lookup.nameKey || Identity.nameKey(rsvpName);
     } else {
       rsvpName = fullName;
       rsvpKey  = claimKey;
@@ -3636,18 +3660,20 @@ async function claimSpot(){
 
 function dropOutInvite(){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const me = window.Identity ? Identity.getCurrent() : null;
-  if(!me) return;
+  // Gameplay key (nameKey): find and decline the viewer's own RSVP, not the login
+  // id, so a logged-in player can drop the RSVP they actually hold.
+  const myKey = gameplayKey();
+  if(!myKey) return;
   const rsvps = i.rsvps || {};
-  const myRsvp = rsvps[me.key]; if(!myRsvp) return;
+  const myRsvp = rsvps[myKey]; if(!myRsvp) return;
   const wasConfirmed = myRsvp.status === 'confirmed';
 
   // Build full new RSVP map (cheap to recompute, easier than per-field updates).
   const newRsvps = {};
   Object.entries(rsvps).forEach(([k,r])=>{ newRsvps[k] = { ...r }; });
-  newRsvps[me.key].status = 'declined';
-  newRsvps[me.key].respondedAt = Date.now();
-  newRsvps[me.key].position = null;
+  newRsvps[myKey].status = 'declined';
+  newRsvps[myKey].respondedAt = Date.now();
+  newRsvps[myKey].position = null;
 
   let promotedName = null;
   if(wasConfirmed){

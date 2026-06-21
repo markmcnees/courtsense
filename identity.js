@@ -212,7 +212,12 @@
         profile = snap.val() || {};
       } catch(e){ console.warn('profile read failed', e); }
       try {
-        const rSnap = await db.ref('tally_kotb_pickup/ratings/'+identity.key).once('value');
+        // Gameplay (rating) is keyed by nameKey, which differs from the account
+        // key (identity.key, a login id) for split accounts. Resolve the nameKey:
+        // caller-provided, else the account record nameKey, else derived from the
+        // display name, else identity.key so KotB and older callers are unchanged.
+        const ratingKey = opts.nameKey || (profile && profile.nameKey) || nameKey(identity.name) || identity.key;
+        const rSnap = await db.ref('tally_kotb_pickup/ratings/'+ratingKey).once('value');
         rating = rSnap.val();
       } catch(e){}
     }
@@ -232,7 +237,7 @@
       ${isBlocked ? `<div class="idy-blocked"><strong>Account blocked.</strong>${profile.blockedReason ? ' '+escHTML(profile.blockedReason)+'.' : ''} Contact the admin to update.</div>` : ''}
       <div class="idy-section">
         <label class="idy-lbl" for="idy-email">Email for invites</label>
-        <input class="idy-input" id="idy-email" type="email" placeholder="you@example.com" value="${escHTML(profile.email||'')}" ${isBlocked?'disabled':''}>
+        <input class="idy-input" id="idy-email" type="email" placeholder="you@example.com" value="${escHTML((profile.emails && profile.emails.primary) || profile.email || '')}" ${isBlocked?'disabled':''}>
         <div class="idy-msg">${isBlocked ? 'Email is locked while your account is blocked.' : 'Used for pickup invites and 24-hour reminders. Only the admin can see this.'}</div>
       </div>
       <div class="idy-section">
