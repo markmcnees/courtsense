@@ -60,6 +60,9 @@ tr.blocked td{background:#fef2f2;}
 
 #pin-screen{max-width:340px;margin:60px auto 0;text-align:center;}
 #pin-screen h1{margin-bottom:14px;}
+/* Mask the typed PIN like a password while keeping it a plain text field, so
+   browser password managers no longer target it for autofill. */
+#pin-input{-webkit-text-security:disc;text-security:disc;}
 .log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:#0f172a;color:#bae6fd;border-radius:8px;padding:10px;margin-top:10px;max-height:140px;overflow-y:auto;white-space:pre-wrap;}
 </style>
 </head>
@@ -69,7 +72,7 @@ tr.blocked td{background:#fef2f2;}
   <h1>Manage Players <span id="sync" class="sync"></span></h1>
   <div class="card">
     <p style="margin-bottom:14px;">Admin tool. Enter PIN to continue.</p>
-    <input class="inp" id="pin-input" type="password" placeholder="PIN" autocomplete="off" onkeypress="if(event.key==='Enter')checkPin()">
+    <input class="inp" id="pin-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="PIN" autocomplete="off" data-1p-ignore data-lpignore="true" onkeypress="if(event.key==='Enter')checkPin()">
     <div id="pin-err" style="color:var(--loss);font-size:13px;font-weight:700;margin-top:8px;min-height:18px;"></div>
     <button class="btn btn-p btn-lg btn-w" style="margin-top:10px;" onclick="checkPin()">Unlock</button>
   </div>
@@ -96,7 +99,7 @@ tr.blocked td{background:#fef2f2;}
   <div class="card">
     <h2>All Profiles (<span id="count">0</span>)</h2>
     <div id="summary" class="sub" style="margin:-2px 0 12px;"></div>
-    <input class="inp search" id="search" placeholder="Filter by name or email..." oninput="renderList()">
+    <input class="inp search" id="search" type="search" placeholder="Filter by name or email..." autocomplete="off" data-1p-ignore data-lpignore="true" oninput="renderList()">
     <div style="overflow-x:auto;">
       <table>
         <thead><tr>
