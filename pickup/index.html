@@ -3681,26 +3681,33 @@ function declineRsvp(targetKey){
 
   let promotedName = null;
   if(wasConfirmed){
+    // A confirmed spot opened: renumber confirmed 1..N, then promote the top
+    // waitlister to the end of the confirmed list.
     const remainingConfirmed = Object.entries(newRsvps)
       .filter(([k,r])=>r.status==='confirmed')
       .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-    const waitlist = Object.entries(newRsvps)
-      .filter(([k,r])=>r.status==='waitlist')
-      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-
-    // Renumber confirmed 1..N
     remainingConfirmed.forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
 
-    // Promote first waitlister
-    if(waitlist.length){
-      const [topKey] = waitlist[0];
+    const topWait = Object.entries(newRsvps)
+      .filter(([k,r])=>r.status==='waitlist')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0))[0];
+    if(topWait){
+      const topKey = topWait[0];
       newRsvps[topKey].status = 'confirmed';
       newRsvps[topKey].position = remainingConfirmed.length + 1;
       promotedName = newRsvps[topKey].name;
-      // Renumber remaining waitlist 1..M-1
-      waitlist.slice(1).forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
     }
   }
+
+  // Always renumber the remaining waitlist 1..N by sorted order so stored
+  // positions match displayed order. This runs in every case, including when a
+  // waitlister leaves (no confirmed spot opens) which previously left stale
+  // positions and made the "You're on the waitlist (#N)" banner disagree with
+  // the list.
+  Object.entries(newRsvps)
+    .filter(([k,r])=>r.status==='waitlist')
+    .sort((a,b)=>(a[1].position||0)-(b[1].position||0))
+    .forEach(([k,r],idx)=>{ newRsvps[k].position = idx+1; });
 
   // Optimistic local update + immediate render
   D.invites[activeInvite].rsvps = newRsvps;
