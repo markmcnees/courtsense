@@ -2947,7 +2947,13 @@ function buildInviteRecord(){
   const rankEl = $('iv-counts-rankings');
   const countsTowardRankings = rankEl ? !!rankEl.checked : !!inviteCountsTowardRankings;
 
-  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', gameType, wideningTiers, cancelDeadlineOffsetMins, countsTowardRankings };
+  // hostId: stable roster key from the REAL login, the non-spoofable anchor for
+  // host control. Additive alongside hostName (kept for legacy + display). Null
+  // when no real login is present (e.g. a local picked-name only).
+  const _hostAuth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const hostId = _hostAuth && _hostAuth.id ? _hostAuth.id : null;
+
+  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins, countsTowardRankings };
 }
 
 async function saveInvite(){
@@ -3061,16 +3067,27 @@ function openDeepLinkGame(id){
 }
 
 // Trusted host check: requires a REAL password login (CourtSenseAuth.currentPlayer),
-// not just a locally-picked Identity name (which anyone can set with no password),
-// then matches the authenticated name to the invite's hostName by name key. Use this
-// to gate every host-only control and action. hostName is the only creator field on
-// the record today, so the match is by name; the real-login requirement is what makes
-// it non-spoofable.
+// not just a locally-picked Identity name (which anyone can set with no password).
+// Primary path uses the stable roster id (hostId) stored on new invites; legacy
+// invites that predate hostId fall back to a tolerant name match. The real-login
+// requirement is what makes either path non-spoofable: a picked name alone never
+// passes, so typing the host's name into the picker grants nothing.
 function isLoggedInHost(inv){
-  if(!inv || !inv.hostName) return false;
+  if(!inv) return false;
   const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
-  if(!auth || !auth.name) return false;
-  return Identity.nameKey(auth.name) === Identity.nameKey(inv.hostName);
+  if(!auth) return false;
+  // PRIMARY: stable id match for invites that store hostId (all new games).
+  if(inv.hostId){
+    return !!auth.id && auth.id === inv.hostId;
+  }
+  // FALLBACK: legacy invites with only hostName. Compare the login against the
+  // stored host name by name key, checking BOTH login name fields so the
+  // displayName-vs-name field mismatch cannot lock a real host out.
+  if(!inv.hostName) return false;
+  const hostKey = Identity.nameKey(inv.hostName);
+  if(auth.displayName && Identity.nameKey(auth.displayName) === hostKey) return true;
+  if(auth.name && Identity.nameKey(auth.name) === hostKey) return true;
+  return false;
 }
 
 function renderInviteDetail(){
@@ -3705,8 +3722,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // Sync identity.js to the authenticated player so RSVPs land on
       // the right key. identity.js uses localStorage; auth uses
       // sessionStorage. We mirror the auth identity into identity.js.
-      if(window.Identity && Identity.setCurrent && player && player.name){
-        Identity.setCurrent(nameStr(player));
+      // Fire for any logged-in player (not gated on player.name): use the best
+      // available display name via nameStr, and pin the local identity's key to
+      // the real account id so it tracks the login, not a stale picked name.
+      if(window.Identity && Identity.setCurrent && player){
+        const dn = nameStr(player);
+        if(dn) Identity.setCurrent(dn, player.id || undefined);
       }
     },
     onLogout: () => {
