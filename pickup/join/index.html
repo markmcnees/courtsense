@@ -7,6 +7,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<!-- Shared site nav: home-only escape hatch for this mid-flow page. nav.js needs no auth.js. -->
+<script>window.COURTSENSE_NAV = { variant: 'home-only' };</script>
+<script src="/nav.js"></script>
 <style>
 :root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -69,6 +72,7 @@ textarea.inp{min-height:80px;resize:vertical;}
   <div class="hdr-inner">
     <span style="font-size:22px;">👑</span>
     <h1>Join KotB Pickup</h1>
+    <span id="cs-nav" style="color:#fff;"></span>
   </div>
 </div>
 

@@ -15,6 +15,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/auth.js"></script>
+<!-- Shared site nav: home-only escape hatch for this mid-flow page. -->
+<script>window.COURTSENSE_NAV = { variant: 'home-only' };</script>
+<script src="/nav.js"></script>
 
 <style>
 :root{
@@ -89,6 +92,7 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
       <span>CourtSense</span>
     </a>
     <span class="page-title">Join</span>
+    <span id="cs-nav" style="color:#fff;"></span>
   </div>
 </div>
 

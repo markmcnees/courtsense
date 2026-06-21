@@ -15,6 +15,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/auth.js"></script>
+<!-- Shared site nav: three links only; page keeps its own Log Out (authControl:false). -->
+<script>window.COURTSENSE_NAV = { variant: 'full', authControl: false };</script>
+<script src="/nav.js"></script>
 
 <style>
 :root{
@@ -96,6 +99,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <span>CourtSense</span>
     </a>
     <span class="page-title">My Profile</span>
+    <span id="cs-nav" style="color:#fff;"></span>
     <button class="hdr-btn" id="logout-btn" onclick="doLogout()" style="display:none;">Log Out</button>
   </div>
 </div>
