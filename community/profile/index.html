@@ -97,6 +97,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .placeholder p{font-size:14px;color:var(--gray);line-height:1.55;max-width:420px;margin:0 auto;}
 .blocked-banner{background:#fee2e2;color:#7f1d1d;border:1px solid #fca5a5;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px;line-height:1.45;display:none;}
 .blocked-banner.on{display:block;}
+.soon-tag{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--gray);background:var(--gray-lighter);border-radius:4px;padding:1px 6px;vertical-align:middle;}
+#notif-roadmap{margin-top:12px;}
 
 /* ── Overview stat blocks (ported from community/dashboard; class names are
    distinct from the Settings form, so this is additive and does not affect it) ── */
@@ -255,11 +257,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <h3>Notifications</h3>
     <p class="sub">Pickup invites and reminders. These settings sync with the pickup app.</p>
     <div id="blocked-banner" class="blocked-banner"></div>
-    <label class="toggle">
-      <input type="checkbox" id="f-notif">
-      <span class="tlbl">Send me invites</span>
-    </label>
-    <div class="help">Used for pickup invites and 24-hour reminders. Only the admin can see your email.</div>
+    <div id="notif-toggles">
+      <label class="toggle"><input type="checkbox" id="f-notify-invited"><span class="tlbl">Invited to a game</span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-reminder"><span class="tlbl">Reminder for a game I RSVP'd to</span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-waitlist"><span class="tlbl">Waitlist: a spot opened up</span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-confirmed"><span class="tlbl">RSVP confirmed</span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-canceled"><span class="tlbl">Game canceled <span class="soon-tag">coming soon</span></span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-changed"><span class="tlbl">Game details changed <span class="soon-tag">coming soon</span></span></label>
+    </div>
+    <div class="help" id="notif-roadmap">Notifications reach you by email for now. Text messages are coming soon, and a full app is on the way.</div>
     <div class="fg" style="margin-top:14px;">
       <label class="lbl" for="f-mute">Mute notifications until</label>
       <input class="inp" id="f-mute" type="date">
@@ -511,6 +517,19 @@ function doLogout(){
 // not edited here: post-Track-B it comes from the session and shows in the who-bar,
 // and we never write it back to the public players record. Name is not written
 // either, so an imported {first,last} record is never clobbered with a string.
+// Per-type notification toggles: [players-record field, checkbox element id]. All
+// default ON via absent-as-on (only an explicit false disables). Two (canceled,
+// changed) are real toggles whose emails are not built yet; the worker helper already
+// supports them. The global muteUntil still silences everything when active.
+const NOTIFY_FIELDS = [
+  ['notifyInvited',   'f-notify-invited'],
+  ['notifyReminder',  'f-notify-reminder'],
+  ['notifyWaitlist',  'f-notify-waitlist'],
+  ['notifyConfirmed', 'f-notify-confirmed'],
+  ['notifyCanceled',  'f-notify-canceled'],
+  ['notifyChanged',   'f-notify-changed']
+];
+
 function fillNotifications(p){
   p = p || {};
   const blocked = !!p.blocked;
@@ -524,37 +543,48 @@ function fillNotifications(p){
     banner.classList.remove('on');
     banner.textContent = '';
   }
-  // notificationsEnabled defaults ON; only an explicit false disables (mirrors modal).
-  $('f-notif').checked = p.notificationsEnabled !== false;
+  // Legacy/admin SILENT compat: a global notificationsEnabled === false reads as ALL
+  // SIX OFF. Otherwise each per-type field is ON unless explicitly false (absent = on).
+  const legacyOff = p.notificationsEnabled === false;
+  NOTIFY_FIELDS.forEach(function(pair){
+    const el = $(pair[1]);
+    if(!el) return;
+    el.checked = legacyOff ? false : (p[pair[0]] !== false);
+    el.disabled = blocked;
+  });
   const muteMs = (typeof p.muteUntil === 'number') ? p.muteUntil : null;
   $('f-mute').value = muteMs ? new Date(muteMs).toISOString().slice(0,10) : '';
   const muted = muteMs && muteMs > Date.now();
   $('mute-help').textContent = muted
     ? ('Currently muted until ' + new Date(muteMs).toLocaleDateString())
     : 'Leave blank to keep notifications on.';
-  // Lock the controls while blocked, exactly as the modal does.
-  $('f-notif').disabled = blocked;
   $('f-mute').disabled = blocked;
   $('notif-save-btn').disabled = blocked;
 }
 
 function doSaveNotifications(){
   if(!currentPid){ toast('Not signed in.'); return; }
-  const notif = $('f-notif').checked;
   const muteVal = $('f-mute').value;
   const muteUntil = muteVal ? new Date(muteVal + 'T23:59:59').getTime() : null;
-  // Same write target as the modal: players/{accountId}.update({ flat fields }).
-  db.ref(ROSTER_PATH + '/' + currentPid).update({
-    notificationsEnabled: !!notif,
-    muteUntil: muteUntil,
-    updatedAt: Date.now()
-  }).then(() => {
+  // Write only explicit values: the six per-type booleans + muteUntil. Name/email are
+  // never written, so an imported {first,last} record is never clobbered.
+  const updates = { muteUntil: muteUntil, updatedAt: Date.now() };
+  NOTIFY_FIELDS.forEach(function(pair){
+    const el = $(pair[0 + 1]);
+    updates[pair[0]] = !!(el && el.checked);
+  });
+  // Saving explicit per-type prefs supersedes the legacy global switch: set it true so
+  // a prior admin SILENT (notificationsEnabled:false) can no longer override the user's
+  // granular choices on read. Turning everything off is still possible by unchecking all
+  // six (each saved false), which the worker helper honors per type.
+  updates.notificationsEnabled = true;
+  db.ref(ROSTER_PATH + '/' + currentPid).update(updates).then(function(){
     toast('Notification settings saved');
     const muted = muteUntil && muteUntil > Date.now();
     $('mute-help').textContent = muted
       ? ('Currently muted until ' + new Date(muteUntil).toLocaleDateString())
       : 'Leave blank to keep notifications on.';
-  }).catch(err => { console.error('notif save failed', err); toast("Couldn't save. Try again."); });
+  }).catch(function(err){ console.error('notif save failed', err); toast("Couldn't save. Try again."); });
 }
 
 function fillFromProfile(profile){

@@ -2393,24 +2393,36 @@ function activeEligibleNames(invite, now){
   return [...byKey.values()].sort((a,b) => a.localeCompare(b));
 }
 
-// Phase 5 entry point: who actually receives email/banner notifications?
-// Filters the eligible set down to profiles with notifications enabled, not
-// muted, with an email on file. Worker code should call only this function.
+// Single-source send gate (CLIENT mirror of the worker's prefs.ts shouldSendEmail).
+// SIX per-type toggles, all default-ON via absent-as-on (only explicit false = off):
+//   notifyInvited, notifyReminder, notifyWaitlist, notifyConfirmed, notifyCanceled, notifyChanged
+// Order: mute (silences everything) -> blocked -> no email -> legacy global off
+//   (notificationsEnabled === false = all six off) -> the per-type field.
+// Use this for EVERY client-side notification gate; never scatter the logic.
+const NOTIFY_FIELD = {
+  invited:'notifyInvited', reminder:'notifyReminder', waitlist:'notifyWaitlist',
+  confirmed:'notifyConfirmed', canceled:'notifyCanceled', changed:'notifyChanged'
+};
+function shouldNotify(p, kind, now){
+  now = now || Date.now();
+  if(!p) return false;
+  if(p.muteUntil && p.muteUntil > now) return false;
+  if(p.blocked) return false;
+  if(!p.email) return false;
+  if(p.notificationsEnabled === false) return false; // legacy/admin SILENT = all six off
+  if(p[NOTIFY_FIELD[kind]] === false) return false;  // per-type; absent = on
+  return true;
+}
+
+// Phase 5 entry point: who actually receives the INVITE notification?
+// Filters the eligible set down through the single-source gate for type 'invited'.
 function notifiableForInvite(invite){
   // Phase B: route through the time-aware resolver (primary + activated tiers).
   // Tier resolution stays HERE, never in the Worker.
   const eligible = activeEligibleNames(invite, Date.now());
   const profiles = window._profilesCache || {};
   const now = Date.now();
-  return eligible.filter(name => {
-    const p = profiles[Identity.nameKey(name)];
-    if(!p) return false;
-    if(p.blocked) return false;
-    if(p.notificationsEnabled === false) return false;
-    if(p.muteUntil && p.muteUntil > now) return false;
-    if(!p.email) return false;
-    return true;
-  });
+  return eligible.filter(name => shouldNotify(profiles[Identity.nameKey(name)], 'invited', now));
 }
 
 async function ensureProfilesLoaded(){
