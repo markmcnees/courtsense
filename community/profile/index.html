@@ -25,6 +25,7 @@
   --navy:#1a3a6b;--navy-deep:#0f2347;--accent:#d4a843;
   --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
   --white:#ffffff;--ink:#111827;
+  --win:#047857;--win-bg:#d1fae5;--loss:#b91c1c;--loss-bg:#fee2e2;--wait-bg:#fef3c7;--wait:#92400e;
   --shadow:0 2px 12px rgba(0,0,0,0.08);
   --shadow-lg:0 8px 32px rgba(0,0,0,0.14);
   --radius:14px;
@@ -86,6 +87,68 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:rgba(17,24,39,.95);color:#fff;padding:12px 22px;border-radius:24px;font-weight:700;font-size:13px;box-shadow:var(--shadow-lg);z-index:9999;transition:transform .28s ease;white-space:nowrap;}
 .toast.on{transform:translateX(-50%) translateY(0);}
 
+.tabs{display:flex;gap:6px;background:var(--white);border-radius:var(--radius);padding:6px;margin-bottom:14px;box-shadow:var(--shadow);}
+.tab-btn{flex:1;padding:11px 10px;border:none;background:transparent;border-radius:10px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--gray);cursor:pointer;min-height:44px;}
+.tab-btn.active{background:var(--navy);color:#fff;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+.placeholder{background:var(--white);border:1px dashed var(--sand-border);border-radius:var(--radius);padding:32px 20px;text-align:center;color:var(--gray);box-shadow:var(--shadow);}
+.placeholder h3{font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--navy);margin-bottom:8px;}
+.placeholder p{font-size:14px;color:var(--gray);line-height:1.55;max-width:420px;margin:0 auto;}
+.blocked-banner{background:#fee2e2;color:#7f1d1d;border:1px solid #fca5a5;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px;line-height:1.45;display:none;}
+.blocked-banner.on{display:block;}
+
+/* ── Overview stat blocks (ported from community/dashboard; class names are
+   distinct from the Settings form, so this is additive and does not affect it) ── */
+.rating-hero{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+.big-rating{font-family:'Bebas Neue';font-size:58px;line-height:.9;letter-spacing:1px;color:var(--navy);}
+.big-rating.na{color:var(--gray-light);}
+.delta{font-size:14px;font-weight:700;padding-bottom:8px;}
+.delta.up{color:var(--win);}
+.delta.down{color:var(--loss);}
+.delta.na{color:var(--gray);}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media (min-width:560px){.stat-grid{grid-template-columns:1fr 1fr 1fr;}}
+.stat{background:var(--gray-lighter);border-radius:10px;padding:12px;}
+.stat .num{font-family:'Bebas Neue';font-size:22px;letter-spacing:.5px;color:var(--navy);line-height:1;}
+.stat .lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;margin-top:4px;}
+.note{font-size:13px;color:var(--gray);background:var(--sand);border:1px solid var(--sand-border);border-radius:10px;padding:12px 14px;line-height:1.5;}
+.note a{color:var(--navy);font-weight:700;text-decoration:none;}
+.note ul{margin:8px 0 0 18px;}
+.note li{margin-bottom:6px;}
+.empty{font-size:14px;color:var(--gray);padding:6px 0;}
+.lb-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--sand-border);}
+.lb-row:last-child{border-bottom:none;}
+.lb-row.me{background:#fffbe9;border-left:3px solid var(--accent);border-radius:6px;}
+.lb-rank{width:42px;font-family:'Bebas Neue';font-size:16px;color:var(--gray);}
+.lb-name{flex:1;font-weight:600;font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lb-rating{font-family:'Bebas Neue';font-size:18px;letter-spacing:.5px;color:var(--navy);}
+.lb-sep{text-align:center;color:var(--gray-light);font-size:14px;padding:4px 0;letter-spacing:2px;}
+.ev{border:1px solid var(--sand-border);border-radius:10px;padding:12px 14px;margin-bottom:10px;display:block;text-decoration:none;color:inherit;}
+.ev:active{background:var(--gray-lighter);}
+.ev-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.ev-name{font-weight:700;font-size:15px;color:var(--navy);}
+.ev-meta{font-size:12px;color:var(--gray);margin-top:3px;}
+.badge{font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;white-space:nowrap;}
+.badge-in{background:var(--win-bg);color:var(--win);}
+.badge-wait{background:var(--wait-bg);color:var(--wait);}
+.game{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--sand-border);}
+.game:last-child{border-bottom:none;}
+.game-main{flex:1;min-width:0;}
+.game-line{font-size:14px;font-weight:600;color:var(--ink);}
+.game-sub{font-size:12px;color:var(--gray);margin-top:2px;}
+.game-right{text-align:right;white-space:nowrap;}
+.res{font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;}
+.res.w{color:var(--win);}
+.res.l{color:var(--loss);}
+.chg{font-size:12px;font-weight:700;margin-top:2px;}
+.chg.up{color:var(--win);}
+.chg.down{color:var(--loss);}
+.chg.flat{color:var(--gray);}
+.src-tag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--gray);background:var(--gray-lighter);border-radius:4px;padding:2px 6px;margin-right:6px;}
+.btn-gold{background:var(--accent);color:var(--navy-deep);}
+.btn-gold:active{filter:brightness(.95);}
+
 .gated{display:none;}
 .gated.on{display:block;}
 </style>
@@ -122,6 +185,88 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="rating" id="who-rating">
       <strong>—</strong>
       <span>No rating yet</span>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- OVERVIEW TAB: read-only stat blocks ported from community/dashboard. Default
+       tab on load. once('value') reads only; no writes from this tab. -->
+  <div id="tab-overview" class="tab-panel active">
+
+    <!-- 1) RATING CARD -->
+    <section class="section">
+      <h3>Your rating</h3>
+      <div id="card-rating"><div class="empty">Loading...</div></div>
+    </section>
+
+    <!-- 2) EMPTY STATE (only when unrated) -->
+    <section class="section" id="card-getstarted" style="display:none;">
+      <h3>Get your rating started</h3>
+      <div class="note">
+        You do not have a rating yet. Here is how to get one.
+        <ul>
+          <li>Enter your TruVolley number in the Settings tab to get an instant starting rating. <a href="https://truvolley.com/ratings" target="_blank" rel="noopener">Find your TruVolley number</a>.</li>
+          <li>League games will also build your rating over time.</li>
+          <li>Counted in-app pickup games are coming soon. They will build your rating once the count this game option goes live.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 3) RATING LEADERBOARD -->
+    <section class="section">
+      <h3>Rating leaderboard</h3>
+      <div id="card-leaderboard"><div class="empty">Loading...</div></div>
+    </section>
+
+    <!-- 4) PICKUPS YOU QUALIFY FOR -->
+    <section class="section">
+      <h3>Pickups you qualify for</h3>
+      <div class="actions" style="margin-bottom:14px;">
+        <a class="btn btn-gold btn-w" href="/pickup/">Schedule a Pickup</a>
+      </div>
+      <div id="card-pickups"><div class="empty">Loading...</div></div>
+    </section>
+
+    <!-- 5) YOUR GAMES + PERFORMANCE -->
+    <section class="section">
+      <h3>Your games and performance</h3>
+      <div id="card-games"><div class="empty">Loading...</div></div>
+    </section>
+
+    <!-- 6) FUTURE: COUNT-TOWARD-RATINGS (display only) -->
+    <section class="section">
+      <h3>Coming soon</h3>
+      <div class="note">
+        A count this game toward ratings option for in-app pickups is in development. Once it ships, eligible pickup games will build your rating the same way league games do today.
+      </div>
+    </section>
+
+  </div>
+
+  <!-- SETTINGS TAB: the page's existing editable form + password change, plus the
+       notification controls migrated from the pickup settings modal. -->
+  <div id="tab-settings" class="tab-panel">
+
+  <section class="section">
+    <h3>Notifications</h3>
+    <p class="sub">Pickup invites and reminders. These settings sync with the pickup app.</p>
+    <div id="blocked-banner" class="blocked-banner"></div>
+    <label class="toggle">
+      <input type="checkbox" id="f-notif">
+      <span class="tlbl">Send me invites</span>
+    </label>
+    <div class="help">Used for pickup invites and 24-hour reminders. Only the admin can see your email.</div>
+    <div class="fg" style="margin-top:14px;">
+      <label class="lbl" for="f-mute">Mute notifications until</label>
+      <input class="inp" id="f-mute" type="date">
+      <div class="help" id="mute-help">Leave blank to keep notifications on.</div>
+    </div>
+    <div class="actions" style="margin-top:14px;">
+      <button type="button" class="btn btn-p btn-w" id="notif-save-btn" onclick="doSaveNotifications()">Save Notification Settings</button>
     </div>
   </section>
 
@@ -281,6 +426,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
   </section>
 
+  </div><!-- /#tab-settings -->
+
 </main>
 
 <div class="toast" id="toast"></div>
@@ -297,14 +444,27 @@ const FB_CFG = {
 };
 const ROSTER_PATH = 'tally_kotb_pickup/players';
 const RATINGS_PATH = 'tally_kotb_pickup/ratings';
+const INVITES_PATH = 'tally_kotb_pickup/invites';
+const GROUPS_PATH = 'tally_kotb_pickup/groups';
 const WELCOMED_KEY = 'courtsenseProfileWelcomed';
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 let db = null;
 let currentPid = null;
 let currentDisplayName = '';
+let myKey = ''; // nameKey(currentDisplayName); the key ratings/history/leaderboard resolve by
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Two-tab shell (Overview | Settings). Overview is the default glanceable view;
+// Stage 2 fills it with the dashboard stat blocks. Settings holds the existing
+// editable form, password change, and the migrated notification controls.
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+}
 
 function readQuery(){
   const p = new URLSearchParams(window.location.search);
@@ -341,6 +501,60 @@ function doSkip(){
 
 function doLogout(){
   CourtSenseAuth.logout();
+}
+
+// ── NOTIFICATIONS (migrated from identity.js openProfile modal) ──────────────
+// Reads/writes the SAME flat fields on the players record the pickup settings
+// modal uses: notificationsEnabled, muteUntil (and reads blocked/blockedReason).
+// Keyed by the account id (currentPid), NOT nameKey — matching the modal, whose
+// local identity key is pinned to player.id on pickup login. Email is deliberately
+// not edited here: post-Track-B it comes from the session and shows in the who-bar,
+// and we never write it back to the public players record. Name is not written
+// either, so an imported {first,last} record is never clobbered with a string.
+function fillNotifications(p){
+  p = p || {};
+  const blocked = !!p.blocked;
+  const banner = $('blocked-banner');
+  if(blocked){
+    banner.classList.add('on');
+    banner.innerHTML = '<strong>Account blocked.</strong>' +
+      (p.blockedReason ? ' ' + esc(p.blockedReason) + '.' : '') +
+      ' Contact the admin to update.';
+  } else {
+    banner.classList.remove('on');
+    banner.textContent = '';
+  }
+  // notificationsEnabled defaults ON; only an explicit false disables (mirrors modal).
+  $('f-notif').checked = p.notificationsEnabled !== false;
+  const muteMs = (typeof p.muteUntil === 'number') ? p.muteUntil : null;
+  $('f-mute').value = muteMs ? new Date(muteMs).toISOString().slice(0,10) : '';
+  const muted = muteMs && muteMs > Date.now();
+  $('mute-help').textContent = muted
+    ? ('Currently muted until ' + new Date(muteMs).toLocaleDateString())
+    : 'Leave blank to keep notifications on.';
+  // Lock the controls while blocked, exactly as the modal does.
+  $('f-notif').disabled = blocked;
+  $('f-mute').disabled = blocked;
+  $('notif-save-btn').disabled = blocked;
+}
+
+function doSaveNotifications(){
+  if(!currentPid){ toast('Not signed in.'); return; }
+  const notif = $('f-notif').checked;
+  const muteVal = $('f-mute').value;
+  const muteUntil = muteVal ? new Date(muteVal + 'T23:59:59').getTime() : null;
+  // Same write target as the modal: players/{accountId}.update({ flat fields }).
+  db.ref(ROSTER_PATH + '/' + currentPid).update({
+    notificationsEnabled: !!notif,
+    muteUntil: muteUntil,
+    updatedAt: Date.now()
+  }).then(() => {
+    toast('Notification settings saved');
+    const muted = muteUntil && muteUntil > Date.now();
+    $('mute-help').textContent = muted
+      ? ('Currently muted until ' + new Date(muteUntil).toLocaleDateString())
+      : 'Leave blank to keep notifications on.';
+  }).catch(err => { console.error('notif save failed', err); toast("Couldn't save. Try again."); });
 }
 
 function fillFromProfile(profile){
@@ -539,21 +753,369 @@ function displayNameOf(p){
   return 'My Profile';
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// OVERVIEW TAB — read-only stats ported verbatim from community/dashboard.
+// Same nodes (ratings, invites, groups), same computations, same keying:
+//   - rating, history, leaderboard, games resolve by myKey = nameKey(displayName)
+//   - profile is NOT read here (that is the Settings tab's job, by account id)
+// once('value') reads only. No code path below writes to Firebase.
+// ══════════════════════════════════════════════════════════════════════════
+
+function num(v){ return (typeof v === 'number' && isFinite(v)) ? v : null; }
+function fmtDateMs(ms){
+  const n = num(ms);
+  if(n == null) return 'N/A';
+  try { return new Date(n).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  catch(e){ return 'N/A'; }
+}
+function fmtEventDate(dateStr){
+  if(!dateStr) return '';
+  try { return new Date(dateStr+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+  catch(e){ return String(dateStr); }
+}
+function fmtTime(t){
+  if(!t || typeof t !== 'string' || t.indexOf(':') < 0) return '';
+  const parts = t.split(':');
+  let h = parseInt(parts[0], 10);
+  const m = parts[1];
+  if(isNaN(h)) return '';
+  const ap = h >= 12 ? 'PM' : 'AM';
+  let hh = h % 12; if(hh === 0) hh = 12;
+  return hh + ':' + m + ' ' + ap;
+}
+function sourceLabel(s){
+  if(s === 'pickup') return 'Pickup';
+  if(s === 'league_kings') return 'League (Kings)';
+  if(s === 'league_queens') return 'League (Queens)';
+  return 'Game';
+}
+
+// Leaderboard: every record with a numeric rating, sorted desc, ranked.
+function computeBoard(ratingsAll){
+  return Object.keys(ratingsAll || {})
+    .map(k => ({ key: k, rec: ratingsAll[k] }))
+    .filter(x => x.rec && num(x.rec.rating) != null)
+    .map(x => ({ key: x.key, name: (x.rec.name || x.key), rating: x.rec.rating }))
+    .sort((a, b) => b.rating - a.rating)
+    .map((x, i) => { x.rank = i + 1; return x; });
+}
+
+// Month-over-month: most recent history entry at or before (now - 30d).
+function monthDelta(rec){
+  if(!rec || num(rec.rating) == null) return null;
+  const hist = (rec.history && typeof rec.history === 'object') ? Object.values(rec.history) : [];
+  const cutoff = Date.now() - MONTH_MS;
+  let best = null;
+  hist.forEach(h => {
+    if(h && num(h.timestamp) != null && h.timestamp <= cutoff && num(h.ratingAfter) != null){
+      if(!best || h.timestamp > best.timestamp) best = h;
+    }
+  });
+  if(!best) return null;
+  return rec.rating - best.ratingAfter;
+}
+
+function eventStartMs(inv){
+  if(!inv || !inv.date) return 0;
+  const t = (inv.startTime && /^\d{1,2}:\d{2}$/.test(inv.startTime)) ? inv.startTime : '00:00';
+  const ms = new Date(inv.date + 'T' + t + ':00').getTime();
+  return isNaN(ms) ? 0 : ms;
+}
+
+function isInGroup(groupId, groupsAll){
+  const g = (groupsAll || {})[groupId];
+  const members = (g && Array.isArray(g.members)) ? g.members : [];
+  return members.some(m => nameKey(m) === myKey);
+}
+
+// Rating-number eligibility (matches the dashboard spec). myRating is number or null.
+function qualifies(inv, myRating, groupsAll){
+  const e = inv.eligibility || {};
+  const mode = e.baseMode || 'all';
+  let ok;
+  if(mode === 'ratingMin'){
+    const min = num(parseFloat(e.ratingMin)) != null ? parseFloat(e.ratingMin) : 0;
+    ok = (min === 0) ? true : (myRating != null && myRating >= min);
+  } else if(mode === 'ratingRange'){
+    const min = num(parseFloat(e.ratingMin)) != null ? parseFloat(e.ratingMin) : 0;
+    const maxRaw = parseFloat(e.ratingMax);
+    const max = isFinite(maxRaw) ? maxRaw : Infinity;
+    ok = (myRating != null && myRating >= min && myRating <= max);
+  } else if(mode === 'group'){
+    ok = isInGroup(e.groupId, groupsAll);
+  } else {
+    ok = true; // 'all' or unknown -> open
+  }
+  const inc = (Array.isArray(e.includeList) ? e.includeList : []).map(nameKey);
+  const exc = (Array.isArray(e.excludeList) ? e.excludeList : []).map(nameKey);
+  if(inc.indexOf(myKey) >= 0) ok = true;
+  if(exc.indexOf(myKey) >= 0) ok = false;
+  return ok;
+}
+
+function renderRating(myRec, board){
+  const el = $('card-rating');
+  const rating = myRec ? num(myRec.rating) : null;
+
+  if(rating == null){
+    el.innerHTML =
+      '<div class="rating-hero"><div class="big-rating na">N/A</div></div>' +
+      '<div class="empty">No rating yet. See the getting started steps below.</div>';
+    $('card-getstarted').style.display = 'block';
+    return;
+  }
+  $('card-getstarted').style.display = 'none';
+
+  const mine = board.find(x => x.key === myKey);
+  const rankStr = mine ? ('#' + mine.rank + ' of ' + board.length) : 'N/A';
+
+  const delta = monthDelta(myRec);
+  let deltaHtml;
+  if(delta == null){
+    deltaHtml = '<span class="delta na">30 day change: N/A</span>';
+  } else {
+    const d = Math.round(delta);
+    const cls = d > 0 ? 'up' : (d < 0 ? 'down' : 'na');
+    const arrow = d > 0 ? '▲' : (d < 0 ? '▼' : '');
+    const sign = d > 0 ? '+' : '';
+    deltaHtml = '<span class="delta ' + cls + '">' + arrow + ' ' + sign + d + ' in 30 days</span>';
+  }
+
+  const gp = num(myRec.gamesPlayed);
+  const histCount = (myRec.history && typeof myRec.history === 'object') ? Object.keys(myRec.history).length : 0;
+  const gamesStr = (gp != null) ? String(gp) : (histCount ? String(histCount) : '0');
+
+  const peak = num(myRec.peakRating);
+  const peakStr = (peak != null) ? String(Math.round(peak)) : 'N/A';
+  const peakDate = fmtDateMs(myRec.peakRatingDate);
+
+  el.innerHTML =
+    '<div class="rating-hero">' +
+      '<div class="big-rating">' + Math.round(rating) + '</div>' +
+      deltaHtml +
+    '</div>' +
+    '<div class="stat-grid">' +
+      '<div class="stat"><div class="num">' + esc(rankStr) + '</div><div class="lbl">Rank</div></div>' +
+      '<div class="stat"><div class="num">' + esc(gamesStr) + '</div><div class="lbl">Games played</div></div>' +
+      '<div class="stat"><div class="num">' + esc(peakStr) + '</div><div class="lbl">Peak rating</div>' +
+        (peak != null ? '<div class="lbl" style="text-transform:none;letter-spacing:0;">' + esc(peakDate) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+}
+
+function renderLeaderboard(board, hasMyRating){
+  const el = $('card-leaderboard');
+  if(!board.length){
+    el.innerHTML = '<div class="empty">No ratings yet.</div>';
+    return;
+  }
+  function row(x){
+    const me = x.key === myKey ? ' me' : '';
+    return '<div class="lb-row' + me + '">' +
+      '<div class="lb-rank">#' + x.rank + '</div>' +
+      '<div class="lb-name">' + esc(x.name) + '</div>' +
+      '<div class="lb-rating">' + Math.round(x.rating) + '</div>' +
+      '</div>';
+  }
+
+  const TOP = 10;
+  let html = board.slice(0, TOP).map(row).join('');
+
+  const myIdx = board.findIndex(x => x.key === myKey);
+  if(myIdx >= TOP){
+    const start = Math.max(TOP, myIdx - 4);
+    const end = Math.min(board.length - 1, myIdx + 5);
+    const windowRows = board.slice(start, end + 1);
+    if(windowRows.length){
+      if(start > TOP){
+        html += '<div class="lb-sep">. . .</div>';
+      }
+      html += windowRows.map(row).join('');
+    }
+  }
+
+  if(!hasMyRating){
+    html += '<div class="note" style="margin-top:12px;">You are not yet ranked. Get a rating to join the board.</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderPickups(invitesAll, myRating, groupsAll, hasMyRating){
+  const el = $('card-pickups');
+  const now = Date.now();
+  const list = Object.keys(invitesAll || {})
+    .map(id => invitesAll[id])
+    .filter(inv => inv && inv.status === 'open')
+    .filter(inv => eventStartMs(inv) > now)
+    .filter(inv => qualifies(inv, myRating, groupsAll))
+    .sort((a, b) => eventStartMs(a) - eventStartMs(b));
+
+  if(!list.length){
+    let html = '<div class="empty">No qualifying pickups right now.</div>';
+    if(!hasMyRating){
+      html += '<div class="note" style="margin-top:10px;">You are seeing open pickups only. Rating gated pickups will appear once you have a rating.</div>';
+    }
+    el.innerHTML = html;
+    return;
+  }
+
+  const rows = list.map(inv => {
+    const rsvps = inv.rsvps || {};
+    const mine = rsvps[myKey];
+    let badge = '';
+    if(mine && mine.status === 'confirmed') badge = '<span class="badge badge-in">YOU ARE IN</span>';
+    else if(mine && mine.status === 'waitlist') badge = '<span class="badge badge-wait">WAITLIST</span>';
+
+    const confirmed = Object.values(rsvps).filter(r => r && r.status === 'confirmed').length;
+    const slots = num(inv.slots) != null ? inv.slots : 8;
+    const when = fmtEventDate(inv.date) + (fmtTime(inv.startTime) ? ' at ' + fmtTime(inv.startTime) : '');
+    const where = inv.location ? ' · ' + esc(inv.location) : '';
+
+    return '<a class="ev" href="/pickup">' +
+        '<div class="ev-top">' +
+          '<div class="ev-name">' + esc(inv.name || 'Pickup') + '</div>' + badge +
+        '</div>' +
+        '<div class="ev-meta">' + esc(when) + where + '</div>' +
+        '<div class="ev-meta">' + confirmed + ' of ' + slots + ' confirmed</div>' +
+      '</a>';
+  }).join('');
+
+  let html = rows;
+  if(!hasMyRating){
+    html += '<div class="note" style="margin-top:6px;">You are seeing open pickups only. Rating gated pickups will appear once you have a rating.</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderGames(myRec){
+  const el = $('card-games');
+  const hist = (myRec && myRec.history && typeof myRec.history === 'object') ? Object.values(myRec.history) : [];
+  if(!hist.length){
+    el.innerHTML = '<div class="empty">No games recorded yet.</div>';
+    return;
+  }
+
+  let wins = 0, losses = 0;
+  hist.forEach(h => { if(h && h.won) wins++; else if(h) losses++; });
+  const total = wins + losses;
+  const winPct = total ? Math.round((wins / total) * 100) + '%' : 'N/A';
+
+  const byPartner = {};
+  hist.forEach(h => {
+    if(!h || !h.partner) return;
+    const k = nameKey(h.partner);
+    if(!byPartner[k]) byPartner[k] = { name: h.partner, g: 0, w: 0 };
+    byPartner[k].g++;
+    if(h.won) byPartner[k].w++;
+  });
+  const qualified = Object.values(byPartner).filter(p => p.g >= 2)
+    .map(p => ({ name: p.name, g: p.g, w: p.w, rate: p.w / p.g }));
+  let best = null, worst = null;
+  qualified.forEach(p => {
+    if(!best || p.rate > best.rate || (p.rate === best.rate && p.g > best.g)) best = p;
+    if(!worst || p.rate < worst.rate || (p.rate === worst.rate && p.g > worst.g)) worst = p;
+  });
+  const bestStr  = best  ? esc(best.name)  + ' (' + Math.round(best.rate * 100)  + '%, ' + best.g  + ' games)' : 'N/A';
+  const worstStr = worst ? esc(worst.name) + ' (' + Math.round(worst.rate * 100) + '%, ' + worst.g + ' games)' : 'N/A';
+
+  const recent = hist.slice().sort((a, b) => (num(b && b.timestamp) || 0) - (num(a && a.timestamp) || 0)).slice(0, 10);
+  const rows = recent.map(h => {
+    const won = !!(h && h.won);
+    const date = fmtDateMs(h && h.timestamp);
+    const partner = (h && h.partner) ? ('with ' + esc(h.partner)) : 'solo';
+    const opp = [h && h.opponent1, h && h.opponent2].filter(Boolean).map(esc).join(' and ') || 'opponent';
+    const myScore = num(h && h.score);
+    const oppScore = num(h && h.opponentScore);
+    const scoreStr = (myScore != null && oppScore != null) ? (myScore + ' to ' + oppScore) : '';
+    const chg = num(h && h.ratingChange);
+    let chgHtml = '';
+    if(chg != null){
+      const r = Math.round(chg);
+      const cls = r > 0 ? 'up' : (r < 0 ? 'down' : 'flat');
+      const sign = r > 0 ? '+' : '';
+      chgHtml = '<div class="chg ' + cls + '">' + sign + r + '</div>';
+    }
+    return '<div class="game">' +
+        '<div class="game-main">' +
+          '<div class="game-line"><span class="src-tag">' + esc(sourceLabel(h && h.source)) + '</span>vs ' + opp + '</div>' +
+          '<div class="game-sub">' + esc(date) + ' · ' + partner + (scoreStr ? ' · ' + scoreStr : '') + '</div>' +
+        '</div>' +
+        '<div class="game-right">' +
+          '<div class="res ' + (won ? 'w' : 'l') + '">' + (won ? 'WON' : 'LOST') + '</div>' +
+          chgHtml +
+        '</div>' +
+      '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="stat-grid" style="margin-bottom:14px;">' +
+      '<div class="stat"><div class="num">' + wins + ' - ' + losses + '</div><div class="lbl">Record</div></div>' +
+      '<div class="stat"><div class="num">' + esc(winPct) + '</div><div class="lbl">Win rate</div></div>' +
+      '<div class="stat"><div class="num">' + total + '</div><div class="lbl">Games</div></div>' +
+    '</div>' +
+    '<div class="stat-grid" style="margin-bottom:14px;">' +
+      '<div class="stat"><div class="num" style="font-size:15px;">' + bestStr + '</div><div class="lbl">Best partner</div></div>' +
+      '<div class="stat"><div class="num" style="font-size:15px;">' + worstStr + '</div><div class="lbl">Toughest partner</div></div>' +
+    '</div>' +
+    rows;
+}
+
+function renderOverviewError(){
+  ['card-rating','card-leaderboard','card-pickups','card-games'].forEach(id => {
+    const el = $(id);
+    if(el) el.innerHTML = '<div class="empty">Could not load this right now. Please refresh.</div>';
+  });
+}
+
+// Read-only load: ratings + invites + groups in parallel, then render the blocks.
+// myKey must be set (by onLogin) before this runs.
+async function loadOverview(){
+  try {
+    const reads = await Promise.all([
+      db.ref(RATINGS_PATH).once('value'),
+      db.ref(INVITES_PATH).once('value'),
+      db.ref(GROUPS_PATH).once('value')
+    ]);
+    const ratingsAll = reads[0].val() || {};
+    const invitesAll = reads[1].val() || {};
+    const groupsAll  = reads[2].val() || {};
+
+    const myRec = ratingsAll[myKey] || null;
+    const myRating = myRec ? num(myRec.rating) : null;
+    const hasMyRating = myRating != null;
+    const board = computeBoard(ratingsAll);
+
+    renderRating(myRec, board);
+    renderLeaderboard(board, hasMyRating);
+    renderPickups(invitesAll, myRating, groupsAll, hasMyRating);
+    renderGames(myRec);
+  } catch(e){
+    console.warn('overview load failed', e);
+    renderOverviewError();
+  }
+}
+
 async function onLogin(player){
   currentPid = player.id;
   currentDisplayName = player.displayName || displayNameOf(player);
+  myKey = nameKey(currentDisplayName);
   $('who-name').textContent = displayNameOf(player);
   $('who-email').textContent = player.email || (player.emails && player.emails.primary) || '';
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');
 
   fillFromProfile(player.profile);
+  fillNotifications(player);
   loadRating(currentDisplayName);
+  // Overview is the default tab, so it must render on first paint for a logged-in
+  // user. Read-only; defensive (unrated players hit the empty state, not an error).
+  loadOverview();
   maybeShowWelcome();
 }
 
 function onLogout(){
   currentPid = null;
+  myKey = '';
   $('page').classList.remove('on');
   $('logout-btn').style.display = 'none';
 }

@@ -20,7 +20,7 @@
  *   - CourtSenseAuth present AND currentPlayer() truthy -> "Log Out"
  *       (calls the page's doLogout() if defined, else CourtSenseAuth.logout())
  *   - CourtSenseAuth present, logged out -> "Log In" (CourtSenseAuth.showLogin())
- *   - no CourtSenseAuth on the page -> "Log In" linking to /community/dashboard/
+ *   - no CourtSenseAuth on the page -> "Log In" linking to /community/profile/
  *   Refresh with window.CourtSenseNav.refresh() (pages can call it from their
  *   onLogin/onLogout). Also re-checks on window focus as a best-effort fallback.
  *
@@ -29,11 +29,11 @@
 (function(global){
   if(global.CourtSenseNav) return;
 
-  var DASHBOARD = '/community/dashboard/';
+  var PROFILE = '/community/profile/';
   var LINKS = [
     { key: 'home',    label: 'Home',    href: '/community/' },
     { key: 'pickup',  label: 'Pickup',  href: '/pickup/' },
-    { key: 'profile', label: 'Profile', href: DASHBOARD }
+    { key: 'profile', label: 'Profile', href: PROFILE }
   ];
 
   var STYLE = ''
@@ -81,7 +81,7 @@
       if(p) return { label: 'Log Out', kind: 'logout' };
       return { label: 'Log In', kind: 'showlogin' };
     }
-    return { label: 'Log In', kind: 'link', href: DASHBOARD };
+    return { label: 'Log In', kind: 'link', href: PROFILE };
   }
 
   function doAuthAction(kind, href){
@@ -92,7 +92,7 @@
       } else if(kind === 'showlogin'){
         if(global.CourtSenseAuth && global.CourtSenseAuth.showLogin) global.CourtSenseAuth.showLogin();
       } else if(kind === 'link'){
-        location.href = href || DASHBOARD;
+        location.href = href || PROFILE;
       }
     } catch(e){ /* never let the nav throw */ }
   }
