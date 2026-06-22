@@ -226,6 +226,14 @@
     const muted = profile.muteUntil && profile.muteUntil > Date.now();
     const muteISO = profile.muteUntil ? new Date(profile.muteUntil).toISOString().slice(0,10) : '';
 
+    // Owner email comes from the authenticated session (CourtSenseAuth), which the
+    // worker serves from the private node. The public players record no longer
+    // carries email after the Track B strip, so fall back to it only for non-authed
+    // contexts (e.g. KotB) where it may still be present. Owner viewing own record.
+    const _auth = (global.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+    const ownerEmail = (_auth && (_auth.email || (_auth.emails && _auth.emails.primary)))
+      || (profile.emails && profile.emails.primary) || profile.email || '';
+
     const html = `
       <div class="idy-title"><span>My Profile</span><button class="idy-close" id="idy-pclose">✕</button></div>
       <div class="idy-section" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
@@ -237,7 +245,7 @@
       ${isBlocked ? `<div class="idy-blocked"><strong>Account blocked.</strong>${profile.blockedReason ? ' '+escHTML(profile.blockedReason)+'.' : ''} Contact the admin to update.</div>` : ''}
       <div class="idy-section">
         <label class="idy-lbl" for="idy-email">Email for invites</label>
-        <input class="idy-input" id="idy-email" type="email" placeholder="you@example.com" value="${escHTML((profile.emails && profile.emails.primary) || profile.email || '')}" ${isBlocked?'disabled':''}>
+        <input class="idy-input" id="idy-email" type="email" placeholder="you@example.com" value="${escHTML(ownerEmail)}" ${isBlocked?'disabled':''}>
         <div class="idy-msg">${isBlocked ? 'Email is locked while your account is blocked.' : 'Used for pickup invites and 24-hour reminders. Only the admin can see this.'}</div>
       </div>
       <div class="idy-section">

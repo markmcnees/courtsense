@@ -601,7 +601,7 @@ function recordsArray(){
 
 function renderList(){
   const filter = ($('search').value||'').toLowerCase().trim();
-  const all = recordsArray().filter(r => !filter || r.name.toLowerCase().includes(filter) || (r.email||'').toLowerCase().includes(filter));
+  const all = recordsArray().filter(r => !filter || r.name.toLowerCase().includes(filter) || (contactEmail(r.key)||'').toLowerCase().includes(filter));
   $('count').textContent = all.length;
   // Summary counts are computed from the FULL record set (not the filtered view).
   // claimed and precreated partition the total; "with profile" is a subset of claimed.
@@ -633,13 +633,13 @@ function renderList(){
       actionBtns += `<button class="btn btn-g" onclick="doUnblock('${esc(r.key)}')">Unblock</button>`;
     } else {
       actionBtns += `<button class="btn btn-g" onclick="doResetPassword('${esc(r.key)}')">Reset Password</button>`;
-      if(r.email) actionBtns += `<button class="btn btn-g" onclick="openClearEmail('${esc(r.key)}')">Clear Email</button>`;
+      if(contactEmail(r.key)) actionBtns += `<button class="btn btn-g" onclick="openClearEmail('${esc(r.key)}')">Clear Email</button>`;
       actionBtns += `<button class="btn btn-d" onclick="openBlock('${esc(r.key)}')">Block</button>`;
     }
     const reasonLine = r.blocked && r.blockedReason ? `<div style="font-size:11px;color:var(--gray);margin-top:2px;">${esc(r.blockedReason)}</div>` : '';
     return `<tr class="${r.blocked?'blocked':''}">
       <td><strong>${esc(r.name)}</strong>${reasonLine}<div style="font-size:11px;color:var(--gray);margin-top:2px;">key: ${esc(r.key)}</div></td>
-      <td class="email">${esc(r.email || '-')}</td>
+      <td class="email">${esc(contactEmail(r.key) || '-')}</td>
       <td>${tags||'<span class="tag notif-off">NO PROFILE</span>'}</td>
       <td><div class="actions">${actionBtns}</div></td>
     </tr>`;

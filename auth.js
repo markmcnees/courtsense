@@ -286,7 +286,7 @@
         errEl.textContent = res.error || 'Login failed';
         return;
       }
-      persistSession(res.playerId, !!(keepEl && keepEl.checked));
+      persistSession(res.playerId, !!(keepEl && keepEl.checked), (res.player && (res.player.email || (res.player.emails && res.player.emails.primary))) || '');
       pwEl.value = '';
       hideLogin();
       if(typeof _onLogin === 'function') _onLogin(res.player);
@@ -342,14 +342,20 @@
   // Remember-me: localStorage with exp (75 days). Default: sessionStorage,
   // which clears on browser close. Writing one always clears the other so
   // there is exactly one source of truth for the active session.
-  function persistSession(playerId, keepSignedIn){
+  function persistSession(playerId, keepSignedIn, email){
     const now = Date.now();
+    // Persist the owner's own email alongside the session so auto-login can serve
+    // it without reading the public players node, which no longer carries email
+    // after the Track B strip. This is the owner's own email on the owner's own
+    // device; it is never another player's data.
+    const base = { playerId, ts: now };
+    if(email) base.email = email;
     if(keepSignedIn){
-      const exp = now + 75 * 24 * 60 * 60 * 1000;
-      try { localStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now, exp })); } catch(e){}
+      base.exp = now + 75 * 24 * 60 * 60 * 1000;
+      try { localStorage.setItem(SS_KEY, JSON.stringify(base)); } catch(e){}
       try { sessionStorage.removeItem(SS_KEY); } catch(e){}
     } else {
-      try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now })); } catch(e){}
+      try { sessionStorage.setItem(SS_KEY, JSON.stringify(base)); } catch(e){}
       try { localStorage.removeItem(SS_KEY); } catch(e){}
     }
   }
@@ -389,6 +395,13 @@
       _currentPlayer = Object.assign({ id: parsed.playerId }, player);
       _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
       delete _currentPlayer.passwordHash;
+      // Owner email is served from the persisted session (captured at login),
+      // since the public players record no longer carries email after the Track B
+      // strip. Only the owner sees their own email.
+      if(parsed.email){
+        _currentPlayer.email = parsed.email;
+        _currentPlayer.emails = Object.assign({}, _currentPlayer.emails, { primary: parsed.email });
+      }
       return _currentPlayer;
     } catch(e) {
       console.warn('CourtSenseAuth autoLogin read failed', e);
@@ -610,7 +623,7 @@
     // Set session so the new account is immediately logged in. keepSignedIn
     // defaults to false to preserve prior behavior for callers that omit it;
     // the in-overlay register flow passes the checkbox value explicitly.
-    persistSession(playerKey, !!o.keepSignedIn);
+    persistSession(playerKey, !!o.keepSignedIn, emailLower);
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
     _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
