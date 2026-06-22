@@ -573,9 +573,10 @@
     const now = Date.now();
     const emailLower = email.toLowerCase();
     // No passwordHash here: the password is set server-side via /auth/register
-    // below, which writes the hash to the locked-down credentials node.
+    // below, which writes the hash to the locked-down credentials node. No email
+    // here either: the public players record never carries email (Track B). The
+    // email is written to the deny-default private node server-side by /auth/register.
     const playerRecord = {
-      email: emailLower,
       displayName: displayName,
       name: displayName, // legacy field used by the login picker (auth.js displayNameOf)
       city: city,
@@ -601,10 +602,11 @@
       const rr = await fetch(AUTH_WORKER + '/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: _rosterPath, playerId: playerKey, password: password })
+        body: JSON.stringify({ rosterPath: _rosterPath, playerId: playerKey, password: password, email: emailLower })
       });
       const reg = await rr.json();
       regOk = !!(reg && reg.ok === true);
+      if(regOk && reg.emailMirrored === false) console.warn('CourtSenseAuth.createPlayer: email was not mirrored to the private node');
     } catch(e){
       console.error('CourtSenseAuth.createPlayer: register failed', e);
     }
@@ -627,6 +629,11 @@
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
     _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
+    // Owner email lives in the private node + the session, never on the public
+    // record. Attach it to the in-memory session so owner views show it immediately
+    // after signup (persistSession also stores it for auto-login).
+    _currentPlayer.email = emailLower;
+    _currentPlayer.emails = { primary: emailLower };
 
     // Welcome email via the worker /notify endpoint (recipient resolved
     // server-side from the just-created record). Fire-and-forget.
