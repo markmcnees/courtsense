@@ -98,7 +98,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .blocked-banner{background:#fee2e2;color:#7f1d1d;border:1px solid #fca5a5;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px;line-height:1.45;display:none;}
 .blocked-banner.on{display:block;}
 .soon-tag{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--gray);background:var(--gray-lighter);border-radius:4px;padding:1px 6px;vertical-align:middle;}
-#notif-roadmap{margin-top:12px;}
+.roadmap-callout{margin-top:14px;background:rgba(26,58,107,0.05);border:1px solid var(--sand-border);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;color:var(--ink);}
+.roadmap-callout .rc-lead{display:block;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;color:var(--navy);margin-bottom:3px;}
 
 /* ── Overview stat blocks (ported from community/dashboard; class names are
    distinct from the Settings form, so this is additive and does not affect it) ── */
@@ -265,7 +266,10 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <label class="toggle"><input type="checkbox" id="f-notify-canceled"><span class="tlbl">Game canceled <span class="soon-tag">coming soon</span></span></label>
       <label class="toggle"><input type="checkbox" id="f-notify-changed"><span class="tlbl">Game details changed <span class="soon-tag">coming soon</span></span></label>
     </div>
-    <div class="help" id="notif-roadmap">Notifications reach you by email for now. Text messages are coming soon, and a full app is on the way.</div>
+    <div class="roadmap-callout" id="notif-roadmap">
+      <span class="rc-lead">What's coming</span>
+      Notifications reach you by email for now. Text messages are coming soon, and a full app is on the way.
+    </div>
     <div class="fg" style="margin-top:14px;">
       <label class="lbl" for="f-mute">Mute notifications until</label>
       <input class="inp" id="f-mute" type="date">
