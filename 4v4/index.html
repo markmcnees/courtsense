@@ -608,6 +608,11 @@ function setSeOpenId(id){
     else sessionStorage.removeItem(_seKeyOpen());
   }catch(e){}
 }
+// Score DRAFTS use localStorage (not sessionStorage): localStorage survives a
+// backgrounded-tab discard/reload on Samsung Internet where sessionStorage does not,
+// so an in-progress score is not lost when the user switches apps. The div-state keys
+// (_seKeyWeek/_seKeyOpen via loadDivState/setSeWeek/setSeOpenId) intentionally stay in
+// sessionStorage; only the per-match score draft moved here.
 function saveDraft(mid){
   if(!mid) return;
   const sets = [];
@@ -616,20 +621,39 @@ function saveDraft(mid){
     const b = $('se-s'+i+'b');
     sets.push({a: a ? a.value : '', b: b ? b.value : ''});
   }
-  try{ sessionStorage.setItem(_seKeyDraft(mid), JSON.stringify({sets, opened: true})); }catch(e){}
+  try{ localStorage.setItem(_seKeyDraft(mid), JSON.stringify({sets, opened: true})); }catch(e){}
 }
 function loadDraft(mid){
   try{
-    const raw = sessionStorage.getItem(_seKeyDraft(mid));
+    const raw = localStorage.getItem(_seKeyDraft(mid));
     if(!raw) return null;
     return JSON.parse(raw);
   }catch(e){ return null; }
 }
 function clearDraft(mid){
   if(!mid) return;
-  try{ sessionStorage.removeItem(_seKeyDraft(mid)); }catch(e){}
+  try{ localStorage.removeItem(_seKeyDraft(mid)); }catch(e){}
 }
 function seDraftInput(mid){ saveDraft(mid); }
+
+// One-time migration: copy any score drafts still sitting in sessionStorage (from
+// before this update) into localStorage so an in-progress score is not lost across
+// the upgrade. Only score-draft keys ('4v4_se_'+DIV+'_'+mid) are touched; the
+// div-state keys '4v4_se_week_*' / '4v4_se_open_*' are skipped and left in
+// sessionStorage. Copies only when no localStorage entry already exists.
+function migrateScoreDraftsToLocal(){
+  try{
+    for(let i = sessionStorage.length - 1; i >= 0; i--){
+      const k = sessionStorage.key(i);
+      if(!k || k.indexOf('4v4_se_') !== 0) continue;
+      if(k.indexOf('4v4_se_week_') === 0 || k.indexOf('4v4_se_open_') === 0) continue; // div-state, not a draft
+      if(localStorage.getItem(k) == null){
+        const v = sessionStorage.getItem(k);
+        if(v != null) localStorage.setItem(k, v);
+      }
+    }
+  }catch(e){}
+}
 
 // HELPERS
 const $ = id => document.getElementById(id);
@@ -2805,8 +2829,13 @@ function saveScore(mid, weekNum){
     recordedAt: Date.now()
   };
   fbSet(DIV+'/results/'+mid, result);
+  // Optimistic local update + synchronous re-render so the save shows on the FIRST tap,
+  // instead of waiting for the async Firebase .on('value') echo (the "save twice" feel).
+  // The echo later re-applies the same data idempotently.
+  if(D[DIV] && D[DIV].results) D[DIV].results[mid] = result;
   clearDraft(mid);
   setSeOpenId(null);
+  renderScoreEntry();
   toast('Score saved');
 }
 
@@ -3181,11 +3210,20 @@ function delBoardMsg(id){
 
 // BOOT
 document.addEventListener('DOMContentLoaded', ()=>{
+  migrateScoreDraftsToLocal();
   loadDivState();
   applyAdminLock();
   initTabs();
   renderSwatches();
   initFB();
+  // Flush the open score form to its localStorage draft the moment the tab is hidden,
+  // so the latest typed values are durable before the OS can discard a backgrounded
+  // tab. No-op when no score form is open. Guarded; never throws.
+  try{
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState === 'hidden' && _seOpenId) saveDraft(_seOpenId);
+    });
+  }catch(e){}
 });
 </script>
 </body>
