@@ -2370,6 +2370,54 @@ function isChatEligible(inv, myKey){
   return activeEligibleNames(inv, Date.now()).some(n => Identity.nameKey(n) === myKey);
 }
 
+// Rank a tier's band-matches for "best fit" so each activated tier adds only its top
+// few. Priority: (a) skill proximity to the tier band, then (b) times played WITH the
+// players already RSVP'd to THIS invite, then (c) recency. All from in-memory D.ratings
+// (keyed by nameKey); no Firebase read. computeEligible itself is unchanged.
+function rankTierMatches(candidates, invite, tierSpec){
+  tierSpec = tierSpec || {};
+  const ratings = D.ratings || {};
+  const ratingOfKey = k => (ratings[k] && typeof ratings[k].rating === 'number') ? ratings[k].rating : 1500;
+  // Current RSVP'd set on this invite (confirmed OR waitlist) -> nameKeys (rsvp keys ARE nameKeys).
+  const rsvps = invite.rsvps || {};
+  const rsvpdKeys = new Set(Object.entries(rsvps)
+    .filter(([,r]) => r && (r.status === 'confirmed' || r.status === 'waitlist'))
+    .map(([k]) => k));
+  const min = +tierSpec.ratingMin || 0;
+  const max = +tierSpec.ratingMax || 0;
+  const target = (tierSpec.baseMode === 'ratingRange' && max > 0) ? (min + max) / 2 : min;
+  function proximity(rt){
+    if(tierSpec.baseMode === 'ratingRange') return Math.abs(rt - target);
+    if(tierSpec.baseMode === 'ratingMin')   return Math.max(0, rt - min); // closer to the floor = better
+    return 0; // group/open tiers carry no skill band
+  }
+  function playedWith(key){
+    const rec = ratings[key];
+    if(!rec || !rec.history) return 0;
+    let c = 0;
+    Object.values(rec.history).forEach(h => {
+      if(!h) return;
+      [h.partner, h.opponent1, h.opponent2].forEach(nm => {
+        if(nm && rsvpdKeys.has(Identity.nameKey(nm))) c++;
+      });
+    });
+    return c; // blind spot: sub-only appearances are not in history
+  }
+  function recency(key){
+    const rec = ratings[key];
+    if(!rec) return 0;
+    if(typeof rec.lastUpdated === 'number') return rec.lastUpdated;
+    let mx = 0;
+    if(rec.history) Object.values(rec.history).forEach(h => { if(h && typeof h.timestamp === 'number' && h.timestamp > mx) mx = h.timestamp; });
+    return mx;
+  }
+  return candidates.map(name => {
+    const key = Identity.nameKey(name);
+    return { name, prox: proximity(ratingOfKey(key)), pw: playedWith(key), rec: recency(key) };
+  }).sort((a,b) => (a.prox - b.prox) || (b.pw - a.pw) || (b.rec - a.rec) || a.name.localeCompare(b.name))
+    .map(x => x.name);
+}
+
 function activeEligibleNames(invite, now){
   invite = invite || {};
   now = now || Date.now();
@@ -2386,7 +2434,18 @@ function activeEligibleNames(invite, now){
       tiers.forEach(t => {
         if(!t || !Number.isFinite(+t.atOffsetMins)) return;
         const activatesAt = start - (+t.atOffsetMins)*60000;
-        if(now >= activatesAt) addAll(computeEligible(t.spec || {}));
+        if(now >= activatesAt){
+          // Rank this tier's matches and add only the top 10 NEW names (anyone already
+          // in byKey from the primary circle or an earlier tier is skipped).
+          const ranked = rankTierMatches(computeEligible(t.spec || {}), invite, t.spec || {});
+          let added = 0;
+          for(const n of ranked){
+            if(added >= 10) break;
+            if(byKey.has(Identity.nameKey(n))) continue;
+            byKey.set(Identity.nameKey(n), n);
+            added++;
+          }
+        }
       });
     }
   }
@@ -2914,7 +2973,17 @@ function renderExclude(){
 }
 function toggleIncMember(name, isChecked){
   const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
-  if(isChecked) inviteIncSelected.add(decoded); else inviteIncSelected.delete(decoded);
+  if(isChecked){
+    // Hard-cap the initial invite circle at 10 (this is the create-time email wave).
+    if(!inviteIncSelected.has(decoded) && inviteIncSelected.size >= 10){
+      toast('You can invite up to 10 people to the first circle');
+      renderInclude(); // re-render so the just-tapped box reflects the Set (stays unchecked)
+      return;
+    }
+    inviteIncSelected.add(decoded);
+  } else {
+    inviteIncSelected.delete(decoded);
+  }
   updateInvitePreview();
 }
 function toggleExcMember(name, isChecked){
@@ -3063,7 +3132,7 @@ async function saveInvite(){
       // Embedded host auto-RSVP when checked + valid identity; otherwise empty.
       // Shape matches optInInvite exactly: { name, status, position, respondedAt }.
       rsvps: (rsvpMe && me && gameplayKey())
-        ? { [gameplayKey()]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now() } }
+        ? { [gameplayKey()]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now(), accountId: currentAccountId() } }
         : {}
     };
     updates['tally_kotb_pickup/invites/'+id] = rec;
@@ -3073,6 +3142,29 @@ async function saveInvite(){
     toast(occurrences>1 ? occurrences+' pickups scheduled ✓' : 'Pickup scheduled ✓');
     activeInvite = firstId;
     showView('invite-detail');
+    // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
+    // host-checked initial circle (inviteIncSelected, capped at 10) via the worker.
+    // Fire-and-forget so it never blocks the UI; the worker resolves each player's
+    // private email by account id and skips any it cannot resolve.
+    try {
+      const checked = [...inviteIncSelected].slice(0, 10);
+      const players = checked.map(nm => ({ playerId: resolveAccountId(nm), name: nm }))
+        .filter(p => p.playerId);
+      if(players.length){
+        fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/invite-notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            inviteId: firstId,
+            hostKey: base.hostId || null,
+            players,
+            event: {
+              name: base.name, date: base.date, startTime: base.startTime, slots: base.slots,
+              rsvpDeadline: base.rsvpDeadline, hostName: base.hostName, location: base.location
+            }
+          })
+        }).catch(function(e){ console.warn('invite-notify failed', e); });
+      }
+    } catch(e){ console.warn('invite-notify build failed', e); }
   } catch(err){
     console.error(err);
     toast("Couldn't schedule");
@@ -3522,6 +3614,31 @@ function emailPromptSkip(){
   renderInviteDetail();
 }
 
+// The logged-in player's stable account id (CourtSenseAuth), or null when anonymous.
+// Stamped onto RSVP entries so the worker can resolve the player's private email by id.
+function currentAccountId(){
+  try {
+    const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+    return (p && p.id) || null;
+  } catch(e){ return null; }
+}
+
+// Resolve a checked invitee NAME to an account id for email-on-create. The public
+// players cache is keyed by account id; match by nameKey of its display name. Falls
+// back to nameKey(name) (correct for self-serve accounts; the worker skips any id it
+// cannot resolve to a private email). Never returns null so the worker can decide.
+function resolveAccountId(name){
+  const k = Identity.nameKey(name);
+  const cache = window._profilesCache || {};
+  for(const id in cache){
+    const p = cache[id];
+    if(!p) continue;
+    const dn = (typeof nameStr === 'function') ? nameStr(p) : (p.displayName || p.name || '');
+    if(dn && Identity.nameKey(dn) === k) return id;
+  }
+  return k;
+}
+
 function optInInvite(){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const me = window.Identity ? Identity.getCurrent() : null;
@@ -3543,7 +3660,7 @@ function optInInvite(){
   const slotsLeft = (i.slots||8) - confirmed.length;
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
-  const newRsvp = { name: me.name, status, position, respondedAt: Date.now() };
+  const newRsvp = { name: me.name, status, position, respondedAt: Date.now(), accountId: currentAccountId() };
 
   // Optimistic local update so UI reflects state immediately.
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
@@ -3587,7 +3704,7 @@ async function claimSpot(){
   }
 
   // Email lookup: reuse an existing player's identity, else treat as a new person.
-  let rsvpName, rsvpKey, isNewPerson = false;
+  let rsvpName, rsvpKey, isNewPerson = false, claimAccountId = null;
   try {
     const r = await fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/lookup', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3601,6 +3718,7 @@ async function claimSpot(){
       // so a claimed/found player lands where renderInviteDetail looks. Prefer a
       // looked-up nameKey, else derive it from the resolved display name.
       rsvpKey  = lookup.nameKey || Identity.nameKey(rsvpName);
+      claimAccountId = lookup.playerId || null; // stable account id for the matched player
     } else {
       rsvpName = fullName;
       rsvpKey  = claimKey;
@@ -3624,7 +3742,9 @@ async function claimSpot(){
   const slotsLeft = (i.slots||8) - confirmed.length;
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
-  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now() };
+  // Stamp the account id when the claim matched an existing player (lookup.playerId);
+  // a brand-new person has no account yet, so null.
+  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now(), accountId: claimAccountId || null };
 
   // Optimistic local update + persist (mirrors optInInvite).
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
@@ -3691,7 +3811,7 @@ function declineRsvp(targetKey){
   newRsvps[targetKey].respondedAt = Date.now();
   newRsvps[targetKey].position = null;
 
-  let promotedName = null;
+  let promotedName = null, promotedKey = null, promotedAccountId = null;
   if(wasConfirmed){
     // A confirmed spot opened: renumber confirmed 1..N, then promote the top
     // waitlister to the end of the confirmed list.
@@ -3708,6 +3828,8 @@ function declineRsvp(targetKey){
       newRsvps[topKey].status = 'confirmed';
       newRsvps[topKey].position = remainingConfirmed.length + 1;
       promotedName = newRsvps[topKey].name;
+      promotedKey = topKey; // nameKey (gameplay key)
+      promotedAccountId = newRsvps[topKey].accountId || null; // stamped at opt-in when logged in
     }
   }
 
@@ -3733,10 +3855,19 @@ function declineRsvp(targetKey){
   });
   if(db) db.ref().update(updates).then(()=>{
     if(promotedName){
-      // Notify the admin of the waitlist promotion via /notify (no direct email_queue write).
+      // Player-facing waitlist email: send the promoted player's account id (preferred)
+      // and gameplay key so the worker can resolve their private email, plus event
+      // display fields so it renders date/time/host. Worker gates on notifyWaitlist.
       fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'waitlist_promotion', data: { playerName: promotedName, inviteId: activeInvite } })
+        body: JSON.stringify({ type: 'waitlist_promotion', data: {
+          playerId: promotedAccountId || undefined,
+          playerKey: promotedKey || undefined,
+          playerName: promotedName,
+          inviteId: activeInvite,
+          name: i.name, date: i.date, startTime: i.startTime, slots: i.slots,
+          rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
+        } })
       }).catch(function(e){ console.warn('notify failed', e); });
     }
   }).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
@@ -3807,7 +3938,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // detail view, including for logged-out visitors. When present we suppress the
   // blocking login overlay (autoShowLogin:false below) and open the game via a
   // direct one-shot read, since the global invites listener has not resolved yet.
-  const _deepLinkGame = new URLSearchParams(location.search).get('game');
+  // Email invite links use ?invite=<id> (worker deepLink), so accept either param
+  // (game first, then invite). We open the same detail view; action=/u= are ignored
+  // (no auto-RSVP/decline) — the in-app Opt In button on the detail is how they join.
+  const _deepLinkParams = new URLSearchParams(location.search);
+  const _deepLinkGame = _deepLinkParams.get('game') || _deepLinkParams.get('invite');
   if(_deepLinkGame) openDeepLinkGame(_deepLinkGame);
 
   // CourtSense auth gate (D.40). Players need a passwordHash on their
