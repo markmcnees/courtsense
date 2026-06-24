@@ -407,13 +407,6 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         </label>
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">Adds you to your own game as confirmed when you create it.</div>
       </div>
-      <div class="fg" style="margin-top:14px;">
-        <label style="display:flex;align-items:center;gap:10px;cursor:not-allowed;opacity:0.6;">
-          <input type="checkbox" id="iv-counts-rankings" disabled style="width:18px;height:18px;">
-          <span style="font-size:14px;font-weight:600;">Count this game toward player rankings</span>
-        </label>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Coming soon.</div>
-      </div>
     </div>
 
     <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
@@ -2204,7 +2197,6 @@ let _pickupEligibleOnly = false;
 let inviteGameType = { vibe: 'fun', format: '2s' };
 let inviteWideningTiers = [];
 let inviteCancelDeadlineOffsetMins = null;
-let inviteCountsTowardRankings = false;
 
 // Deep-copy helper for nested invite fields (eligibility, gameType, wideningTiers).
 // structuredClone when available, else a JSON round-trip. Gives each recurring
@@ -2612,7 +2604,6 @@ function startNewInvite(){
   inviteGameType = { vibe: 'fun', format: '2s' };
   inviteWideningTiers = [];
   inviteCancelDeadlineOffsetMins = null;
-  inviteCountsTowardRankings = false;
   _userEditedTitle = false;
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
@@ -2635,7 +2626,6 @@ function startNewInvite(){
       if($('iv-game-vibe')) $('iv-game-vibe').value = 'fun';
       if($('iv-game-format')) $('iv-game-format').value = '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = '';
-      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = false;
       if($('iv-rsvp-me')) $('iv-rsvp-me').checked = true;
       if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = '';
       $('iv-rec').checked = false;
@@ -2664,7 +2654,6 @@ function startEditInvite(id){
   if(!inviteGameType.format) inviteGameType.format = '2s';
   inviteWideningTiers = Array.isArray(i.wideningTiers) ? deepCopy(i.wideningTiers) : [];
   inviteCancelDeadlineOffsetMins = Number.isInteger(i.cancelDeadlineOffsetMins) ? i.cancelDeadlineOffsetMins : null;
-  inviteCountsTowardRankings = !!i.countsTowardRankings;
   _userEditedTitle = true; // existing title is whatever the host saved; do not auto-overwrite on date change
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
@@ -2698,7 +2687,6 @@ function startEditInvite(id){
       if($('iv-game-vibe')) $('iv-game-vibe').value = inviteGameType.vibe || 'fun';
       if($('iv-game-format')) $('iv-game-format').value = inviteGameType.format || '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = (inviteCancelDeadlineOffsetMins == null) ? '' : String(inviteCancelDeadlineOffsetMins);
-      if($('iv-counts-rankings')) $('iv-counts-rankings').checked = !!inviteCountsTowardRankings;
       // Auto-RSVP is a create-time action only; hide and uncheck on edit.
       if($('iv-rsvp-me')) $('iv-rsvp-me').checked = false;
       if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = 'none';
@@ -3063,8 +3051,6 @@ function buildInviteRecord(){
   const cancelDeadlineOffsetMins = (cancelEl && cancelEl.value !== '')
     ? (parseInt(cancelEl.value) || null)
     : (Number.isInteger(inviteCancelDeadlineOffsetMins) ? inviteCancelDeadlineOffsetMins : null);
-  const rankEl = $('iv-counts-rankings');
-  const countsTowardRankings = rankEl ? !!rankEl.checked : !!inviteCountsTowardRankings;
 
   // hostId: stable roster key from the REAL login, the non-spoofable anchor for
   // host control. Additive alongside hostName (kept for legacy + display). Null
@@ -3072,7 +3058,7 @@ function buildInviteRecord(){
   const _hostAuth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const hostId = _hostAuth && _hostAuth.id ? _hostAuth.id : null;
 
-  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins, countsTowardRankings };
+  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
 }
 
 async function saveInvite(){
