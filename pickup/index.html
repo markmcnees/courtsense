@@ -354,21 +354,22 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <option value="ratingMin">Rating minimum</option>
           <option value="ratingRange">Rating range</option>
           <option value="group">Specific group</option>
-          <option value="inviteOnly">Invite only (named list)</option>
+          <option value="inviteOnly">Initial invites</option>
         </select>
       </div>
       <div id="iv-elig-fields"></div>
 
       <div class="fg" style="margin-top:14px;">
-        <label class="lbl">Always invite (overrides up)</label>
+        <label class="lbl">Invite</label>
         <div style="display:flex;gap:8px;margin-bottom:6px;">
           <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
         </div>
         <div id="iv-inc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Checked players will be emailed an invite. Text messages are coming soon, and a full app is on the way.</div>
       </div>
 
       <div class="fg" style="margin-top:14px;">
-        <label class="lbl">Never invite (overrides down)</label>
+        <label class="lbl">Do not include in widening if applicable.</label>
         <div style="display:flex;gap:8px;margin-bottom:6px;">
           <input class="inp" id="iv-exc-search" placeholder="Search players..." oninput="renderExclude()" style="flex:1;">
         </div>
@@ -380,7 +381,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Widening Schedule</div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it. Saved for a later phase; nothing widens automatically yet.</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it.</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">These are your first invites. Add a widening tier below to automatically open the game to more players if it doesn't fill.</div>
       <div id="iv-tiers-list"></div>
       <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
     </div>
@@ -2630,7 +2632,7 @@ function startNewInvite(){
       if($('iv-rsvp-me-fg')) $('iv-rsvp-me-fg').style.display = '';
       $('iv-rec').checked = false;
       toggleRecurring();
-      $('iv-elig-mode').value = 'open';
+      $('iv-elig-mode').value = 'inviteOnly';
       wireSetupListeners();
       renderEligibilityFields();
       renderInclude(); renderExclude();
@@ -2928,7 +2930,7 @@ function updateInvitePreview(){
   } else {
     source = ' from league + pickup rosters';
   }
-  let text = count+' player'+(count===1?'':'s')+' currently eligible in your area'+source;
+  let text = count+' player'+(count===1?'':'s')+' eligible'+source;
   if(count){
     const PREVIEW_N = 3;
     const head = eligible.slice(0, PREVIEW_N).join(', ');
@@ -3274,7 +3276,7 @@ function renderInviteDetail(){
       const g = (D.groups||{})[eligibility.groupId];
       label = 'Group: '+(g ? g.name : 'unknown');
     }
-    else if(eligibility.baseMode === 'inviteOnly') label = 'Invite only';
+    else if(eligibility.baseMode === 'inviteOnly') label = 'Initial invites';
     else label = 'Open to all';
     return label;
   })();
