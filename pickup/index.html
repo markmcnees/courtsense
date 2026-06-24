@@ -948,6 +948,10 @@ function renderEventList(){
 
 // SETUP VIEW
 function startNewEvent(){
+  // Create gate: same logged-in-account requirement as startNewInvite (the casual
+  // path). Tournament create carries no host-identity plumbing today, but we gate
+  // both create paths identically so only real accounts can post a game.
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to create a game'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   setupState = {
     name:   'Pickup, '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}),
     date:   td(),
@@ -2596,6 +2600,11 @@ function onLocPreset(){
 }
 
 function startNewInvite(){
+  // Create gate: any logged-in CourtSense account may create; a picked name or
+  // anonymous visitor may not (a null hostId/accountId yields a half-broken game
+  // and no host controls). Closes the deep-link-then-Back hole where the login
+  // overlay was suppressed. Toast+showLogin mirrors openProfile's gate style.
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to create a game'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   inviteEditId = null;
   inviteIncSelected = new Set();
   inviteExcSelected = new Set();
@@ -3067,6 +3076,12 @@ function buildInviteRecord(){
 }
 
 async function saveInvite(){
+  // Defense-in-depth create gate: refuse to write unless a real account is logged
+  // in, closing any path that reaches saveInvite without going through the guarded
+  // startNewInvite handler. The edit branch below also passes through here, which is
+  // correct: editing is already host-gated upstream (startEditInvite/isLoggedInHost),
+  // and a host editing is by definition logged in, so this never blocks a legit edit.
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to create a game'); return; }
   const base = buildInviteRecord();
   if(!base.date){ toast('Pick a date'); return; }
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
