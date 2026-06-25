@@ -7,3 +7,5 @@ scripts/activation-links.json
 scripts/pre-execute-snapshot_*.json
 scripts/firebase-rules-backup_*.json
 scripts/firebase-rules-proposed.json
+scripts/pass1-delete-phones.js
+scripts/pass2-strip-zipcode.js
