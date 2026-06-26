@@ -7113,7 +7113,32 @@ let openCommentPostId=null;
 // Layer 5a: three channels keyed under D.chat[channel]. allclub first = default landing channel. No visibility or posting rules yet; all three are visible and postable to everyone.
 const CHAT_CHANNELS=[['allclub','All Club'],['gold','Gold'],['garnet','Garnet']];
 let activeChatChannel='allclub';
-function setChatChannel(ch){ activeChatChannel=ch; openCommentPostId=null; renderClubChat(); }
+function setChatChannel(ch){ if(visibleChatChannels().indexOf(ch)<0)return; activeChatChannel=ch; openCommentPostId=null; renderClubChat(); }
+// Layer 5b visibility: which channels the current player can SEE, in CHAT_CHANNELS display order.
+// Everyone sees allclub; leadership (exec or faculty) sees all three; a gold or garnet player additionally
+// sees their own team channel; an unassigned-tier non-leadership player sees allclub only (read-only spectator).
+function visibleChatChannels(){
+  const me=gP(currentPlayerId);
+  const lead = me && (me.leadership==='exec' || me.leadership==='faculty');
+  const tier = me ? (me.tier||'unassigned') : 'unassigned';
+  const out=['allclub'];
+  if(lead){ out.push('gold','garnet'); }
+  else if(tier==='gold'){ out.push('gold'); }
+  else if(tier==='garnet'){ out.push('garnet'); }
+  return out;
+}
+// Keep the active channel valid for the current player; if it is not visible, fall back to allclub (always visible).
+function ensureVisibleChannel(){ if(visibleChatChannels().indexOf(activeChatChannel)<0) activeChatChannel='allclub'; }
+// Layer 5c posting rule: who may CREATE A POST in a channel. gold needs tier gold or leadership; garnet needs tier garnet or leadership; allclub is leadership only. Commenting is not gated by this.
+function canPostInChannel(ch){
+  const me=gP(currentPlayerId);
+  if(!me) return false;
+  const lead = me.leadership==='exec' || me.leadership==='faculty';
+  if(ch==='allclub') return lead;
+  if(ch==='gold')    return lead || me.tier==='gold';
+  if(ch==='garnet')  return lead || me.tier==='garnet';
+  return false;
+}
 function toggleCommentComposer(postId){
   openCommentPostId = (openCommentPostId===postId) ? null : postId;
   renderClubChat();
@@ -7121,6 +7146,7 @@ function toggleCommentComposer(postId){
 function renderClubChat(){
   const panel=document.getElementById('pp-panel-chat');
   if(!panel)return;
+  ensureVisibleChannel();
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const msgs=(D.chat&&D.chat[activeChatChannel])||{};
   const rows=Object.keys(msgs)
@@ -7175,21 +7201,27 @@ function renderClubChat(){
       </div>`;
     }).join('');
   }
-  // Channel switcher (Layer 5a). Mirrors the roster tier-filter filter-btn pattern; active button tracks activeChatChannel.
+  // Channel switcher (Layer 5a markup, Layer 5b filtered to visible channels). Mirrors the roster tier-filter filter-btn pattern; active button tracks activeChatChannel.
+  const vis=visibleChatChannels();
   const channelToggle=`<div style="display:flex;gap:8px;margin-bottom:10px;" id="cc-channel-toggle">`+
-    CHAT_CHANNELS.map(([ch,lbl])=>`<button class="filter-btn${activeChatChannel===ch?' active':''}" onclick="setChatChannel('${ch}')" style="flex:1;text-align:center;">${lbl}</button>`).join('')+
+    CHAT_CHANNELS.filter(([ch])=>vis.indexOf(ch)>=0).map(([ch,lbl])=>`<button class="filter-btn${activeChatChannel===ch?' active':''}" onclick="setChatChannel('${ch}')" style="flex:1;text-align:center;">${lbl}</button>`).join('')+
     `</div>`;
+  // Posting gate (Layer 5c): show the composer only when the current player may post in the active channel; otherwise a muted note. Commenting stays open to viewers.
+  const composer=canPostInChannel(activeChatChannel)
+    ? `<textarea id="cc-text" maxlength="2000" placeholder="Message the club" style="width:100%;border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;margin-top:10px;"></textarea>
+      <button class="btn btn-primary btn-small" style="margin-top:8px;" onclick="postClubChat()">Post</button>`
+    : `<p style="color:var(--gray);font-size:13px;padding:8px 0;margin-top:10px;">Only club leadership can post here. You can still comment on posts below.</p>`;
   panel.innerHTML=`<div class="card"><div class="card-title"><span class="bar"></span> 💬 Club Chat</div>
     ${channelToggle}
     <div id="cc-list">${list}</div>
-    <textarea id="cc-text" maxlength="2000" placeholder="Message the club" style="width:100%;border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;margin-top:10px;"></textarea>
-    <button class="btn btn-primary btn-small" style="margin-top:8px;" onclick="postClubChat()">Post</button>
+    ${composer}
   </div>`;
 }
 // Post a club-chat message as the logged-in player into the active channel. Writes under
 // DB_ROOT/chat/{channel} and mirrors into memory so the demo reflects it immediately. No eligibility checks this sub-step.
 function postClubChat(){
   if(!currentPlayerId)return;
+  if(!canPostInChannel(activeChatChannel))return;
   const ta=document.getElementById('cc-text');
   if(!ta)return;
   const text=(ta.value||'').trim();
