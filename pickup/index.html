@@ -3961,12 +3961,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const dn = nameStr(player);
         if(dn) Identity.setCurrent(dn, player.id || undefined);
       }
-      // Re-render the open invite detail so a login restored AFTER the detail
-      // first rendered (e.g. a deep-linked host) reflects the now-available auth
-      // and shows host controls. Host-card gating is already correct; the detail
-      // simply rendered pre-auth and only re-renders on Firebase data changes
-      // otherwise. Guarded so it runs only when that view is actually open.
-      if(view === 'invite-detail' && activeInvite) renderInviteDetail();
+      // Re-render whatever view is active now that auth has resolved, so the list
+      // (and any other view) repaints with the correct gameplayKey(). On a fresh
+      // reload the list first paints before auth resolves, using a stale identity
+      // key, leaving it empty; refreshAll() here corrects that and also covers the
+      // invite-detail case the old narrow re-render handled.
+      refreshAll();
     },
     onLogout: () => {
       $('logout-btn').style.display = 'none';
