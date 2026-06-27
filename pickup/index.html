@@ -2511,19 +2511,20 @@ function renderInviteList(){
   // guard, so a logged-out visitor always sees this even when no games exist.
   // Reuses the existing auth overlay trigger (login plus create-account).
   if(!myKey){
-    cont.innerHTML = `<div class="ctitle"><span class="bar"></span>Games you are eligible to join</div>`
+    cont.innerHTML = `<div class="ctitle"><span class="bar"></span>Your games</div>`
       + '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in or register to see your games.</div>'
       + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
     return;
   }
 
-  // Always show only the games the current player is eligible to join.
-  // Reuses activeEligibleNames (never modifies it). No blank-return for zero upcoming
-  // games: that case falls through to the shared empty-state below so a logged-in user
-  // always sees an encouraging message with a create-game button, never a blank screen.
-  const shown = upcoming.filter(i => activeEligibleNames(i, now).some(n => Identity.nameKey(n) === myKey));
+  // Show games the player is IN or can join: a non-declined RSVP OR eligibility, the same
+  // union as isChatEligible (host OR non-declined RSVP OR activeEligibleNames). This keeps a
+  // game the player already joined from vanishing when they fall out of the eligibility circle
+  // (invited-in games, or a filled game that re-ranked a widening tier). No blank-return for
+  // zero games: that falls through to the shared empty-state below, never a blank screen.
+  const shown = upcoming.filter(i => isChatEligible(i, myKey));
 
-  let h = `<div class="ctitle"><span class="bar"></span>Games you are eligible to join (${shown.length})</div>`;
+  let h = `<div class="ctitle"><span class="bar"></span>Your games (${shown.length})</div>`;
   if(!shown.length){
     // Shared empty-state for a logged-in user with nothing to RSVP, whether no games
     // exist at all or none they are eligible for. Reuses startNewInvite (the same call
