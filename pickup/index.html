@@ -2517,18 +2517,19 @@ function renderInviteList(){
     return;
   }
 
-  if(!upcoming.length){
-    cont.innerHTML = '';
-    return;
-  }
-
   // Always show only the games the current player is eligible to join.
-  // Reuses activeEligibleNames (never modifies it).
+  // Reuses activeEligibleNames (never modifies it). No blank-return for zero upcoming
+  // games: that case falls through to the shared empty-state below so a logged-in user
+  // always sees an encouraging message with a create-game button, never a blank screen.
   const shown = upcoming.filter(i => activeEligibleNames(i, now).some(n => Identity.nameKey(n) === myKey));
 
   let h = `<div class="ctitle"><span class="bar"></span>Games you are eligible to join (${shown.length})</div>`;
   if(!shown.length){
-    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No games open to you right now.</div>';
+    // Shared empty-state for a logged-in user with nothing to RSVP, whether no games
+    // exist at all or none they are eligible for. Reuses startNewInvite (the same call
+    // the "Schedule a Pickup" button uses); startNewInvite has its own login gate.
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">Bummer, there currently aren\'t any games you\'re eligible to RSVP. Make your own game now and make it open or select eligibility.</div>'
+      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">Make your own game</button>';
     cont.innerHTML = h;
     return;
   }
