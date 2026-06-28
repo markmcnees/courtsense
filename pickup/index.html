@@ -3188,19 +3188,77 @@ async function saveInvite(){
   const recCount  = Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
 
   if(inviteEditId){
+    const _id = inviteEditId;
     // Update existing record (only this occurrence)
-    const existing = (D.invites||{})[inviteEditId] || {};
+    const existing = (D.invites||{})[_id] || {};
     const merged = {
       ...existing,
       ...base,
-      id: inviteEditId,
+      id: _id,
       status: existing.status || 'open',
       updatedAt: Date.now()
     };
-    fbSet('invites/'+inviteEditId, merged);
-    toast('Saved');
-    activeInvite = inviteEditId;
+    // Cap-raise auto-promotion: if the new slot count frees seats, promote the
+    // lowest-position waitlisters into them (one per freed seat), renumbering like
+    // declineRsvp so positions stay consistent. Drop-out promotion lives in declineRsvp
+    // and is untouched. This runs ONLY here in the explicit save handler, never in a
+    // render or the data listener, so each promotion notifies exactly once.
+    const _rsvps = {};
+    Object.entries(existing.rsvps || {}).forEach(([k,r])=>{ _rsvps[k] = { ...r }; });
+    const newSlots = merged.slots || 8;
+    const confirmedEntries = Object.entries(_rsvps)
+      .filter(([k,r])=>r.status==='confirmed')
+      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+    let freed = newSlots - confirmedEntries.length;
+    const promoted = []; // only players flipped in THIS save; drives the fire-once notify
+    if(freed > 0){
+      // Renumber existing confirmed 1..C, then fill freed seats from the top of the waitlist.
+      confirmedEntries.forEach(([k,r],idx)=>{ _rsvps[k].position = idx+1; });
+      const waitEntries = Object.entries(_rsvps)
+        .filter(([k,r])=>r.status==='waitlist')
+        .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
+      let nextPos = confirmedEntries.length + 1;
+      for(let n=0; n<waitEntries.length && freed>0; n++, freed--){
+        const key = waitEntries[n][0];
+        _rsvps[key].status = 'confirmed';
+        _rsvps[key].position = nextPos++;
+        promoted.push({ name: _rsvps[key].name, key: key, accountId: _rsvps[key].accountId || null });
+      }
+      if(promoted.length){
+        // Renumber the remaining waitlist 1..M so stored positions match displayed order.
+        Object.entries(_rsvps)
+          .filter(([k,r])=>r.status==='waitlist')
+          .sort((a,b)=>(a[1].position||0)-(b[1].position||0))
+          .forEach(([k,r],idx)=>{ _rsvps[k].position = idx+1; });
+        merged.rsvps = _rsvps; // promotions ride in the same record write as the new slots
+      }
+    }
+    activeInvite = _id;
     inviteEditId = null;
+    if(promoted.length && db){
+      // Persist the slots change + promotions atomically, then fire ONE waitlist_promotion
+      // notify per newly promoted player (mirrors declineRsvp's persist-then-notify, fire-once).
+      const updates = {}; updates['tally_kotb_pickup/invites/'+_id] = merged;
+      db.ref().update(updates).then(()=>{
+        promoted.forEach(p=>{
+          fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'waitlist_promotion', data: {
+              playerId: p.accountId || undefined,
+              playerKey: p.key || undefined,
+              playerName: p.name,
+              inviteId: _id,
+              name: merged.name, date: merged.date, startTime: merged.startTime, slots: merged.slots,
+              rsvpDeadline: merged.rsvpDeadline, hostName: merged.hostName, location: merged.location
+            } })
+          }).catch(function(e){ console.warn('notify failed', e); });
+        });
+      }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
+      toast('Saved. Promoted '+promoted.length+' from the waitlist');
+    } else {
+      fbSet('invites/'+_id, merged);
+      toast('Saved');
+    }
     showView('invite-detail');
     return;
   }
