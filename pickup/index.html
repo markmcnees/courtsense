@@ -2568,7 +2568,7 @@ function renderInviteList(){
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
           <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}</div>
+          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${i.court != null ? ' · Court '+i.court : ''}</div>
           <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||8} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
         </div>
         ${badge}
@@ -3489,7 +3489,7 @@ function renderInviteDetail(){
         <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
         <div style="font-size:13px;color:var(--gray);margin-top:4px;">${dateStr}</div>
         <div style="font-size:13px;margin-top:2px;">${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}</div>
-        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}</div>`:''}
+        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}${i.court != null ? ', Court '+i.court : ''}</div>`:''}
       </div>
       ${isCancelled?'<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>':''}
     </div>
