@@ -271,12 +271,19 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <select class="inp" id="iv-loc" onchange="onLocPreset()">
           <option value="Tom Brown Park">Tom Brown Park</option>
           <option value="Four Oaks Park">Four Oaks Park</option>
+          <option value="North Side Community Center">North Side Community Center</option>
           <option value="Optimist Park">Optimist Park</option>
+          <option value="Southwood">Southwood</option>
           <option value="Downtown Sand Volleyball Courts">Downtown Sand Volleyball Courts</option>
           <option value="FSU Lakefront Park &amp; Retreat Center (The Rez)">FSU Lakefront Park &amp; Retreat Center (The Rez)</option>
           <option value="__other__">Other</option>
         </select>
         <input class="inp" id="iv-loc-other" placeholder="Enter location" style="display:none;margin-top:8px;">
+      </div>
+      <div class="fg" id="iv-court-fg" style="display:none;">
+        <label class="lbl">Court (optional)</label>
+        <select class="inp" id="iv-court" onchange="onCourtPick()"></select>
+        <div id="iv-court-hint" style="font-size:11px;color:var(--gray);margin-top:4px;"></div>
       </div>
       <div class="fg">
         <label class="lbl">Notes (optional)</label>
@@ -662,6 +669,19 @@ const FB_CFG = {
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
 const DB_ROOT = 'tally_kotb_pickup';
+// Known parks and their fixed court counts. Keys must match the iv-loc option VALUE
+// exactly as it reads in JS (decoded "&"). Parks not listed (e.g. free-text "Other")
+// have no known courts, so the court picker hides for them. Used only for the optional
+// court selection and the soft in-use signal; never gates creation.
+const PARK_COURTS = {
+  "Tom Brown Park": 4,
+  "North Side Community Center": 4,
+  "Four Oaks Park": 5,
+  "Southwood": 1,
+  "Optimist Park": 2,
+  "Downtown Sand Volleyball Courts": 2,
+  "FSU Lakefront Park & Retreat Center (The Rez)": 2
+};
 // Per-city display name for the header and tab title. Display only, not a data
 // path. A future city instance changes only this line.
 const APP_NAME = 'Tallahassee Pickup';
@@ -2572,17 +2592,96 @@ function wireSetupListeners(){
   const onDateOrStart = ()=>{
     $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value);
     if(!_userEditedTitle) $('iv-name').value = autoTitle($('iv-date').value);
+    rebuildCourtPicker();
   };
   $('iv-date').onchange = onDateOrStart;
   $('iv-start').onchange = onDateOrStart;
+  $('iv-end').onchange = rebuildCourtPicker;
 }
 
-// Location dropdown: reveal the custom text field only when "Other" is chosen.
+// Location dropdown: reveal the custom text field only when "Other" is chosen,
+// and rebuild the optional court picker for the newly selected park.
 function onLocPreset(){
   const sel = $('iv-loc'); const other = $('iv-loc-other');
   if(!sel || !other) return;
   other.style.display = (sel.value === '__other__') ? '' : 'none';
+  rebuildCourtPicker();
 }
+
+// ---- Optional court selection + soft "in use" coordination signal ----
+// Pure client-side: reads games already loaded in D.invites. Never blocks creation.
+// Minutes since midnight for an HH:MM string; null if unparseable.
+function pgMinutes(t){
+  if(!t) return null;
+  const p = String(t).split(':');
+  const h = parseInt(p[0],10), m = parseInt(p[1]||'0',10);
+  if(isNaN(h)) return null;
+  return h*60 + (isNaN(m)?0:m);
+}
+function minToHHMM(min){ const h = Math.floor(min/60)%24; const m = ((min%60)+60)%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+// [startMin,endMin] for a pair of HH:MM times. Missing or non-positive end -> start + 120 min.
+function pgWindowFromTimes(start,end){
+  const s = pgMinutes(start);
+  if(s==null) return null;
+  let e = pgMinutes(end);
+  if(e==null || e<=s) e = s + 120;
+  return [s,e];
+}
+function pgGameWindow(g){ return g ? pgWindowFromTimes(g.startTime, g.endTime) : null; }
+function pgWindowFromForm(){ return pgWindowFromTimes($('iv-start')?$('iv-start').value:'', $('iv-end')?$('iv-end').value:''); }
+// Find another non-cancelled game at the same location + court overlapping this
+// date + window. excludeId skips the game being edited. Single pass over D.invites.
+function courtConflict(location, courtNum, date, win, excludeId){
+  if(!location || !courtNum || !date || !win) return null;
+  const all = D.invites || {};
+  for(const id in all){
+    if(id === excludeId) continue;
+    const g = all[id];
+    if(!g || g.status === 'cancelled') continue;
+    if(g.location !== location) continue;            // exact string match (presets only)
+    if(Number(g.court) !== Number(courtNum)) continue;
+    if(g.date !== date) continue;
+    const gw = pgGameWindow(g);
+    if(!gw) continue;
+    if(win[0] < gw[1] && gw[0] < win[1]) return g;   // overlap: startA<endB AND startB<endA
+  }
+  return null;
+}
+// Rebuild the court <select> for the selected park, annotating taken courts inline.
+function rebuildCourtPicker(){
+  const sel = $('iv-court'); const fg = $('iv-court-fg'); if(!sel || !fg) return;
+  const park = $('iv-loc') ? $('iv-loc').value : '';
+  const n = PARK_COURTS[park] || 0;
+  if(!n){ sel.innerHTML = '<option value="">No specific court</option>'; fg.style.display = 'none'; updateCourtHint(); return; }
+  fg.style.display = '';
+  const prev = sel.value;
+  const date = $('iv-date') ? $('iv-date').value : '';
+  const win = pgWindowFromForm();
+  let html = '<option value="">No specific court</option>';
+  for(let c=1;c<=n;c++){
+    const conf = (date && win) ? courtConflict(park, c, date, win, inviteEditId) : null;
+    let label = 'Court '+c;
+    if(conf){ const gw = pgGameWindow(conf); label += ' (in use '+fmtTime(minToHHMM(gw[0]))+'-'+fmtTime(minToHHMM(gw[1]))+')'; }
+    html += '<option value="'+c+'">'+label+'</option>';
+  }
+  sel.innerHTML = html;
+  const pn = parseInt(prev,10);
+  if(prev && pn>=1 && pn<=n) sel.value = prev; // preserve a still-valid selection across rebuilds
+  updateCourtHint();
+}
+// Inline hint under the picker when the currently-selected court looks in use.
+function updateCourtHint(){
+  const hint = $('iv-court-hint'); if(!hint) return;
+  const park = $('iv-loc') ? $('iv-loc').value : '';
+  const c = $('iv-court') ? parseInt($('iv-court').value,10) : 0;
+  const date = $('iv-date') ? $('iv-date').value : '';
+  const win = pgWindowFromForm();
+  if(!c || !PARK_COURTS[park] || !date || !win){ hint.textContent = ''; return; }
+  const conf = courtConflict(park, c, date, win, inviteEditId);
+  if(conf){ const gw = pgGameWindow(conf); hint.textContent = 'Looks in use '+fmtTime(minToHHMM(gw[0]))+'-'+fmtTime(minToHHMM(gw[1]))+' by another CourtSense game. You can still post here, or pick another court.'; }
+  else { hint.textContent = ''; }
+}
+function onCourtPick(){ updateCourtHint(); }
 
 function startNewInvite(){
   // Create gate: any logged-in CourtSense account may create; a picked name or
@@ -2625,6 +2724,8 @@ function startNewInvite(){
       toggleRecurring();
       $('iv-elig-mode').value = 'inviteOnly';
       wireSetupListeners();
+      if($('iv-court')) $('iv-court').value = '';
+      rebuildCourtPicker();
       renderEligibilityFields();
       renderInclude(); renderExclude();
       updateInvitePreview();
@@ -2688,6 +2789,9 @@ function startEditInvite(id){
       const e = i.eligibility || {};
       $('iv-elig-mode').value = e.baseMode || 'open';
       wireSetupListeners();
+      rebuildCourtPicker();
+      if($('iv-court')) $('iv-court').value = (i.court != null && i.court !== '') ? String(i.court) : '';
+      updateCourtHint();
       renderEligibilityFields(e);
       renderInclude(); renderExclude();
       updateInvitePreview();
@@ -3013,6 +3117,9 @@ function buildInviteRecord(){
   const location = (_locSel === '__other__'
     ? (($('iv-loc-other') && $('iv-loc-other').value) || '')
     : _locSel).trim();
+  // Optional court (known parks only). Null when unset, park unknown, or "Other".
+  const _courtSel = $('iv-court') ? $('iv-court').value : '';
+  const court = (PARK_COURTS[location] && _courtSel) ? parseInt(_courtSel,10) : null;
   const description = ($('iv-desc').value||'').trim();
   const slots = Math.max(2, parseInt($('iv-slots').value)||6);
   // minSlots: minimum players for the game to be considered "on". Captured and
@@ -3051,7 +3158,7 @@ function buildInviteRecord(){
   const _hostAuth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const hostId = _hostAuth && _hostAuth.id ? _hostAuth.id : null;
 
-  return { name, date, startTime, endTime, location, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
+  return { name, date, startTime, endTime, location, court, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
 }
 
 async function saveInvite(){
@@ -3066,6 +3173,15 @@ async function saveInvite(){
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
   const tierCheck = validateWideningTiers();
   if(!tierCheck.ok){ toast(tierCheck.msg); return; }
+
+  // Soft coordination signal (NEVER blocks): if the chosen court looks in use by another
+  // CourtSense game at the same park and overlapping time on this date, flag it and proceed.
+  // This is a coordination hint, not an official reservation.
+  if(base.court){
+    const _win = pgWindowFromTimes(base.startTime, base.endTime);
+    const _conf = _win ? courtConflict(base.location, base.court, base.date, _win, inviteEditId) : null;
+    if(_conf){ const _gw = pgGameWindow(_conf); toast('Heads up: Court '+base.court+' at '+base.location+' looks in use '+fmtTime(minToHHMM(_gw[0]))+'-'+fmtTime(minToHHMM(_gw[1]))+' by another CourtSense game. Posting anyway.'); }
+  }
 
   const recurring = $('iv-rec').checked;
   const recFreq   = $('iv-rec-freq').value;
