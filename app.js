@@ -5866,14 +5866,21 @@ function buildAssignSlots(){
         <select class="form-select" id="assign-c${c}-p1" style="padding:6px;font-size:12px;text-align:center;"><option value="">Player 1</option></select>
         <select class="form-select" id="assign-c${c}-p2" style="padding:6px;font-size:12px;text-align:center;"><option value="">Player 2</option></select>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Scorer</label>
+          <select class="form-select" id="assign-c${c}-scorer1" style="padding:6px;font-size:12px;"><option value="">Scorer</option></select></div>
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Backup</label>
+          <select class="form-select" id="assign-c${c}-scorer2" style="padding:6px;font-size:12px;"><option value="">Backup</option></select></div>
+      </div>
     </div>`;
   }
   document.getElementById('assign-court-slots').innerHTML=h;
   // Populate selects
   const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
   for(let c=1;c<=n;c++){
-    ['p1','p2'].forEach(p=>{
+    ['p1','p2','scorer1','scorer2'].forEach(p=>{
       const sel=document.getElementById('assign-c'+c+'-'+p);
+      if(!sel)return;
       sorted.forEach(pl=>{const o=document.createElement('option');o.value=pl.id;o.textContent=pl.firstName+' '+pl.lastName.charAt(0)+'. (PG'+pl.court+')';sel.appendChild(o);});
     });
   }
@@ -5890,15 +5897,20 @@ function saveAssignment(){
   const opp=document.getElementById('assign-opp').value.trim();
   const numCourts=parseInt(document.getElementById('assign-courts').value)||3;
   const courts=[];
+  // Scorer assignments as a parallel map keyed by court number, same shape as the edit path.
+  const scorers={};
   for(let c=1;c<=numCourts;c++){
     const p1=document.getElementById('assign-c'+c+'-p1')?.value||'';
     const p2=document.getElementById('assign-c'+c+'-p2')?.value||'';
     if(p1||p2)courts.push({court:c,p1,p2});
+    const s1=document.getElementById('assign-c'+c+'-scorer1')?.value||'';
+    const s2=document.getElementById('assign-c'+c+'-scorer2')?.value||'';
+    if(s1)scorers[c]={primary:s1,secondary:s2||null};
   }
   if(!courts.length){toast('Assign at least one court');return;}
   const notes=document.getElementById('assign-notes')?.value.trim()||'';
   const id=gi('asgn');
-  fbSet('assignments/'+id,{id,date,type,opponent:opp||null,courts,notes:notes||null,createdAt:td()});
+  fbSet('assignments/'+id,{id,date,type,opponent:opp||null,courts,scorers,notes:notes||null,createdAt:td()});
   toast('Assignment saved!');
   // Prompt lineup release for duals with opponent
   if(type==='gameday'&&opp)setTimeout(()=>promptLineupRelease(date,opp),600);
@@ -5977,6 +5989,8 @@ function openAssignEditModal(id){
   </div>`;
   const courts=a.courts||[];
   courts.sort((x,y)=>(x.court||0)-(y.court||0)).forEach((c,i)=>{
+    // Scorer assignments live in a parallel map a.scorers keyed by court number; pre-fill if present.
+    const _sc=(a.scorers&&a.scorers[c.court])||{};
     h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-bottom:8px;">
       <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;margin-bottom:6px;">
         COURT <input type="number" id="ae-ct-${i}" value="${c.court}" min="1" max="8"
@@ -5985,6 +5999,12 @@ function openAssignEditModal(id){
       <div class="form-row">
         <select class="form-select" id="ae-p1-${i}" style="padding:6px;font-size:12px;">${pOpts(c.p1)}</select>
         <select class="form-select" id="ae-p2-${i}" style="padding:6px;font-size:12px;">${pOpts(c.p2)}</select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Scorer</label>
+          <select class="form-select" id="ae-scorer1-${i}" style="padding:6px;font-size:12px;">${pOpts(_sc.primary)}</select></div>
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Backup</label>
+          <select class="form-select" id="ae-scorer2-${i}" style="padding:6px;font-size:12px;">${pOpts(_sc.secondary)}</select></div>
       </div></div>`;
   });
   window._editAssignCourtCount=courts.length;
@@ -6386,6 +6406,12 @@ function addAssignEditCourt(){
   <div class="form-row">
     <select class="form-select" id="ae-p1-${i}" style="padding:6px;font-size:12px;">${pOpts()}</select>
     <select class="form-select" id="ae-p2-${i}" style="padding:6px;font-size:12px;">${pOpts()}</select>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+    <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Scorer</label>
+      <select class="form-select" id="ae-scorer1-${i}" style="padding:6px;font-size:12px;">${pOpts()}</select></div>
+    <div><label style="font-size:10px;font-weight:700;color:var(--gray);">Backup</label>
+      <select class="form-select" id="ae-scorer2-${i}" style="padding:6px;font-size:12px;">${pOpts()}</select></div>
   </div>`;
   document.getElementById('assign-edit-body').appendChild(div);
   window._editAssignCourtCount=i+1;
@@ -6402,14 +6428,20 @@ function saveAssignEdit(){
   const atime=document.getElementById('ae-time')?.value||'';
   const n=window._editAssignCourtCount||0;
   const courts=[];
+  // Scorer assignments as a parallel map keyed by court number, kept separate from the rebuilt
+  // courts array so it survives lineup edits. Only courts with a primary scorer are recorded.
+  const scorers={};
   for(let i=0;i<n;i++){
     const ct=parseInt(document.getElementById('ae-ct-'+i)?.value)||1;
     const p1=document.getElementById('ae-p1-'+i)?.value||'';
     const p2=document.getElementById('ae-p2-'+i)?.value||'';
     if(p1||p2)courts.push({court:ct,p1,p2});
+    const s1=document.getElementById('ae-scorer1-'+i)?.value||'';
+    const s2=document.getElementById('ae-scorer2-'+i)?.value||'';
+    if(s1)scorers[ct]={primary:s1,secondary:s2||null};
   }
   if(!courts.length){toast('At least one court required');return;}
-  fbSet('assignments/'+id,{...a,date,type,opponent:opp,location:loc,time:atime,courts});
+  fbSet('assignments/'+id,{...a,date,type,opponent:opp,location:loc,time:atime,courts,scorers});
   closeAssignEditModal();
   toast('Assignment updated!');
   renderLiveAssignmentList();
@@ -9965,8 +9997,9 @@ function renderPlayerLiveScoring(){
       });
       h+='</div>';
     }
-    // New set entry
-    h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;">
+    // New set entry, gated by best-of-3 completion (mirrors coach side): stop offering sets at 2 wins.
+    if(sw<2&&sl<2){
+      h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;">
       <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:10px;letter-spacing:1px;">SET ${sets.length+1}</div>
       <span id="pp-setnum-${idx}" style="display:none;">${sets.length+1}</span>
       <div class="live-score-row">
@@ -9997,6 +10030,12 @@ function renderPlayerLiveScoring(){
       </div>
       <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${today}',${c.court},'${matchId||''}','${assignment.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set — Court ${c.court}</button>
     </div></div>`;
+    }else{
+      h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:${sw>sl?'var(--green)':'var(--loss-red)'};">MATCH COMPLETE</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:4px;">${sw>sl?(partnerLabel||'Our pair'):(assignment.opponent||'Opponent')} won ${Math.max(sw,sl)}-${Math.min(sw,sl)}</div>
+      </div></div>`;
+    }
   });
   container.innerHTML=h;
   applyLiveScoringToCounters();
@@ -10033,7 +10072,9 @@ function ppLoadCourts(assignmentId){
         <div style="text-align:right;">${sets.length?`<div style="font-family:'Bebas Neue';font-size:18px;color:${sw>sl?'var(--green)':'var(--loss-red)'};">${sw}-${sl}</div>`:'<div style="font-size:12px;color:var(--gray);">No sets yet</div>'}</div>
       </div>`;
     if(sets.length){h+='<div style="margin-bottom:8px;padding:0 4px;">';sets.forEach((sv,si)=>{const win=(sv.scoreUs||0)>(sv.scoreThem||0);h+=`<span class="live-set-chip ${win?'win':'loss'}">S${si+1}: ${sv.scoreUs}-${sv.scoreThem} <button style="background:none;border:none;color:inherit;cursor:pointer;font-size:11px;" onclick="ppDelLiveSet('${matchId}','${fbNode}',${si})">✕</button></span>`;});h+='</div>';}
-    h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;">
+    // Set-entry block, gated by best-of-3 completion (mirrors coach side): stop offering sets at 2 wins.
+    if(sw<2&&sl<2){
+      h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;">
       <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:10px;">SET ${sets.length+1}</div>
       <span id="pp-setnum-${idx}" style="display:none;">${sets.length+1}</span>
       <div class="live-score-row">
@@ -10060,6 +10101,12 @@ function ppLoadCourts(assignmentId){
       </div>
       <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${a.date}',${c.court},'${matchId||''}','${a.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set — Court ${c.court}</button>
     </div></div>`;
+    }else{
+      h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:${sw>sl?'var(--green)':'var(--loss-red)'};">MATCH COMPLETE</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:4px;">${sw>sl?(partnerLabel||'Our pair'):(a.opponent||'Opponent')} won ${Math.max(sw,sl)}-${Math.min(sw,sl)}</div>
+      </div></div>`;
+    }
   });
   container.innerHTML=h;
 }
