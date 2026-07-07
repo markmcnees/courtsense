@@ -49,12 +49,9 @@
   }
   .crest{
     width:132px;height:132px;
+    object-fit:contain;
     margin:0 auto 18px;display:block;
     filter:drop-shadow(0 6px 16px rgba(0,0,0,0.35));
-  }
-  .crest .crest-word{
-    font-family:'Bebas Neue',sans-serif;
-    letter-spacing:1px;
   }
   .hero h1{
     font-family:'Bebas Neue',sans-serif;
@@ -214,18 +211,7 @@
 
   <div class="hero">
     <span class="demo-tag">Demo preview. Not a live signup.</span>
-    <svg class="crest" viewBox="0 0 132 132" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sand Sharks crest">
-      <circle cx="66" cy="66" r="62" fill="#082A4F" stroke="#F2B22E" stroke-width="4"/>
-      <g fill="none" stroke="#F2B22E" stroke-width="2.4" stroke-linecap="round">
-        <circle cx="66" cy="52" r="22"/>
-        <path d="M66 30 C58 40 58 64 66 74"/>
-        <path d="M66 30 C74 40 74 64 66 74"/>
-        <path d="M45 45 C56 50 76 50 87 45"/>
-        <path d="M47 62 C57 56 75 56 85 62"/>
-      </g>
-      <text class="crest-word" x="66" y="104" text-anchor="middle" fill="#F2B22E" font-size="17">SAND</text>
-      <text class="crest-word" x="66" y="120" text-anchor="middle" fill="#F7C880" font-size="15">SHARKS</text>
-    </svg>
+    <img class="crest" src="sand-shark.png" alt="Sand Sharks">
     <h1>JOIN THE TEAM<span class="gold">SAND SHARKS BEACH VOLLEYBALL</span></h1>
     <p class="tagline">One signup gets you on the roster, into practices, and playing. Fill this out and we will see you on the sand.</p>
   </div>
