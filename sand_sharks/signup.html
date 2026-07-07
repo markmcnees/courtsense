@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join Sand Sharks Beach Volleyball</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#082A4F;
+    --navy-deep:#061d38;
+    --blue:#0081AB;
+    --gold:#F2B22E;
+    --gold-dark:#c98f1c;
+    --sand:#F7C880;
+    --cream:#F4EFE7;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E1DACE;
+    --green:#2E5D32;
+    --err:#b3261e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Barlow',system-ui,sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* Hero */
+  .hero{
+    background:linear-gradient(160deg,var(--navy) 0%,var(--navy-deep) 100%);
+    color:var(--white);
+    padding:44px 24px 120px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+  .hero::after{
+    content:"";
+    position:absolute;left:0;right:0;bottom:0;height:6px;
+    background:linear-gradient(90deg,var(--blue) 0%,var(--gold) 100%);
+  }
+  .crest{
+    width:132px;height:132px;
+    margin:0 auto 18px;display:block;
+    filter:drop-shadow(0 6px 16px rgba(0,0,0,0.35));
+  }
+  .crest .crest-word{
+    font-family:'Bebas Neue',sans-serif;
+    letter-spacing:1px;
+  }
+  .hero h1{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(38px,7vw,60px);
+    letter-spacing:1.5px;
+    line-height:0.98;
+    font-weight:400;
+  }
+  .hero h1 .gold{color:var(--gold);display:block;}
+  .hero .tagline{
+    font-style:italic;
+    color:var(--cream);
+    font-size:clamp(15px,3.4vw,19px);
+    margin-top:14px;
+    max-width:520px;
+    margin-left:auto;margin-right:auto;
+  }
+
+  /* Card container lifted over hero */
+  .wrap{
+    max-width:640px;
+    margin:-84px auto 56px;
+    padding:0 18px;
+    position:relative;z-index:2;
+  }
+  .card{
+    background:var(--white);
+    border-radius:16px;
+    box-shadow:0 12px 40px rgba(8,42,79,0.16);
+    overflow:hidden;
+  }
+  .card-body{padding:30px 28px 12px;}
+
+  .section{margin-bottom:30px;}
+  .section-head{
+    display:flex;align-items:baseline;gap:10px;
+    margin-bottom:16px;padding-bottom:8px;
+    border-bottom:2px solid var(--line);
+  }
+  .section-num{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:22px;color:var(--gold-dark);
+    letter-spacing:1px;line-height:1;
+  }
+  .section-title{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:24px;color:var(--navy);
+    letter-spacing:0.8px;line-height:1;
+  }
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .grid .full{grid-column:1 / -1;}
+  @media (max-width:520px){ .grid{grid-template-columns:1fr;} }
+
+  .field{display:flex;flex-direction:column;gap:6px;}
+  label{
+    font-size:12.5px;font-weight:700;
+    color:var(--navy);
+    text-transform:uppercase;letter-spacing:0.7px;
+  }
+  label .opt{color:var(--slate);font-weight:500;text-transform:none;letter-spacing:0;font-size:11.5px;}
+  label .req{color:var(--err);font-weight:700;margin-left:3px;}
+  input[type=text],input[type=email],input[type=password],input[type=tel],select{
+    font-family:'Barlow',sans-serif;
+    font-size:15px;
+    padding:11px 13px;
+    border:1.5px solid var(--line);
+    border-radius:9px;
+    background:var(--paper);
+    color:var(--ink);
+    transition:border-color .15s,box-shadow .15s;
+    width:100%;
+  }
+  input:focus,select:focus{
+    outline:none;
+    border-color:var(--blue);
+    box-shadow:0 0 0 3px rgba(0,129,171,0.14);
+    background:var(--white);
+  }
+  input.invalid,select.invalid{
+    border-color:var(--err);
+    box-shadow:0 0 0 3px rgba(179,38,30,0.12);
+  }
+  .hint{font-size:12px;color:var(--slate);}
+  .hint a{color:var(--blue);font-weight:600;text-decoration:underline;}
+  .hint a:hover{color:var(--navy);}
+  .err-msg{color:var(--err);font-size:12px;font-weight:600;margin-top:2px;display:none;}
+  .err-msg.show{display:block;}
+
+  /* Sub-group card, used for parent/guardian blocks */
+  .subgroup{
+    border:1.5px solid var(--line);
+    border-radius:12px;
+    padding:16px;
+    background:var(--paper);
+    margin-bottom:14px;
+  }
+  .subgroup-title{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:18px;color:var(--navy);
+    letter-spacing:0.6px;line-height:1;
+    margin-bottom:12px;
+    display:flex;align-items:baseline;gap:8px;
+  }
+  .subgroup-title .tag{
+    font-family:'Barlow',sans-serif;
+    font-size:11px;font-weight:700;letter-spacing:0.6px;
+    text-transform:uppercase;
+    padding:2px 9px;border-radius:12px;
+  }
+  .tag.required{background:var(--gold);color:var(--ink);}
+  .tag.optional{background:var(--line);color:var(--slate);}
+
+  /* Checkboxes for agreements */
+  .agree{
+    display:flex;gap:12px;align-items:flex-start;
+    padding:14px;border:1.5px solid var(--line);border-radius:10px;
+    background:var(--paper);margin-bottom:12px;
+  }
+  .agree input{margin-top:3px;width:18px;height:18px;accent-color:var(--blue);flex:none;}
+  .agree .atext{font-size:13.5px;color:var(--ink);}
+  .agree .atext strong{color:var(--navy);}
+
+  .submit-row{padding:8px 28px 30px;}
+  .btn{
+    width:100%;
+    font-family:'Bebas Neue',sans-serif;
+    font-size:22px;letter-spacing:1.2px;
+    padding:16px;
+    background:var(--navy);
+    color:var(--white);
+    border:none;border-radius:11px;
+    cursor:pointer;
+    transition:background .15s,transform .05s;
+  }
+  .btn:hover{background:var(--blue);}
+  .btn:active{transform:translateY(1px);}
+  .foot{
+    text-align:center;font-size:12.5px;color:var(--slate);
+    padding:0 28px 30px;
+  }
+  .foot .powered{
+    font-weight:700;color:var(--gold-dark);letter-spacing:0.5px;
+    margin-top:4px;display:block;
+  }
+  .demo-tag{
+    display:inline-block;
+    background:var(--gold);color:var(--ink);
+    font-size:11px;font-weight:700;letter-spacing:1px;
+    text-transform:uppercase;
+    padding:4px 12px;border-radius:20px;
+    margin-bottom:16px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="hero">
+    <span class="demo-tag">Demo preview. Not a live signup.</span>
+    <svg class="crest" viewBox="0 0 132 132" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sand Sharks crest">
+      <circle cx="66" cy="66" r="62" fill="#082A4F" stroke="#F2B22E" stroke-width="4"/>
+      <g fill="none" stroke="#F2B22E" stroke-width="2.4" stroke-linecap="round">
+        <circle cx="66" cy="52" r="22"/>
+        <path d="M66 30 C58 40 58 64 66 74"/>
+        <path d="M66 30 C74 40 74 64 66 74"/>
+        <path d="M45 45 C56 50 76 50 87 45"/>
+        <path d="M47 62 C57 56 75 56 85 62"/>
+      </g>
+      <text class="crest-word" x="66" y="104" text-anchor="middle" fill="#F2B22E" font-size="17">SAND</text>
+      <text class="crest-word" x="66" y="120" text-anchor="middle" fill="#F7C880" font-size="15">SHARKS</text>
+    </svg>
+    <h1>JOIN THE TEAM<span class="gold">SAND SHARKS BEACH VOLLEYBALL</span></h1>
+    <p class="tagline">One signup gets you on the roster, into practices, and playing. Fill this out and we will see you on the sand.</p>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="card-body">
+
+        <!-- Account -->
+        <div class="section">
+          <div class="section-head"><span class="section-num">01</span><span class="section-title">Your CourtSense account</span></div>
+          <div class="grid">
+            <div class="field full">
+              <label for="email">Email</label>
+              <input type="email" id="email" placeholder="you@email.com" autocomplete="email">
+            </div>
+            <div class="field full">
+              <label for="pw">Create a password</label>
+              <input type="password" id="pw" placeholder="At least 8 characters" autocomplete="new-password">
+              <span class="hint">This is your CourtSense login. It travels with you across the club, leagues, and pickup.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Player -->
+        <div class="section">
+          <div class="section-head"><span class="section-num">02</span><span class="section-title">About you</span></div>
+          <div class="grid">
+            <div class="field">
+              <label for="first">First name</label>
+              <input type="text" id="first" autocomplete="given-name">
+            </div>
+            <div class="field">
+              <label for="last">Last name</label>
+              <input type="text" id="last" autocomplete="family-name">
+            </div>
+            <div class="field">
+              <label for="cell">Cell phone</label>
+              <input type="tel" id="cell" placeholder="(850) 555-0123" autocomplete="tel">
+            </div>
+            <div class="field">
+              <label for="year">School year</label>
+              <select id="year">
+                <option value="" selected disabled>Select</option>
+                <option>Freshman</option>
+                <option>Sophomore</option>
+                <option>Junior</option>
+                <option>Senior</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="gradyear">Graduation year</label>
+              <input type="text" id="gradyear" inputmode="numeric" placeholder="e.g. 2028">
+            </div>
+          </div>
+        </div>
+
+        <!-- Ratings and profile -->
+        <div class="section">
+          <div class="section-head"><span class="section-num">03</span><span class="section-title">Your rating and profile</span></div>
+          <p class="hint" style="margin-bottom:14px;">Optional, but it helps the coaches place you. Add whatever you have.</p>
+          <div class="field full">
+            <label for="truvolley">TruVolley rating <span class="opt">optional, but very helpful</span></label>
+            <input type="text" id="truvolley" inputmode="decimal" placeholder="e.g. 5.73">
+            <span class="hint">If you have a TruVolley number, add it and we will use it as your starting point. Not sure of yours? Look it up at <a href="https://truvolley.com/ratings" target="_blank" rel="noopener">truvolley.com/ratings</a>, or leave it blank and we will sort it out at tryouts.</span>
+          </div>
+          <div class="field full" style="margin-top:16px;">
+            <label for="vlprofile">Volleyball Life profile <span class="opt">optional</span></label>
+            <input type="text" id="vlprofile" placeholder="Link to your Volleyball Life profile">
+          </div>
+        </div>
+
+        <!-- Logistics -->
+        <div class="section">
+          <div class="section-head"><span class="section-num">04</span><span class="section-title">A few details</span></div>
+          <div class="grid">
+            <div class="field full">
+              <label for="shirt">T-shirt size</label>
+              <select id="shirt">
+                <option value="" selected disabled>Select</option>
+                <option>XS</option><option>S</option><option>M</option>
+                <option>L</option><option>XL</option><option>XXL</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="subgroup" style="margin-top:16px;">
+            <div class="subgroup-title">Parent or guardian 1 <span class="tag required">Required</span></div>
+            <div class="grid">
+              <div class="field full">
+                <label for="p1name">Name <span class="req">*</span></label>
+                <input type="text" id="p1name" autocomplete="name">
+              </div>
+              <div class="field">
+                <label for="p1email">Email <span class="req">*</span></label>
+                <input type="email" id="p1email">
+              </div>
+              <div class="field">
+                <label for="p1phone">Phone <span class="req">*</span></label>
+                <input type="tel" id="p1phone" placeholder="(850) 555-0123">
+              </div>
+            </div>
+            <div class="err-msg" id="p1err">Parent or guardian 1 needs a name, email, and phone.</div>
+          </div>
+
+          <div class="subgroup">
+            <div class="subgroup-title">Parent or guardian 2 <span class="tag optional">Optional</span></div>
+            <div class="grid">
+              <div class="field full">
+                <label for="p2name">Name</label>
+                <input type="text" id="p2name" autocomplete="name">
+              </div>
+              <div class="field">
+                <label for="p2email">Email</label>
+                <input type="email" id="p2email">
+              </div>
+              <div class="field">
+                <label for="p2phone">Phone</label>
+                <input type="tel" id="p2phone" placeholder="(850) 555-0123">
+              </div>
+            </div>
+            <div class="err-msg" id="p2err">Add a name, email, and phone for parent or guardian 2, or leave all three blank.</div>
+          </div>
+        </div>
+
+        <!-- Agreements -->
+        <div class="section">
+          <div class="section-head"><span class="section-num">05</span><span class="section-title">Before you go</span></div>
+          <label class="agree">
+            <input type="checkbox" id="fee">
+            <span class="atext"><strong>Participation fee.</strong> I understand there is a school participation fee for the season, and my spot is confirmed once the fee is handled through the school.</span>
+          </label>
+          <label class="agree">
+            <input type="checkbox" id="waiver">
+            <span class="atext"><strong>Liability waiver.</strong> I acknowledge that beach volleyball carries risk of injury, and I agree to the team's liability waiver and play at my own risk.</span>
+          </label>
+          <label class="agree">
+            <input type="checkbox" id="medical">
+            <span class="atext"><strong>Medical acknowledgment.</strong> I understand that a pre-participation physical exam and an ECG are required before I can play, and that these are handled on paper through the school. I will complete them before my first practice.</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="submit-row">
+        <button class="btn" type="button" onclick="return validateSignup();">Join the Team</button>
+        <p class="hint" style="text-align:center;margin-top:10px;">This is a preview of the signup. The button is not active yet, so nothing is submitted or saved.</p>
+      </div>
+      <div class="foot">
+        A preview of the CourtSense team signup, shared for feedback.
+        <span class="powered">Powered by CourtSense.app</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  /* Client-side validation only. This is a demo: nothing is submitted or saved
+     regardless of the result. Parent or guardian 1 is required (all three fields).
+     Parent or guardian 2 is all-three-fields-or-none. */
+  function validateSignup(){
+    var ok = true;
+
+    var p1 = ['p1name','p1email','p1phone'];
+    var p1missing = false;
+    p1.forEach(function(id){
+      var el = document.getElementById(id);
+      var empty = !el.value.trim();
+      el.classList.toggle('invalid', empty);
+      if(empty) p1missing = true;
+    });
+    document.getElementById('p1err').classList.toggle('show', p1missing);
+    if(p1missing) ok = false;
+
+    var p2ids = ['p2name','p2email','p2phone'];
+    var p2vals = p2ids.map(function(id){ return document.getElementById(id).value.trim(); });
+    var filled = p2vals.filter(Boolean).length;
+    var p2partial = filled > 0 && filled < 3;
+    p2ids.forEach(function(id, i){
+      document.getElementById(id).classList.toggle('invalid', p2partial && !p2vals[i]);
+    });
+    document.getElementById('p2err').classList.toggle('show', p2partial);
+    if(p2partial) ok = false;
+
+    /* Always returns false so the demo never submits. Validation feedback shows inline. */
+    return false;
+  }
+</script>
+
+</body>
+</html>
