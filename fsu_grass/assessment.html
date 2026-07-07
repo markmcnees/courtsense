@@ -279,7 +279,7 @@ var ROSTER=[
 /* scores[playerId][stationId] = raw int. Shaped for a later Firebase lift to
    assessment/fsugrass/scores/{playerId}/{stationId}. */
 var scores={};
-var cur={station:null, player:"", draftRaw:0};
+var cur={station:null, player:"", draftRaw:0, touched:false};
 
 function show(s){
   document.querySelectorAll(".screen").forEach(function(x){x.classList.remove("active");});
@@ -344,8 +344,9 @@ function onPick(pid){
   cur.player=pid;
   var area=document.getElementById("scoreArea");
   if(!pid){ area.innerHTML=""; return; }
-  var existing = (scores[pid]&&scores[pid][cur.station]!==undefined)?scores[pid][cur.station]:0;
-  cur.draftRaw=existing;
+  var saved = (scores[pid]&&scores[pid][cur.station]!==undefined);
+  cur.draftRaw = saved ? scores[pid][cur.station] : 0;
+  cur.touched = saved;
   area.innerHTML=
     '<div class="scorebox">'+
       '<div class="rating-display"><span class="big" id="bigRate"></span><span class="out" id="outOf"></span></div>'+
@@ -362,6 +363,7 @@ function onPick(pid){
   paintDraft();
 }
 function draft(d){
+  cur.touched=true;
   cur.draftRaw+=d;
   if(cur.draftRaw<RAW_MIN)cur.draftRaw=RAW_MIN;
   if(cur.draftRaw>RAW_MAX)cur.draftRaw=RAW_MAX;
@@ -369,10 +371,14 @@ function draft(d){
 }
 function paintDraft(){
   document.getElementById("rawNum").textContent=cur.draftRaw;
-  var r=rawToRating(cur.draftRaw);
   var big=document.getElementById("bigRate"), out=document.getElementById("outOf");
-  big.textContent=r; big.classList.remove("empty");
-  out.textContent="out of 10";
+  if(cur.touched){
+    big.textContent=rawToRating(cur.draftRaw); big.classList.remove("empty");
+    out.textContent="out of 10";
+  } else {
+    big.textContent="\u2013"; big.classList.add("empty"); /* en dash placeholder, not scored */
+    out.textContent="not scored";
+  }
   document.getElementById("savedFlag").textContent="";
 }
 function saveScore(){
