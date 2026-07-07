@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Sand Sharks Skill Assessment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     SAND SHARKS build. Navy and gold CourtSense. Same engine as the FSU Grass page with
+     the token block below swapped. Everything else is shared.
+     ========================================================================== */
+  :root{
+    --surface:#ffffff;
+    --surface-2:#f6f2ec;
+    --line:#e4dccf;
+    --ink:#1f2733;
+    --slate:#7a6b70;
+    --brand:#082A4F;
+    --brand-deep:#061d38;
+    --accent:#F2B22E;
+    --good:#3f7d54;
+    --bad:#b23a3a;
+    --on-brand:#ffffff;
+    --hero-a:#061d38;
+    --hero-b:#082A4F;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',system-ui,sans-serif;background:var(--surface-2);color:var(--ink);
+    font-size:16px;line-height:1.4;-webkit-font-smoothing:antialiased;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .wrap{max-width:520px;margin:0 auto;min-height:100vh;background:var(--surface-2);}
+
+  .topbar{
+    background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:var(--on-brand);
+    padding:16px;position:sticky;top:0;z-index:20;box-shadow:0 2px 12px rgba(0,0,0,0.18);
+    padding-top:max(16px,env(safe-area-inset-top));
+    border-bottom:3px solid var(--accent);
+    display:flex;align-items:center;gap:14px;
+  }
+  .topbar .logo-badge{
+    width:52px;height:52px;border-radius:50%;background:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+    box-shadow:0 2px 8px rgba(0,0,0,0.25);
+  }
+  .topbar .logo-badge img{width:100%;height:100%;object-fit:contain;}
+  .brand-name{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:0.06em;line-height:1;}
+  .brand-sub{font-size:11px;letter-spacing:0.16em;text-transform:uppercase;opacity:0.85;font-weight:600;margin-top:3px;}
+
+  .screen{display:none;padding:16px;}
+  .screen.active{display:block;}
+
+  h2.screen-title{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:0.04em;margin:2px 0 2px;line-height:1;}
+  .screen-note{color:var(--slate);font-size:13.5px;margin:0 0 16px;}
+
+  /* ---- Station menu ---- */
+  .circuit-label{font-size:11px;letter-spacing:0.16em;text-transform:uppercase;font-weight:700;color:var(--brand);margin:18px 0 8px;display:flex;align-items:center;gap:8px;}
+  .circuit-label::after{content:"";flex:1;height:1px;background:var(--line);}
+  .station-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .station-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;
+    cursor:pointer;text-align:left;position:relative;transition:transform .08s;
+    display:flex;flex-direction:column;gap:6px;min-height:120px;
+  }
+  .station-card:active{transform:scale(0.98);}
+  .st-num{font-family:'Bebas Neue';font-size:15px;color:var(--on-brand);background:var(--brand);width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;letter-spacing:0.03em;}
+  .st-name{font-family:'Bebas Neue';font-size:20px;letter-spacing:0.03em;line-height:1;color:var(--ink);}
+  .st-skill{font-size:12px;color:var(--slate);}
+  .st-prog{margin-top:auto;font-size:11px;font-weight:700;letter-spacing:0.03em;display:flex;align-items:center;gap:6px;color:var(--slate);}
+  .st-prog .dot{width:8px;height:8px;border-radius:50%;background:var(--line);}
+  .station-card.done .st-prog{color:var(--good);}
+  .station-card.done .st-prog .dot{background:var(--good);}
+  .coach-tag{position:absolute;top:10px;right:10px;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);background:var(--brand-deep);padding:3px 6px;border-radius:5px;}
+
+  /* ---- Buttons ---- */
+  .btn{display:block;width:100%;border:none;border-radius:12px;font-family:'Barlow';font-weight:700;font-size:16px;letter-spacing:0.02em;padding:15px;cursor:pointer;text-align:center;}
+  .btn-primary{background:var(--brand);color:var(--on-brand);}
+  .btn-ghost{background:transparent;color:var(--brand);border:1.5px solid var(--line);}
+  .btn-row{display:flex;gap:10px;margin-top:14px;}
+  .btn-row .btn{flex:1;}
+  .back-link{display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:var(--brand);font-family:'Barlow';font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:10px;}
+
+  /* ---- Station page ---- */
+  .st-hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:var(--on-brand);border-radius:16px;padding:16px;margin-bottom:14px;}
+  .st-hero .eyebrow{font-size:10px;letter-spacing:0.16em;text-transform:uppercase;opacity:0.8;font-weight:700;}
+  .st-hero h3{font-family:'Bebas Neue';font-size:30px;letter-spacing:0.03em;margin:2px 0 0;line-height:1;}
+  .st-hero .sub{font-size:13px;opacity:0.9;margin-top:2px;}
+  .st-hero .coachpill{display:inline-block;margin-top:8px;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;background:var(--accent);color:var(--brand-deep);padding:4px 8px;border-radius:6px;}
+
+  .drill{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px;}
+  .drill h4{font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--brand);margin:0 0 8px;font-weight:700;}
+  .drill .row{display:flex;gap:8px;margin-bottom:8px;font-size:13.5px;}
+  .drill .row:last-child{margin-bottom:0;}
+  .drill .k{font-weight:700;min-width:52px;color:var(--ink);flex-shrink:0;}
+  .drill .v{color:var(--slate);}
+  .scorekey{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+  .scorekey .chip{font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--surface-2);color:var(--slate);border:1px solid var(--line);}
+  .scorekey .chip b{font-weight:800;}
+  .chip.pos b{color:var(--good);}
+  .chip.neg b{color:var(--bad);}
+  .coachnote{font-size:12.5px;color:var(--slate);font-style:italic;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+  .coachnote b{font-style:normal;color:var(--ink);}
+
+  /* ---- Player select + score ---- */
+  .assess{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;}
+  .assess label{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;font-weight:700;color:var(--ink);display:block;margin-bottom:6px;}
+  .pselect{position:relative;margin-bottom:16px;}
+  select.player-dd{
+    width:100%;appearance:none;-webkit-appearance:none;background:var(--surface-2);
+    border:1.5px solid var(--line);border-radius:12px;padding:14px 44px 14px 14px;
+    font-family:'Barlow';font-weight:600;font-size:17px;color:var(--ink);cursor:pointer;
+  }
+  .pselect::after{content:"\25be";position:absolute;right:16px;top:50%;transform:translateY(-50%);color:var(--brand);font-size:18px;pointer-events:none;}
+
+  .noplayer{text-align:center;color:var(--slate);font-size:14px;padding:20px 8px;}
+
+  .scorebox{border-top:1px solid var(--line);padding-top:16px;}
+  .rating-display{
+    display:flex;align-items:baseline;justify-content:center;gap:10px;margin-bottom:4px;
+  }
+  .rating-display .big{font-family:'Bebas Neue';font-size:64px;line-height:0.9;color:var(--brand);}
+  .rating-display .out{font-size:16px;color:var(--slate);font-weight:600;}
+  .rating-label{text-align:center;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--slate);font-weight:700;margin-bottom:16px;}
+  .rating-display .big.empty{color:var(--line);}
+
+  .stepper{display:flex;align-items:stretch;border:1.5px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:6px;}
+  .stepper button{border:none;background:var(--surface-2);color:var(--brand);font-family:'Bebas Neue';font-size:32px;line-height:1;width:64px;cursor:pointer;flex-shrink:0;}
+  .stepper button:active{background:var(--line);}
+  .stepper .raw{flex:1;text-align:center;display:flex;flex-direction:column;justify-content:center;line-height:1;}
+  .stepper .raw .num{font-family:'Bebas Neue';font-size:40px;color:var(--ink);}
+  .stepper .raw small{font-size:9px;font-weight:700;letter-spacing:0.12em;color:var(--slate);text-transform:uppercase;margin-top:2px;}
+  .raw-hint{text-align:center;font-size:11px;color:var(--slate);margin:2px 0 14px;}
+
+  .save-row{display:flex;gap:10px;}
+  .save-row .btn{flex:1;}
+  .saved-flag{display:flex;align-items:center;justify-content:center;gap:6px;color:var(--good);font-weight:700;font-size:13px;margin-top:10px;min-height:18px;}
+
+  /* ---- Results ---- */
+  .results-scroll{overflow-x:auto;border-radius:14px;border:1px solid var(--line);-webkit-overflow-scrolling:touch;}
+  table.rt{width:100%;border-collapse:collapse;background:var(--surface);font-size:13px;}
+  .rt th,.rt td{padding:8px 6px;text-align:center;border-bottom:1px solid var(--line);}
+  .rt th{background:var(--brand-deep);color:#fff;font-size:10px;letter-spacing:0.04em;text-transform:uppercase;font-weight:700;}
+  .rt th.pn,.rt td.pn{text-align:left;font-weight:600;white-space:nowrap;position:sticky;left:0;background:var(--surface);}
+  .rt th.pn{background:var(--brand-deep);}
+  .rt td.avg{font-family:'Bebas Neue';font-size:18px;color:var(--brand);}
+  .rt td.blank{color:var(--line);}
+  .hint{font-size:12px;color:var(--slate);margin-top:8px;}
+
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:40;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="logo-badge"><img src="sand-shark.png" alt="Sand Sharks"></div>
+    <div>
+      <div class="brand-name">SAND SHARKS</div>
+      <div class="brand-sub">Beach Skill Assessment</div>
+    </div>
+  </div>
+
+  <!-- MENU -->
+  <div class="screen active" id="s-menu">
+    <h2 class="screen-title">Pick a Station</h2>
+    <p class="screen-note">Tap the station you are running. You will pick a player and enter her scores there. Green means every player has been scored at that station.</p>
+    <div class="circuit-label">Circuit 1</div>
+    <div class="station-grid" id="grid1"></div>
+    <div class="circuit-label">Circuit 2</div>
+    <div class="station-grid" id="grid2"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="show('results')">View results</button>
+    </div>
+  </div>
+
+  <!-- STATION -->
+  <div class="screen" id="s-station">
+    <button class="back-link" onclick="show('menu')">&larr; All stations</button>
+    <div class="st-hero" id="st-hero"></div>
+    <div class="drill" id="st-drill"></div>
+    <div class="assess">
+      <label for="playerDD">Player being assessed</label>
+      <div class="pselect"><select class="player-dd" id="playerDD" onchange="onPick(this.value)"></select></div>
+      <div id="scoreArea"></div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="screen" id="s-results">
+    <button class="back-link" onclick="show('menu')">&larr; All stations</button>
+    <h2 class="screen-title">Results</h2>
+    <p class="screen-note">Every player's converted 1 to 10 rating per station, with her average across completed stations.</p>
+    <div class="results-scroll"><table class="rt" id="rt"></table></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <p class="hint">Scores live on this device only in this preview. Export before closing so nothing is lost.</p>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==========================================================================
+   Stations with full drill detail lifted from the Leon Queens assessment sheet.
+   Each station carries setup, drill, a scoring key, and the coach note so the
+   coach standing at that station has everything on one screen.
+   ========================================================================== */
+var STATIONS=[
+ {id:"serve",num:1,circuit:1,name:"Serving",skill:"Serving Accuracy",coach:false,
+  setup:"Set cones on the far court to mark three target zones. Deep corners: a 3 ft by 3 ft box in each back corner along the sideline, both sides. Short middle: a 6 ft by 6 ft box centered in the front of the court. The server works from behind the service line on the near side. Partner stands on the far side to watch where each ball lands and call the zone.",
+  drill:"The player serves 10 balls. After each serve the partner calls the landing zone out loud (deep corner, short middle, or in but no zone) so the score is agreed before it is recorded. Serve at game pace, not lobbed. If the server is interrupted or shanks the toss badly, redo that rep so all 10 are real attempts.",
+  key:[["Deep corner","+2","pos"],["Short middle","+1","pos"],["In, no zone","0",""],["Net or out","-1","neg"]],
+  note:"Watch for consistent toss and contact point. A server who lives in the deep corners is your target server for tough matches."},
+ {id:"pass",num:2,circuit:1,name:"Passing",skill:"Passing to Target",coach:false,
+  setup:"Place a cone at the net in the setter position, about 2 ft off the net and 3 ft in from the right sideline. Ring it with cones to mark a circle about 5 ft across. That circle is the target. The passer stands in serve-receive in the middle of the court. The feeder stands across the net and serves or tosses firm overhand.",
+  drill:"The passer receives 10 balls. A pass that lands inside the cone circle, or is clearly tracking to land there, counts as on target. Playable but outside the circle is partial. The feeder must deliver a consistent, moderate-pace ball every rep. Any wild or uncatchable feed does not count, redo the rep, so the score measures the passer and not the feeder.",
+  key:[["In circle","+2","pos"],["Playable","+1","pos"],["Unplayable","0",""],["Shank/net","-1","neg"]],
+  note:"Feeder must deliver consistent moderate pace. Wild feeds do not count, redo the rep. Keep the measure on the passer."},
+ {id:"defense",num:3,circuit:1,name:"Defense",skill:"Defensive Dig Recovery",coach:true,
+  setup:"The player stands mid-court in a low defensive posture. The coach stands on a box or sturdy chair at the net to simulate a hitter's contact point. Mark a 10 ft by 10 ft target zone with cones in the center of the court behind the player, so a controlled dig lands there.",
+  drill:"Coach-manned. The coach hits or throws 10 down-balls, mixing them left, right, and straight at the body so the player has to move and read. Keep the pace consistent and hittable, this tests platform and reaction, not survival. A dig that lands in the target zone is clean; a dig that goes up and stays playable but misses the zone is partial. If a feed is wild, redo the rep.",
+  key:[["Dig in zone","+2","pos"],["Dig playable","+1","pos"],["Touch only","0",""],["Miss/out","-1","neg"]],
+  note:"Coach-manned. Control difficulty by player. Look for platform angle and read off your contact, not late reaction."},
+ {id:"hit",num:4,circuit:1,name:"Hitting",skill:"Hitting Placement",coach:false,
+  setup:"Divide the far court into four quadrants with cones: line and cross, each split deep and short, numbered 1 through 4. The partner tosses a hittable set from mid-court. Have the call sequence ready so every player hits the same pattern: 3, 1, 4, 2, 1, 3, 2, 4, 1, 2.",
+  drill:"The player takes 10 swings. Before each set the partner calls the target quadrant from the fixed sequence, then delivers a hittable set. The player attacks to the called zone. Landing in the correct quadrant is clean; in bounds but the wrong quadrant is partial. Using the same sequence for every player keeps it fair. Reward placement over power.",
+  key:[["Called lane","+2","pos"],["Wrong lane, in","+1","pos"],["In, no control","0",""],["Out/net","-1","neg"]],
+  note:"Reward placement over power. A player who can hit both lanes on command is a matchup weapon."},
+ {id:"block",num:5,circuit:2,name:"Blocking",skill:"Blocking",coach:false,
+  setup:"The partner or coach stands on a box at the net holding or hitting balls from a fixed spot. The blocker starts at the net in ready position, hands at shoulder height, feet set.",
+  drill:"10 block attempts. The partner shows the approach angle, then hits or tosses the ball over the net, alternating left, right, and center so the blocker has to move and time the press. The blocker jumps and presses the hands over to redirect the ball back over and in bounds. Clean block back over and in is full; a touch with a poor redirect is partial. Watch hand penetration and timing off the hitter.",
+  key:[["Back over, in","+2","pos"],["Touch, poor","+1","pos"],["No touch","0",""],["Net/out","-1","neg"]],
+  note:"Watch hand penetration and timing off the hitter. Tie this to the blocking signal system when you review."},
+ {id:"set",num:6,circuit:2,name:"Setting",skill:"Setting Accuracy",coach:false,
+  setup:"The player stands at the net in setter position. Mark a 4 ft by 4 ft target window with cones at the antenna, high and about 2 ft off the net, representing the ideal hitter's window. The feeder stands mid-court and tosses a pass-quality ball to the setter.",
+  drill:"The player hand-sets 10 balls to the target window. A set that lands in the window is clean; a hittable set that misses the window is partial; a set too tight to the net or too far off is unhittable. The feeder tosses a consistent, medium-height, pass-quality ball each rep. Any wild toss does not count, redo the rep. Look for square shoulders to the target and consistent hand contact.",
+  key:[["In window","+2","pos"],["Off-target","+1","pos"],["Unhittable","0",""],["Net or out","-1","neg"]],
+  note:"Look for square shoulders to target and consistent hand contact. Clean sets feed everything else."},
+ {id:"court",num:7,circuit:2,name:"Court Sense",skill:"Read and React",coach:true,
+  setup:"The coach stands at the net with a ball. Set two cones behind the player to mark the two defensive spots: one at the line defense position, one at the angle defense position. The player starts in base position mid-court.",
+  drill:"Coach-manned, 10 reps. The coach telegraphs the attack with body position (showing line or angle), then hits a down-ball to that spot. The player must read the cue and move to the correct defensive cone before the coach contacts the ball, then play the dig. Correct read plus a dig in play is full; correct read but a missed dig is partial; moving to the wrong cone is a miss. Telegraph clearly on the first few reps, then make the cue more subtle as the drill goes on.",
+  key:[["Read + dig","+2","pos"],["Read, missed","+1","pos"],["Wrong read","0",""],["Net/out","-1","neg"]],
+  note:"Coach-manned so you control difficulty. This is the on-court companion to the CourtSense IQ Quiz. Reward the read even when the dig is imperfect."},
+ {id:"comm",num:8,circuit:2,name:"Communication",skill:"Call It Early",coach:false,
+  setup:"Two players stand side by side in defense. Mark the center line between them with a cone so each has a clear side. The coach or feeder sends free balls over the net from the far side to various spots, including the seam between the two players.",
+  drill:"10 free balls to the assessed player's area. Before the ball crosses the net the assessed player must loudly call mine or yours, then play it up if it is hers. Called clearly and played up cleanly is full; played but with no call or a late call is partial; hesitation, a double call, or a wrong call scores zero. Deliberately aim some balls at the seam to test decisiveness. Score the pair, then record each player, and run 10 balls for each partner in turn.",
+  key:[["Call + play","+2","pos"],["Play, no call","+1","pos"],["Hesitation","0",""],["Drop/out","-1","neg"]],
+  note:"Score the pair, then record each player the same. This measures habits, not talent. Loud early calls are the goal."}
+];
+
+function rawToRating(raw){
+  if(raw===null||raw===undefined||raw==="") return null;
+  if(raw>=16)return 10; if(raw>=14)return 9; if(raw>=12)return 8; if(raw>=10)return 7;
+  if(raw>=8)return 6; if(raw>=6)return 5; if(raw>=4)return 4; if(raw>=2)return 3;
+  if(raw>=0)return 2; return 1;
+}
+var RAW_MIN=-10, RAW_MAX=20;
+
+/* Demo roster for the Sand Sharks mockup. Using the same sample 16 across the
+   assessment pages so the flow can be shown end to end. Real roster comes from
+   the signup flow later. */
+var ROSTER=[
+ {id:"sd01",name:"Suzie Spiker",yr:"SR"},{id:"sd02",name:"Debby Digger",yr:"SR"},
+ {id:"sd03",name:"Bonnie Blocker",yr:"JR"},{id:"sd04",name:"Sammy Setter",yr:"JR"},
+ {id:"sd05",name:"Penny Passer",yr:"JR"},{id:"sd06",name:"Sandy Server",yr:"SO"},
+ {id:"sd07",name:"Sarah Sandbagger",yr:"SO"},{id:"sd08",name:"Holly Hitter",yr:"SO"},
+ {id:"sd09",name:"Riley Receiver",yr:"FR"},{id:"sd10",name:"Olivia Option",yr:"FR"},
+ {id:"sd11",name:"Wendy Wave",yr:"SO"},{id:"sd12",name:"Dana Dune",yr:"FR"},
+ {id:"sd13",name:"Tara Tide",yr:"SO"},{id:"sd14",name:"Cora Coral",yr:"FR"},
+ {id:"sd15",name:"Marina Mist",yr:"FR"},{id:"sd16",name:"Shelly Shoal",yr:"SO"}
+];
+
+/* scores[playerId][stationId] = raw int. Shaped for a later Firebase lift to
+   assessment/sandsharks/scores/{playerId}/{stationId}. */
+var scores={};
+var cur={station:null, player:"", draftRaw:0, touched:false};
+
+function show(s){
+  document.querySelectorAll(".screen").forEach(function(x){x.classList.remove("active");});
+  document.getElementById("s-"+s).classList.add("active");
+  window.scrollTo(0,0);
+  if(s==="menu") renderMenu();
+  if(s==="results") renderResults();
+}
+
+function stationDone(stId){
+  var n=0; ROSTER.forEach(function(p){ if(scores[p.id]&&scores[p.id][stId]!==undefined) n++; });
+  return {done:n,total:ROSTER.length};
+}
+function renderMenu(){
+  [1,2].forEach(function(c){
+    var g=document.getElementById("grid"+c); g.innerHTML="";
+    STATIONS.filter(function(s){return s.circuit===c;}).forEach(function(s){
+      var pr=stationDone(s.id), complete=pr.done===pr.total;
+      var b=document.createElement("button");
+      b.className="station-card"+(complete?" done":"");
+      b.onclick=function(){openStation(s.id);};
+      b.innerHTML='<div class="st-num">'+s.num+'</div>'+
+        (s.coach?'<span class="coach-tag">Coach fed</span>':'')+
+        '<div class="st-name">'+s.name+'</div>'+
+        '<div class="st-skill">'+s.skill+'</div>'+
+        '<div class="st-prog"><span class="dot"></span>'+pr.done+' of '+pr.total+' scored</div>';
+      g.appendChild(b);
+    });
+  });
+}
+
+function openStation(stId){
+  var s=STATIONS.filter(function(x){return x.id===stId;})[0];
+  cur.station=stId; cur.player=""; cur.draftRaw=0;
+
+  document.getElementById("st-hero").innerHTML=
+    '<div class="eyebrow">Station '+s.num+' \u00b7 Circuit '+s.circuit+'</div>'+
+    '<h3>'+s.name+'</h3><div class="sub">'+s.skill+'</div>'+
+    (s.coach?'<span class="coachpill">Coach-manned station</span>':'');
+
+  var keyHtml=s.key.map(function(k){
+    return '<span class="chip '+k[2]+'"><b>'+k[1]+'</b> '+k[0]+'</span>';
+  }).join("");
+  document.getElementById("st-drill").innerHTML=
+    '<h4>The Drill</h4>'+
+    '<div class="row"><span class="k">Setup</span><span class="v">'+s.setup+'</span></div>'+
+    '<div class="row"><span class="k">Drill</span><span class="v">'+s.drill+'</span></div>'+
+    '<div class="row"><span class="k">Scoring</span><span class="v">10 reps. Any ball into the net or out is minus 1.<div class="scorekey">'+keyHtml+'</div></span></div>'+
+    '<div class="coachnote"><b>Coach eye:</b> '+s.note+'</div>';
+
+  var dd=document.getElementById("playerDD");
+  dd.innerHTML='<option value="">Select a player...</option>'+
+    ROSTER.map(function(p){
+      var done = scores[p.id]&&scores[p.id][stId]!==undefined;
+      return '<option value="'+p.id+'">'+p.name+(p.yr?" ("+p.yr+")":"")+(done?"  \u2713":"")+'</option>';
+    }).join("");
+  document.getElementById("scoreArea").innerHTML="";
+  show("station");
+}
+
+function onPick(pid){
+  cur.player=pid;
+  var area=document.getElementById("scoreArea");
+  if(!pid){ area.innerHTML=""; return; }
+  var saved = (scores[pid]&&scores[pid][cur.station]!==undefined);
+  cur.draftRaw = saved ? scores[pid][cur.station] : 0;
+  cur.touched = saved;
+  area.innerHTML=
+    '<div class="scorebox">'+
+      '<div class="rating-display"><span class="big" id="bigRate"></span><span class="out" id="outOf"></span></div>'+
+      '<div class="rating-label">Converted rating</div>'+
+      '<div class="stepper">'+
+        '<button aria-label="Down" onclick="draft(-1)">\u2212</button>'+
+        '<div class="raw"><span class="num" id="rawNum">0</span><small>raw score</small></div>'+
+        '<button aria-label="Up" onclick="draft(1)">+</button>'+
+      '</div>'+
+      '<div class="raw-hint">Add up her 10 reps as you go, or enter the final total.</div>'+
+      '<div class="save-row"><button class="btn btn-primary" onclick="saveScore()">Save score</button></div>'+
+      '<div class="saved-flag" id="savedFlag"></div>'+
+    '</div>';
+  paintDraft();
+}
+function draft(d){
+  cur.touched=true;
+  cur.draftRaw+=d;
+  if(cur.draftRaw<RAW_MIN)cur.draftRaw=RAW_MIN;
+  if(cur.draftRaw>RAW_MAX)cur.draftRaw=RAW_MAX;
+  paintDraft();
+}
+function paintDraft(){
+  document.getElementById("rawNum").textContent=cur.draftRaw;
+  var big=document.getElementById("bigRate"), out=document.getElementById("outOf");
+  if(cur.touched){
+    big.textContent=rawToRating(cur.draftRaw); big.classList.remove("empty");
+    out.textContent="out of 10";
+  } else {
+    big.textContent="\u2013"; big.classList.add("empty"); /* en dash placeholder, not scored */
+    out.textContent="not scored";
+  }
+  document.getElementById("savedFlag").textContent="";
+}
+function saveScore(){
+  if(!cur.player) return;
+  if(!scores[cur.player]) scores[cur.player]={};
+  scores[cur.player][cur.station]=cur.draftRaw;
+  document.getElementById("savedFlag").textContent="\u2713 Saved. Rating "+rawToRating(cur.draftRaw)+" recorded.";
+  // refresh the dropdown checkmark
+  var dd=document.getElementById("playerDD"), keep=dd.value;
+  openStationKeep(cur.station, keep);
+  toast("Saved "+playerName(cur.player));
+}
+/* re-open station but keep the selected player and their score visible */
+function openStationKeep(stId, keepPid){
+  var s=STATIONS.filter(function(x){return x.id===stId;})[0];
+  var dd=document.getElementById("playerDD");
+  dd.innerHTML='<option value="">Select a player...</option>'+
+    ROSTER.map(function(p){
+      var done = scores[p.id]&&scores[p.id][stId]!==undefined;
+      return '<option value="'+p.id+'"'+(p.id===keepPid?" selected":"")+'>'+p.name+(p.yr?" ("+p.yr+")":"")+(done?"  \u2713":"")+'</option>';
+    }).join("");
+}
+function playerName(pid){var p=ROSTER.filter(function(x){return x.id===pid;})[0];return p?p.name:"";}
+
+function renderResults(){
+  var t=document.getElementById("rt");
+  var head='<tr><th class="pn">Player</th>';
+  STATIONS.forEach(function(s){head+='<th>'+s.num+'</th>';});
+  head+='<th>Avg</th></tr>';
+  var body="";
+  ROSTER.forEach(function(p){
+    var row='<tr><td class="pn">'+p.name+' <span style="color:var(--slate);font-weight:500;font-size:11px;">'+p.yr+'</span></td>';
+    var vals=[];
+    STATIONS.forEach(function(s){
+      var raw=(scores[p.id]&&scores[p.id][s.id]!==undefined)?scores[p.id][s.id]:null;
+      var r=rawToRating(raw);
+      if(r!==null)vals.push(r);
+      row+= r!==null?'<td>'+r+'</td>':'<td class="blank">&middot;</td>';
+    });
+    var avg= vals.length?(vals.reduce(function(a,b){return a+b;},0)/vals.length):null;
+    row+= avg!==null?'<td class="avg">'+avg.toFixed(1)+'</td>':'<td class="blank">&middot;</td>';
+    body+=row+'</tr>';
+  });
+  t.innerHTML=head+body;
+}
+
+function exportCSV(){
+  var head=["Player","Year"].concat(STATIONS.map(function(s){return s.name;})).concat(["Average"]);
+  var rows=[head];
+  ROSTER.forEach(function(p){
+    var line=[p.name,p.yr],vals=[];
+    STATIONS.forEach(function(s){
+      var raw=(scores[p.id]&&scores[p.id][s.id]!==undefined)?scores[p.id][s.id]:null;
+      var r=rawToRating(raw); if(r!==null)vals.push(r);
+      line.push(r!==null?r:"");
+    });
+    line.push(vals.length?(vals.reduce(function(a,b){return a+b;},0)/vals.length).toFixed(1):"");
+    rows.push(line);
+  });
+  var csv=rows.map(function(r){return r.map(function(c){var s=String(c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(",");}).join("\n");
+  var blob=new Blob([csv],{type:"text/csv"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download="sand_sharks_skill_assessment.csv";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast("Exported CSV");
+}
+
+var tt=null;
+function toast(m){var t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(function(){t.classList.remove("show");},1600);}
+
+renderMenu();
+</script>
+</body>
+</html>
