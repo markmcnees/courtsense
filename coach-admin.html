@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CourtSense Onboarding Review</title>
+<script src="cs-config-gen.js"></script>
 <style>
   :root{
     --navy:#082A4F;
@@ -121,6 +122,36 @@
   .card.approved-show .approved-panel{display:block;}
   .approved-panel strong{color:var(--navy);}
   .approved-panel code{font-family:ui-monospace,Menlo,monospace;background:var(--white);padding:1px 5px;border-radius:4px;border:1px solid var(--line);}
+
+  /* finish-setup panel (approve flow) */
+  .finish{
+    margin-top:2px;padding:16px 18px;background:#F4F8F6;border:1px solid #cfe0d8;
+    border-radius:11px;display:none;
+  }
+  .card.finishing .finish{display:block;}
+  .finish h4{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:19px;letter-spacing:.6px;color:var(--navy);margin:0 0 4px;}
+  .finish .fnote{font-size:12.5px;color:var(--slate);margin:0 0 12px;}
+  .finish .frow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .finish .ff{flex:1;min-width:130px;}
+  .finish label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--slate);margin-bottom:3px;}
+  .finish input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:14px;background:var(--white);}
+  .finish input:focus{outline:2px solid var(--blue);border-color:var(--blue);}
+  .finish input.pin{font-family:ui-monospace,Menlo,monospace;letter-spacing:2px;}
+  .finish .ferr{color:var(--err);font-size:12px;font-weight:600;margin-top:3px;display:none;}
+  .finish .ff.bad input{border-color:var(--err);}
+  .finish .ff.bad .ferr{display:block;}
+  .finish .genbtn{
+    font-family:inherit;font-size:14px;font-weight:600;background:var(--navy);color:var(--white);
+    border:none;border-radius:8px;padding:9px 18px;cursor:pointer;
+  }
+  .finish .genbtn:hover{background:var(--blue);}
+  .out-block{margin-top:14px;}
+  .out-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
+  .out-head h5{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);margin:0;}
+  .copy-btn{font-family:inherit;font-size:11px;font-weight:600;background:var(--blue);color:var(--white);border:none;border-radius:6px;padding:4px 11px;cursor:pointer;}
+  .copy-btn:hover{background:var(--navy);}
+  .copy-btn.done{background:var(--teal);}
+  .finish pre{margin:0;background:var(--ink);color:#E8EEF4;border-radius:8px;padding:11px 13px;overflow-x:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5;white-space:pre;}
 
   footer{text-align:center;color:var(--slate);font-size:12px;padding:20px;}
 </style>
@@ -283,10 +314,17 @@
       fieldRow('Submitted', esc(s.submittedAt), true)+
     '</div>';
 
-    var slugGuess=(s.schoolName||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-    var approvedPanel='<div class="approved-panel">'+
-      '<strong>Approved.</strong> Build this school in the config generator, then deploy and send the welcome email. '+
-      'Suggested slug: <code>'+esc(slugGuess||'school')+'</code>'+
+    var slugGuess=(window.CSConfigGen? CSConfigGen.shortSlug(s.schoolName) : (s.schoolName||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''));
+    var finishPanel='<div class="finish">'+
+      '<h4>Finish setup for this school</h4>'+
+      '<p class="fnote">Confirm the slug and set a unique coach PIN, then generate the config. The slug is permanent once the school saves data.</p>'+
+      '<div class="frow">'+
+        '<div class="ff" data-f="slug"><label>URL slug</label><input class="f-slug" value="'+esc(slugGuess||'school')+'"><div class="ferr">Enter a slug (lowercase, dashes ok).</div></div>'+
+        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="8" placeholder="4+ digits"><div class="ferr">Set a unique PIN, 4 to 8 digits. Not 8675.</div></div>'+
+        '<div class="ff" data-f="emoji"><label>Team emoji</label><input class="f-emoji" maxlength="4" value="\uD83C\uDFD0"></div>'+
+      '</div>'+
+      '<button class="genbtn">Generate config</button>'+
+      '<div class="gen-out"></div>'+
     '</div>';
 
     var actions;
@@ -299,7 +337,7 @@
         '<span class="reviewed-note">'+esc(s.status)+(s.reviewedAt?' &middot; '+esc(s.reviewedAt.slice(0,10)):'')+'</span>';
     }
 
-    return '<div class="card'+(s.status==='approved'?' approved-show':'')+'" data-id="'+esc(s.id)+'">'+
+    return '<div class="card" data-id="'+esc(s.id)+'">'+
       '<div class="card-top">'+
         '<div class="card-emoji">'+ (s.gender==='boys'?'\uD83C\uDFD0':'\uD83C\uDFD0') +'</div>'+
         '<div class="card-head">'+
@@ -309,7 +347,7 @@
         '</div>'+
         '<span class="badge '+esc(s.status||'pending')+'">'+esc(s.status||'pending')+'</span>'+
       '</div>'+
-      '<div class="card-body">'+body+approvedPanel+'</div>'+
+      '<div class="card-body">'+body+finishPanel+'</div>'+
       '<div class="card-actions">'+actions+'</div>'+
     '</div>';
   }
@@ -329,17 +367,82 @@
     // wire per-card handlers
     list.querySelectorAll('.card').forEach(function(card){
       var id=card.getAttribute('data-id');
+      var sub=null;
+      for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ sub=SUBS[i]; break; } }
       var exp=card.querySelector('.expand');
       if(exp) exp.addEventListener('click',function(){ card.classList.toggle('open'); });
       var ap=card.querySelector('.btn.approve');
       var rj=card.querySelector('.btn.reject');
-      if(ap) ap.addEventListener('click',function(){ setStatus(id,'approved',card); });
+      // Approve opens the finish panel (does not mark approved until config is generated)
+      if(ap) ap.addEventListener('click',function(){
+        card.classList.add('open');
+        card.classList.add('finishing');
+        var pin=card.querySelector('.f-pin'); if(pin) pin.focus();
+      });
       if(rj) rj.addEventListener('click',function(){
         if(window.confirm('Reject this submission? Use this only for fake or junk entries. The coach is not notified.')){
           setStatus(id,'rejected',card);
         }
       });
+      // Generate config inside the finish panel
+      var gen=card.querySelector('.genbtn');
+      if(gen) gen.addEventListener('click',function(){
+        generateConfig(card, sub, id);
+      });
     });
+  }
+
+  function generateConfig(card, sub, id){
+    if(!sub || !window.CSConfigGen) return;
+    var slugFF=card.querySelector('.ff[data-f="slug"]');
+    var pinFF=card.querySelector('.ff[data-f="pin"]');
+    var slug=(card.querySelector('.f-slug').value||'').trim();
+    var pin=(card.querySelector('.f-pin').value||'').trim();
+    var emoji=(card.querySelector('.f-emoji').value||'').trim();
+
+    // validate
+    var ok=true;
+    slugFF.classList.remove('bad'); pinFF.classList.remove('bad');
+    if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); ok=false; }
+    if(!/^\d{4,8}$/.test(pin) || pin==='8675'){ pinFF.classList.add('bad'); ok=false; }
+    if(!ok) return;
+
+    var data={
+      slug:slug, coachPin:pin, teamEmoji:emoji||'\uD83C\uDFD0',
+      schoolName:sub.schoolName, shortName:sub.schoolName, displayName:sub.schoolName,
+      color1:sub.color1, color2:sub.color2, homeVenue:sub.homeVenue,
+      standingsKey:sub.schoolName, logo:sub.logoFilename||''
+    };
+    var config=CSConfigGen.buildConfig(data);
+    var keymap=CSConfigGen.buildKeyMap(data);
+    var checklist=CSConfigGen.buildChecklist(data);
+
+    var out=card.querySelector('.gen-out');
+    out.innerHTML=
+      block('School config (into courtsense/'+esc(slug)+'/index.html)','cfg',config)+
+      block('SCHOOL_KEY_MAP snippet (into app.js)','km',keymap)+
+      block('Deploy checklist','cl',checklist)+
+      '<div style="margin-top:12px;"><button class="genbtn markbtn">Mark approved</button> '+
+      '<span class="fnote" style="margin-left:8px;">Marks this submission approved. Send the welcome email after the app is live.</span></div>';
+
+    // copy buttons
+    out.querySelectorAll('.copy-btn').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var pre=btn.closest('.out-block').querySelector('pre');
+        navigator.clipboard.writeText(pre.textContent).then(function(){
+          var t=btn.textContent; btn.textContent='Copied'; btn.classList.add('done');
+          setTimeout(function(){btn.textContent=t;btn.classList.remove('done');},1300);
+        });
+      });
+    });
+    // mark approved
+    var mark=out.querySelector('.markbtn');
+    if(mark) mark.addEventListener('click',function(){ setStatus(id,'approved',card); });
+  }
+
+  function block(title,key,text){
+    return '<div class="out-block"><div class="out-head"><h5>'+esc(title)+'</h5>'+
+      '<button class="copy-btn">Copy</button></div><pre>'+esc(text)+'</pre></div>';
   }
 
   // ---- controls ----
