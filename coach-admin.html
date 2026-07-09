@@ -245,8 +245,15 @@
   function link(v){ if(!v) return null; var u=/^https?:\/\//.test(v)?v:'https://'+v; return '<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(v)+'</a>'; }
   function mailto(v){ if(!v) return null; return '<a href="mailto:'+esc(v)+'">'+esc(v)+'</a>'; }
 
+  function fmtPhone(v){
+    if(!v) return null;
+    var d=String(v).replace(/\D/g,'');
+    if(d.length===11 && d.charAt(0)==='1') d=d.slice(1); // strip US country code
+    if(d.length===10) return '('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);
+    return esc(v); // non-standard length: show as entered
+  }
+
   function cardHtml(s){
-    var compete=[s.classification,s.division,s.district,s.region].filter(Boolean).join(' / ');
     var govLine=[s.govBody,s.state].filter(Boolean).join(', ');
     var colorSw='';
     if(s.color1||s.color2){
@@ -258,13 +265,16 @@
     var body='<div class="grid">'+
       fieldRow('Coach', esc((s.coachFirstName||'')+' '+(s.coachLastName||''))+(s.coachRole?' &middot; '+esc(s.coachRole):''))+
       fieldRow('Email', mailto(s.coachEmail))+
-      fieldRow('Cell', esc(s.coachCell))+
+      fieldRow('Cell', fmtPhone(s.coachCell))+
       fieldRow('Teams', esc(s.gender))+
       fieldRow('Address', esc(s.address), true)+
-      fieldRow('School phone', esc(s.phone))+
+      fieldRow('School phone', fmtPhone(s.phone))+
       fieldRow('Website', link(s.website))+
       fieldRow('Governing body', esc(govLine))+
-      fieldRow('Classification', esc(compete), true)+
+      fieldRow('Class', esc(s.classification))+
+      fieldRow('Division', esc(s.division))+
+      fieldRow('District', esc(s.district))+
+      fieldRow('Region', esc(s.region))+
       fieldRow('Home venue', esc(s.homeVenue))+
       fieldRow('Season', esc(s.seasonYear))+
       fieldRow('Colors', colorSw)+
