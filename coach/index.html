@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bring Your Program to CourtSense</title>
+<style>
+  :root{
+    --navy:#082A4F;
+    --blue:#0081AB;
+    --gold:#F2B22E;
+    --teal:#217F7F;
+    --sand:#F7C880;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+    --err:#B4362E;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1.5;
+  }
+  .page{max-width:680px;margin:0 auto;padding:0 20px 60px;}
+
+  /* Hero */
+  .hero{
+    background:var(--navy);
+    color:var(--white);
+    margin:0 -20px 0;
+    padding:44px 28px 40px;
+    border-radius:0 0 20px 20px;
+    text-align:center;
+  }
+  .hero .eyebrow{
+    font-size:12px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--sand);font-weight:700;margin:0 0 10px;
+  }
+  .hero h1{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:44px;letter-spacing:1.5px;line-height:1.02;margin:0 0 12px;
+  }
+  .hero p{font-size:16px;color:#cdd8e4;margin:0 auto;max-width:460px;}
+  .pillars{display:flex;gap:8px;justify-content:center;margin-top:18px;flex-wrap:wrap;}
+  .pill{font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:4px 12px;border-radius:20px;}
+  .pill.team{background:var(--blue);}
+  .pill.league{background:var(--gold);color:#5a4310;}
+  .pill.community{background:var(--teal);}
+
+  /* Sections */
+  .section{margin-top:34px;}
+  .section-head{display:flex;align-items:baseline;gap:12px;margin-bottom:4px;}
+  .section-num{
+    font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--blue);
+    letter-spacing:1px;line-height:1;
+  }
+  .section h2{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:26px;letter-spacing:1px;color:var(--navy);margin:0;
+  }
+  .section-sub{color:var(--slate);font-size:14px;margin:0 0 18px;}
+
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-weight:600;font-size:14px;margin-bottom:5px;}
+  .field label .req{color:var(--err);margin-left:2px;}
+  .field label .opt{color:var(--slate);font-weight:400;font-size:12px;}
+  .field .hint{display:block;color:var(--slate);font-size:12.5px;font-weight:400;margin-top:-2px;margin-bottom:5px;}
+  input[type=text],input[type=tel],input[type=email],input[type=url],select,textarea{
+    width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;
+    font-family:inherit;font-size:15px;background:var(--white);color:var(--ink);
+  }
+  textarea{resize:vertical;min-height:74px;}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--blue);outline-offset:0;border-color:var(--blue);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  @media (max-width:560px){ .row2,.row3{grid-template-columns:1fr;} }
+
+  input.invalid,select.invalid{border-color:var(--err);outline-color:var(--err);}
+  .field-err{color:var(--err);font-size:12.5px;font-weight:600;margin-top:4px;display:none;}
+  .field.show-err .field-err{display:block;}
+
+  /* Color + logo */
+  .color-field{display:flex;align-items:center;gap:10px;}
+  .color-field input[type=color]{width:46px;height:42px;padding:0;border:1px solid var(--line);border-radius:8px;background:none;cursor:pointer;flex:0 0 auto;}
+  .color-field input[type=text]{flex:1;font-family:ui-monospace,Menlo,monospace;font-size:14px;}
+  .logo-drop{
+    border:2px dashed var(--line);border-radius:10px;padding:18px;text-align:center;
+    color:var(--slate);font-size:14px;cursor:pointer;background:var(--white);
+  }
+  .logo-drop:hover{border-color:var(--blue);color:var(--blue);}
+  .logo-drop.has-file{border-style:solid;border-color:var(--teal);color:var(--teal);font-weight:600;}
+  .logo-preview{max-height:70px;margin-top:10px;display:none;border-radius:6px;}
+
+  .quickstart{
+    background:var(--white);border:1px solid var(--line);border-radius:12px;
+    padding:6px 4px;
+  }
+  .qs-step{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .qs-step:last-child{border-bottom:none;}
+  .qs-num{
+    flex:0 0 auto;width:28px;height:28px;border-radius:50%;
+    background:var(--blue);color:var(--white);font-family:'Bebas Neue',sans-serif;
+    font-size:17px;display:flex;align-items:center;justify-content:center;margin-top:1px;
+  }
+  .qs-title{font-weight:700;font-size:15px;color:var(--navy);}
+  .qs-body{font-size:13.5px;color:var(--slate);margin-top:2px;}
+  .qs-download{
+    display:inline-block;margin-top:9px;font-family:'Barlow',sans-serif;font-weight:600;
+    font-size:14px;background:var(--teal);color:var(--white);text-decoration:none;
+    padding:9px 16px;border-radius:8px;letter-spacing:.3px;
+  }
+  .qs-download:hover{background:#1a6666;}
+
+  .privacy{
+    background:#EFF4F4;border:1px solid #cfe0e0;border-radius:10px;
+    padding:13px 15px;font-size:13px;color:#2c5555;margin-top:14px;
+  }
+  .privacy strong{color:var(--teal);}
+
+  .submit-row{margin-top:34px;}
+  .submit-btn{
+    width:100%;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;
+    background:var(--gold);color:var(--navy);border:none;border-radius:11px;
+    padding:15px;cursor:pointer;transition:background .15s;
+  }
+  .submit-btn:hover{background:#e0a520;}
+  .submit-btn:disabled{opacity:.6;cursor:default;}
+  .form-note{text-align:center;color:var(--slate);font-size:13px;margin-top:12px;}
+
+  /* Placeholder + success banners */
+  .banner{border-radius:11px;padding:16px 18px;margin-top:22px;font-size:14.5px;display:none;}
+  .banner.placeholder{background:#FBEED9;border:1px solid var(--gold);color:#7a5a12;}
+  .banner.success{background:#E8F3EC;border:1px solid var(--teal);color:#1c5c3a;}
+  .banner h3{margin:0 0 6px;font-size:16px;}
+  .banner pre{
+    background:var(--ink);color:#E8EEF4;border-radius:8px;padding:12px;overflow-x:auto;
+    font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:10px 0 0;white-space:pre-wrap;
+  }
+
+  footer{text-align:center;color:var(--slate);font-size:12.5px;margin-top:40px;}
+  footer .logo-word{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--navy);}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <p class="eyebrow">CourtSense onboarding</p>
+    <h1>Bring your program<br>onto CourtSense</h1>
+    <p>Tell us about your team and we will build your app. Takes about five minutes. We follow up by email to finish setup.</p>
+    <div class="pillars">
+      <span class="pill team">Team</span>
+      <span class="pill league">League</span>
+      <span class="pill community">Community</span>
+    </div>
+  </div>
+
+  <form id="intake" novalidate>
+
+    <!-- SCHOOL -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">01</span><h2>Your school</h2></div>
+      <p class="section-sub">The basics about your program.</p>
+
+      <div class="field">
+        <label for="schoolName">School or program name <span class="req">*</span></label>
+        <input type="text" id="schoolName" name="schoolName" placeholder="Sandpiper High School" autocomplete="organization">
+        <div class="field-err">Please enter your school or program name.</div>
+      </div>
+
+      <div class="field">
+        <label for="address">School address <span class="req">*</span></label>
+        <span class="hint">Street, city, state, zip.</span>
+        <input type="text" id="address" name="address" placeholder="100 Beachside Dr, Tallahassee, FL 32301" autocomplete="street-address">
+        <div class="field-err">Please enter your school address.</div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="phone">School phone <span class="req">*</span></label>
+          <input type="tel" id="phone" name="phone" placeholder="(850) 555-0100" autocomplete="tel">
+          <div class="field-err">Please enter your school phone.</div>
+        </div>
+        <div class="field">
+          <label for="website">School website <span class="req">*</span></label>
+          <input type="url" id="website" name="website" placeholder="https://sandpiperhigh.edu">
+          <div class="field-err">Please enter your school website.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="mascot">Team name or mascot <span class="req">*</span></label>
+        <input type="text" id="mascot" name="mascot" placeholder="Lions">
+        <div class="field-err">Please enter your team name or mascot.</div>
+      </div>
+    </div>
+
+    <!-- CLASSIFICATION -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">02</span><h2>Where you compete</h2></div>
+      <p class="section-sub">Your athletic association and where you sit in it. Every state runs this differently, so fill in whatever applies. Florida example shown in each box.</p>
+
+      <div class="row2">
+        <div class="field">
+          <label for="state">State <span class="req">*</span></label>
+          <input type="text" id="state" name="state" placeholder="Florida" autocomplete="address-level1">
+          <div class="field-err">Please enter your state.</div>
+        </div>
+        <div class="field">
+          <label for="govBody">Governing body <span class="req">*</span></label>
+          <span class="hint">e.g. FHSAA</span>
+          <input type="text" id="govBody" name="govBody" placeholder="FHSAA">
+          <div class="field-err">Please enter your governing body.</div>
+        </div>
+      </div>
+
+      <div class="row3">
+        <div class="field">
+          <label for="classification">Class <span class="opt">(optional)</span></label>
+          <span class="hint">e.g. 2A</span>
+          <input type="text" id="classification" name="classification" placeholder="Class 2A">
+        </div>
+        <div class="field">
+          <label for="division">Division <span class="opt">(optional)</span></label>
+          <input type="text" id="division" name="division" placeholder="">
+        </div>
+        <div class="field">
+          <label for="district">District <span class="opt">(optional)</span></label>
+          <span class="hint">e.g. District 2</span>
+          <input type="text" id="district" name="district" placeholder="District 2">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="region">Region or conference <span class="opt">(optional)</span></label>
+        <input type="text" id="region" name="region" placeholder="">
+      </div>
+    </div>
+
+    <!-- COACH -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">03</span><h2>You, the coach</h2></div>
+      <p class="section-sub">How we reach you to finish setup.</p>
+
+      <div class="row2">
+        <div class="field">
+          <label for="coachFirstName">Your first name <span class="req">*</span></label>
+          <input type="text" id="coachFirstName" name="coachFirstName" placeholder="Sandy" autocomplete="given-name">
+          <div class="field-err">Please enter your first name.</div>
+        </div>
+        <div class="field">
+          <label for="coachLastName">Your last name <span class="req">*</span></label>
+          <input type="text" id="coachLastName" name="coachLastName" placeholder="Rivers" autocomplete="family-name">
+          <div class="field-err">Please enter your last name.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="coachRole">Your title <span class="req">*</span></label>
+        <input type="text" id="coachRole" name="coachRole" placeholder="Head Beach Coach">
+        <div class="field-err">Please enter your title.</div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="coachEmail">Your email <span class="req">*</span></label>
+          <input type="email" id="coachEmail" name="coachEmail" placeholder="coach@school.edu" autocomplete="email">
+          <div class="field-err">Please enter a valid email address.</div>
+        </div>
+        <div class="field">
+          <label for="coachCell">Your cell <span class="req">*</span></label>
+          <input type="tel" id="coachCell" name="coachCell" placeholder="(850) 555-0142" autocomplete="tel">
+          <div class="field-err">Please enter your cell number.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROGRAM -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">04</span><h2>Your season</h2></div>
+      <p class="section-sub">A few details that shape your app.</p>
+
+      <div class="row3">
+        <div class="field">
+          <label for="gender">Teams <span class="req">*</span></label>
+          <select id="gender" name="gender">
+            <option value="" selected disabled>Select</option>
+            <option value="girls">Girls</option>
+            <option value="boys">Boys</option>
+            <option value="both">Both</option>
+          </select>
+          <div class="field-err">Please choose.</div>
+        </div>
+        <div class="field">
+          <label for="seasonYear">Season year <span class="opt">(optional)</span></label>
+          <input type="text" id="seasonYear" name="seasonYear" placeholder="2026" inputmode="numeric" maxlength="4">
+        </div>
+        <div class="field">
+          <label for="homeVenue">Home venue <span class="opt">(optional)</span></label>
+          <input type="text" id="homeVenue" name="homeVenue" placeholder="Beachside Park">
+        </div>
+      </div>
+    </div>
+
+    <!-- BRANDING -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">05</span><h2>Your look</h2></div>
+      <p class="section-sub">So your app shows up in your colors. Approximate is fine, we finalize it with you.</p>
+
+      <div class="row2">
+        <div class="field">
+          <label>Primary color <span class="opt">(optional)</span></label>
+          <div class="color-field">
+            <input type="color" id="color1pick" value="#e4002b">
+            <input type="text" id="color1" name="color1" value="#e4002b">
+          </div>
+        </div>
+        <div class="field">
+          <label>Second color <span class="opt">(optional)</span></label>
+          <div class="color-field">
+            <input type="color" id="color2pick" value="#082A4F">
+            <input type="text" id="color2" name="color2" value="#082A4F">
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="logoInput">Team logo <span class="opt">(optional)</span></label>
+        <span class="hint">PNG or JPG. A clear logo on a transparent or white background works best.</span>
+        <div class="logo-drop" id="logoDrop">Tap to upload your logo</div>
+        <input type="file" id="logoInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;">
+        <img id="logoPreview" class="logo-preview" alt="Logo preview">
+      </div>
+    </div>
+
+    <!-- QUICK START -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">06</span><h2>Quick start your roster</h2></div>
+      <p class="section-sub">Optional, and a real head start. Bring your current team in so your app is not empty on day one, and returning players carry into next season.</p>
+
+      <div class="quickstart">
+        <div class="qs-step">
+          <span class="qs-num">1</span>
+          <div>
+            <div class="qs-title">Download the roster template</div>
+            <div class="qs-body">A simple spreadsheet with a column for each thing we need. Fill in one row per player.</div>
+            <a class="qs-download" id="templateLink" href="CourtSense_Roster_Template.xlsx" download>Download the template</a>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">2</span>
+          <div>
+            <div class="qs-title">Fill it in on your own time</div>
+            <div class="qs-body">Only names and grad year are required. Skip anything you do not have yet.</div>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">3</span>
+          <div>
+            <div class="qs-title">Upload it once your app is ready</div>
+            <div class="qs-body">After we set you up and confirm your account, you will bring your roster in from inside your own app. Nothing to upload here.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTES -->
+    <div class="section">
+      <div class="section-head"><span class="section-num">07</span><h2>Anything else</h2></div>
+      <p class="section-sub">Optional. Anything you want us to know before we build.</p>
+      <div class="field">
+        <label for="notes" style="display:none;">Notes</label>
+        <textarea id="notes" name="notes" placeholder="We share courts with the tennis team on Tuesdays, our season starts in March..."></textarea>
+      </div>
+    </div>
+
+    <div class="privacy">
+      <strong>On player data.</strong> This form is just about your program and you. You will add your roster yourself inside the app once it is set up. Please do not enter any student or player information here.
+    </div>
+
+    <div class="submit-row">
+      <button type="submit" class="submit-btn" id="submitBtn">Send my program</button>
+      <p class="form-note">We follow up by email to finish setup and send your app link.</p>
+    </div>
+
+    <div class="banner placeholder" id="placeholderBanner">
+      <h3>Form works. Backend not wired yet.</h3>
+      <div>This is the Stage 3 intake form. Submit is a placeholder until the Stage 2 queue endpoint is built. Here is the validated payload that would post to the worker:</div>
+      <pre id="payloadOut"></pre>
+    </div>
+
+    <div class="banner success" id="successBanner">
+      <h3>Thanks, your program is on its way.</h3>
+      <div>We got your details and will email you at the address you gave to finish setup and send your app link. Keep an eye on your inbox over the next day or two.</div>
+    </div>
+
+  </form>
+
+  <footer>
+    <div class="logo-word">CourtSense</div>
+    Team, League, and Community management for beach volleyball.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+
+  // color picker <-> text sync
+  function linkColor(pickId,textId){
+    var pick=$(pickId),text=$(textId);
+    pick.addEventListener('input',function(){text.value=pick.value;});
+    text.addEventListener('input',function(){
+      var v=text.value.trim();
+      if(/^#[0-9a-fA-F]{6}$/.test(v)) pick.value=v;
+    });
+  }
+  linkColor('color1pick','color1');
+  linkColor('color2pick','color2');
+
+  // logo upload preview (client-side only; no upload happens yet)
+  var logoData=null, logoName=null;
+  $('logoDrop').addEventListener('click',function(){ $('logoInput').click(); });
+  $('logoInput').addEventListener('change',function(e){
+    var f=e.target.files&&e.target.files[0];
+    if(!f) return;
+    logoName=f.name;
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      logoData=ev.target.result; // data URL
+      var img=$('logoPreview'); img.src=logoData; img.style.display='inline-block';
+      var drop=$('logoDrop'); drop.textContent='Logo added: '+logoName; drop.classList.add('has-file');
+    };
+    reader.readAsDataURL(f);
+  });
+
+  // validation
+  function emailValid(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+  var required=[
+    {id:'schoolName',test:function(v){return v.trim().length>0;}},
+    {id:'address',test:function(v){return v.trim().length>0;}},
+    {id:'phone',test:function(v){return v.trim().length>0;}},
+    {id:'website',test:function(v){return v.trim().length>0;}},
+    {id:'mascot',test:function(v){return v.trim().length>0;}},
+    {id:'state',test:function(v){return v.trim().length>0;}},
+    {id:'govBody',test:function(v){return v.trim().length>0;}},
+    {id:'coachFirstName',test:function(v){return v.trim().length>0;}},
+    {id:'coachLastName',test:function(v){return v.trim().length>0;}},
+    {id:'coachRole',test:function(v){return v.trim().length>0;}},
+    {id:'coachEmail',test:function(v){return emailValid(v.trim());}},
+    {id:'coachCell',test:function(v){return v.trim().length>0;}},
+    {id:'gender',test:function(v){return v.trim().length>0;}}
+  ];
+  function fieldWrap(el){ return el.closest('.field'); }
+  function clearErr(el){ var w=fieldWrap(el); if(w){w.classList.remove('show-err');} el.classList.remove('invalid'); }
+  required.forEach(function(r){
+    $(r.id).addEventListener('input',function(){ clearErr($(r.id)); });
+    $(r.id).addEventListener('change',function(){ clearErr($(r.id)); });
+  });
+
+  function validate(){
+    var firstBad=null;
+    required.forEach(function(r){
+      var el=$(r.id), ok=r.test(el.value||'');
+      var w=fieldWrap(el);
+      if(!ok){ if(w) w.classList.add('show-err'); el.classList.add('invalid'); if(!firstBad) firstBad=el; }
+      else { if(w) w.classList.remove('show-err'); el.classList.remove('invalid'); }
+    });
+    return firstBad;
+  }
+
+  function collectPayload(){
+    var ids=['schoolName','address','phone','website','mascot','state','govBody',
+      'classification','division','district','region','coachFirstName','coachLastName','coachRole',
+      'coachEmail','coachCell','gender','seasonYear','homeVenue','color1','color2','notes'];
+    var p={};
+    ids.forEach(function(id){ var el=$(id); if(el) p[id]=(el.value||'').trim(); });
+    p.logoFilename=logoName||null;
+    p.logoIncluded=!!logoData;
+    p.submittedAt=new Date().toISOString();
+    p.source='coach-intake';
+    return p;
+  }
+
+  // ---- BACKEND: live worker onboarding endpoint ----
+  var BACKEND_WIRED=true;
+  var WORKER_ONBOARD_URL='https://courtsense-email-worker.markmcnees-479.workers.dev/onboard/submit';
+
+  function showError(msg){
+    var b=$('placeholderBanner');
+    b.className='banner placeholder';
+    b.querySelector('h3').textContent='Something went wrong';
+    $('payloadOut').textContent=msg;
+    b.style.display='block';
+    b.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+  function showSuccess(){
+    $('placeholderBanner').style.display='none';
+    $('successBanner').style.display='block';
+    $('successBanner').scrollIntoView({behavior:'smooth',block:'center'});
+  }
+
+  $('intake').addEventListener('submit',function(e){
+    e.preventDefault();
+    var bad=validate();
+    if(bad){ bad.focus(); bad.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+
+    var payload=collectPayload();
+    var btn=$('submitBtn');
+    var origLabel=btn.textContent;
+    btn.disabled=true; btn.textContent='Sending...';
+
+    fetch(WORKER_ONBOARD_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(function(res){
+      return res.json().catch(function(){ return {ok:res.ok}; }).then(function(data){
+        return {status:res.status,data:data};
+      });
+    }).then(function(r){
+      btn.disabled=false; btn.textContent=origLabel;
+      if(r.data && r.data.ok){
+        showSuccess();
+      }else if(r.status===429){
+        showError('It looks like this program was just submitted. If you did not get a confirmation, wait a few minutes and try once more.');
+      }else{
+        showError('We could not send your program just now. Please try again in a moment, or email us at the address on your onboarding page.');
+      }
+    }).catch(function(){
+      btn.disabled=false; btn.textContent=origLabel;
+      showError('We could not reach CourtSense. Check your connection and try again in a moment.');
+    });
+  });
+})();
+</script>
+</body>
+</html>
