@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Getting Started with CourtSense</title>
+<style>
+  :root{
+    --navy:#082A4F;
+    --blue:#0081AB;
+    --gold:#F2B22E;
+    --teal:#217F7F;
+    --sand:#F7C880;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--paper);color:var(--ink);font-size:16px;line-height:1.55;
+  }
+  .page{max-width:720px;margin:0 auto;padding:0 20px 70px;}
+
+  .hero{
+    background:var(--navy);color:var(--white);margin:0 -20px 0;
+    padding:44px 30px 38px;border-radius:0 0 20px 20px;text-align:center;
+  }
+  .hero .eyebrow{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--sand);font-weight:700;margin:0 0 10px;}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:46px;letter-spacing:1.5px;line-height:1.02;margin:0 0 12px;}
+  .hero p{font-size:16px;color:#cdd8e4;margin:0 auto;max-width:480px;}
+
+  .toolbar{display:flex;justify-content:flex-end;margin-top:16px;}
+  .pdf-btn{
+    font-family:'Barlow',sans-serif;font-weight:600;font-size:14px;
+    background:var(--white);color:var(--navy);border:1px solid var(--line);
+    border-radius:8px;padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  }
+  .pdf-btn:hover{border-color:var(--blue);color:var(--blue);}
+
+  .step{margin-top:30px;display:flex;gap:16px;align-items:flex-start;}
+  .step-num{
+    flex:0 0 auto;width:38px;height:38px;border-radius:10px;
+    background:var(--blue);color:var(--white);font-family:'Bebas Neue',sans-serif;
+    font-size:22px;display:flex;align-items:center;justify-content:center;margin-top:2px;
+  }
+  .step:nth-child(odd) .step-num{background:var(--teal);}
+  .step-body{flex:1;min-width:0;}
+  .step-body h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:25px;letter-spacing:.8px;color:var(--navy);margin:0 0 6px;}
+  .step-body p{margin:0 0 10px;}
+  .step-body ul{margin:6px 0 10px;padding-left:20px;}
+  .step-body li{margin-bottom:5px;}
+
+  .callout{
+    background:var(--white);border:1px solid var(--line);border-left:5px solid var(--gold);
+    border-radius:10px;padding:13px 16px;font-size:14.5px;margin:12px 0;
+  }
+  .callout strong{color:var(--navy);}
+  .url-chip{
+    font-family:ui-monospace,Menlo,monospace;background:var(--paper);border:1px solid var(--line);
+    border-radius:6px;padding:2px 8px;font-size:14px;color:var(--navy);
+  }
+
+  .divider{border:none;border-top:1px solid var(--line);margin:34px 0 0;}
+
+  .sections{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:560px){ .sections{grid-template-columns:1fr;} }
+  .sec-card{background:var(--white);border:1px solid var(--line);border-radius:11px;padding:14px 16px;}
+  .sec-card h3{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:19px;letter-spacing:.6px;color:var(--navy);margin:0 0 4px;}
+  .sec-card p{margin:0;font-size:14px;color:var(--slate);}
+
+  .help{margin-top:32px;background:#EFF4F4;border:1px solid #cfe0e0;border-radius:12px;padding:18px 20px;}
+  .help h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:22px;letter-spacing:.6px;color:var(--teal);margin:0 0 6px;}
+  .help p{margin:0;font-size:14.5px;color:#2c5555;}
+  .help a{color:var(--teal);font-weight:600;}
+
+  footer{text-align:center;color:var(--slate);font-size:13px;margin-top:36px;}
+  footer .logo-word{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--navy);}
+
+  @media print{
+    body{background:var(--white);font-size:12pt;}
+    .hero{background:var(--navy) !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;border-radius:0;margin:0;}
+    .toolbar{display:none;}
+    .step-num,.sec-card,.callout,.help{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .page{max-width:none;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <p class="eyebrow">Welcome to CourtSense</p>
+    <h1>Getting started<br>with your app</h1>
+    <p>Your team's app is set up and ready. Here is everything you need to log in and get your roster going. Takes about ten minutes.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="pdf-btn" onclick="window.print()">
+      <span>&#128424;</span> Save or print this guide
+    </button>
+  </div>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <h2>Open your app</h2>
+      <p>Your welcome email has your team's web address. It looks like <span class="url-chip">courtsense.app/your-team</span>. Open it in any phone or computer browser.</p>
+      <div class="callout">
+        <strong>Tip:</strong> On your phone, add it to your home screen so it opens like an app. In your browser menu, choose "Add to Home Screen."
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <h2>Log in as the coach</h2>
+      <p>On the opening screen you will see a Coach and a Player button. Tap <strong>Coach</strong>, then enter your coach PIN.</p>
+      <div class="callout">
+        <strong>Your coach PIN is in your welcome email.</strong> It is unique to your team. Keep it private; anyone with it can manage your roster. You can change it anytime under Manage.
+      </div>
+      <p>The Player button is for your athletes. Once your roster is in, players sign in on their own side to see their info.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <h2>Add your players</h2>
+      <p>Building your roster is the first thing to do. In the <strong>Players</strong> section, add each athlete with their name and grad year. You can fill in more as the season takes shape.</p>
+      <ul>
+        <li>Add players one at a time from the Players section.</li>
+        <li>Name and graduation year are the essentials to start.</li>
+        <li>You can set jersey numbers and skill ratings later, after tryouts.</li>
+      </ul>
+      <div class="callout">
+        <strong>Have last season's roster in a spreadsheet?</strong> Hang onto it. We are adding a bulk import so you can bring returning players in at once. For now, adding your core group by hand gets you going in a few minutes.
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <h2>Find your way around</h2>
+      <p>Your app has four main areas along the bottom. Here is what each one is for.</p>
+      <div class="sections">
+        <div class="sec-card"><h3>Players</h3><p>Your roster. Add athletes, view and edit their info, keep your team list current.</p></div>
+        <div class="sec-card"><h3>Practice</h3><p>Plan and organize practices and practice groups for your sessions.</p></div>
+        <div class="sec-card"><h3>Duals</h3><p>Your match days. Set lineups and score duals as they happen, courtside.</p></div>
+        <div class="sec-card"><h3>Manage</h3><p>Team settings, your coach PIN, and roster tools all live here.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="help">
+    <h2>Need a hand?</h2>
+    <p>Stuck on anything, or want something set up differently? Reply to your welcome email and we will help you out. We would rather you ask than stay stuck.</p>
+  </div>
+
+  <footer>
+    <div class="logo-word">CourtSense</div>
+    Team, League, and Community management for beach volleyball.
+  </footer>
+
+</div>
+</body>
+</html>
