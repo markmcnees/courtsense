@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourtSense Onboarding Review</title>
+<style>
+  :root{
+    --navy:#082A4F;
+    --blue:#0081AB;
+    --gold:#F2B22E;
+    --teal:#217F7F;
+    --sand:#F7C880;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+    --ok:#217F7F;
+    --err:#B4362E;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:15px;
+    line-height:1.45;
+  }
+  header{
+    background:var(--navy);color:var(--white);
+    padding:20px 26px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  header h1{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:28px;
+    letter-spacing:1.4px;margin:0;line-height:1;
+  }
+  header .sub{color:var(--sand);font-size:13px;letter-spacing:.4px;}
+  header .count{
+    margin-left:auto;font-size:13px;font-weight:600;background:var(--blue);
+    padding:4px 12px;border-radius:20px;
+  }
+  .bar{
+    padding:14px 26px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  }
+  .bar button{
+    font-family:inherit;font-size:13px;font-weight:600;border:1px solid var(--line);
+    background:var(--white);color:var(--navy);border-radius:8px;padding:7px 14px;cursor:pointer;
+  }
+  .bar button:hover{border-color:var(--blue);color:var(--blue);}
+  .bar .filter{margin-left:auto;display:flex;gap:4px;}
+  .bar .filter button.active{background:var(--navy);color:var(--white);border-color:var(--navy);}
+  .wrap{max-width:820px;margin:0 auto;padding:22px 20px 60px;}
+  .status-msg{padding:14px 16px;border-radius:10px;font-size:14px;margin-bottom:16px;display:none;}
+  .status-msg.info{background:#EAF3F6;border:1px solid #cfe0e6;color:#1c4a5c;display:block;}
+  .status-msg.empty{background:var(--white);border:1px dashed var(--line);color:var(--slate);text-align:center;padding:40px 16px;display:block;}
+
+  .card{
+    background:var(--white);border:1px solid var(--line);border-radius:14px;
+    overflow:hidden;margin-bottom:18px;box-shadow:0 1px 3px rgba(8,42,79,.05);
+  }
+  .card-top{
+    padding:16px 18px;display:flex;align-items:flex-start;gap:14px;
+    border-left:6px solid var(--blue);
+  }
+  .card-emoji{
+    width:44px;height:44px;border-radius:10px;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;font-size:20px;
+    background:var(--paper);border:1px solid var(--line);
+  }
+  .card-head{flex:1;min-width:0;}
+  .card-school{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1px;line-height:1;color:var(--navy);margin:0 0 3px;}
+  .card-coach{font-size:14px;color:var(--ink);font-weight:600;}
+  .card-sub{font-size:13px;color:var(--slate);}
+  .badge{
+    font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    padding:3px 10px;border-radius:20px;flex:0 0 auto;
+  }
+  .badge.pending{background:var(--gold);color:#5a4310;}
+  .badge.approved{background:var(--teal);color:var(--white);}
+  .badge.rejected{background:#e8d5d3;color:var(--err);}
+
+  .card-body{padding:2px 18px 14px;display:none;}
+  .card.open .card-body{display:block;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 18px;font-size:13.5px;margin-top:8px;}
+  @media (max-width:560px){ .grid{grid-template-columns:1fr;} }
+  .grid .row{padding:5px 0;border-bottom:1px solid var(--paper);}
+  .grid .k{color:var(--slate);font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
+  .grid .v{color:var(--ink);word-break:break-word;}
+  .grid .v a{color:var(--blue);}
+  .grid .full{grid-column:1 / -1;}
+  .swatches{display:flex;gap:6px;margin-top:2px;}
+  .sw{width:22px;height:22px;border-radius:5px;border:1px solid var(--line);}
+
+  .card-actions{
+    padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;
+    background:#FCFAF6;
+  }
+  .card-actions .expand{
+    font-family:inherit;font-size:13px;font-weight:600;background:none;border:none;
+    color:var(--blue);cursor:pointer;padding:0;
+  }
+  .card-actions .spacer{flex:1;}
+  .btn{
+    font-family:inherit;font-size:14px;font-weight:600;border:none;border-radius:8px;
+    padding:9px 18px;cursor:pointer;letter-spacing:.3px;
+  }
+  .btn.approve{background:var(--teal);color:var(--white);}
+  .btn.approve:hover{background:#1a6666;}
+  .btn.reject{background:var(--white);color:var(--err);border:1px solid #e0c4c1;}
+  .btn.reject:hover{background:#fbeeed;}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .reviewed-note{font-size:12.5px;color:var(--slate);font-style:italic;}
+
+  .approved-panel{
+    margin-top:2px;padding:12px 14px;background:#EAF4EF;border:1px solid #bfe0d1;border-radius:9px;
+    font-size:13px;color:#1c5c3a;display:none;
+  }
+  .card.approved-show .approved-panel{display:block;}
+  .approved-panel strong{color:var(--navy);}
+  .approved-panel code{font-family:ui-monospace,Menlo,monospace;background:var(--white);padding:1px 5px;border-radius:4px;border:1px solid var(--line);}
+
+  footer{text-align:center;color:var(--slate);font-size:12px;padding:20px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Onboarding Review</h1>
+  <span class="sub">CourtSense coach submissions</span>
+  <span class="count" id="count">--</span>
+</header>
+
+<div class="bar">
+  <button id="refreshBtn">Refresh</button>
+  <button id="keyBtn">Change admin key</button>
+  <div class="filter">
+    <button data-filter="pending" class="active">Pending</button>
+    <button data-filter="all">All</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="status-msg" id="statusMsg"></div>
+  <div id="list"></div>
+</div>
+
+<footer>Admin only. Submissions carry coach contact info; keep this screen private.</footer>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var AUTH_WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var ADMIN_KEY='';
+  var SUBS=[];
+  var FILTER='pending';
+
+  // ---- admin key handling (reuses the admin-players.html pattern) ----
+  function ensureAdminKey(){
+    if(!ADMIN_KEY) ADMIN_KEY=(localStorage.getItem('courtsenseAdminKey')||'').trim();
+    if(!ADMIN_KEY){
+      ADMIN_KEY=((window.prompt('Worker admin key:')||'').trim());
+      if(ADMIN_KEY) localStorage.setItem('courtsenseAdminKey',ADMIN_KEY);
+    }
+    return ADMIN_KEY;
+  }
+  function clearAdminKey(){
+    localStorage.removeItem('courtsenseAdminKey'); ADMIN_KEY='';
+  }
+
+  function showStatus(msg,cls){
+    var el=$('statusMsg');
+    el.textContent=msg;
+    el.className='status-msg '+(cls||'info');
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+
+  // ---- load submissions ----
+  function load(){
+    var key=ensureAdminKey();
+    if(!key){ showStatus('Admin key needed to load submissions.','info'); return; }
+    showStatus('Loading submissions...','info');
+    fetch(AUTH_WORKER+'/onboard/admin-list',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey();
+        showStatus('Admin key rejected. Click Refresh to enter it again.','info');
+        return;
+      }
+      if(!o.res || !o.res.ok){
+        showStatus('Load failed: '+((o.res&&o.res.error)||('HTTP '+o.status)),'info');
+        return;
+      }
+      SUBS=o.res.submissions||[];
+      // newest first by submittedAt string (ISO sorts lexically)
+      SUBS.sort(function(a,b){ return (b.submittedAt||'').localeCompare(a.submittedAt||''); });
+      render();
+    }).catch(function(){
+      showStatus('Could not reach the worker. Check your connection and try again.','info');
+    });
+  }
+
+  // ---- status action ----
+  function setStatus(id, status, cardEl){
+    var key=ensureAdminKey();
+    if(!key) return;
+    var btns=cardEl.querySelectorAll('.btn');
+    btns.forEach(function(b){ b.disabled=true; });
+    fetch(AUTH_WORKER+'/onboard/admin-status',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key,id:id,status:status})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey(); btns.forEach(function(b){ b.disabled=false; });
+        showStatus('Admin key rejected. Click Refresh to re-enter it.','info');
+        return;
+      }
+      if(!o.res || !o.res.ok){
+        btns.forEach(function(b){ b.disabled=false; });
+        showStatus('Update failed: '+((o.res&&o.res.error)||('HTTP '+o.status)),'info');
+        return;
+      }
+      // update local state and re-render
+      for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ SUBS[i].status=status; break; } }
+      render();
+    }).catch(function(){
+      btns.forEach(function(b){ b.disabled=false; });
+      showStatus('Could not reach the worker. Try again.','info');
+    });
+  }
+
+  // ---- render ----
+  function fieldRow(k,v,full){
+    if(v==null || v==='') return '';
+    return '<div class="row'+(full?' full':'')+'"><div class="k">'+esc(k)+'</div><div class="v">'+v+'</div></div>';
+  }
+  function link(v){ if(!v) return null; var u=/^https?:\/\//.test(v)?v:'https://'+v; return '<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(v)+'</a>'; }
+  function mailto(v){ if(!v) return null; return '<a href="mailto:'+esc(v)+'">'+esc(v)+'</a>'; }
+
+  function cardHtml(s){
+    var compete=[s.classification,s.division,s.district,s.region].filter(Boolean).join(' / ');
+    var govLine=[s.govBody,s.state].filter(Boolean).join(', ');
+    var colorSw='';
+    if(s.color1||s.color2){
+      colorSw='<div class="swatches">'+
+        (s.color1?'<span class="sw" style="background:'+esc(s.color1)+'"></span>':'')+
+        (s.color2?'<span class="sw" style="background:'+esc(s.color2)+'"></span>':'')+
+        '</div>';
+    }
+    var body='<div class="grid">'+
+      fieldRow('Coach', esc((s.coachFirstName||'')+' '+(s.coachLastName||''))+(s.coachRole?' &middot; '+esc(s.coachRole):''))+
+      fieldRow('Email', mailto(s.coachEmail))+
+      fieldRow('Cell', esc(s.coachCell))+
+      fieldRow('Teams', esc(s.gender))+
+      fieldRow('Address', esc(s.address), true)+
+      fieldRow('School phone', esc(s.phone))+
+      fieldRow('Website', link(s.website))+
+      fieldRow('Governing body', esc(govLine))+
+      fieldRow('Classification', esc(compete), true)+
+      fieldRow('Home venue', esc(s.homeVenue))+
+      fieldRow('Season', esc(s.seasonYear))+
+      fieldRow('Colors', colorSw)+
+      fieldRow('Logo', s.logoIncluded?'Provided ('+esc(s.logoFilename||'file')+')':'Not provided')+
+      fieldRow('Notes', esc(s.notes), true)+
+      fieldRow('Submitted', esc(s.submittedAt), true)+
+    '</div>';
+
+    var slugGuess=(s.schoolName||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    var approvedPanel='<div class="approved-panel">'+
+      '<strong>Approved.</strong> Build this school in the config generator, then deploy and send the welcome email. '+
+      'Suggested slug: <code>'+esc(slugGuess||'school')+'</code>'+
+    '</div>';
+
+    var actions;
+    if(s.status==='pending'){
+      actions='<button class="expand">Details</button><div class="spacer"></div>'+
+        '<button class="btn reject">Reject</button>'+
+        '<button class="btn approve">Approve</button>';
+    }else{
+      actions='<button class="expand">Details</button><div class="spacer"></div>'+
+        '<span class="reviewed-note">'+esc(s.status)+(s.reviewedAt?' &middot; '+esc(s.reviewedAt.slice(0,10)):'')+'</span>';
+    }
+
+    return '<div class="card'+(s.status==='approved'?' approved-show':'')+'" data-id="'+esc(s.id)+'">'+
+      '<div class="card-top">'+
+        '<div class="card-emoji">'+ (s.gender==='boys'?'\uD83C\uDFD0':'\uD83C\uDFD0') +'</div>'+
+        '<div class="card-head">'+
+          '<div class="card-school">'+esc(s.schoolName||'(no name)')+'</div>'+
+          '<div class="card-coach">'+esc((s.coachFirstName||'')+' '+(s.coachLastName||''))+'</div>'+
+          '<div class="card-sub">'+esc(govLine||'')+'</div>'+
+        '</div>'+
+        '<span class="badge '+esc(s.status||'pending')+'">'+esc(s.status||'pending')+'</span>'+
+      '</div>'+
+      '<div class="card-body">'+body+approvedPanel+'</div>'+
+      '<div class="card-actions">'+actions+'</div>'+
+    '</div>';
+  }
+
+  function render(){
+    var visible=SUBS.filter(function(s){ return FILTER==='all' ? true : (s.status||'pending')==='pending'; });
+    var pendingCount=SUBS.filter(function(s){ return (s.status||'pending')==='pending'; }).length;
+    $('count').textContent=pendingCount+' pending';
+    var list=$('list');
+    if(visible.length===0){
+      $('statusMsg').className='status-msg';
+      list.innerHTML='<div class="status-msg empty">'+(FILTER==='pending'?'No pending submissions. New coach submissions will appear here.':'No submissions yet.')+'</div>';
+      return;
+    }
+    $('statusMsg').className='status-msg';
+    list.innerHTML=visible.map(cardHtml).join('');
+    // wire per-card handlers
+    list.querySelectorAll('.card').forEach(function(card){
+      var id=card.getAttribute('data-id');
+      var exp=card.querySelector('.expand');
+      if(exp) exp.addEventListener('click',function(){ card.classList.toggle('open'); });
+      var ap=card.querySelector('.btn.approve');
+      var rj=card.querySelector('.btn.reject');
+      if(ap) ap.addEventListener('click',function(){ setStatus(id,'approved',card); });
+      if(rj) rj.addEventListener('click',function(){
+        if(window.confirm('Reject this submission? Use this only for fake or junk entries. The coach is not notified.')){
+          setStatus(id,'rejected',card);
+        }
+      });
+    });
+  }
+
+  // ---- controls ----
+  $('refreshBtn').addEventListener('click',load);
+  $('keyBtn').addEventListener('click',function(){ clearAdminKey(); load(); });
+  document.querySelectorAll('.filter button').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('.filter button').forEach(function(x){ x.classList.remove('active'); });
+      b.classList.add('active');
+      FILTER=b.getAttribute('data-filter');
+      render();
+    });
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
