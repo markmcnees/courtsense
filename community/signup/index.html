@@ -299,6 +299,18 @@ function validate(){
   return ok;
 }
 
+function safeNext(){
+  try {
+    var n = new URLSearchParams(location.search).get('next');
+    if(!n) return null;
+    // Same-origin internal only: must start with a single '/', not '//' (protocol-relative external),
+    // and restricted to the pickup return path shape we actually use.
+    if(n.charAt(0) !== '/' || n.charAt(1) === '/') return null;
+    if(n.indexOf('/pickup/') !== 0) return null;
+    return n;
+  } catch(e){ return null; }
+}
+
 async function doSubmit(e){
   if(e) e.preventDefault();
   if(!validate()) return false;
@@ -319,7 +331,8 @@ async function doSubmit(e){
     });
 
     if(res && res.ok){
-      window.location.href = '/community/profile?firstTime=1';
+      var _next = safeNext();
+      window.location.href = _next ? _next : '/community/profile?firstTime=1';
       return false;
     }
 
@@ -369,7 +382,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // session restore. The flag tells us which.
       if(signupInFlight) return;
       // Session restored from an earlier login. Returning users land on the dashboard.
-      window.location.replace('/community/dashboard/');
+      var _next = safeNext();
+      window.location.replace(_next ? _next : '/community/dashboard/');
     }
   });
 });

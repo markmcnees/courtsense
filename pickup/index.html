@@ -4024,7 +4024,7 @@ function showClaimForm(){ _showClaimForm = true; renderInviteDetail(); }
 function registerAndReturn(){
   const inv = activeInvite; if(!inv) return;
   try { localStorage.setItem('cs_resume_join', JSON.stringify({ inviteId: inv, ts: Date.now() })); } catch(e){}
-  location.href = '/community/signup/';
+  location.href = '/community/signup/?next=' + encodeURIComponent('/pickup/?game=' + inv);
 }
 
 // Resume the stashed Door 2 join once, when everything it needs is ready: a logged-in
