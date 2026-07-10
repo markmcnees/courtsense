@@ -3426,6 +3426,7 @@ function renderInviteDetail(){
   const confirmed = Object.entries(rsvps).filter(([k,r]) => r.status==='confirmed').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
   const waitlist = Object.entries(rsvps).filter(([k,r]) => r.status==='waitlist').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
   const declined = Object.values(rsvps).filter(r => r.status==='declined');
+  const guestReqs = Object.entries(i.guestRequests || {}).filter(([id,r]) => r && r.status === 'pending').sort((a,b)=>(a[1].requestedAt||0)-(b[1].requestedAt||0));
   const myRsvp = myKey ? rsvps[myKey] : null;
   const slotsLeft = Math.max(0, (i.slots||8) - confirmed.length);
   const now = Date.now();
@@ -3554,6 +3555,18 @@ function renderInviteDetail(){
   ${declined.length ? `<div class="card" style="opacity:.7;">
     <div class="ctitle"><span class="bar"></span>Dropped (${declined.length})</div>
     <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)).join(', ')}</div>
+  </div>` : ''}
+
+  ${(isLoggedInHost(i) && guestReqs.length) ? `<div class="card">
+    <div class="ctitle"><span class="bar"></span>Requests (${guestReqs.length})</div>
+    ${guestReqs.map(([id,r])=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <div style="flex:1;">
+        <div style="font-weight:600;">${escapeHTML(r.name)}</div>
+        ${r.email ? `<div style="font-size:12px;color:var(--gray);">${escapeHTML(r.email)}</div>` : ''}
+      </div>
+      <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="approveGuestRequest('${escapeHTML(id).replace(/'/g,"\\'")}')">Approve</button>
+      <button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="declineGuestRequest('${escapeHTML(id).replace(/'/g,"\\'")}')">Decline</button>
+    </div>`).join('')}
   </div>` : ''}
 
   ${isLoggedInHost(i) ? `<div class="card">
@@ -4145,6 +4158,67 @@ function hostDropParticipant(targetKey){
   if(!confirm('Remove '+nm+' from this game?')) return;
   declineRsvp(targetKey);
   toast('Removed');
+}
+
+// Host-only: approve a pending guest request (Door 1) into a REAL rsvps slot, then
+// remove the request. Reuses the claimSpot/optInInvite slot math, so a guestRequests
+// entry never counts as a slot until it becomes an rsvps entry here. Host-gated at the
+// handler (the render gate alone is console-bypassable).
+function approveGuestRequest(reqId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can approve requests'); return; }
+  const req = (i.guestRequests||{})[reqId]; if(!req || req.status !== 'pending') return;
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+
+  const rsvpName = req.name;
+  const rsvpKey = Identity.nameKey(rsvpName);
+  // Collision guard (mirror claimSpot): don't clobber a live RSVP under the same key.
+  const existing = (i.rsvps||{})[rsvpKey];
+  if(existing && existing.status !== 'declined'){
+    toast('A '+rsvpName+' is already in this game. Approve manually or ask them to add a middle initial.');
+    return;
+  }
+
+  // Slot math (mirror claimSpot/optInInvite): confirmed if a seat is open, else waitlist.
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+  const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
+  const slotsLeft = (i.slots||8) - confirmed.length;
+  const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
+  const position = status==='confirmed' ? confirmed.length+1 : waitlist.length+1;
+  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now(), accountId: null, guestApproved: true };
+
+  // Optimistic local: add the rsvps entry, drop the request from guestRequests.
+  if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+  D.invites[activeInvite].rsvps[rsvpKey] = newRsvp;
+  if(D.invites[activeInvite].guestRequests) delete D.invites[activeInvite].guestRequests[reqId];
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.rsvps) inv.rsvps = {};
+    inv.rsvps[rsvpKey] = newRsvp;
+    if(inv.guestRequests) delete inv.guestRequests[reqId];
+  });
+  renderInviteDetail();
+
+  // Persist: write the real rsvps entry, then remove the request.
+  fbSet('invites/'+activeInvite+'/rsvps/'+rsvpKey, newRsvp);
+  fbDel('invites/'+activeInvite+'/guestRequests/'+reqId);
+  toast(status==='confirmed' ? 'Approved ✓' : 'Approved to waitlist');
+}
+
+// Host-only: decline (remove) a pending guest request. No rsvps change.
+function declineGuestRequest(reqId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can decline requests'); return; }
+  const req = (i.guestRequests||{})[reqId]; if(!req) return;
+  if(!confirm('Decline the request from '+(req.name||'this guest')+'?')) return;
+
+  if(D.invites[activeInvite].guestRequests) delete D.invites[activeInvite].guestRequests[reqId];
+  pendInviteOverride(activeInvite, inv => { if(inv.guestRequests) delete inv.guestRequests[reqId]; });
+  renderInviteDetail();
+
+  fbDel('invites/'+activeInvite+'/guestRequests/'+reqId);
+  toast('Request declined');
 }
 
 function cancelInvite(){
