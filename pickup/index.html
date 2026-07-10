@@ -3422,6 +3422,10 @@ function renderInviteDetail(){
   // Gameplay key (nameKey) so RSVP state / Drop Out resolve to the RSVP the
   // logged-in player actually holds, not the login id.
   const myKey = gameplayKey();
+  // Real-login flag: a genuine CourtSenseAuth session, NOT a leftover local Identity.
+  // The guest doors gate on this (not !myKey) so a stale kotb_identity_v1 on a shared
+  // device / after an expired session cannot suppress the doors for a logged-out visitor.
+  const isAuthed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
   if(typeof dbgLog === 'function') dbgLog('renderInviteDetail', { activeInvite, myKey, myStatus: myKey ? (i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status) : null });
   const rsvps = i.rsvps || {};
   // Confirmed/waitlist carry [key, value] so a host-drop can target each
@@ -3458,8 +3462,9 @@ function renderInviteDetail(){
     actionHTML = '<div style="background:#fee2e2;color:#7f1d1d;border-radius:10px;padding:12px;text-align:center;font-weight:700;">Pickup cancelled.</div>';
   } else if(isPast){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
-  } else if(!myKey){
-    // Logged-out deep-link visitor. Three states:
+  } else if(!isAuthed){
+    // Logged-out deep-link visitor (no real CourtSenseAuth session, even if a stale
+    // local Identity is present). Three states:
     //   1. _claimFormNow (Door 2): the ORIGINAL instant-claim form, unchanged.
     //   2. an existing pending guest request stashed for this game: a waiting card.
     //   3. otherwise: the two-door choice (Request a spot / Register and grab).
@@ -4431,6 +4436,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     },
     onLogout: () => {
       $('logout-btn').style.display = 'none';
+      // Also clear the local Identity so an auth logout/expiry never leaves a stale
+      // kotb_identity_v1 behind (mirrors the explicit doLogout button).
+      if(window.Identity && Identity.clear) Identity.clear();
     }
   });
 
