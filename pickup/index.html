@@ -914,6 +914,9 @@ function refreshAll(){
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
   else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
   else if(view==='invite-detail'){ renderInviteDetail(); }
+  // Door 2 resume: after a register-and-return, auto-fire the stashed join once the
+  // game + roster data are ready. Guarded internally so it runs at most once.
+  tryResumeJoin();
 }
 function refreshTab(t){
   if(t==='roster'){ renderEventRoster(); renderLateQuick(); renderBanner('roster'); }
@@ -3485,8 +3488,8 @@ function renderInviteDetail(){
         <span style="flex:1;height:1px;background:var(--sand-border);"></span>or<span style="flex:1;height:1px;background:var(--sand-border);"></span>
       </div>
       <div style="font-weight:700;margin-bottom:6px;">Register and grab a spot now</div>
-      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Register and you're in instantly, no waiting.</div>
-      <button class="btn btn-p btn-w" onclick="showClaimForm()">Register and Grab a Spot Now</button>`;
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Create a free CourtSense account and we'll bring you right back to grab your spot. No host approval needed.</div>
+      <button class="btn btn-p btn-w" onclick="registerAndReturn()">Register and Grab a Spot</button>`;
     }
   } else if(myRsvp && myRsvp.status==='confirmed'){
     actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
@@ -3783,6 +3786,10 @@ let _showEmailPrompt = false;
 // Consume-once: renderInviteDetail reads it into a local and resets it immediately,
 // so it drives exactly one render and never sticks across a later re-render or view.
 let _showClaimForm = false;
+// Door 2 register-and-return resume: fire the stashed auto-join at most once, and kick
+// the one-shot profiles load at most once while waiting for the roster to be ready.
+let _resumeJoinFired = false;
+let _resumeProfilesKicked = false;
 
 async function rsvpFlow(){
   let identity = window.Identity ? Identity.getCurrent() : null;
@@ -4010,6 +4017,72 @@ async function claimSpot(){
 // Door 2 reveal: flip the consume-once flag and re-render so the !myKey branch shows
 // the ORIGINAL instant-claim form (claimSpot). No other state is touched.
 function showClaimForm(){ _showClaimForm = true; renderInviteDetail(); }
+
+// Door 2 (register-and-return): stash the current game id and send the visitor to the
+// real signup page. On return (now logged in), tryResumeJoin() — called from refreshAll —
+// auto-fires optInInvite for the stashed game exactly once. No email, no other writes.
+function registerAndReturn(){
+  const inv = activeInvite; if(!inv) return;
+  try { localStorage.setItem('cs_resume_join', JSON.stringify({ inviteId: inv, ts: Date.now() })); } catch(e){}
+  location.href = '/community/signup/';
+}
+
+// Resume the stashed Door 2 join once, when everything it needs is ready: a logged-in
+// player, the target invite loaded into D.invites, and the roster source that
+// allKnownPlayerNames() reads for a brand-new registrant. A fresh registrant has no
+// rating (absent from D.ratings) and is not in the league rosters, so the ONLY source
+// that contains them is window._profilesCache (the players node). openDeepLinkGame skips
+// ensureProfilesLoaded on the deep-link resume path, so we kick that load once and let
+// the next refreshAll cycle re-enter. Gating on _profilesCache (not D.ratings) is what
+// prevents a false "not open to you yet" against an empty/partial roster.
+function tryResumeJoin(){
+  if(_resumeJoinFired) return;
+  let raw;
+  try { raw = localStorage.getItem('cs_resume_join'); } catch(e){ return; }
+  if(!raw) return;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch(e){ try { localStorage.removeItem('cs_resume_join'); } catch(_e){} return; }
+  if(!parsed || !parsed.inviteId || (Date.now() - (parsed.ts||0) > 3600000)){
+    try { localStorage.removeItem('cs_resume_join'); } catch(_e){}
+    return;
+  }
+  // Must be a logged-in CourtSenseAuth player.
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  if(!auth) return; // not logged in yet; wait for a later cycle
+  // Target game must be loaded into D.
+  const i = (D.invites||{})[parsed.inviteId];
+  if(!i) return; // invite data not ready yet; wait
+  // Roster source (window._profilesCache) must be loaded, else eligibility for the
+  // brand-new player computes against an empty roster and wrongly fails. Kick the
+  // one-shot load once on the deep-link path, then wait for refreshAll to re-enter.
+  const profiles = window._profilesCache;
+  const profilesReady = profiles && typeof profiles === 'object' && Object.keys(profiles).length > 0;
+  if(!profilesReady){
+    if(!_resumeProfilesKicked && typeof ensureProfilesLoaded === 'function'){
+      _resumeProfilesKicked = true;
+      ensureProfilesLoaded().then(()=>refreshAll()).catch(()=>{});
+    }
+    return;
+  }
+
+  activeInvite = parsed.inviteId;
+  const myKey = gameplayKey();
+  // Already in this game (approved/opted-in earlier): don't double-join.
+  if(myKey && i.rsvps && i.rsvps[myKey] && i.rsvps[myKey].status !== 'declined'){
+    _resumeJoinFired = true;
+    try { localStorage.removeItem('cs_resume_join'); } catch(_e){}
+    renderInviteDetail();
+    return;
+  }
+
+  // Fire exactly once: set the guard and clear the stash BEFORE joining so it can't
+  // re-enter, then let optInInvite handle the confirmed/waitlist/eligibility outcome.
+  _resumeJoinFired = true;
+  try { localStorage.removeItem('cs_resume_join'); } catch(_e){}
+  optInInvite();
+  renderInviteDetail();
+}
 
 // Door 1: name-only "request a spot". Writes a PENDING guest request to a SEPARATE
 // guestRequests node on the invite (never an rsvps entry, so it never counts toward
