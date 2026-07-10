@@ -4203,6 +4203,35 @@ function approveGuestRequest(reqId){
   // Persist: write the real rsvps entry, then remove the request.
   fbSet('invites/'+activeInvite+'/rsvps/'+rsvpKey, newRsvp);
   fbDel('invites/'+activeInvite+'/guestRequests/'+reqId);
+
+  // Confirmation email to the approved guest, fire-and-forget (mirrors the claim-notify
+  // call in claimSpot). Confirmation-only path: no notifyAdmin, no relatedRegistration,
+  // so the worker sends just the "you're in" email and skips the admin block. Only fire
+  // when the guest left an email on their request. A failure never undoes the approval.
+  const guestEmail = (req && req.email) ? req.email : '';
+  if(guestEmail){
+    try {
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/claim-notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: guestEmail,
+          playerName: rsvpName,
+          isReturning: false,
+          status: status,
+          position: position,
+          game: {
+            gameId: activeInvite,
+            gameName: i.name,
+            date: i.date,
+            startTime: i.startTime,
+            location: i.location,
+            court: i.court
+          }
+        })
+      }).catch(function(e){ console.warn('claim-notify failed', e); });
+    } catch(e){ console.warn('claim-notify failed', e); }
+  }
+
   toast(status==='confirmed' ? 'Approved ✓' : 'Approved to waitlist');
 }
 
