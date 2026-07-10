@@ -4077,10 +4077,39 @@ function tryResumeJoin(){
   }
 
   // Fire exactly once: set the guard and clear the stash BEFORE joining so it can't
-  // re-enter, then let optInInvite handle the confirmed/waitlist/eligibility outcome.
+  // re-enter (the eligibility-free join below cannot be retried once latched).
   _resumeJoinFired = true;
   try { localStorage.removeItem('cs_resume_join'); } catch(_e){}
-  optInInvite();
+  // Resolve the logged-in player's display name and gameplay key. Registration
+  // via Door 2 for THIS game is the qualification, so we bypass the eligibility
+  // gate optInInvite applies and write the slot directly (mirrors claimSpot).
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const joinName = (me && me.name) ? me.name : (auth && (auth.displayName || auth.name)) || 'Player';
+  const joinKey = myKey; // already computed above via gameplayKey()
+  if(joinKey){
+    // Guard: if somehow already present and not declined, don't double-write.
+    const already = i.rsvps && i.rsvps[joinKey] && i.rsvps[joinKey].status !== 'declined';
+    if(!already){
+      // Re-guard cancelled / deadline (mirror optInInvite's early returns) so a
+      // resume can't write into a cancelled or closed game.
+      if(i.status === 'cancelled'){ toast('Pickup is cancelled'); }
+      else if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); }
+      else {
+        const rsvps = i.rsvps || {};
+        const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+        const waitlist  = Object.values(rsvps).filter(r=>r.status==='waitlist');
+        const slotsLeft = (i.slots||8) - confirmed.length;
+        const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
+        const position = status === 'confirmed' ? confirmed.length+1 : waitlist.length+1;
+        const newRsvp = { name: joinName, status, position, respondedAt: Date.now(), accountId: (typeof currentAccountId==='function'? currentAccountId(): (auth&&auth.id)||null) };
+        if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+        D.invites[activeInvite].rsvps[joinKey] = newRsvp;
+        pendInviteOverride(activeInvite, inv => { if(!inv.rsvps) inv.rsvps = {}; inv.rsvps[joinKey] = newRsvp; });
+        fbSet('invites/'+activeInvite+'/rsvps/'+joinKey, newRsvp);
+        toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
+      }
+    }
+  }
   renderInviteDetail();
 }
 
