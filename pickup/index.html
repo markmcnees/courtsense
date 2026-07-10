@@ -3412,6 +3412,9 @@ function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
   if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
+  // Consume the Door 2 reveal flag once: this render may show the claim form, but the
+  // flag never persists into a later re-render (Firebase .on / other views).
+  const _claimFormNow = _showClaimForm; _showClaimForm = false;
   const me = window.Identity ? Identity.getCurrent() : null;
   // Gameplay key (nameKey) so RSVP state / Drop Out resolve to the RSVP the
   // logged-in player actually holds, not the login id.
@@ -3452,13 +3455,38 @@ function renderInviteDetail(){
   } else if(isPast){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
   } else if(!myKey){
-    // Logged-out deep-link visitor: inline claim form (first, last, email).
-    // The deep link is the invitation, so claimSpot bypasses the eligibility gate.
-    actionHTML = `<div style="font-weight:700;margin-bottom:10px;">Claim your spot</div>
+    // Logged-out deep-link visitor. Three states:
+    //   1. _claimFormNow (Door 2): the ORIGINAL instant-claim form, unchanged.
+    //   2. an existing pending guest request stashed for this game: a waiting card.
+    //   3. otherwise: the two-door choice (Request a spot / Register and grab).
+    // guestRequests live in a SEPARATE node and are NEVER counted toward slots.
+    const _origClaimForm = `<div style="font-weight:700;margin-bottom:10px;">Claim your spot</div>
       <input class="inp" id="claim-first" placeholder="First name" autocomplete="given-name" style="margin-bottom:8px;">
       <input class="inp" id="claim-last" placeholder="Last name" autocomplete="family-name" style="margin-bottom:8px;">
       <input class="inp" id="claim-email" type="email" placeholder="Email" autocomplete="email" inputmode="email" autocapitalize="none" style="margin-bottom:10px;">
       <button class="btn btn-p btn-w" onclick="claimSpot()">Claim Your Spot</button>`;
+    let existingReqId = null;
+    try { existingReqId = localStorage.getItem('cs_guestreq_'+activeInvite); } catch(e){ existingReqId = null; }
+    const pendingReq = existingReqId && i.guestRequests && i.guestRequests[existingReqId] && i.guestRequests[existingReqId].status === 'pending';
+    if(_claimFormNow){
+      actionHTML = _origClaimForm;
+    } else if(pendingReq){
+      actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request sent</div>
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;">The host will review your request. You'll get an email if you added one.</div>`;
+    } else {
+      actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request a spot</div>
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Type your name and wait for the host to approve you.</div>
+      <input class="inp" id="req-first" placeholder="First name" autocomplete="given-name" style="margin-bottom:8px;">
+      <input class="inp" id="req-last" placeholder="Last name" autocomplete="family-name" style="margin-bottom:8px;">
+      <input class="inp" id="req-email" type="email" placeholder="Email (optional)" autocomplete="email" inputmode="email" autocapitalize="none" style="margin-bottom:10px;">
+      <button class="btn btn-p btn-w" onclick="requestSpot()">Request a Spot</button>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--gray);font-size:12px;">
+        <span style="flex:1;height:1px;background:var(--sand-border);"></span>or<span style="flex:1;height:1px;background:var(--sand-border);"></span>
+      </div>
+      <div style="font-weight:700;margin-bottom:6px;">Register and grab a spot now</div>
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Register and you're in instantly, no waiting.</div>
+      <button class="btn btn-p btn-w" onclick="showClaimForm()">Register and Grab a Spot</button>`;
+    }
   } else if(myRsvp && myRsvp.status==='confirmed'){
     actionHTML = `<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You're confirmed (slot ${myRsvp.position||'?'} of ${i.slots||8}).</div>
       <button class="btn btn-d btn-w" onclick="dropOutInvite()">Drop Out</button>`;
@@ -3738,6 +3766,10 @@ function dbgLog(msg, data){
 
 // First-time-user RSVP path: pick a name, then opt in. Profile setup deferred.
 let _showEmailPrompt = false;
+// Door 2 (Register and grab a spot) reveal flag for the logged-out !myKey branch.
+// Consume-once: renderInviteDetail reads it into a local and resets it immediately,
+// so it drives exactly one render and never sticks across a later re-render or view.
+let _showClaimForm = false;
 
 async function rsvpFlow(){
   let identity = window.Identity ? Identity.getCurrent() : null;
@@ -3960,6 +3992,43 @@ async function claimSpot(){
   } catch(e){ console.warn('claim-notify failed', e); }
 
   toast(status==='confirmed' ? "You're in ✓" : 'Added to the waitlist');
+}
+
+// Door 2 reveal: flip the consume-once flag and re-render so the !myKey branch shows
+// the ORIGINAL instant-claim form (claimSpot). No other state is touched.
+function showClaimForm(){ _showClaimForm = true; renderInviteDetail(); }
+
+// Door 1: name-only "request a spot". Writes a PENDING guest request to a SEPARATE
+// guestRequests node on the invite (never an rsvps entry, so it never counts toward
+// the confirmed/waitlist/slot totals). Email is optional. Mirrors claimSpot's front
+// half (guards + name validation) but takes no slot and sends no email from here.
+function requestSpot(){
+  const i = (D.invites||{})[activeInvite]; if(!i){ toast('Pickup not found'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+
+  const first = (($('req-first') && $('req-first').value) || '').trim();
+  const last  = (($('req-last')  && $('req-last').value)  || '').trim();
+  const email = (($('req-email') && $('req-email').value) || '').trim();
+  if(!first || !last){ toast('Add your first and last name'); return; }
+  if(email && !/^\S+@\S+\.\S+$/.test(email)){ toast('Add a valid email or leave it blank'); return; }
+
+  const reqId = gi('greq');
+  const requestedAt = Date.now();
+  const record = { name: first + ' ' + last, email: email || null, requestedAt, status: 'pending', guest: true };
+
+  // Optimistic local + mirror (same pattern as claimSpot, but on guestRequests).
+  if(!D.invites[activeInvite].guestRequests) D.invites[activeInvite].guestRequests = {};
+  D.invites[activeInvite].guestRequests[reqId] = record;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.guestRequests) inv.guestRequests = {};
+    inv.guestRequests[reqId] = record;
+  });
+
+  fbSet('invites/'+activeInvite+'/guestRequests/'+reqId, record);
+  try { localStorage.setItem('cs_guestreq_'+activeInvite, reqId); } catch(e){}
+  renderInviteDetail();
+  toast('Request sent ✓');
 }
 
 // Decline one participant's RSVP on the active game by their rsvps map key, then
