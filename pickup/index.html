@@ -3481,7 +3481,7 @@ function renderInviteDetail(){
       actionHTML = _origClaimForm;
     } else if(pendingReq){
       actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request sent</div>
-      <div style="font-size:13px;color:var(--gray);line-height:1.5;">The host will review your request. You'll get an email if you added one.</div>`;
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;">The host will review your request. If they approve you, your game will show up under "Your games" on this device, and we'll email you if you added an address. Want to see your games on any device? Create a free account.</div>`;
     } else {
       actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request a spot</div>
       <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Type your name and wait for the host to approve you.</div>
@@ -4147,6 +4147,16 @@ function requestSpot(){
 
   fbSet('invites/'+activeInvite+'/guestRequests/'+reqId, record);
   try { localStorage.setItem('cs_guestreq_'+activeInvite, reqId); } catch(e){}
+
+  // Set a local Identity keyed to the requester's name (the SAME key host approval
+  // will write the rsvps entry under: nameKey(first + ' ' + last)). This lets an
+  // approved accountless requester see their confirmed game in "Your games" on this
+  // browser after approval. It does NOT authenticate them (isAuthed stays false, so
+  // the guest doors still show on the deep link), and it does NOT surface a still-
+  // pending request in the list (the list reads rsvps, not guestRequests).
+  if(window.Identity && Identity.setCurrent){
+    Identity.setCurrent(first + ' ' + last, Identity.nameKey(first + ' ' + last));
+  }
 
   // Notify the host by email, fire-and-forget (mirrors the claim-notify call in
   // claimSpot). The worker resolves the host email SERVER-SIDE from the invite's
