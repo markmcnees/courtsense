@@ -4027,6 +4027,19 @@ function requestSpot(){
 
   fbSet('invites/'+activeInvite+'/guestRequests/'+reqId, record);
   try { localStorage.setItem('cs_guestreq_'+activeInvite, reqId); } catch(e){}
+
+  // Notify the host by email, fire-and-forget (mirrors the claim-notify call in
+  // claimSpot). The worker resolves the host email SERVER-SIDE from the invite's
+  // hostId; we send no host email or host id from the client. Any failure is
+  // swallowed (console.warn only) and never undoes the request, which already
+  // succeeded above.
+  try {
+    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/request-notify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteId: activeInvite, guestName: first+' '+last, guestEmail: email || '' })
+    }).catch(function(e){ console.warn('request-notify failed', e); });
+  } catch(e){ console.warn('request-notify failed', e); }
+
   renderInviteDetail();
   toast('Request sent ✓');
 }
