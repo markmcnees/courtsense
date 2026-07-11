@@ -33,3 +33,5 @@ Allow: /league/
 Allow: /community/
 Allow: /pickup/
 Allow: /coach/
+
+Sitemap: https://courtsense.app/sitemap.xml
