@@ -3580,6 +3580,17 @@ function renderInviteDetail(){
   </div>` : ''}
 
   ${isLoggedInHost(i) ? `<div class="card">
+    <div class="ctitle"><span class="bar"></span>Add a player</div>
+    <input class="inp" id="hostadd-search" placeholder="Search registered players" oninput="renderHostAddList()" style="margin-bottom:8px;">
+    <div id="hostadd-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--gray);font-size:12px;">
+      <span style="flex:1;height:1px;background:var(--sand-border);"></span>or<span style="flex:1;height:1px;background:var(--sand-border);"></span>
+    </div>
+    <input class="inp" id="hostadd-name" placeholder="Full name" style="margin-bottom:8px;">
+    <button class="btn btn-p btn-w" onclick="hostAddUnregistered()">Add Unregistered Player</button>
+  </div>` : ''}
+
+  ${isLoggedInHost(i) ? `<div class="card">
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
       ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
@@ -3614,6 +3625,7 @@ function renderInviteDetail(){
     + '</div>';
 
   cont.innerHTML = h;
+  renderHostAddList();
   renderGameChatMessages();
 }
 
@@ -4352,6 +4364,108 @@ function approveGuestRequest(reqId){
   }
 
   toast(status==='confirmed' ? 'Approved ✓' : 'Approved to waitlist');
+}
+
+// Host-only: repaint just the registered-player pick list inside the "Add a player"
+// card. Sources allKnownPlayerNames() (nameKey -> displayName), drops anyone who
+// already holds a non-declined rsvps entry on this game, and filters by the search
+// box. No-ops when the card is absent (non-host render), so it is safe to call
+// unconditionally after renderInviteDetail and on every search keystroke.
+function renderHostAddList(){
+  const box = $('hostadd-list'); if(!box) return;
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const rsvps = i.rsvps || {};
+  const q = (($('hostadd-search') && $('hostadd-search').value) || '').toLowerCase().trim();
+  const rows = Object.entries(allKnownPlayerNames())
+    .filter(([k]) => { const r = rsvps[k]; return !(r && r.status !== 'declined'); })
+    .filter(([,n]) => !q || n.toLowerCase().includes(q))
+    .sort((a,b) => a[1].localeCompare(b[1]));
+  if(!rows.length){ box.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No players match.</p>'; return; }
+  box.innerHTML = rows.map(([k,name])=>{
+    const safeKey = escapeHTML(k).replace(/'/g,"\\'");
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--sand-border);">
+      <span style="flex:1;font-size:13px;font-weight:500;">${escapeHTML(name)}</span>
+      <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostAddRegistered('${safeKey}')">Add</button>
+    </div>`;
+  }).join('');
+}
+
+// Host-only: add a player directly to the game. If a slot is open they take it as
+// confirmed with slots unchanged; if the game is FULL, raise slots by exactly one and
+// give the new seat to this person as confirmed, in a SINGLE atomic multi-path write so
+// no auto-promotion path can claim the new seat first. Existing waitlisters are
+// intentionally NOT promoted by the cap raise (the host chose this person for the seat).
+// The added person is always confirmed, never waitlisted. Host-gated at the handler.
+function hostAddToGame(rsvpName, rsvpKey, accountId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can add players'); return; }
+  if(!rsvpName || !rsvpKey) return;
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+
+  // Collision guard (mirror claimSpot): never clobber a live RSVP under this key.
+  const rsvps = i.rsvps || {};
+  const existing = rsvps[rsvpKey];
+  if(existing && existing.status !== 'declined'){
+    toast(rsvpName + ' is already in this game.');
+    return;
+  }
+
+  const confirmed = Object.values(rsvps).filter(r=>r.status==='confirmed');
+  const currentSlots = (i.slots||8);
+  const isFull = confirmed.length >= currentSlots;
+  const newSlots = isFull ? currentSlots + 1 : currentSlots;
+  // Host-added player is always confirmed, appended after the current confirmed list.
+  const status = 'confirmed';
+  const position = confirmed.length + 1;
+  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now(), accountId: accountId || null, addedByHost: true };
+
+  // Optimistic local update (+ cap raise when full), then immediate render.
+  if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
+  D.invites[activeInvite].rsvps[rsvpKey] = newRsvp;
+  if(isFull) D.invites[activeInvite].slots = newSlots;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.rsvps) inv.rsvps = {};
+    inv.rsvps[rsvpKey] = newRsvp;
+    if(isFull) inv.slots = newSlots;
+  });
+  renderInviteDetail();
+
+  // Persist atomically: the rsvps entry and (when full) the raised slots value go out
+  // in ONE multi-path update so nothing can race the new seat. Mirrors declineRsvp.
+  const updates = {};
+  updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+rsvpKey] = newRsvp;
+  if(isFull) updates['tally_kotb_pickup/invites/'+activeInvite+'/slots'] = newSlots;
+  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't add player"); });
+
+  toast(isFull ? 'Added, game expanded to '+newSlots : 'Added ✓');
+}
+
+// Host-only: add a registered player picked from the list. Resolves the display name
+// and (synchronously, no worker call) an accountId from the profiles cache, then hands
+// off to hostAddToGame. Clears the search and repaints the list.
+function hostAddRegistered(nameKey){
+  const displayName = allKnownPlayerNames()[nameKey];
+  if(!displayName){ toast('Player not found'); return; }
+  // Resolve accountId from the profiles cache if this name matches a profile; else null.
+  let accountId = null;
+  const profs = window._profilesCache || {};
+  for(const p of Object.values(profs)){
+    if(p && Identity.nameKey(nameStr(p)) === nameKey){ accountId = p.playerId || p.id || null; break; }
+  }
+  hostAddToGame(displayName, nameKey, accountId);
+  const s = $('hostadd-search'); if(s) s.value = '';
+  renderHostAddList();
+}
+
+// Host-only: add an unregistered person by typed name. Requires a first and last name.
+function hostAddUnregistered(){
+  const el = $('hostadd-name');
+  const name = ((el && el.value) || '').trim().replace(/\s+/g,' ');
+  if(!name || name.split(' ').length < 2){ toast('Add a first and last name'); return; }
+  const rsvpKey = Identity.nameKey(name);
+  hostAddToGame(name, rsvpKey, null);
+  if(el) el.value = '';
 }
 
 // Host-only: decline (remove) a pending guest request. No rsvps change.
