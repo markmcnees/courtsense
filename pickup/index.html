@@ -4438,6 +4438,29 @@ function hostAddToGame(rsvpName, rsvpKey, accountId){
   if(isFull) updates['tally_kotb_pickup/invites/'+activeInvite+'/slots'] = newSlots;
   if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't add player"); });
 
+  // Fire-and-forget: notify a REGISTERED added player (one whose account we resolved)
+  // by email. Skips entirely when accountId is falsy (an unregistered person has no
+  // email on file). Reuses the shared /auth/notify endpoint declineRsvp uses for
+  // waitlist_promotion, with a NEW 'host_added' type. Must never block the add or undo
+  // the write that already succeeded. NOTE: the worker does not recognize 'host_added'
+  // yet, so it will log this as unsupported and send nothing until a matching template
+  // is added worker-side. That is expected and safe: the add still stands.
+  if(accountId){
+    try {
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'host_added', data: {
+          playerId: accountId,
+          playerKey: rsvpKey,
+          playerName: rsvpName,
+          inviteId: activeInvite,
+          name: i.name, date: i.date, startTime: i.startTime, slots: newSlots,
+          rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
+        } })
+      }).catch(function(e){ console.warn('notify failed', e); });
+    } catch(e){ console.warn('notify failed', e); }
+  }
+
   toast(isFull ? 'Added, game expanded to '+newSlots : 'Added ✓');
 }
 
