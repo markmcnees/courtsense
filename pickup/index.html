@@ -2251,6 +2251,22 @@ function fmtDateTime(ts){
   if(!ts) return '';
   return new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
+// Courts a game occupies. The courts array is the source of truth when present and
+// non-empty; otherwise fall back to the legacy singular court field; otherwise none.
+// Back-compat: existing single-court games (no courts array) keep working, no migration.
+function gameCourts(i){
+  if(i && Array.isArray(i.courts) && i.courts.length) return i.courts.slice();
+  if(i && i.court != null) return [i.court];
+  return [];
+}
+// Display string for a game's courts. [] -> ''; [4] -> 'Court 4'; [3,4] -> 'Courts 3 and
+// 4'; [1,2,3] -> 'Courts 1, 2 and 3'. Sorted ascending.
+function courtLabel(i){
+  const cs = gameCourts(i).slice().sort((a,b)=>a-b);
+  if(!cs.length) return '';
+  if(cs.length === 1) return 'Court '+cs[0];
+  return 'Courts '+cs.slice(0,-1).join(', ')+' and '+cs[cs.length-1];
+}
 function defaultDeadlineISO(date, startTime){
   if(!date || !startTime) return '';
   const start = new Date(date+'T'+startTime+':00');
@@ -2573,7 +2589,7 @@ function renderInviteList(){
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
           <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${i.court != null ? ' · Court '+i.court : ''}</div>
+          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}</div>
           <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||8} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
         </div>
         ${badge}
@@ -2644,13 +2660,58 @@ function courtConflict(location, courtNum, date, win, excludeId){
     const g = all[id];
     if(!g || g.status === 'cancelled') continue;
     if(g.location !== location) continue;            // exact string match (presets only)
-    if(Number(g.court) !== Number(courtNum)) continue;
+    // Occupied-set match: a multi-court game occupies every court in its `courts` array;
+    // gameCourts falls back to the legacy singular court for older games. Conflict when
+    // the candidate court appears anywhere in that game's occupied set.
+    if(!gameCourts(g).some(c => Number(c) === Number(courtNum))) continue;
     if(g.date !== date) continue;
     const gw = pgGameWindow(g);
     if(!gw) continue;
     if(win[0] < gw[1] && gw[0] < win[1]) return g;   // overlap: startA<endB AND startB<endA
   }
   return null;
+}
+// Build the <option> HTML for the host "Add a court" picker: every court at the game's
+// park that the game does NOT already occupy, with the same soft in-use annotation the
+// create-form court picker uses (courtConflict, never blocking). Pre-selects the closest
+// AVAILABLE court to the game's current highest court, preferring no-conflict courts,
+// ties resolved to the lower number; when every remaining court is in use it still
+// pre-selects the closest. No preselection when the game holds no court yet (the browser
+// then defaults to the first option). Reads rebuildCourtPicker's helpers, alters nothing.
+function buildAddCourtOptions(i){
+  const max = PARK_COURTS[i.location] || 0;
+  if(!max) return '';
+  const occupied = new Set(gameCourts(i));
+  const date = i.date, win = pgGameWindow(i);
+  const cands = [];
+  for(let c=1;c<=max;c++){
+    if(occupied.has(c)) continue;
+    const conf = (date && win) ? courtConflict(i.location, c, date, win, activeInvite) : null;
+    cands.push({ court: c, conf });
+  }
+  if(!cands.length) return '';
+  const cur = gameCourts(i);
+  const ref = cur.length ? Math.max.apply(null, cur) : null;
+  let preselect = null;
+  if(ref != null){
+    let best = null;
+    for(const x of cands){
+      const noConf = x.conf ? 1 : 0;
+      const dist = Math.abs(x.court - ref);
+      if(!best
+        || noConf < best.noConf
+        || (noConf === best.noConf && dist < best.dist)
+        || (noConf === best.noConf && dist === best.dist && x.court < best.court)){
+        best = { noConf, dist, court: x.court };
+      }
+    }
+    preselect = best ? best.court : null;
+  }
+  return cands.map(x=>{
+    let label = 'Court '+x.court;
+    if(x.conf){ const gw = pgGameWindow(x.conf); if(gw) label += ' (in use '+fmtTime(minToHHMM(gw[0]))+'-'+fmtTime(minToHHMM(gw[1]))+')'; }
+    return '<option value="'+x.court+'"'+(x.court===preselect?' selected':'')+'>'+escapeHTML(label)+'</option>';
+  }).join('');
 }
 // Rebuild the court <select> for the selected park, annotating taken courts inline.
 function rebuildCourtPicker(){
@@ -3528,7 +3589,7 @@ function renderInviteDetail(){
         <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
         <div style="font-size:13px;color:var(--gray);margin-top:4px;">${dateStr}</div>
         <div style="font-size:13px;margin-top:2px;">${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}</div>
-        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}${i.court != null ? ', Court '+i.court : ''}</div>`:''}
+        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}${courtLabel(i) ? ', '+courtLabel(i) : ''}</div>`:''}
       </div>
       ${isCancelled?'<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>':''}
     </div>
@@ -3588,6 +3649,12 @@ function renderInviteDetail(){
     </div>
     <input class="inp" id="hostadd-name" placeholder="Full name" style="margin-bottom:8px;">
     <button class="btn btn-p btn-w" onclick="hostAddUnregistered()">Add Unregistered Player</button>
+    ${(isLoggedInHost(i) && PARK_COURTS[i.location] && gameCourts(i).length < PARK_COURTS[i.location]) ? `
+    <div style="height:1px;background:var(--sand-border);margin:16px 0;"></div>
+    <div style="font-weight:600;font-size:13px;margin-bottom:2px;">Add a court</div>
+    <div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Adds 4 seats. You can adjust the number of players after.</div>
+    <select class="inp" id="addcourt-pick" style="margin-bottom:8px;">${buildAddCourtOptions(i)}</select>
+    <button class="btn btn-p btn-w" onclick="hostAddCourt()">Add Court</button>` : ''}
   </div>` : ''}
 
   ${isLoggedInHost(i) ? `<div class="card">
@@ -4489,6 +4556,41 @@ function hostAddUnregistered(){
   const rsvpKey = Identity.nameKey(name);
   hostAddToGame(name, rsvpKey, null);
   if(el) el.value = '';
+}
+
+// Host-only: add another court to the game. The courts array becomes the source of truth
+// (seeded from the legacy singular court on first add), the game gains 4 seats, and both
+// courts + slots go out in ONE atomic multi-path update (mirrors hostAddToGame /
+// declineRsvp). The singular `court` field is NEVER modified, for back-compat. Host-gated.
+function hostAddCourt(){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the host can add a court'); return; }
+  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
+  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
+  const sel = $('addcourt-pick');
+  const newCourt = sel ? parseInt(sel.value, 10) : NaN;
+  if(!newCourt || isNaN(newCourt)){ toast('Pick a court to add'); return; }
+  const max = PARK_COURTS[i.location] || 0;
+  if(!max){ toast('No known courts at this location'); return; }
+  const current = gameCourts(i);
+  if(current.includes(newCourt)){ toast('Already using that court'); return; }
+  if(current.length >= max){ toast('This location has no more courts'); return; }
+  const newCourts = current.concat([newCourt]).sort((a,b)=>a-b);
+  const newSlots = (i.slots||8) + 4;
+
+  // Optimistic local update, then immediate render.
+  D.invites[activeInvite].courts = newCourts;
+  D.invites[activeInvite].slots = newSlots;
+  pendInviteOverride(activeInvite, inv => { inv.courts = newCourts; inv.slots = newSlots; });
+  renderInviteDetail();
+
+  // Persist atomically: courts + slots in one multi-path update. Singular court untouched.
+  const updates = {};
+  updates['tally_kotb_pickup/invites/'+activeInvite+'/courts'] = newCourts;
+  updates['tally_kotb_pickup/invites/'+activeInvite+'/slots'] = newSlots;
+  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't add the court"); });
+
+  toast('Court added, now '+newSlots+' players');
 }
 
 // Host-only: decline (remove) a pending guest request. No rsvps change.
