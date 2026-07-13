@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+  /* Boot overlay only. Kept off <body> so it never interferes with the app.js
+     layout once the shell paints; the navy <html> background prevents any flash
+     of white between overlay removal and app.js rendering. */
+  html{background:#082A4F;}
+  .cs-boot{
+    position:fixed;inset:0;z-index:9999;
+    background:#082A4F;color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Barlow',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    text-align:center;padding:24px;box-sizing:border-box;
+  }
+  .cs-boot .inner{max-width:420px;}
+  .cs-boot .load{font-size:15px;letter-spacing:.04em;color:#cdd8e6;}
+  .cs-boot h1{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:42px;letter-spacing:1.5px;line-height:1.05;
+    margin:0 0 14px;color:#fff;
+  }
+  .cs-boot p{font-size:15px;line-height:1.6;color:#cdd8e6;margin:0 0 10px;}
+</style>
+</head>
+<body>
+<div class="cs-boot" id="cs-boot"><div class="inner"><div class="load">Loading...</div></div></div>
+<script>
+/* Generic school shell.
+   GitHub Pages serves this 404.html for any path with no matching real file, so
+   courtsense.app/<slug>/ lands here. Real per-school folders still win (they are
+   actual files), so this only handles slugs that have no folder. It reads the
+   slug's config from Firebase, re-attaches the shared fbConfig (stripped during
+   migration), sets window.SCHOOL_CONFIG, then injects app.js. app.js reads
+   window.SCHOOL_CONFIG at parse time, so the config MUST be set before the tag
+   is appended. */
+(function(){
+  // Shared Firebase project config, identical across every school (copied from the
+  // per-school shells). This is the ONLY thing needed to connect and read the
+  // per-slug config, so it is safe to hardcode here.
+  var FB_CONFIG={apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'};
+
+  var boot=document.getElementById('cs-boot');
+  function notFound(){
+    if(!boot) return;
+    boot.innerHTML='<div class="inner">'
+      +'<h1>School not found</h1>'
+      +'<p>We could not find a CourtSense program at this link.</p>'
+      +'<p>Double-check the address, or contact your coach for the correct link.</p>'
+      +'</div>';
+  }
+
+  try{
+    // Slug = first path segment, tolerant of /leon/, /leon, and /leon/index.html.
+    var clean=location.pathname.replace(/index\.html$/i,'').replace(/^\/+|\/+$/g,'');
+    var slug=(clean.split('/')[0]||'').toLowerCase();
+    if(!slug){ notFound(); return; }
+
+    firebase.initializeApp(FB_CONFIG);
+    firebase.database().ref('courtsense_school_configs/'+slug).once('value').then(function(snap){
+      var cfg=snap.val();
+      if(!cfg || typeof cfg!=='object'){ notFound(); return; }
+      // Re-attach the shared fbConfig (stripped when configs were migrated to Firebase),
+      // publish the config, remove the overlay, then load app.js. app.js's own initFB
+      // guards on firebase.apps.length, so it reuses the app already initialized above.
+      cfg.fbConfig=FB_CONFIG;
+      window.SCHOOL_CONFIG=cfg;
+      if(boot && boot.parentNode) boot.parentNode.removeChild(boot);
+      var s=document.createElement('script');
+      s.src='/app.js?v=1.1.91';
+      document.body.appendChild(s);
+    }).catch(function(){ notFound(); });
+  }catch(e){ notFound(); }
+})();
+</script>
+</body>
+</html>
