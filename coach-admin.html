@@ -171,6 +171,7 @@
   <div class="filter">
     <button data-filter="pending" class="active">Pending</button>
     <button data-filter="all">All</button>
+    <button data-filter="schools">Schools</button>
   </div>
 </div>
 
@@ -187,6 +188,7 @@
   var AUTH_WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
   var ADMIN_KEY='';
   var SUBS=[];
+  var SCHOOLS=null; // cache of the live-schools list; null = not yet fetched
   var FILTER='pending';
 
   // ---- admin key handling (reuses the admin-players.html pattern) ----
@@ -354,6 +356,7 @@
   }
 
   function render(){
+    if(FILTER==='schools'){ renderSchoolsView(); return; }
     var visible=SUBS.filter(function(s){ return FILTER==='all' ? true : (s.status||'pending')==='pending'; });
     var pendingCount=SUBS.filter(function(s){ return (s.status||'pending')==='pending'; }).length;
     $('count').textContent=pendingCount+' pending';
@@ -390,6 +393,96 @@
       if(gen) gen.addEventListener('click',function(){
         generateConfig(card, sub, id);
       });
+    });
+  }
+
+  // ── Schools view: list every live school and open any as coach ─────────────
+  function renderSchoolsView(force){
+    if(SCHOOLS && !force){ renderSchoolsList(SCHOOLS); return; }
+    var key=ensureAdminKey();
+    if(!key){ showStatus('Admin key needed to load schools.','info'); return; }
+    showStatus('Loading schools...','info');
+    fetch(AUTH_WORKER+'/onboard/admin-schools',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey();
+        showStatus('Admin key rejected. Click Refresh to enter it again.','info');
+        return;
+      }
+      if(!o.res || !o.res.ok){
+        showStatus('Load failed: '+((o.res&&o.res.error)||('HTTP '+o.status)),'info');
+        return;
+      }
+      SCHOOLS=o.res.schools||[];
+      renderSchoolsList(SCHOOLS);
+    }).catch(function(){
+      showStatus('Could not reach the worker. Check your connection and try again.','info');
+    });
+  }
+
+  function schoolCardHtml(s){
+    var name=s.schoolName||'(no name)';
+    var slug=s.slug||'';
+    var logoNote=s.hasLogo?'Logo ✓':'No logo';
+    return '<div class="card school-card" data-slug="'+esc(slug)+'" data-dbroot="'+esc(s.dbRoot||'')+'">'+
+      '<div class="card-top" style="align-items:center;">'+
+        '<div class="card-head">'+
+          '<div class="card-school">'+esc(name)+'</div>'+
+          '<div class="card-sub">/'+esc(slug)+'/ &middot; '+logoNote+'</div>'+
+        '</div>'+
+        '<button class="btn approve open-coach">Open as coach</button>'+
+      '</div>'+
+      '<div class="school-err" style="display:none;color:var(--err);font-size:12.5px;padding:0 18px 12px;"></div>'+
+    '</div>';
+  }
+
+  function renderSchoolsList(schools){
+    $('count').textContent=schools.length+' school'+(schools.length===1?'':'s');
+    $('statusMsg').className='status-msg';
+    var list=$('list');
+    if(!schools.length){ list.innerHTML='<div class="status-msg empty">No schools yet.</div>'; return; }
+    list.innerHTML=schools.map(schoolCardHtml).join('');
+    list.querySelectorAll('.school-card').forEach(function(card){
+      var slug=card.getAttribute('data-slug');
+      var dbRoot=card.getAttribute('data-dbroot');
+      var btn=card.querySelector('.open-coach');
+      if(btn) btn.addEventListener('click',function(){ openAsCoach(slug, dbRoot, btn, card); });
+    });
+  }
+
+  function openAsCoach(slug, dbRoot, btn, card){
+    var key=ensureAdminKey();
+    if(!key) return;
+    var errEl=card.querySelector('.school-err');
+    if(errEl){ errEl.style.display='none'; errEl.textContent=''; }
+    if(!dbRoot){ if(errEl){ errEl.textContent='This school has no dbRoot on file.'; errEl.style.display='block'; } return; }
+    var orig=btn.textContent;
+    btn.disabled=true; btn.textContent='Opening...';
+    fetch(AUTH_WORKER+'/auth/admin-coach-session',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key,dbRoot:dbRoot})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey(); btn.disabled=false; btn.textContent=orig;
+        if(errEl){ errEl.textContent='Admin key rejected. Click Refresh, then try again.'; errEl.style.display='block'; }
+        return;
+      }
+      if(o.res && o.res.ok && o.res.token){
+        window.open('https://courtsense.app/'+encodeURIComponent(slug)+'/?csadmin='+encodeURIComponent(o.res.token),'_blank');
+        btn.disabled=false; btn.textContent=orig;
+      }else{
+        btn.disabled=false; btn.textContent=orig;
+        if(errEl){ errEl.textContent=(o.res&&o.res.error)||('Could not open (HTTP '+o.status+')'); errEl.style.display='block'; }
+      }
+    }).catch(function(){
+      btn.disabled=false; btn.textContent=orig;
+      if(errEl){ errEl.textContent='Could not reach the worker. Try again.'; errEl.style.display='block'; }
     });
   }
 
@@ -471,7 +564,10 @@
   }
 
   // ---- controls ----
-  $('refreshBtn').addEventListener('click',load);
+  $('refreshBtn').addEventListener('click',function(){
+    if(FILTER==='schools'){ SCHOOLS=null; renderSchoolsView(true); }
+    else load();
+  });
   $('keyBtn').addEventListener('click',function(){ clearAdminKey(); load(); });
   document.querySelectorAll('.filter button').forEach(function(b){
     b.addEventListener('click',function(){
