@@ -348,9 +348,9 @@
 
       <div class="field">
         <label for="logoInput">Team logo <span class="opt">(optional)</span></label>
-        <span class="hint">PNG or JPG. A clear logo on a transparent or white background works best.</span>
+        <span class="hint">Square PNG with a transparent background works best. Around 256 by 256 pixels. Under 500 KB.</span>
         <div class="logo-drop" id="logoDrop">Tap to upload your logo</div>
-        <input type="file" id="logoInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;">
+        <input type="file" id="logoInput" accept=".png,image/png" style="display:none;">
         <img id="logoPreview" class="logo-preview" alt="Logo preview">
         <div class="field-err">That logo is over 500 KB. Use a smaller image, or email it to us and we'll add it.</div>
       </div>
@@ -466,7 +466,21 @@
   $('logoInput').addEventListener('change',function(e){
     var f=e.target.files&&e.target.files[0];
     var field=$('logoInput').closest('.field');
+    var errEl=field?field.querySelector('.field-err'):null;
     if(!f) return;
+    // PNG only: reject by MIME type AND extension. Show the field error, clear the input,
+    // and do not include it in the payload.
+    var isPng=(f.type==='image/png')||/\.png$/i.test(f.name);
+    if(!isPng){
+      logoData=null; logoName=null;
+      if(errEl) errEl.textContent='We need a PNG image. Please upload a .png file.';
+      if(field) field.classList.add('show-err');
+      $('logoInput').value='';
+      var imgP=$('logoPreview'); imgP.style.display='none'; imgP.removeAttribute('src');
+      var dropP=$('logoDrop'); dropP.textContent='Tap to upload your logo'; dropP.classList.remove('has-file');
+      return;
+    }
+    if(errEl) errEl.textContent='That logo is over 500 KB. Use a smaller image, or email it to us and we\'ll add it.';
     // Size guard: a data URL is ~1.3x the file and bloats the submission. Over 500 KB,
     // reject it (do NOT include it in the payload) and show the field error.
     if(f.size > 500*1024){
