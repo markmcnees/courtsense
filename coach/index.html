@@ -352,6 +352,7 @@
         <div class="logo-drop" id="logoDrop">Tap to upload your logo</div>
         <input type="file" id="logoInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;">
         <img id="logoPreview" class="logo-preview" alt="Logo preview">
+        <div class="field-err">That logo is over 500 KB. Use a smaller image, or email it to us and we'll add it.</div>
       </div>
     </div>
 
@@ -392,7 +393,7 @@
       <p class="section-sub">Optional. Anything you want us to know before we build.</p>
       <div class="field">
         <label for="notes" style="display:none;">Notes</label>
-        <textarea id="notes" name="notes" placeholder="We share courts with the tennis team on Tuesdays, our season starts in March..."></textarea>
+        <textarea id="notes" name="notes" placeholder="We run a JV and varsity squad, we play at a public beach not a school court, our AD wants a copy of everything..."></textarea>
       </div>
     </div>
 
@@ -464,7 +465,19 @@
   $('logoDrop').addEventListener('click',function(){ $('logoInput').click(); });
   $('logoInput').addEventListener('change',function(e){
     var f=e.target.files&&e.target.files[0];
+    var field=$('logoInput').closest('.field');
     if(!f) return;
+    // Size guard: a data URL is ~1.3x the file and bloats the submission. Over 500 KB,
+    // reject it (do NOT include it in the payload) and show the field error.
+    if(f.size > 500*1024){
+      logoData=null; logoName=null;
+      if(field) field.classList.add('show-err');
+      $('logoInput').value='';
+      var img0=$('logoPreview'); img0.style.display='none'; img0.removeAttribute('src');
+      var drop0=$('logoDrop'); drop0.textContent='Tap to upload your logo'; drop0.classList.remove('has-file');
+      return;
+    }
+    if(field) field.classList.remove('show-err');
     logoName=f.name;
     var reader=new FileReader();
     reader.onload=function(ev){
@@ -518,6 +531,7 @@
     ids.forEach(function(id){ var el=$(id); if(el) p[id]=(el.value||'').trim(); });
     p.logoFilename=logoName||null;
     p.logoIncluded=!!logoData;
+    p.logoDataUrl=logoData||null;
     p.submittedAt=new Date().toISOString();
     p.source='coach-intake';
     return p;
