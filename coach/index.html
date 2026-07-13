@@ -562,7 +562,7 @@
     }).then(function(r){
       btn.disabled=false; btn.textContent=origLabel;
       if(r.data && r.data.ok){
-        showSuccess();
+        window.location.href = '/coach/thanks/';
       }else if(r.status===429){
         showError('It looks like this program was just submitted. If you did not get a confirmation, wait a few minutes and try once more.');
       }else{
