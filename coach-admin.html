@@ -83,6 +83,21 @@
   .badge.pending{background:var(--gold);color:#5a4310;}
   .badge.approved{background:var(--teal);color:var(--white);}
   .badge.rejected{background:#e8d5d3;color:var(--err);}
+  .logo-cell .logo-box{
+    display:inline-flex;align-items:center;justify-content:center;
+    min-width:60px;min-height:44px;padding:6px;border:1px solid #d5dae0;border-radius:8px;
+    background-color:#fff;
+    background-image:
+      linear-gradient(45deg,#e2e6ea 25%,transparent 25%),
+      linear-gradient(-45deg,#e2e6ea 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#e2e6ea 75%),
+      linear-gradient(-45deg,transparent 75%,#e2e6ea 75%);
+    background-size:16px 16px;
+    background-position:0 0,0 8px,8px -8px,-8px 0;
+  }
+  .logo-cell .logo-box img{max-height:80px;max-width:100%;display:block;}
+  .logo-cell .logo-fname{display:block;font-size:11.5px;color:var(--slate);margin-top:4px;}
+  .logo-cell .btn.show-logo{padding:5px 12px;font-size:13px;}
 
   .card-body{padding:2px 18px 14px;display:none;}
   .card.open .card-body{display:block;}
@@ -287,6 +302,18 @@
     return esc(v); // non-standard length: show as entered
   }
 
+  // Logo cell: when the submission has a logo, show a placeholder box with a
+  // "Show logo" button that fetches the data URL on demand (admin-logo endpoint).
+  function logoCell(s){
+    if(!s.hasLogo && !s.logoIncluded) return 'Not provided';
+    var fname=esc(s.logoFilename||'file');
+    return '<div class="logo-cell">'+
+      '<div class="logo-box"><button class="btn show-logo" type="button">Show logo</button></div>'+
+      '<span class="logo-fname">'+fname+'</span>'+
+      '<div class="logo-err" style="display:none;color:var(--err);font-size:12px;margin-top:4px;"></div>'+
+    '</div>';
+  }
+
   function cardHtml(s){
     var govLine=[s.govBody,s.state].filter(Boolean).join(', ');
     var colorSw='';
@@ -312,7 +339,7 @@
       fieldRow('Home venue', esc(s.homeVenue))+
       fieldRow('Season', esc(s.seasonYear))+
       fieldRow('Colors', colorSw)+
-      fieldRow('Logo', s.logoIncluded?'Provided ('+esc(s.logoFilename||'file')+')':'Not provided')+
+      fieldRow('Logo', logoCell(s), true)+
       fieldRow('Notes', esc(s.notes), true)+
       fieldRow('Submitted', esc(s.submittedAt), true)+
     '</div>';
@@ -393,6 +420,45 @@
       if(gen) gen.addEventListener('click',function(){
         generateConfig(card, sub, id);
       });
+      // Show logo: fetch the data URL on demand and render an inline preview
+      var showLogo=card.querySelector('.show-logo');
+      if(showLogo) showLogo.addEventListener('click',function(){ fetchLogo(id, showLogo, card); });
+    });
+  }
+
+  function fetchLogo(id, btn, card){
+    var key=ensureAdminKey();
+    if(!key) return;
+    var cell=btn.closest('.logo-cell');
+    var errEl=cell?cell.querySelector('.logo-err'):null;
+    if(errEl){ errEl.style.display='none'; errEl.textContent=''; }
+    var orig=btn.textContent;
+    btn.disabled=true; btn.textContent='Loading...';
+    fetch(AUTH_WORKER+'/onboard/admin-logo',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key,id:id})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey(); btn.disabled=false; btn.textContent=orig;
+        if(errEl){ errEl.textContent='Admin key rejected. Click Refresh, then try again.'; errEl.style.display='block'; }
+        return;
+      }
+      if(o.res && o.res.ok && o.res.logoDataUrl){
+        var box=btn.closest('.logo-box');
+        if(box){
+          var img=document.createElement('img');
+          img.src=o.res.logoDataUrl; img.alt='Logo preview';
+          box.innerHTML=''; box.appendChild(img);
+        }
+      }else{
+        btn.disabled=false; btn.textContent=orig;
+        if(errEl){ errEl.textContent=(o.res&&o.res.error)||('Could not load logo (HTTP '+o.status+')'); errEl.style.display='block'; }
+      }
+    }).catch(function(){
+      btn.disabled=false; btn.textContent=orig;
+      if(errEl){ errEl.textContent='Could not reach the worker. Try again.'; errEl.style.display='block'; }
     });
   }
 
