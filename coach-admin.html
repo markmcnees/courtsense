@@ -324,7 +324,7 @@
         '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="8" placeholder="4+ digits"><div class="ferr">Set a unique PIN, 4 to 8 digits. Not 8675.</div></div>'+
         '<div class="ff" data-f="emoji"><label>Team emoji</label><input class="f-emoji" maxlength="4" value="\uD83C\uDFD0"></div>'+
       '</div>'+
-      '<button class="genbtn">Generate config</button>'+
+      '<button class="genbtn">Provision school</button>'+
       '<div class="gen-out"></div>'+
     '</div>';
 
@@ -394,51 +394,75 @@
   }
 
   function generateConfig(card, sub, id){
-    if(!sub || !window.CSConfigGen) return;
+    if(!sub) return;
     var slugFF=card.querySelector('.ff[data-f="slug"]');
     var pinFF=card.querySelector('.ff[data-f="pin"]');
     var slug=(card.querySelector('.f-slug').value||'').trim();
     var pin=(card.querySelector('.f-pin').value||'').trim();
     var emoji=(card.querySelector('.f-emoji').value||'').trim();
+    var btn=card.querySelector('.genbtn');
+    var out=card.querySelector('.gen-out');
 
-    // validate
+    // validate (unchanged)
     var ok=true;
     slugFF.classList.remove('bad'); pinFF.classList.remove('bad');
     if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); ok=false; }
     if(!/^\d{4,8}$/.test(pin) || pin==='8675'){ pinFF.classList.add('bad'); ok=false; }
     if(!ok) return;
 
-    var data={
-      slug:slug, coachPin:pin, teamEmoji:emoji||'\uD83C\uDFD0',
-      schoolName:sub.schoolName, shortName:sub.schoolName, displayName:sub.schoolName,
-      color1:sub.color1, color2:sub.color2, homeVenue:sub.homeVenue,
-      standingsKey:sub.schoolName, logo:sub.logoFilename||''
-    };
-    var config=CSConfigGen.buildConfig(data);
-    var keymap=CSConfigGen.buildKeyMap(data);
-    var checklist=CSConfigGen.buildChecklist(data);
+    var key=ensureAdminKey();
+    if(!key){ if(out) out.innerHTML='<div class="fnote" style="color:var(--err);">Admin key needed.</div>'; return; }
 
-    var out=card.querySelector('.gen-out');
-    out.innerHTML=
-      block('School config (into courtsense/'+esc(slug)+'/index.html)','cfg',config)+
-      block('SCHOOL_KEY_MAP snippet (into app.js)','km',keymap)+
-      block('Deploy checklist','cl',checklist)+
-      '<div style="margin-top:12px;"><button class="genbtn markbtn">Mark approved</button> '+
-      '<span class="fnote" style="margin-left:8px;">Marks this submission approved. Send the welcome email after the app is live.</span></div>';
+    var origLabel=btn?btn.textContent:'Provision school';
+    if(btn){ btn.disabled=true; btn.textContent='Provisioning...'; }
+    if(out) out.innerHTML='';
 
-    // copy buttons
-    out.querySelectorAll('.copy-btn').forEach(function(btn){
-      btn.addEventListener('click',function(){
-        var pre=btn.closest('.out-block').querySelector('pre');
-        navigator.clipboard.writeText(pre.textContent).then(function(){
-          var t=btn.textContent; btn.textContent='Copied'; btn.classList.add('done');
-          setTimeout(function(){btn.textContent=t;btn.classList.remove('done');},1300);
-        });
-      });
+    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/onboard/provision',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ adminKey:key, id:id, slug:slug, coachPin:pin, teamEmoji:emoji })
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; }, function(){ return {status:r.status,res:null}; });
+    }).then(function(o){
+      // 403: same handling as the other admin calls (clear key, re-prompt on next action).
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey();
+        if(btn){ btn.disabled=false; btn.textContent=origLabel; }
+        if(out) out.innerHTML='<div class="fnote" style="color:var(--err);">Admin key rejected. Click Refresh to re-enter it.</div>';
+        return;
+      }
+      // Any failure (incl. 409 slug-taken): show the endpoint error, re-enable so the
+      // admin can change the slug and retry.
+      if(!o.res || !o.res.ok){
+        if(btn){ btn.disabled=false; btn.textContent=origLabel; }
+        if(out) out.innerHTML='<div class="fnote" style="color:var(--err);">'+esc((o.res&&o.res.error)||('Provisioning failed (HTTP '+o.status+').'))+'</div>';
+        return;
+      }
+      // Success. Provisioning already marked the submission approved server-side; mirror it
+      // locally and swap the finish panel for a success block that KEEPS the live URL and
+      // PIN on screen (the admin needs them to send the coach). Deliberately no full
+      // render() here: it rebuilds cards from cardHtml (no success block) and, under the
+      // default Pending filter, would drop this card and lose the URL. Instead reflect
+      // approved on this card in place.
+      for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ SUBS[i].status='approved'; break; } }
+      var url=o.res.url||('https://courtsense.app/'+slug+'/');
+      var finish=card.querySelector('.finish');
+      if(finish){
+        finish.innerHTML=
+          '<h4>School provisioned.</h4>'+
+          '<div class="grid" style="margin-top:6px;">'+
+            '<div class="row full"><div class="k">Live URL</div><div class="v"><a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a></div></div>'+
+            '<div class="row"><div class="k">Coach PIN</div><div class="v">'+esc(pin)+'</div></div>'+
+          '</div>'+
+          '<p class="fnote" style="margin-top:10px;">Send the coach their URL and PIN.</p>';
+      }
+      var badge=card.querySelector('.badge');
+      if(badge){ badge.className='badge approved'; badge.textContent='approved'; }
+      card.querySelectorAll('.card-actions .btn').forEach(function(b){ b.disabled=true; });
+      $('count').textContent=SUBS.filter(function(s){ return (s.status||'pending')==='pending'; }).length+' pending';
+    }).catch(function(){
+      if(btn){ btn.disabled=false; btn.textContent=origLabel; }
+      if(out) out.innerHTML='<div class="fnote" style="color:var(--err);">Could not reach the worker. Try again.</div>';
     });
-    // mark approved
-    var mark=out.querySelector('.markbtn');
-    if(mark) mark.addEventListener('click',function(){ setStatus(id,'approved',card); });
   }
 
   function block(title,key,text){
