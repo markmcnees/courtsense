@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Quick Start &middot; CourtSense</title>
+<style>
+  :root{
+    --navy:#082A4F;
+    --blue:#0081AB;
+    --gold:#F2B22E;
+    --teal:#217F7F;
+    --sand:#F7C880;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1.5;
+  }
+
+  /* white logo band */
+  .brandbar{background:var(--white);text-align:center;padding:28px 20px;}
+  .brandbar .brand-logo{display:block;margin:0 auto;max-width:320px;width:100%;height:auto;}
+
+  /* hero */
+  .hero{background:var(--blue);color:var(--white);text-align:center;padding:50px 24px 46px;}
+  .hero h1{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:56px;letter-spacing:2px;line-height:1;margin:0 0 14px;
+  }
+  .hero p{font-size:18px;margin:0 auto;max-width:460px;color:#e7f4fa;}
+
+  /* body */
+  .page{max-width:720px;margin:0 auto;padding:36px 20px 10px;}
+  .card{
+    background:var(--white);border:1px solid var(--line);border-radius:14px;
+    padding:22px 24px;margin-bottom:18px;box-shadow:0 1px 3px rgba(8,42,79,.05);
+  }
+  .card h2{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:26px;letter-spacing:1px;color:var(--navy);margin:0 0 14px;
+  }
+  .card p{margin:0 0 12px;}
+  .card p:last-child{margin-bottom:0;}
+  .card a{color:var(--blue);}
+  .contact-name{font-weight:700;color:var(--navy);}
+  .card a.dl{
+    display:inline-block;background:var(--teal);color:var(--white);
+    font-weight:700;font-size:14px;text-decoration:none;
+    padding:9px 16px;border-radius:8px;letter-spacing:.3px;margin-top:4px;
+  }
+  .card a.dl:hover{background:#1a6666;}
+
+  /* numbered steps + bullet lists */
+  ol.steps{margin:0;padding-left:24px;}
+  ol.steps li{margin:0 0 14px;padding-left:4px;}
+  ol.steps li:last-child{margin:0;}
+  ul.bullets{margin:0;padding-left:20px;}
+  ul.bullets li{margin:0 0 11px;}
+  ul.bullets li:last-child{margin:0;}
+
+  /* four tabs */
+  .tabrow{display:flex;gap:16px;align-items:baseline;padding:12px 0;border-top:1px solid var(--line);}
+  .tabrow:first-child{border-top:none;padding-top:0;}
+  .tabrow .t{
+    font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:1px;
+    color:var(--blue);min-width:96px;flex-shrink:0;
+  }
+  .tabrow .d{color:var(--ink);}
+
+  /* FAQ accordion (native details, no JS) */
+  details.faq{border-top:1px solid var(--line);}
+  details.faq:first-of-type{border-top:none;}
+  details.faq summary{
+    cursor:pointer;list-style:none;padding:14px 0;
+    font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.5px;color:var(--navy);
+    display:flex;justify-content:space-between;align-items:center;gap:14px;
+  }
+  details.faq summary::-webkit-details-marker{display:none;}
+  details.faq summary::after{
+    content:'+';color:var(--blue);font-family:'Barlow',sans-serif;
+    font-size:24px;font-weight:700;line-height:1;flex-shrink:0;
+  }
+  details.faq[open] summary::after{content:'\00D7';}
+  details.faq .a{padding:0 0 16px;color:var(--ink);}
+  details.faq .a p{margin:0 0 10px;}
+  details.faq .a p:last-child{margin:0;}
+
+  /* footer */
+  footer{text-align:center;color:var(--slate);font-size:12.5px;margin-top:40px;padding:0 20px 44px;}
+  footer .logo-word{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--navy);}
+</style>
+</head>
+<body>
+
+<div class="brandbar">
+  <img src="/logo.png" alt="CourtSense" class="brand-logo">
+</div>
+
+<div class="hero">
+  <h1>QUICK START</h1>
+  <p>Everything you need to get your program running.</p>
+</div>
+
+<div class="page">
+
+  <div class="card">
+    <h2>The first five minutes</h2>
+    <ol class="steps">
+      <li>Open your app. Your URL is <strong>courtsense.app/</strong> followed by your school's name. We sent it to you.</li>
+      <li>Tap <strong>COACH</strong> and enter your PIN. We sent that too.</li>
+      <li>Go to <strong>Manage</strong>, then <strong>Import and Export</strong>. This is where you build your roster.</li>
+      <li>Add players one at a time, or import your whole roster from the spreadsheet template.
+        <br><a class="dl" href="/coach/CourtSense_Roster_Template.xlsx" download>Download the roster template</a></li>
+      <li>Tell your team the app URL and the player password. They pick their name and log in.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>What your players do</h2>
+    <ul class="bullets">
+      <li>They go to the same URL you use.</li>
+      <li>They tap <strong>PLAYER</strong>, pick their name from the list, and enter the password you gave them.</li>
+      <li>Their name only shows up after you add them to the roster.</li>
+      <li>Once they are in, they can see their stats, their skills, their rankings, and their goals. They can enter live scores on game day, scout opponents, and change their password.</li>
+      <li>Tell them to change the password the first time they log in.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>What parents get</h2>
+    <ul class="bullets">
+      <li>Add a parent's name and email to a player's record and they will get your team announcements by email.</li>
+      <li>Parents can see the public fan page for scores and results. No login needed.</li>
+      <li>Parent accounts are coming. For now, email is how you reach them.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>The four tabs</h2>
+    <div class="tabrow"><div class="t">PLAYERS</div><div class="d">Your roster, stats, skills, practice groups, and player goals.</div></div>
+    <div class="tabrow"><div class="t">PRACTICE</div><div class="d">Team analysis. See your weakest skills and build a practice around them.</div></div>
+    <div class="tabrow"><div class="t">DUALS</div><div class="d">Your schedule, the lineup planner, live scoring, and dual history.</div></div>
+    <div class="tabrow"><div class="t">MANAGE</div><div class="d">Add players, import and export, send announcements, track logistics.</div></div>
+  </div>
+
+  <div class="card">
+    <h2>FAQ</h2>
+
+    <details class="faq">
+      <summary>How do I get my roster in?</summary>
+      <div class="a"><p>Two ways. Add players one at a time under Manage, Import and Export. Or download the roster template, fill it in, and import it. The import matches on name, so you can import again to update players without creating duplicates.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>How do players log in?</summary>
+      <div class="a"><p>They go to your app URL, tap PLAYER, pick their name, and enter the password. Their name appears only after you add them to the roster. Tell them to change the password once they are in.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>What can parents see?</summary>
+      <div class="a"><p>There is no parent login yet. Add a parent email to a player's record and they will get your announcements. Parents can also view the public fan page. Parent accounts are coming.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>Is my students' data safe?</summary>
+      <div class="a"><p>We store no health or medical data of any kind. Physicals, ECGs, and eligibility run through your school's official FHSAA clearance platform, not through us. We collect the minimum: names, grad year, and parent contacts. Nothing about a player is public until the player and a parent choose to make it public.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>What does it cost?</summary>
+      <div class="a"><p>Nothing for the 2027 season. The only fee is feedback. Tell us what is broken, what is missing, and what you need, and we will build it.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>Can I get my data out?</summary>
+      <div class="a"><p>Any time. Manage, Import and Export, Export Excel. Your whole program comes out in one file. You are never locked in.</p></div>
+    </details>
+
+    <details class="faq">
+      <summary>What if I need help?</summary>
+      <div class="a"><p>Email or call. <span class="contact-name">Dr. Mark McNees</span>, <a href="mailto:mmcnees@fsu.edu">mmcnees@fsu.edu</a>, <a href="tel:+18509737687">850.973.7687</a>. I answer everything.</p></div>
+    </details>
+
+  </div>
+
+</div>
+
+<footer>
+  <div class="logo-word">CourtSense</div>
+  Team, League, and Community management for beach volleyball.
+</footer>
+
+</body>
+</html>
