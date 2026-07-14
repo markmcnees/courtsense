@@ -113,6 +113,15 @@
         if(typeof url==='string' && url){ paint('<img src="'+esc(url)+'" alt="'+esc(name)+'">'); }
         else{ paint(emoji()); }
       }).catch(function(){ paint(emoji()); });
+    }else if(cfg.logo){
+      // Legacy filename logo (e.g. 'leon-logo.png') lives in the school's shell folder
+      // at /<slug>/<logo>. If it 404s (a folderless school), fall back to the emoji.
+      paint('<img src="/'+esc(slug)+'/'+esc(cfg.logo)+'" alt="'+esc(name)+'">');
+      var img=boot && boot.querySelector('.cs-logo img');
+      if(img){
+        img.onerror=function(){ this.onerror=null; paint(emoji()); };
+        if(img.complete && !img.naturalWidth){ img.onerror(); }
+      }
     }else{
       paint(emoji());
     }
