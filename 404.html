@@ -34,7 +34,10 @@
      the school's primary color with white text. Fonts match the app. */
   .cs-signup .inner{max-width:480px;}
   .cs-signup .cs-logo{margin:0 0 22px;}
-  .cs-signup .cs-logo img{width:140px;height:140px;object-fit:contain;display:inline-block;}
+  .cs-signup .cs-logo img{
+    width:140px;height:140px;box-sizing:border-box;object-fit:contain;display:inline-block;
+    background:#fff;padding:22px;border-radius:50%;box-shadow:0 6px 24px rgba(0,0,0,.22);
+  }
   .cs-signup .cs-emoji{font-size:104px;line-height:1;}
   .cs-signup h1{
     font-family:'Bebas Neue',sans-serif;font-weight:400;
@@ -47,8 +50,10 @@
   }
   .cs-signup .cs-msg{font-size:17px;line-height:1.6;color:#fff;margin:0 0 40px;}
   .cs-signup .cs-powered{
-    font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.7);
+    display:inline-block;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:rgba(255,255,255,.7);text-decoration:none;
   }
+  .cs-signup .cs-powered:hover{color:rgba(255,255,255,.95);}
 </style>
 </head>
 <body>
@@ -103,7 +108,7 @@
         +'<h1>'+esc(name)+'</h1>'
         +'<div class="cs-sub">Beach Volleyball</div>'
         +'<p class="cs-msg">Player signups open soon. Check back.</p>'
-        +'<div class="cs-powered">Powered by CourtSense</div>'
+        +'<a class="cs-powered" href="https://courtsense.app">Powered by CourtSense</a>'
         +'</div>';
     }
     function emoji(){ return '<div class="cs-emoji">'+esc(cfg.teamEmoji||'🏐')+'</div>'; }
