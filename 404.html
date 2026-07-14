@@ -29,6 +29,26 @@
     margin:0 0 14px;color:#fff;
   }
   .cs-boot p{font-size:15px;line-height:1.6;color:#cdd8e6;margin:0 0 10px;}
+
+  /* Coming-soon signup page (/<slug>/signup/). Same overlay element, repainted in
+     the school's primary color with white text. Fonts match the app. */
+  .cs-signup .inner{max-width:480px;}
+  .cs-signup .cs-logo{margin:0 0 22px;}
+  .cs-signup .cs-logo img{width:140px;height:140px;object-fit:contain;display:inline-block;}
+  .cs-signup .cs-emoji{font-size:104px;line-height:1;}
+  .cs-signup h1{
+    font-family:'Bebas Neue',sans-serif;font-weight:400;
+    font-size:52px;letter-spacing:2px;line-height:1.02;
+    margin:0 0 6px;color:#fff;
+  }
+  .cs-signup .cs-sub{
+    font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;
+    text-transform:uppercase;color:rgba(255,255,255,.85);margin:0 0 26px;
+  }
+  .cs-signup .cs-msg{font-size:17px;line-height:1.6;color:#fff;margin:0 0 40px;}
+  .cs-signup .cs-powered{
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.7);
+  }
 </style>
 </head>
 <body>
@@ -41,7 +61,11 @@
    slug's config from Firebase, re-attaches the shared fbConfig (stripped during
    migration), sets window.SCHOOL_CONFIG, then injects app.js. app.js reads
    window.SCHOOL_CONFIG at parse time, so the config MUST be set before the tag
-   is appended. */
+   is appended.
+
+   Two paths off the same config read:
+     /<slug>/          -> boot the school app (unchanged)
+     /<slug>/signup/   -> render a branded coming-soon page (no app.js) */
 (function(){
   // Shared Firebase project config, identical across every school (copied from the
   // per-school shells). This is the ONLY thing needed to connect and read the
@@ -49,6 +73,11 @@
   var FB_CONFIG={apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'};
 
   var boot=document.getElementById('cs-boot');
+  function esc(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
   function notFound(){
     if(!boot) return;
     boot.innerHTML='<div class="inner">'
@@ -58,16 +87,51 @@
       +'</div>';
   }
 
+  // Branded coming-soon page. Same overlay element, repainted in the school's
+  // primary color. Logo comes from the courtsense_school_logos/<slug> node when the
+  // config's logo flag is 'firebase'; otherwise the school's teamEmoji stands in.
+  function renderSignup(cfg,slug){
+    var bg=(cfg.colors && cfg.colors.primary) || '#082A4F';
+    var name=cfg.displayName || cfg.schoolName || 'CourtSense';
+    document.documentElement.style.background=bg;
+    function paint(logoHtml){
+      if(!boot) return;
+      boot.className='cs-boot cs-signup';
+      boot.style.background=bg;
+      boot.innerHTML='<div class="inner">'
+        +'<div class="cs-logo">'+logoHtml+'</div>'
+        +'<h1>'+esc(name)+'</h1>'
+        +'<div class="cs-sub">Beach Volleyball</div>'
+        +'<p class="cs-msg">Player signups open soon. Check back.</p>'
+        +'<div class="cs-powered">Powered by CourtSense</div>'
+        +'</div>';
+    }
+    function emoji(){ return '<div class="cs-emoji">'+esc(cfg.teamEmoji||'🏐')+'</div>'; }
+    if(cfg.logo==='firebase'){
+      firebase.database().ref('courtsense_school_logos/'+slug).once('value').then(function(snap){
+        var url=snap.val();
+        if(typeof url==='string' && url){ paint('<img src="'+esc(url)+'" alt="'+esc(name)+'">'); }
+        else{ paint(emoji()); }
+      }).catch(function(){ paint(emoji()); });
+    }else{
+      paint(emoji());
+    }
+  }
+
   try{
-    // Slug = first path segment, tolerant of /leon/, /leon, and /leon/index.html.
+    // Slug = first path segment; second segment 'signup' switches to the coming-soon
+    // page. Tolerant of trailing slash and index.html on either path.
     var clean=location.pathname.replace(/index\.html$/i,'').replace(/^\/+|\/+$/g,'');
-    var slug=(clean.split('/')[0]||'').toLowerCase();
+    var parts=clean.split('/');
+    var slug=(parts[0]||'').toLowerCase();
+    var isSignup=(parts[1]||'').toLowerCase()==='signup';
     if(!slug){ notFound(); return; }
 
     firebase.initializeApp(FB_CONFIG);
     firebase.database().ref('courtsense_school_configs/'+slug).once('value').then(function(snap){
       var cfg=snap.val();
       if(!cfg || typeof cfg!=='object'){ notFound(); return; }
+      if(isSignup){ renderSignup(cfg,slug); return; }
       // Re-attach the shared fbConfig (stripped when configs were migrated to Firebase),
       // publish the config, remove the overlay, then load app.js. app.js's own initFB
       // guards on firebase.apps.length, so it reuses the app already initialized above.
@@ -75,7 +139,7 @@
       window.SCHOOL_CONFIG=cfg;
       if(boot && boot.parentNode) boot.parentNode.removeChild(boot);
       var s=document.createElement('script');
-      s.src='/app.js?v=1.1.91';
+      s.src='/app.js?v=1.1.104';
       document.body.appendChild(s);
     }).catch(function(){ notFound(); });
   }catch(e){ notFound(); }
