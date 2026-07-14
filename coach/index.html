@@ -274,6 +274,12 @@
         <label for="region">Region or conference <span class="opt">(optional)</span></label>
         <input type="text" id="region" name="region" placeholder="">
       </div>
+
+      <div class="field">
+        <label for="maxPrepsUrl">MaxPreps page <span class="opt">(optional)</span></label>
+        <span class="hint">Your team's MaxPreps beach volleyball page. We use it to show your area standings. Leave it blank if you do not have one.</span>
+        <input type="url" id="maxPrepsUrl" name="maxPrepsUrl" placeholder="https://www.maxpreps.com/fl/tallahassee/leon-lions/beach-volleyball/">
+      </div>
     </div>
 
     <!-- COACH -->
@@ -571,7 +577,7 @@
 
   function collectPayload(){
     var ids=['schoolName','address','city','addressState','zip','phone','website','mascot','state','govBody',
-      'classification','division','district','region','coachFirstName','coachLastName','coachRole',
+      'classification','division','district','region','maxPrepsUrl','coachFirstName','coachLastName','coachRole',
       'coachEmail','coachCell','gender','seasonYear','homeVenue','color1','color2','notes'];
     var p={};
     ids.forEach(function(id){ var el=$(id); if(el) p[id]=(el.value||'').trim(); });

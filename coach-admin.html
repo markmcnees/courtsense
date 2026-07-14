@@ -316,6 +316,9 @@
 
   function cardHtml(s){
     var govLine=[s.govBody,s.state].filter(Boolean).join(', ');
+    // Full mailing address on one line: street, city, state zip. Older submissions
+    // (from before city/state/zip existed) only have s.address; filter drops the gaps.
+    var addr=[s.address, s.city, [s.addressState,s.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     var colorSw='';
     if(s.color1||s.color2){
       colorSw='<div class="swatches">'+
@@ -328,7 +331,7 @@
       fieldRow('Email', mailto(s.coachEmail))+
       fieldRow('Cell', fmtPhone(s.coachCell))+
       fieldRow('Teams', esc(s.gender))+
-      fieldRow('Address', esc(s.address), true)+
+      fieldRow('Address', esc(addr), true)+
       fieldRow('School phone', fmtPhone(s.phone))+
       fieldRow('Website', link(s.website))+
       fieldRow('Governing body', esc(govLine))+
