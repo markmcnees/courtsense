@@ -615,7 +615,9 @@
             '<div class="row full"><div class="k">Live URL</div><div class="v"><a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a></div></div>'+
             '<div class="row"><div class="k">Coach PIN</div><div class="v">'+esc(pin)+'</div></div>'+
           '</div>'+
-          '<p class="fnote" style="margin-top:10px;">Send the coach their URL and PIN.</p>';
+          (o.res.welcomeEmailSent
+            ? '<p class="fnote" style="margin-top:10px;color:#2e7d32;">A welcome email with the URL, PIN, first step, and quick start guide went to the coach.</p>'
+            : '<p class="fnote" style="margin-top:10px;color:var(--err);">The welcome email did not send. Send the coach their URL and PIN by hand.</p>');
       }
       var badge=card.querySelector('.badge');
       if(badge){ badge.className='badge approved'; badge.textContent='approved'; }
