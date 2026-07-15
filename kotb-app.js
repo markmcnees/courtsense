@@ -1599,15 +1599,24 @@ function namesForRatedTeam(team, subSlots){
     .map(idOrName => { const p = gP(idOrName); return p ? p.name : null; })
     .filter(Boolean);
 }
-function applyRatingsLeague(gameId, t1, t2, s1, s2, subSlots){
+function applyRatingsLeague(gameId, t1, t2, s1, s2, subSlots, isForfeit){
   if(!window.Ratings || !db) return;
   const team1Names = namesForRatedTeam(t1, subSlots);
   const team2Names = namesForRatedTeam(t2, subSlots);
-  if(!team1Names.length || !team2Names.length) return;
+  if(isForfeit){
+    // Forfeit: only the winning (show-up) side is rated (as a zero-point win), so it must
+    // proceed even when the no-show side resolves to zero rated players. Bail only if the
+    // WINNER side (the 15) has no rated player.
+    const winnerNames = s1>s2 ? team1Names : team2Names;
+    if(!winnerNames.length) return;
+  } else {
+    // Normal game: unchanged. Both sides need at least one rated player.
+    if(!team1Names.length || !team2Names.length) return;
+  }
   Ratings.applyGame({
     db, dbRoot:'tally_kotb_pickup',
     gameId, source: ratingsSourceForSide(),
-    ts: Date.now(), team1Names, team2Names, s1, s2
+    ts: Date.now(), team1Names, team2Names, s1, s2, isForfeit: !!isForfeit
   }).catch(err => console.warn('rating apply failed', err));
 }
 function reverseRatingsLeague(gameId, t1, t2, subSlots){
@@ -1635,7 +1644,7 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   const namedSubs=[...t1,...t2].filter(pid=>ov[pid]&&ov[pid]!=='__SUB__').map(pid=>ov[pid]);
   const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
   fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
-  applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots);
+  applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
   lscore[idx]={us:0,them:0};
   toast((s1>s2?'Win':'Loss')+' · '+s1+'–'+s2+' saved ✓');
   const _sy=window.scrollY;
@@ -1653,7 +1662,7 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   const st1=resolveIds(t1),st2=resolveIds(t2);
   const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
   fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()});
-  applyRatingsLeague(id, st1, st2, s1, s2, null);
+  applyRatingsLeague(id, st1, st2, s1, s2, null, true);
   toast('Forfeit recorded · 15-10');
   const _sf=window.scrollY;
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sf,behavior:'instant'});},400);
@@ -1712,8 +1721,9 @@ function saveEditResult(){
   if(!t1.length||!t2.length){toast('Each team needs at least one player');return;}
   if(s1===s2){toast('Scores cannot be tied');return;}
   reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
-  fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:false});
-  applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null);
+  // Preserve the stored forfeit flag on edit; do not silently convert a forfeit to a rated game.
+  fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:r.isForfeit===true});
+  applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null, r.isForfeit===true);
   $('edit-result-modal').classList.remove('on');
   toast('Result updated ✓');
   setTimeout(()=>{renderRoundPills();renderLiveCourts();},300);

@@ -135,8 +135,49 @@
   function applyToMemory(ratingsByKey, game){
     const t1 = cleanTeam(game.team1Names);
     const t2 = cleanTeam(game.team2Names);
-    if(!t1.length || !t2.length) return [];
     if(game.s1 === game.s2) return [];
+
+    // Forfeit: record ONLY the winning (show-up) side as a zero-point win. The no-show side
+    // is left completely untouched: no history, no gamesPlayed, no rating change.
+    if(game.isForfeit){
+      const winnerTeam = game.s1 > game.s2 ? t1 : t2;
+      const loserTeam  = game.s1 > game.s2 ? t2 : t1;
+      if(!winnerTeam.length) return [];
+      const fts = game.ts || Date.now();
+      const winScore = Math.max(game.s1, game.s2);
+      const loseScore = Math.min(game.s1, game.s2);
+      const fHistory = [];
+      winnerTeam.forEach(n=>{
+        const k = nameKey(n);
+        if(!ratingsByKey[k]) ratingsByKey[k] = newPlayerState(n);
+        if(!ratingsByKey[k].name) ratingsByKey[k].name = n;
+        const rec = ratingsByKey[k];
+        const partnerName = winnerTeam.find(x => x !== n) || null;
+        const ratingBefore = rec.rating, rdBefore = rec.rd;
+        rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
+        rec.lastUpdated = fts;
+        // rating and rd deliberately unchanged: a forfeit moves zero rating points.
+        fHistory.push({
+          playerKey: k,
+          playerName: rec.name,
+          entry: {
+            timestamp: fts,
+            source: game.source || 'unknown',
+            partner: partnerName,
+            opponent1: loserTeam[0] || null,
+            opponent2: loserTeam[1] || null,
+            score: winScore,
+            opponentScore: loseScore,
+            ratingBefore, ratingAfter: ratingBefore, ratingChange: 0,
+            rdBefore, rdAfter: rdBefore,
+            won: true, forfeit: true
+          }
+        });
+      });
+      return fHistory;
+    }
+
+    if(!t1.length || !t2.length) return [];
 
     const all = [...t1, ...t2];
     const states = {};
@@ -242,11 +283,18 @@
   // gameId becomes the key under each player's history/.
   // Returns a Promise that resolves when the writes have been issued (best effort).
   async function applyGame(opts){
-    const { db, dbRoot, gameId, source, ts, team1Names, team2Names, s1, s2 } = opts;
+    const { db, dbRoot, gameId, source, ts, team1Names, team2Names, s1, s2, isForfeit } = opts;
     if(!db) return;
     const t1 = cleanTeam(team1Names);
     const t2 = cleanTeam(team2Names);
-    if(!t1.length || !t2.length) return;
+    if(isForfeit){
+      // Forfeit: only the winning side is rated, so proceed when it has a rated player even
+      // if the no-show side resolves to zero names.
+      const winner = s1>s2 ? t1 : t2;
+      if(!winner.length) return;
+    } else {
+      if(!t1.length || !t2.length) return;
+    }
     if(s1 === s2) return;
 
     const all = [...t1, ...t2];
@@ -274,7 +322,7 @@
       }
     }));
 
-    const game = { team1Names: t1, team2Names: t2, s1, s2, ts: ts || Date.now(), source };
+    const game = { team1Names: t1, team2Names: t2, s1, s2, ts: ts || Date.now(), source, isForfeit: !!isForfeit };
     const history = applyToMemory(ratingsByKey, game);
     if(!history.length) return;
 
