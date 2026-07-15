@@ -137,44 +137,81 @@
     const t2 = cleanTeam(game.team2Names);
     if(game.s1 === game.s2) return [];
 
-    // Forfeit: record ONLY the winning (show-up) side as a zero-point win. The no-show side
-    // is left completely untouched: no history, no gamesPlayed, no rating change.
+    // Forfeit: a 15-10 win for the team that showed up.
+    //  - No-show has >=1 RATED player: fall through to the normal both-sides path below (a
+    //    rated forfeit is just a 15-10 game; winner scaled up, no-show scaled down).
+    //  - No-show is ALL SUBS (zero rated players): score the WINNER side ONLY against a
+    //    synthetic baseline opponent (1500/350), using the same Glicko + margin + cap math the
+    //    normal path uses. gamesPlayed +1; the sub side has no rated account, so writes nothing.
     if(game.isForfeit){
       const winnerTeam = game.s1 > game.s2 ? t1 : t2;
       const loserTeam  = game.s1 > game.s2 ? t2 : t1;
       if(!winnerTeam.length) return [];
-      const fts = game.ts || Date.now();
-      const winScore = Math.max(game.s1, game.s2);
-      const loseScore = Math.min(game.s1, game.s2);
-      const fHistory = [];
-      winnerTeam.forEach(n=>{
-        const k = nameKey(n);
-        if(!ratingsByKey[k]) ratingsByKey[k] = newPlayerState(n);
-        if(!ratingsByKey[k].name) ratingsByKey[k].name = n;
-        const rec = ratingsByKey[k];
-        const partnerName = winnerTeam.find(x => x !== n) || null;
-        const ratingBefore = rec.rating, rdBefore = rec.rd;
-        rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
-        rec.lastUpdated = fts;
-        // rating and rd deliberately unchanged: a forfeit moves zero rating points.
-        fHistory.push({
-          playerKey: k,
-          playerName: rec.name,
-          entry: {
-            timestamp: fts,
-            source: game.source || 'unknown',
-            partner: partnerName,
-            opponent1: loserTeam[0] || null,
-            opponent2: loserTeam[1] || null,
-            score: winScore,
-            opponentScore: loseScore,
-            ratingBefore, ratingAfter: ratingBefore, ratingChange: 0,
-            rdBefore, rdAfter: rdBefore,
-            won: true, forfeit: true
-          }
+      if(!loserTeam.length){
+        const fts = game.ts || Date.now();
+        const winScore = Math.max(game.s1, game.s2);
+        const loseScore = Math.min(game.s1, game.s2);
+        const winStates = {};
+        winnerTeam.forEach(n=>{
+          const k = nameKey(n);
+          if(!ratingsByKey[k]) ratingsByKey[k] = newPlayerState(n);
+          if(!ratingsByKey[k].name) ratingsByKey[k].name = n;
+          winStates[n] = { key:k, ref: ratingsByKey[k] };
         });
-      });
-      return fHistory;
+        const winAvg = winnerTeam.reduce((s,n)=>s + winStates[n].ref.rating, 0) / winnerTeam.length;
+        const oppAvg = { rating: DEFAULT_RATING, rd: DEFAULT_RD }; // synthetic baseline no-show
+        const margin = Math.abs(game.s1 - game.s2);
+        const mult = marginMultiplier(winAvg, DEFAULT_RATING, margin);
+        // Snapshot pre-update states so a 2-player winner team scores against each other's
+        // pre-game rating (mirrors applyToSide's `initial` copies exactly).
+        const initial = {};
+        winnerTeam.forEach(n=>{ initial[n] = { ...winStates[n].ref }; });
+        const fHistory = [];
+        winnerTeam.forEach(n=>{
+          const me = initial[n];
+          const partnerName = winnerTeam.find(x => x !== n) || null;
+          const partner = partnerName ? initial[partnerName] : null;
+          const upd = updateOnePlayer(
+            { rating: me.rating, rd: me.rd, volatility: me.volatility },
+            partner ? { rating: partner.rating } : null,
+            oppAvg,
+            1
+          );
+          const scaledDelta = (upd.rating - me.rating) * mult;
+          const cap = capFor(me);
+          let clampedDelta = scaledDelta;
+          if (clampedDelta >  cap) clampedDelta =  cap;
+          if (clampedDelta < -cap) clampedDelta = -cap;
+          const newRatingClamped = me.rating + clampedDelta;
+          const newRD = upd.rd, newVol = upd.volatility;
+          const rec = winStates[n].ref;
+          const ratingBefore = rec.rating, rdBefore = rec.rd;
+          rec.rating = newRatingClamped;
+          rec.rd = newRD;
+          rec.volatility = newVol;
+          rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
+          if(newRatingClamped > (rec.peakRating||0)){ rec.peakRating = newRatingClamped; rec.peakRatingDate = fts; }
+          rec.lastUpdated = fts;
+          fHistory.push({
+            playerKey: winStates[n].key,
+            playerName: rec.name,
+            entry: {
+              timestamp: fts,
+              source: game.source || 'unknown',
+              partner: partnerName,
+              opponent1: null,
+              opponent2: null,
+              score: winScore,
+              opponentScore: loseScore,
+              ratingBefore, ratingAfter: newRatingClamped, ratingChange: clampedDelta,
+              rdBefore, rdAfter: newRD,
+              won: true, forfeit: true
+            }
+          });
+        });
+        return fHistory;
+      }
+      // Rated no-show: fall through to the normal both-sides path below.
     }
 
     if(!t1.length || !t2.length) return [];
@@ -266,7 +303,10 @@
             opponentScore: won ? loserScore : winnerScore,
             ratingBefore, ratingAfter: newRatingClamped, ratingChange: clampedDelta,
             rdBefore, rdAfter: newRD,
-            won: !!won
+            won: !!won,
+            // Marker only: tag forfeit-derived entries for audit. Absent (no key added) on
+            // normal games, so non-forfeit entries are byte-for-byte unchanged.
+            ...(game.isForfeit ? { forfeit: true } : {})
           }
         });
       });
