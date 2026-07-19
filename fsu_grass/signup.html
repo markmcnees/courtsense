@@ -433,10 +433,10 @@
 //   new       -> create the account with CourtSenseAuth.createPlayer
 //   claimed   -> verify the member's existing password with /auth/verify
 //   unclaimed -> let the member set a password with /auth/register (claim)
-// Then attaches an fsu_grass membership, lands the person as a prospect (not on
-// the club roster), and writes a club profile record, all in one atomic multi-path
-// write. Existing accounts are never duplicated and gain only the membership and
-// phone; no other field changes.
+// Then attaches an fsu_grass membership, writes a club roster record (status
+// 'prospect') and a club profile record, all in one atomic multi-path write.
+// Existing accounts are never duplicated and gain only the membership and phone;
+// no other field changes.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -582,9 +582,9 @@ function csSeedFromTruVolley(v){
 }
 
 // Build the shared write payload. accountKey is the CourtSense account key (new:
-// the createPlayer key; existing: the looked-up playerId). A new member lands as a
-// prospect (grass_club_matches/prospects), not on the club roster; an exec places
-// them after tryouts. Only the membership and phone touch the account record.
+// the createPlayer key; existing: the looked-up playerId). A new member lands on the
+// club roster (grass_club_matches/players) with status 'prospect' for exec review at
+// tryouts. Only the membership and phone touch the account record.
 function buildClubWrites(accountKey){
   const clubId = genPlayerId();
   const now = Date.now();
@@ -609,18 +609,21 @@ function buildClubWrites(accountKey){
     smsConsentVersion: smsConsent ? SMS_CONSENT_VERSION : null,
     joinedAt: now
   };
-  // Prospect record. Matches app.js recruiting prospect shape, plus the accountId
-  // link and createdAt. Being a prospect is roster placement only; membership above
-  // still marks them an fsu_grass member.
-  const prospectRecord = {
+  // Club roster record carrying status 'prospect'. One record follows the person
+  // from application through placement: an exec later changes status (and sets tier,
+  // court, jersey) rather than moving the record. active lets an exec mark someone
+  // inactive without deleting them. Membership above still marks them an fsu_grass
+  // member; prospect is roster placement, not membership.
+  const rosterRecord = {
     id: clubId, firstName: first, lastName: last,
-    gender: null, classYear: classYearCode(yearRaw),
+    classYear: classYearCode(yearRaw),
+    court: null, jersey: null, tier: null,
+    status: 'prospect', active: true,
+    tierRequest: tierChoice,
     truVolley: truVolleyNum,
     rating: seed ? seed.rating : null,
     rd: seed ? seed.rd : null,
     manualRating: null,
-    tierRequest: tierChoice,
-    photo: null, status: 'prospect', team: null, sessionId: null,
     accountId: accountKey, createdAt: now
   };
   const profileRecord = {
@@ -634,7 +637,7 @@ function buildClubWrites(accountKey){
   const updates = {};
   updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
   updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
-  updates[CLUB_ROOT + '/prospects/' + clubId] = prospectRecord;
+  updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
   return updates;
 }
