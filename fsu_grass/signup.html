@@ -416,11 +416,10 @@
 
     <div class="card" id="confirm-card" style="display:none;">
       <div class="confirm-body">
-        <div class="cico">&#127793;</div>
-        <h2>You're in. Welcome to the club.</h2>
-        <p id="confirm-lead">Your CourtSense account is created and your FSU Grass Club membership is saved.</p>
-        <p>An exec will place you on a squad after tryouts. Watch your email for practice details.</p>
-        <p class="muted">Your login works across CourtSense, leagues, and pickup.</p>
+        <div class="cico">&#127952;</div>
+        <h2>Thanks for applying.</h2>
+        <p id="confirm-lead">We have received your application to the Grass Volleyball Club at FSU. We will be in touch soon about tryouts.</p>
+        <p class="muted">Your CourtSense login works across the club, leagues, and pickup with the email and password on your account.</p>
       </div>
     </div>
   </div>
@@ -434,9 +433,10 @@
 //   new       -> create the account with CourtSenseAuth.createPlayer
 //   claimed   -> verify the member's existing password with /auth/verify
 //   unclaimed -> let the member set a password with /auth/register (claim)
-// Then attaches an fsu_grass membership plus a club roster record and a club
-// profile record in one atomic multi-path write. Existing accounts are never
-// duplicated and gain only the membership and phone; no other field changes.
+// Then attaches an fsu_grass membership, lands the person as a prospect (not on
+// the club roster), and writes a club profile record, all in one atomic multi-path
+// write. Existing accounts are never duplicated and gain only the membership and
+// phone; no other field changes.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -569,9 +569,22 @@ function validateBasics(){
   return ok;
 }
 
+// Seed a Glicko-2 rating from a 0-10 TruVolley decimal, matching app.js
+// csSeedFromTruVolley. A non-numeric value returns null (unrated, no seed).
+function csSeedFromTruVolley(v){
+  if(!isFinite(v)) return null;
+  if(v < 2)  return { rating:1300, rd:300 };
+  if(v < 4)  return { rating:1450, rd:250 };
+  if(v < 6)  return { rating:1600, rd:200 };
+  if(v < 8)  return { rating:1800, rd:150 };
+  if(v < 10) return { rating:2000, rd:150 };
+  return { rating:2200, rd:100 };
+}
+
 // Build the shared write payload. accountKey is the CourtSense account key (new:
-// the createPlayer key; existing: the looked-up playerId). Only the membership and
-// phone touch the account record; club roster and profile are separate nodes.
+// the createPlayer key; existing: the looked-up playerId). A new member lands as a
+// prospect (grass_club_matches/prospects), not on the club roster; an exec places
+// them after tryouts. Only the membership and phone touch the account record.
 function buildClubWrites(accountKey){
   const clubId = genPlayerId();
   const now = Date.now();
@@ -582,7 +595,9 @@ function buildClubWrites(accountKey){
   const yearRaw = val('year');
   const truvolleyRaw = val('truvolley');
   const tvNum = parseFloat(truvolleyRaw);
-  const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null);
+  const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null); // profile: number or raw string or null
+  const truVolleyNum = isFinite(tvNum) ? tvNum : null;                // prospect: strict 0-10 number or null
+  const seed = truVolleyNum != null ? csSeedFromTruVolley(truVolleyNum) : null;
 
   const membership = {
     org: 'fsu_grass', orgName: 'FSU Grass Club', role: 'member', tier: null,
@@ -594,10 +609,19 @@ function buildClubWrites(accountKey){
     smsConsentVersion: smsConsent ? SMS_CONSENT_VERSION : null,
     joinedAt: now
   };
-  const rosterRecord = {
+  // Prospect record. Matches app.js recruiting prospect shape, plus the accountId
+  // link and createdAt. Being a prospect is roster placement only; membership above
+  // still marks them an fsu_grass member.
+  const prospectRecord = {
     id: clubId, firstName: first, lastName: last,
-    classYear: classYearCode(yearRaw), court: null, jersey: null,
-    accountId: accountKey, active: true
+    gender: null, classYear: classYearCode(yearRaw),
+    truVolley: truVolleyNum,
+    rating: seed ? seed.rating : null,
+    rd: seed ? seed.rd : null,
+    manualRating: null,
+    tierRequest: tierChoice,
+    photo: null, status: 'prospect', team: null, sessionId: null,
+    accountId: accountKey, createdAt: now
   };
   const profileRecord = {
     accountId: accountKey, yearAtFsu: yearRaw || null,
@@ -610,7 +634,7 @@ function buildClubWrites(accountKey){
   const updates = {};
   updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
   updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
-  updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
+  updates[CLUB_ROOT + '/prospects/' + clubId] = prospectRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
   return updates;
 }
@@ -627,11 +651,9 @@ async function writeClub(accountKey){
   }
 }
 
-function showConfirm(existing){
-  const lead = $('confirm-lead');
-  if(lead) lead.textContent = existing
-    ? 'Your FSU Grass Club membership has been added to your CourtSense account.'
-    : 'Your CourtSense account is created and your FSU Grass Club membership is saved.';
+// Every path (new, existing claimed, unclaimed) lands the same prospect outcome,
+// so the confirmation is identical. Copy lives statically in the confirm card.
+function showConfirm(){
   $('signup-card').style.display = 'none';
   $('confirm-card').style.display = 'block';
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -702,7 +724,7 @@ async function doJoin(){
         }
         return;
       }
-      if(await writeClub(res.playerKey)) showConfirm(false);
+      if(await writeClub(res.playerKey)) showConfirm();
       return;
     }
 
@@ -728,7 +750,7 @@ async function doJoin(){
         return;
       }
       if(!reg || reg.ok !== true){ if($('form-err')) $('form-err').textContent = (reg && reg.error) || 'Could not set your password. Try again.'; return; }
-      if(await writeClub(acctPlayerId)) showConfirm(true);
+      if(await writeClub(acctPlayerId)) showConfirm();
       return;
     }
 
@@ -757,7 +779,7 @@ async function doJoin(){
       const accountKey = acct.id || acctPlayerId;
       // Do not duplicate an existing membership.
       if(acct.memberships && acct.memberships.fsu_grass){ alreadyMember(); return; }
-      if(await writeClub(accountKey)) showConfirm(true);
+      if(await writeClub(accountKey)) showConfirm();
       return;
     }
 
