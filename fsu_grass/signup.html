@@ -274,11 +274,12 @@
               <label for="email">Email</label>
               <input type="email" id="email" placeholder="you@fsu.edu" autocomplete="email">
               <span class="fld-err" id="err-email"></span>
+              <span class="hint" id="email-status"></span>
             </div>
             <div class="field full">
-              <label for="pw">Create a password</label>
+              <label for="pw" id="pw-label">Create a password</label>
               <input type="password" id="pw" placeholder="At least 8 characters" autocomplete="new-password">
-              <span class="hint">This is your CourtSense login. It travels with you across the club, leagues, and pickup.</span>
+              <span class="hint" id="pw-hint">This is your CourtSense login. It travels with you across the club, leagues, and pickup.</span>
               <span class="fld-err" id="err-pw"></span>
             </div>
           </div>
@@ -417,9 +418,9 @@
       <div class="confirm-body">
         <div class="cico">&#127793;</div>
         <h2>You're in. Welcome to the club.</h2>
-        <p>Your CourtSense account is created and your FSU Grass Club membership is saved.</p>
+        <p id="confirm-lead">Your CourtSense account is created and your FSU Grass Club membership is saved.</p>
         <p>An exec will place you on a squad after tryouts. Watch your email for practice details.</p>
-        <p class="muted">Your login works across CourtSense, leagues, and pickup with the email and password you just set.</p>
+        <p class="muted">Your login works across CourtSense, leagues, and pickup.</p>
       </div>
     </div>
   </div>
@@ -428,9 +429,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/auth.js"></script>
 <script>
-// FSU Grass Club signup. Creates one CourtSense account (community roster) via
-// CourtSenseAuth.createPlayer, then attaches an fsu_grass membership plus a club
-// roster record and a club profile record in a single atomic multi-path write.
+// FSU Grass Club signup. Branches on whether the entered email already has a
+// CourtSense account (resolved via /auth/lookup):
+//   new       -> create the account with CourtSenseAuth.createPlayer
+//   claimed   -> verify the member's existing password with /auth/verify
+//   unclaimed -> let the member set a password with /auth/register (claim)
+// Then attaches an fsu_grass membership plus a club roster record and a club
+// profile record in one atomic multi-path write. Existing accounts are never
+// duplicated and gain only the membership and phone; no other field changes.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -445,10 +451,29 @@ const CLUB_ROOT     = 'grass_club_matches';        // club roster lives here (ap
 const CLUB_PROFILES = 'grass_club_profiles';       // club profile detail node
 const SMS_CONSENT_VERSION = 'fsu-grass-sms-v1';    // stored alongside the consent timestamp
 
+const AUTH_WORKER  = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const CLUB_APP_URL = '/fsu_grass/';                // where an existing club member logs in
+
 let db = null;
 let submitting = false;
 const $ = id => document.getElementById(id);
 const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
+
+// Account state for the entered email, resolved via /auth/lookup:
+//   'new'       no CourtSense account yet -> create one
+//   'claimed'   account exists with a password -> verify their existing password
+//   'unclaimed' account exists but no password set -> they set one now (claim)
+//   'unknown'   not looked up yet, or the lookup failed
+//   'checking'  a lookup is in flight
+let acctState = 'unknown';
+let acctPlayerId = null;    // playerId from lookup (existing accounts)
+let acctDisplayName = '';   // displayName from lookup
+let lookedUpEmail = '';     // the email acctState was resolved for
+
+function emailValid(e){ return /^\S+@\S+\.\S+$/.test(e); }
+// A brand-new or being-claimed account sets a fresh password (min 8). An existing
+// claimed account uses whatever password it already has, so we only require non-empty.
+function pwIsNew(){ return acctState !== 'claimed'; }
 
 // Map the year-at-FSU choice onto app.js classYear codes; unknown maps to ''.
 function classYearCode(y){
@@ -476,163 +501,268 @@ function clearErrors(){
   const fe = $('form-err'); if(fe){ fe.textContent = ''; }
 }
 
-function validate(){
+// Keep the password label, hint, and email-status line honest for the current
+// account state, so the password field is never ambiguous.
+function updatePwUi(){
+  const lbl = $('pw-label'), hint = $('pw-hint'), status = $('email-status'), pw = $('pw');
+  if(acctState === 'claimed'){
+    if(lbl) lbl.textContent = 'Your CourtSense password';
+    if(pw){ pw.setAttribute('autocomplete','current-password'); pw.placeholder = 'Your existing password'; }
+    if(hint) hint.textContent = 'We found your CourtSense account' + (acctDisplayName ? ' for ' + acctDisplayName : '') + '. Enter your existing password to add the club membership to it.';
+  } else if(acctState === 'unclaimed'){
+    if(lbl) lbl.textContent = 'Create a password';
+    if(pw){ pw.setAttribute('autocomplete','new-password'); pw.placeholder = 'At least 8 characters'; }
+    if(hint) hint.textContent = 'We found your CourtSense account, but it does not have a password yet. Set one now to finish and add the club membership.';
+  } else {
+    if(lbl) lbl.textContent = 'Create a password';
+    if(pw){ pw.setAttribute('autocomplete','new-password'); pw.placeholder = 'At least 8 characters'; }
+    if(hint) hint.textContent = 'This is your CourtSense login. It travels with you across the club, leagues, and pickup.';
+  }
+  if(status){
+    if(acctState === 'checking') status.textContent = 'Checking for an existing account...';
+    else if(acctState === 'claimed') status.textContent = 'Existing CourtSense account found.';
+    else if(acctState === 'unclaimed') status.textContent = 'Existing CourtSense account found (no password set yet).';
+    else status.textContent = '';
+  }
+}
+
+// Resolve account state via /auth/lookup. Returns true on a clean resolution,
+// false on network/server error (acctState left 'unknown' for the caller).
+async function lookupAccount(email){
+  acctState = 'checking'; updatePwUi();
+  let j = null;
+  try {
+    const r = await fetch(AUTH_WORKER + '/auth/lookup', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ rosterPath: ROSTER_PATH, email: email.toLowerCase() })
+    });
+    j = await r.json();
+  } catch(e){ console.error('lookup failed', e); acctState = 'unknown'; updatePwUi(); return false; }
+  if(!j || j.ok !== true){ acctState = 'unknown'; updatePwUi(); return false; }
+  lookedUpEmail = email;
+  if(!j.found){ acctState = 'new'; acctPlayerId = null; acctDisplayName = ''; }
+  else if(j.claimed){ acctState = 'claimed'; acctPlayerId = j.playerId; acctDisplayName = j.displayName || ''; }
+  else { acctState = 'unclaimed'; acctPlayerId = j.playerId; acctDisplayName = j.displayName || ''; }
+  updatePwUi();
+  return true;
+}
+
+// Email blur: pre-resolve the account state so the password label is right
+// before the member types a password. Best-effort; submit re-checks.
+async function onEmailBlur(){
+  const email = val('email');
+  if(!email || !emailValid(email)){ acctState = 'unknown'; lookedUpEmail = ''; updatePwUi(); return; }
+  if(email === lookedUpEmail) return;
+  await lookupAccount(email);
+}
+
+// Basics apply on every path (email format plus a name for the club roster).
+// The password is validated per branch after the account state is known.
+function validateBasics(){
   clearErrors();
   let ok = true;
-  const email = val('email'), pw = $('pw').value, first = val('first'), last = val('last');
+  const email = val('email'), first = val('first'), last = val('last');
   if(!email){ setFieldErr('email','Email is required.'); ok = false; }
-  else if(!/^\S+@\S+\.\S+$/.test(email)){ setFieldErr('email',"That email doesn't look right."); ok = false; }
-  if(!pw || pw.length < 8){ setFieldErr('pw','Password must be at least 8 characters.'); ok = false; }
+  else if(!emailValid(email)){ setFieldErr('email',"That email doesn't look right."); ok = false; }
   if(!first){ setFieldErr('first','First name is required.'); ok = false; }
   if(!last){ setFieldErr('last','Last name is required.'); ok = false; }
   return ok;
 }
 
+// Build the shared write payload. accountKey is the CourtSense account key (new:
+// the createPlayer key; existing: the looked-up playerId). Only the membership and
+// phone touch the account record; club roster and profile are separate nodes.
+function buildClubWrites(accountKey){
+  const clubId = genPlayerId();
+  const now = Date.now();
+  const first = val('first'), last = val('last');
+  const cell = val('cell'), shirt = val('shirt');
+  const duesAgreed = $('dues').checked, waiverAgreed = $('waiver').checked, smsConsent = $('sms').checked;
+  const tierChoice = (document.querySelector('input[name="tier"]:checked') || {}).value || null;
+  const yearRaw = val('year');
+  const truvolleyRaw = val('truvolley');
+  const tvNum = parseFloat(truvolleyRaw);
+  const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null);
+
+  const membership = {
+    org: 'fsu_grass', orgName: 'FSU Grass Club', role: 'member', tier: null,
+    tierRequest: tierChoice, tierRequestedAt: tierChoice ? now : null,
+    shirtSize: shirt || null,
+    duesAgreed: duesAgreed, duesAgreedAt: duesAgreed ? now : null,
+    waiverAgreed: waiverAgreed, waiverAgreedAt: waiverAgreed ? now : null,
+    smsConsent: smsConsent, smsConsentAt: smsConsent ? now : null,
+    smsConsentVersion: smsConsent ? SMS_CONSENT_VERSION : null,
+    joinedAt: now
+  };
+  const rosterRecord = {
+    id: clubId, firstName: first, lastName: last,
+    classYear: classYearCode(yearRaw), court: null, jersey: null,
+    accountId: accountKey, active: true
+  };
+  const profileRecord = {
+    accountId: accountKey, yearAtFsu: yearRaw || null,
+    major: val('major') || null, truvolley: truvolley,
+    volleyballLife: val('vlprofile') || null, instagram: val('instagram') || null,
+    tiktok: val('tiktok') || null, emergencyContactName: val('ecname') || null,
+    emergencyContactPhone: val('ecphone') || null, createdAt: now
+  };
+
+  const updates = {};
+  updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
+  updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
+  updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
+  updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
+  return updates;
+}
+
+// One atomic multi-path write so the club side is all-or-nothing.
+async function writeClub(accountKey){
+  try {
+    await db.ref().update(buildClubWrites(accountKey));
+    return true;
+  } catch(err){
+    console.error('club membership/roster write failed', err);
+    if($('form-err')) $('form-err').textContent = 'We could not finish your FSU Grass club join. Please try again in a moment, or contact the exec team.';
+    return false;
+  }
+}
+
+function showConfirm(existing){
+  const lead = $('confirm-lead');
+  if(lead) lead.textContent = existing
+    ? 'Your FSU Grass Club membership has been added to your CourtSense account.'
+    : 'Your CourtSense account is created and your FSU Grass Club membership is saved.';
+  $('signup-card').style.display = 'none';
+  $('confirm-card').style.display = 'block';
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function alreadyMember(){
+  if($('form-err')) $('form-err').innerHTML = 'Good news, you are already an FSU Grass Club member. Head to the <a href="' + CLUB_APP_URL + '">club app</a> to log in.';
+}
+
 async function doJoin(){
   if(submitting) return;
-  if(!validate()){
+  if(!validateBasics()){
     const firstErr = document.querySelector('.fld-err[style*="block"]');
     if(firstErr) firstErr.scrollIntoView({ block:'center', behavior:'smooth' });
     return;
   }
   const btn = $('join-btn');
   submitting = true; btn.disabled = true;
-  const label = btn.textContent; btn.textContent = 'Creating your account...';
+  const label = btn.textContent; btn.textContent = 'Checking your account...';
   if($('form-err')) $('form-err').textContent = '';
 
   const email = val('email');
   const pw = $('pw').value;
   const first = val('first');
   const last = val('last');
-  const displayName = (first + ' ' + last).trim();
 
   try {
-    // Step 2: create the CourtSense account. createPlayer owns its own email
-    // dedup, server-side register, and undo-on-register-failure.
-    let res;
-    try {
-      res = await CourtSenseAuth.createPlayer({
-        email: email,
-        password: pw,
-        displayName: displayName,
-        city: 'Not set',        // placeholder: createPlayer requires a non-empty city
-        skillLevel: 'Recreational' // placeholder: must be in createPlayer's enum
-      });
-    } catch(err){
-      console.error('createPlayer threw', err);
-      if($('form-err')) $('form-err').textContent = 'Unexpected error creating your account. Try again.';
-      return;
+    // Authoritative account-state resolution at submit time. Covers an email
+    // changed after the blur lookup, or no blur ever firing.
+    if(email !== lookedUpEmail || acctState === 'unknown' || acctState === 'checking'){
+      const okLookup = await lookupAccount(email);
+      if(!okLookup){ if($('form-err')) $('form-err').textContent = 'We could not reach the server to check your account. Try again.'; return; }
     }
 
-    if(!res || !res.ok){
-      if(res && res.code === 'EMAIL_EXISTS'){
-        setFieldErr('email', 'This email already has an account.');
-        if($('form-err')) $('form-err').innerHTML = 'It looks like you already have an account. Head to the <a href="/join/">join page</a> to claim it or log in.';
-        $('email').scrollIntoView({ block:'center', behavior:'smooth' });
-      } else if(res && res.code === 'REGISTER_FAILED'){
-        if($('form-err')) $('form-err').textContent = res.error || 'Could not finish creating your account. Please try again.';
-      } else {
-        const msg = (res && res.error) || 'Could not create your account. Try again.';
-        // createPlayer keys accounts on snake_case(displayName), so a second real
-        // person with the same name collides on the key. Explain the situation and
-        // give them a path instead of asking them to change their real name.
-        if(/already taken/i.test(msg)){
+    // Password rules per branch: a fresh password needs 8+, an existing one only
+    // needs to be non-empty (it may predate the length rule).
+    if(pwIsNew()){
+      if(!pw || pw.length < 8){ setFieldErr('pw','Password must be at least 8 characters.'); $('pw').focus(); return; }
+    } else {
+      if(!pw){ setFieldErr('pw','Enter your existing CourtSense password.'); $('pw').focus(); return; }
+    }
+    setFieldErr('pw','');
+
+    // ---- NEW ACCOUNT: create, then attach the club membership ----
+    if(acctState === 'new'){
+      btn.textContent = 'Creating your account...';
+      const displayName = (first + ' ' + last).trim();
+      let res;
+      try {
+        res = await CourtSenseAuth.createPlayer({ email: email, password: pw, displayName: displayName, city: 'Not set', skillLevel: 'Recreational' });
+      } catch(err){
+        console.error('createPlayer threw', err);
+        if($('form-err')) $('form-err').textContent = 'Unexpected error creating your account. Try again.';
+        return;
+      }
+      if(!res || !res.ok){
+        if(res && res.code === 'EMAIL_EXISTS'){
+          // Claimed between our lookup and now: re-resolve so the next submit
+          // takes the existing-account branch.
+          lookedUpEmail = ''; await lookupAccount(email);
+          if($('form-err')) $('form-err').textContent = 'It looks like you already have an account. Enter your existing password and submit again.';
+        } else if(/already taken/i.test((res && res.error) || '')){
           if($('form-err')) $('form-err').textContent = 'It looks like someone with that name already has a CourtSense account. Please contact the FSU Grass exec team so we can get you set up without creating a duplicate.';
         } else {
+          const msg = (res && res.error) || 'Could not create your account. Try again.';
           if($('form-err')) $('form-err').textContent = msg;
-          if(/email/i.test(msg)) setFieldErr('email', msg);
-          else if(/password/i.test(msg)) setFieldErr('pw', msg);
+          if(/password/i.test(msg)) setFieldErr('pw', msg);
         }
+        return;
       }
+      if(await writeClub(res.playerKey)) showConfirm(false);
       return;
     }
 
-    // Account created. Assemble the club side.
-    const accountKey = res.playerKey;  // CourtSense account key (snake_case of displayName)
-    const clubId = genPlayerId();       // separate club roster id, app.js gi('p') style
-    const now = Date.now();
-
-    const cell = val('cell');
-    const shirt = val('shirt');
-    const duesAgreed = $('dues').checked;
-    const waiverAgreed = $('waiver').checked;
-    const smsConsent = $('sms').checked;
-    // The member's requested squad. This is a request only; membership.tier stays
-    // null and remains the exec-assigned placement made after tryouts.
-    const tierChoice = (document.querySelector('input[name="tier"]:checked') || {}).value || null;
-    const yearRaw = val('year');
-    const truvolleyRaw = val('truvolley');
-    const tvNum = parseFloat(truvolleyRaw);
-    const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null);
-
-    // Step 3: fsu_grass membership + phone on the CourtSense account record.
-    const membership = {
-      org: 'fsu_grass',
-      orgName: 'FSU Grass Club',
-      role: 'member',
-      tier: null,
-      tierRequest: tierChoice,
-      tierRequestedAt: tierChoice ? now : null,
-      shirtSize: shirt || null,
-      duesAgreed: duesAgreed,
-      duesAgreedAt: duesAgreed ? now : null,
-      waiverAgreed: waiverAgreed,
-      waiverAgreedAt: waiverAgreed ? now : null,
-      smsConsent: smsConsent,
-      smsConsentAt: smsConsent ? now : null,
-      smsConsentVersion: smsConsent ? SMS_CONSENT_VERSION : null,
-      joinedAt: now
-    };
-
-    // Step 4: club roster record. Six-field contract (id, firstName, lastName,
-    // classYear, court, jersey) plus accountId and active. Tier left unset;
-    // court and jersey null until an exec places the player.
-    const rosterRecord = {
-      id: clubId,
-      firstName: first,
-      lastName: last,
-      classYear: classYearCode(yearRaw),
-      court: null,
-      jersey: null,
-      accountId: accountKey,
-      active: true
-    };
-
-    // Step 5: club profile record with the optional detail fields.
-    const profileRecord = {
-      accountId: accountKey,
-      yearAtFsu: yearRaw || null,
-      major: val('major') || null,
-      truvolley: truvolley,
-      volleyballLife: val('vlprofile') || null,
-      instagram: val('instagram') || null,
-      tiktok: val('tiktok') || null,
-      emergencyContactName: val('ecname') || null,
-      emergencyContactPhone: val('ecphone') || null,
-      createdAt: now
-    };
-
-    // One atomic multi-path write so the club side is all-or-nothing. The
-    // account already exists from createPlayer; if this fails we surface it and
-    // no partial club record is left behind.
-    const updates = {};
-    updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
-    updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
-    updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
-    updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
-
-    try {
-      await db.ref().update(updates);
-    } catch(err){
-      console.error('club membership/roster write failed', err);
-      if($('form-err')) $('form-err').textContent = 'Your CourtSense account was created, but we could not finish your FSU Grass club join. Please try again in a moment, or contact the exec team.';
+    // ---- EXISTING, UNCLAIMED: set a password (claim), then attach membership ----
+    if(acctState === 'unclaimed'){
+      btn.textContent = 'Setting your password...';
+      let reg, status;
+      try {
+        const r = await fetch(AUTH_WORKER + '/auth/register', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ rosterPath: ROSTER_PATH, playerId: acctPlayerId, password: pw })
+        });
+        status = r.status; reg = await r.json();
+      } catch(err){
+        console.error('register failed', err);
+        if($('form-err')) $('form-err').textContent = 'Network error. Try again.';
+        return;
+      }
+      if(status === 409 || (reg && reg.code === 'conflict')){
+        // Claimed in the meantime: switch this session to the verify branch.
+        acctState = 'claimed'; updatePwUi();
+        if($('form-err')) $('form-err').textContent = 'This account already has a password. Enter your existing password and submit again.';
+        return;
+      }
+      if(!reg || reg.ok !== true){ if($('form-err')) $('form-err').textContent = (reg && reg.error) || 'Could not set your password. Try again.'; return; }
+      if(await writeClub(acctPlayerId)) showConfirm(true);
       return;
     }
 
-    // Step 6: confirmation.
-    $('signup-card').style.display = 'none';
-    $('confirm-card').style.display = 'block';
-    window.scrollTo({ top:0, behavior:'smooth' });
+    // ---- EXISTING, CLAIMED: verify the existing password, then attach membership ----
+    if(acctState === 'claimed'){
+      btn.textContent = 'Signing you in...';
+      let ver;
+      try {
+        const r = await fetch(AUTH_WORKER + '/auth/verify', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ rosterPath: ROSTER_PATH, email: email.toLowerCase(), password: pw })
+        });
+        ver = await r.json();
+      } catch(err){
+        console.error('verify failed', err);
+        if($('form-err')) $('form-err').textContent = 'Network error. Try again.';
+        return;
+      }
+      if(!ver || ver.ok !== true){
+        setFieldErr('pw', 'Incorrect password.');
+        if($('form-err')) $('form-err').textContent = (ver && ver.error) || 'Incorrect email or password.';
+        $('pw').focus();
+        return;
+      }
+      const acct = ver.player || {};
+      const accountKey = acct.id || acctPlayerId;
+      // Do not duplicate an existing membership.
+      if(acct.memberships && acct.memberships.fsu_grass){ alreadyMember(); return; }
+      if(await writeClub(accountKey)) showConfirm(true);
+      return;
+    }
+
+    // Should not be reachable once the lookup above resolves.
+    if($('form-err')) $('form-err').textContent = 'We could not determine your account status. Try again.';
   } finally {
     submitting = false;
     if($('join-btn')){ $('join-btn').disabled = false; $('join-btn').textContent = label; }
@@ -651,6 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
     onLogin: function(){ /* club signup manages its own flow */ }
   });
   const b = $('join-btn'); if(b) b.addEventListener('click', doJoin);
+  const em = $('email'); if(em) em.addEventListener('blur', onEmailBlur);
 });
 </script>
 </body>
