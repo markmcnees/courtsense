@@ -449,6 +449,7 @@ const FB_CFG = {
 const ROSTER_PATH   = 'tally_kotb_pickup/players'; // CourtSense community account node
 const CLUB_ROOT     = 'grass_club_matches';        // club roster lives here (app.js DB_ROOT)
 const CLUB_PROFILES = 'grass_club_profiles';       // club profile detail node
+const CLUB_PASSWORDS = 'grass_club_passwords';     // emailPrefs live here; the worker reads {id}/emailPrefs.email
 const SMS_CONSENT_VERSION = 'fsu-grass-sms-v1';    // stored alongside the consent timestamp
 
 const AUTH_WORKER  = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
@@ -634,11 +635,29 @@ function buildClubWrites(accountKey){
     emergencyContactPhone: val('ecphone') || null, createdAt: now
   };
 
+  // emailPrefs so the worker can resolve this member to an email with no worker change.
+  // Written as the emailPrefs CHILD of grass_club_passwords/{clubId}, never the password
+  // leaf, in the same shape saveEmailPrefs uses. Notifications default on. updatedAt is a
+  // YYYY-MM-DD string to match saveEmailPrefs (td()). Safe here because FSU Grass uses email
+  // login, so nothing in its login path reads grass_club_passwords as a password.
+  const email = val('email').toLowerCase();
+  const d = new Date(now);
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const emailPrefs = {
+    email: email || null,
+    notifAssign: true,
+    notifPlan: true,
+    notifCnote: true,
+    notifScore: true,
+    updatedAt: today
+  };
+
   const updates = {};
   updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
   updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
   updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
+  updates[CLUB_PASSWORDS + '/' + clubId + '/emailPrefs'] = emailPrefs;
   return updates;
 }
 
