@@ -230,6 +230,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
       </div>
     </div>
+    <!-- Tournament partner finder: its own card, deliberately separate from the
+         game creator. A post is not a game CourtSense runs; it is a player
+         looking for a partner for an outside tournament. -->
+    <div class="card" style="padding:14px;">
+      <div class="ctitle"><span class="bar"></span>Tournament partner finder</div>
+      <div>
+        <button class="btn btn-g btn-w" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a tournament you want to play and find a partner.</div>
+      </div>
+    </div>
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Community</div>
       <div style="margin-bottom:10px;">
@@ -242,6 +252,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
     <div id="invite-list"></div>
+    <div id="partner-list"></div>
     <div id="event-list"></div>
   </div>
 
@@ -421,6 +432,60 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
 
     <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
+  </div>
+
+  <!-- PARTNER POST SETUP VIEW: a tournament partner post, not a game. No courts,
+       no scoring, no play window; CourtSense does not run the tournament. -->
+  <div class="pane" id="view-partner-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Find a Tournament Partner</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">Post a tournament you want to play in. Players respond, you pick your partner. CourtSense does not run the tournament.</div>
+      <div class="fg">
+        <label class="lbl">Tournament Name</label>
+        <input class="inp" id="pp-name" placeholder="e.g. Gulf Coast Open">
+      </div>
+      <div class="fg">
+        <label class="lbl">Tournament Date</label>
+        <input class="inp" id="pp-date" type="date">
+      </div>
+      <div class="fg">
+        <label class="lbl">Registration or Info Link (optional)</label>
+        <input class="inp" id="pp-url" type="url" placeholder="https://...">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Surface</label>
+          <select class="inp" id="pp-surface" onchange="ppRebuildLocations()">
+            <option value="sand">Sand</option>
+            <option value="grass">Grass</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Division</label>
+          <select class="inp" id="pp-division">
+            <option value="mens">Men's</option>
+            <option value="womens">Women's</option>
+            <option value="coed">Coed</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Location</label>
+        <select class="inp" id="pp-loc" onchange="ppOnLocPreset()"></select>
+        <input class="inp" id="pp-loc-other" placeholder="Enter location" style="display:none;margin-top:8px;">
+      </div>
+      <div class="fg">
+        <label class="lbl">Note (optional)</label>
+        <textarea class="inp" id="pp-note" rows="3" placeholder="Level you're looking for, format, anything else"></textarea>
+      </div>
+      <div class="fg">
+        <label class="lbl">Who can see this post?</label>
+        <select class="inp" id="pp-vis"></select>
+        <div id="pp-vis-hint" style="font-size:11px;color:var(--gray);margin-top:4px;"></div>
+      </div>
+    </div>
+    <button class="btn btn-p btn-w" id="pp-save-btn" onclick="savePartnerPost()">Post It</button>
   </div>
 
   <!-- INVITE DETAIL VIEW -->
@@ -684,6 +749,16 @@ const PARK_COURTS = {
   "Downtown Sand Volleyball Courts": 2,
   "FSU Lakefront Park & Retreat Center (The Rez)": 2
 };
+// Partner-finder location presets. Sand mirrors the pickup location dropdown
+// (iv-loc); grass is its own short list. Both end in an "Other" free-text
+// option, matching how pickup locations already work (preset in the UI, plain
+// string in the record).
+const PARTNER_SAND_LOCATIONS = [
+  "Tom Brown Park", "Four Oaks Park", "North Side Community Center",
+  "Optimist Park", "Southwood", "Downtown Sand Volleyball Courts",
+  "FSU Lakefront Park & Retreat Center (The Rez)"
+];
+const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
 // Per-city display name for the header and tab title. Display only, not a data
 // path. A future city instance changes only this line.
 const APP_NAME = 'Tallahassee Pickup';
@@ -859,6 +934,7 @@ function showView(v){
   $('view-setup').classList.toggle('on', v==='setup');
   $('view-event').classList.toggle('on', v==='event');
   $('view-invite-setup').classList.toggle('on',  v==='invite-setup');
+  $('view-partner-setup').classList.toggle('on', v==='partner-setup');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
@@ -867,7 +943,7 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
-  if(view==='invite-setup' || view==='invite-detail'){ backToList(); return; }
+  if(view==='invite-setup' || view==='partner-setup' || view==='invite-detail'){ backToList(); return; }
 }
 function openProfile(){
   if(!window.Identity){ toast('Profile module not loaded yet, refresh the page'); return; }
@@ -2366,6 +2442,21 @@ function computeEligible(e){
     names = (g.members||[])
       .map(n => { const k = Identity.nameKey(n); return allByKey[k] || null; })
       .filter(Boolean);
+  } else if(e.baseMode === 'club'){
+    // Club circle (tournament partner posts): players whose ACCOUNT record
+    // carries memberships/{orgId}. Reads the same public profiles cache
+    // allKnownPlayerNames already uses; no extra Firebase read. Before the
+    // cache first loads this resolves empty; renderPartnerList kicks the load
+    // and re-renders when it lands.
+    const cache = window._profilesCache || {};
+    const memberKeys = new Set();
+    Object.values(cache).forEach(p => {
+      if(p && !p.blocked && p.memberships && e.orgId && p.memberships[e.orgId]){
+        const nm = nameStr(p);
+        if(nm) memberKeys.add(Identity.nameKey(nm));
+      }
+    });
+    names = Object.entries(allByKey).filter(([k]) => memberKeys.has(k)).map(([,n]) => n);
   } else if(e.baseMode === 'inviteOnly'){
     // Phase B: empty base so the additive includeList below becomes the whole circle.
     names = [];
@@ -2530,9 +2621,14 @@ async function ensureProfilesLoaded(){
 
 // LIST: Upcoming Pickups
 function renderInviteList(){
+  // Partner posts live on the same invites node but render in their own list
+  // section (own container), so paint it on every invites refresh too.
+  renderPartnerList();
   const cont = $('invite-list'); if(!cont) return;
   const now = Date.now();
-  const all = Object.values(D.invites||{}).filter(i => i && i.id && i.status !== 'cancelled');
+  // postType 'partner' records are tournament partner posts, not games; they are
+  // excluded here and handled entirely by renderPartnerList above.
+  const all = Object.values(D.invites||{}).filter(i => i && i.id && i.status !== 'cancelled' && i.postType !== 'partner');
   // Mark past events as past
   const upcoming = all.filter(i => {
     const start = i.date && i.startTime ? new Date(i.date+'T'+i.startTime+':00').getTime() : 0;
@@ -2599,6 +2695,484 @@ function renderInviteList(){
   cont.innerHTML = h;
 }
 
+
+// TOURNAMENT PARTNER FINDER
+// A partner post is a TYPE on the existing invite records (postType 'partner'
+// at tally_kotb_pickup/invites/{id}), so hosting checks, eligibility circles,
+// responses (guestRequests), acceptance (approveGuestRequest), chat, and the
+// request-notify email all reuse the pickup machinery. What a post does not
+// have: courts, scoring, or a play window; CourtSense does not run the
+// tournament. slots is fixed at 1 (one partner sought), so the existing
+// confirmed-slot math means "partner found" when the poster accepts someone.
+
+let partnerSurfaceFilter = 'all', partnerDivisionFilter = 'all';
+
+// The viewer's own gender from their logged-in account record (profile.gender,
+// 'M' | 'F' | 'unspecified'). Used ONLY to hide divisions the viewer cannot
+// enter: men's posts hide from 'F', women's posts hide from 'M', coed shows to
+// everyone. Unknown or unspecified gender sees every division, since
+// ineligibility cannot be determined. Never written, never shown.
+function viewerGender(){
+  const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const g = p && p.profile && p.profile.gender;
+  return (g === 'M' || g === 'F') ? g : null;
+}
+function divisionAllowsViewer(div){
+  const g = viewerGender();
+  if(div === 'mens') return g !== 'F';
+  if(div === 'womens') return g !== 'M';
+  return true;
+}
+function divisionLabel(div){
+  return div === 'mens' ? "Men's" : div === 'womens' ? "Women's" : 'Coed';
+}
+
+// The poster's club, read straight off the logged-in account record's
+// memberships object (written by club signup). First membership wins; today
+// that is only fsu_grass. Returns { orgId, orgName } or null.
+function viewerClubOrg(){
+  const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const m = p && p.memberships;
+  if(!m || typeof m !== 'object') return null;
+  const orgId = Object.keys(m)[0];
+  if(!orgId) return null;
+  return { orgId: orgId, orgName: (m[orgId] && m[orgId].orgName) || orgId };
+}
+
+// Club badge for a player row in the partner finder. Reads the memberships
+// object from the public account profiles cache, matched by accountId first,
+// then by display-name key. Returns '' when no cache entry or no club.
+function clubBadge(accountId, name){
+  const cache = window._profilesCache || {};
+  let p = (accountId && cache[accountId]) || null;
+  if(!p && name){
+    const k = Identity.nameKey(name);
+    for(const id in cache){
+      const c = cache[id];
+      if(c && Identity.nameKey(nameStr(c) || '') === k){ p = c; break; }
+    }
+  }
+  const m = p && p.memberships;
+  if(!m || typeof m !== 'object') return '';
+  const orgId = Object.keys(m)[0];
+  if(!orgId) return '';
+  const label = ((m[orgId] && m[orgId].orgName) || orgId).replace(/\s*club\s*$/i, '').toUpperCase();
+  return ' <span style="background:#782F40;color:#fff;font-family:\'Bebas Neue\';font-size:9px;letter-spacing:1px;padding:2px 6px;border-radius:4px;vertical-align:middle;">' + escapeHTML(label) + '</span>';
+}
+
+function partnerVisLabel(e){
+  if(e && e.baseMode === 'club') return e.orgId === 'fsu_grass' ? 'FSU Grass Club' : (e.orgId || 'Club');
+  return 'Everyone';
+}
+
+// Render-safe event URL: only http(s) links come back, anything else is ''.
+function safeEventUrl(u){
+  return (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) ? u.trim() : '';
+}
+
+function setPartnerFilter(kind, v){
+  if(kind === 'surface') partnerSurfaceFilter = v;
+  else if(kind === 'division') partnerDivisionFilter = v;
+  renderPartnerList();
+}
+
+// LIST: open partner posts the viewer can act on. Visibility is the same
+// predicate the games list uses (host OR non-declined RSVP OR the eligibility
+// circle, via isChatEligible; club posts resolve through the new 'club'
+// baseMode) AND the division gate from the viewer's own gender. The poster
+// always sees their own post regardless of division.
+function renderPartnerList(){
+  const cont = $('partner-list'); if(!cont) return;
+  const myKey = gameplayKey();
+  const posts = Object.values(D.invites||{}).filter(p =>
+    p && p.id && p.postType === 'partner' && p.status !== 'cancelled' && (!p.date || p.date >= td()));
+  if(!myKey){
+    // Logged-out: the games section above already shows the login CTA once.
+    cont.innerHTML = posts.length
+      ? '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournament partners</div><div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in to see partner posts.</div>'
+      : '';
+    return;
+  }
+  // Club-scoped posts and badges need the account profiles cache; kick one load
+  // and repaint when it lands (ensureProfilesLoaded has its own 30s TTL).
+  if(!window._profilesCacheTs && posts.length){
+    ensureProfilesLoaded().then(()=>{ if(view==='list') renderPartnerList(); }).catch(()=>{});
+  }
+  const visible = posts
+    .filter(p => isChatEligible(p, myKey) && (isLoggedInHost(p) || divisionAllowsViewer(p.division)))
+    .sort((a,b) => String(a.date).localeCompare(String(b.date)));
+
+  let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournament partners (' + visible.length + ')</div>';
+  if(!visible.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No open partner posts right now. Playing a tournament soon? Post one above.</div>';
+    cont.innerHTML = h;
+    return;
+  }
+  const pill = (kind, v, lbl, cur) =>
+    '<button onclick="setPartnerFilter(\'' + kind + '\',\'' + v + '\')" style="flex:1;padding:6px 4px;border-radius:8px;border:1px solid var(--sand-border);background:' + (cur===v?'var(--primary)':'#fff') + ';color:' + (cur===v?'#fff':'var(--gray)') + ';font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;cursor:pointer;">' + lbl + '</button>';
+  h += '<div style="display:flex;gap:6px;margin-bottom:6px;">'
+    + pill('surface','all','All surfaces',partnerSurfaceFilter)
+    + pill('surface','sand','Sand',partnerSurfaceFilter)
+    + pill('surface','grass','Grass',partnerSurfaceFilter)
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px;">'
+    + pill('division','all','All divisions',partnerDivisionFilter)
+    + pill('division','mens',"Men's",partnerDivisionFilter)
+    + pill('division','womens',"Women's",partnerDivisionFilter)
+    + pill('division','coed','Coed',partnerDivisionFilter)
+    + '</div>';
+
+  const shown = visible.filter(p =>
+    (partnerSurfaceFilter === 'all' || p.surface === partnerSurfaceFilter) &&
+    (partnerDivisionFilter === 'all' || p.division === partnerDivisionFilter));
+  if(!shown.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No posts match those filters.</div>';
+    cont.innerHTML = h;
+    return;
+  }
+  h += shown.map(p => {
+    const rsvps = p.rsvps || {};
+    const partnered = Object.values(rsvps).some(r => r && r.status === 'confirmed');
+    const myRsvp = rsvps[myKey];
+    const iAmHost = isLoggedInHost(p);
+    const pendingN = Object.values(p.guestRequests||{}).filter(r => r && r.status === 'pending').length;
+    const myPending = !iAmHost && Object.values(p.guestRequests||{}).some(r => r && r.status === 'pending'
+      && ((r.accountId && r.accountId === currentAccountId()) || Identity.nameKey(r.name || '') === myKey));
+    let badge = '';
+    if(myRsvp && myRsvp.status === 'confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE PARTNERED</span>';
+    else if(partnered) badge = '<span style="background:var(--gray-lighter);color:var(--gray);font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">PARTNER FOUND</span>';
+    else if(myPending) badge = '<span style="background:#fef3c7;color:#92400e;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">RESPONSE SENT</span>';
+    else if(iAmHost && pendingN) badge = '<span style="background:#fef3c7;color:#92400e;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">' + pendingN + ' RESPONSE' + (pendingN===1?'':'S') + '</span>';
+    return '<div class="evcard" onclick="openInviteDetail(\'' + escapeHTML(p.id).replace(/'/g,"\\'") + '\')">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+      +   '<div style="flex:1;">'
+      +     '<div class="evname">' + escapeHTML(p.name || 'Tournament') + '</div>'
+      +     '<div class="evmeta">' + fD(p.date) + ' · ' + (p.surface === 'grass' ? 'Grass' : 'Sand') + ' · ' + divisionLabel(p.division) + (p.location ? ' · ' + escapeHTML(p.location) : '') + '</div>'
+      +     '<div class="evmeta" style="margin-top:2px;">Posted by ' + escapeHTML(p.hostName || 'Anonymous') + clubBadge(p.hostId, p.hostName) + ' · ' + partnerVisLabel(p.eligibility) + '</div>'
+      +   '</div>'
+      +   badge
+      + '</div>'
+      + '</div>';
+  }).join('');
+  cont.innerHTML = h;
+}
+
+// SETUP: new partner post form.
+function startNewPartnerPost(){
+  // Same create gate as startNewInvite: a real login only.
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to post'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  $('pp-name').value = ''; $('pp-date').value = ''; $('pp-url').value = ''; $('pp-note').value = '';
+  $('pp-surface').value = 'sand';
+  // Division prefill from the poster's own account gender (M starts on men's,
+  // F on women's, otherwise coed). Prefill only; any division can be picked.
+  const g = viewerGender();
+  $('pp-division').value = g === 'M' ? 'mens' : g === 'F' ? 'womens' : 'coed';
+  ppRebuildLocations();
+  ppRebuildVisibility();
+  showView('partner-setup');
+}
+
+// Surface drives the location presets: sand mirrors the pickup dropdown, grass
+// has its own short list. Both keep the free-text "Other" door.
+function ppRebuildLocations(){
+  const sel = $('pp-loc'); if(!sel) return;
+  const list = $('pp-surface') && $('pp-surface').value === 'grass' ? PARTNER_GRASS_LOCATIONS : PARTNER_SAND_LOCATIONS;
+  sel.innerHTML = list.map(l => '<option value="' + escapeHTML(l) + '">' + escapeHTML(l) + '</option>').join('')
+    + '<option value="__other__">Other</option>';
+  ppOnLocPreset();
+}
+function ppOnLocPreset(){
+  const sel = $('pp-loc'); const other = $('pp-loc-other');
+  if(!sel || !other) return;
+  other.style.display = (sel.value === '__other__') ? '' : 'none';
+}
+
+// Visibility defaults to the poster's club when they belong to one; widening to
+// everyone is always available. Non-members only get everyone.
+function ppRebuildVisibility(){
+  const sel = $('pp-vis'); const hint = $('pp-vis-hint'); if(!sel) return;
+  const club = viewerClubOrg();
+  let h = '';
+  if(club) h += '<option value="club">' + escapeHTML(club.orgName) + ' members</option>';
+  h += '<option value="open">Everyone on CourtSense</option>';
+  sel.innerHTML = h;
+  sel.value = club ? 'club' : 'open';
+  if(hint) hint.textContent = club
+    ? 'Defaults to your club. Widen it to everyone for more reach.'
+    : 'You are not in a club on CourtSense, so this goes to everyone.';
+}
+
+async function savePartnerPost(){
+  // Defense-in-depth create gate, mirroring saveInvite.
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to post'); return; }
+  const name = ($('pp-name').value || '').trim();
+  const date = $('pp-date').value;
+  if(!name){ toast('Name the tournament'); return; }
+  if(!date){ toast('Pick the tournament date'); return; }
+  if(date < td()){ toast('That date has already passed'); return; }
+  let url = ($('pp-url').value || '').trim();
+  if(url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  if(url && !/^https?:\/\/\S+\.\S+/.test(url)){ toast('That link does not look right'); return; }
+  const surface = $('pp-surface').value === 'grass' ? 'grass' : 'sand';
+  const divRaw = $('pp-division').value;
+  const division = (divRaw === 'mens' || divRaw === 'womens' || divRaw === 'coed') ? divRaw : 'coed';
+  const locSel = $('pp-loc') ? $('pp-loc').value : '';
+  const location = (locSel === '__other__' ? (($('pp-loc-other') && $('pp-loc-other').value) || '') : locSel).trim();
+  if(!location){ toast('Pick a location'); return; }
+  const note = ($('pp-note').value || '').trim();
+  const club = viewerClubOrg();
+  const eligibility = ($('pp-vis').value === 'club' && club)
+    ? { baseMode: 'club', orgId: club.orgId, includeList: [], excludeList: [] }
+    : { baseMode: 'open', includeList: [], excludeList: [] };
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const auth = CourtSenseAuth.currentPlayer();
+  const id = gi('inv');
+  const rec = {
+    id: id,
+    postType: 'partner',       // discriminator; absent = pickup game
+    name: name, date: date,
+    startTime: '00:00',        // lets shared date math work; the partner UI never shows a time
+    eventUrl: url || null,
+    surface: surface, division: division, location: location,
+    description: note,
+    slots: 1, minSlots: 1,     // one partner sought; reuses the confirmed-slot math
+    rsvpDeadline: new Date(date + 'T23:59:00').getTime(),  // responses stay open through tournament day
+    eligibility: eligibility,
+    hostName: me ? me.name : (auth.displayName || auth.name || 'Anonymous'),
+    hostId: auth.id || null,
+    status: 'open',
+    createdAt: Date.now(),
+    rsvps: {}
+  };
+  try { await db.ref(DB_ROOT + '/invites/' + id).set(rec); }
+  catch(e){ console.error(e); toast('Could not post. Try again.'); return; }
+  // Optimistic local so the detail view paints before the listener echoes.
+  if(!D.invites) D.invites = {};
+  D.invites[id] = rec;
+  activeInvite = id;
+  toast('Posted ✓');
+  showView('invite-detail');
+}
+
+// DETAIL: partner post view. Called from renderInviteDetail's postType branch,
+// so deep links, the invites listener, and every renderInviteDetail() call all
+// land here for partner posts.
+function renderPartnerDetail(i){
+  const cont = $('iv-detail-body'); if(!cont) return;
+  const myKey = gameplayKey();
+  const isAuthed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
+  const isHost = isLoggedInHost(i);
+  const rsvps = i.rsvps || {};
+  const partnerEntry = Object.entries(rsvps).find(([k,r]) => r && r.status === 'confirmed') || null;
+  const myRsvp = myKey ? rsvps[myKey] : null;
+  const pending = Object.entries(i.guestRequests || {}).filter(([id,r]) => r && r.status === 'pending')
+    .sort((a,b) => (a[1].requestedAt||0) - (b[1].requestedAt||0));
+  const myReq = pending.find(([id,r]) => (r.accountId && r.accountId === currentAccountId())
+    || (myKey && Identity.nameKey(r.name || '') === myKey)) || null;
+  const isPast = i.date && i.date < td();
+  const isCancelled = i.status === 'cancelled';
+  const url = safeEventUrl(i.eventUrl);
+  const dateStr = i.date ? new Date(i.date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric', year:'numeric'}) : '';
+  const chip = t => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + t + '</span>';
+
+  let actionHTML = '';
+  if(isCancelled){
+    actionHTML = '<div style="background:#fee2e2;color:#7f1d1d;border-radius:10px;padding:12px;text-align:center;font-weight:700;">Post cancelled.</div>';
+  } else if(isPast){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This tournament has passed.</div>';
+  } else if(isHost){
+    // Poster panel: current partner (if accepted) plus pending responses with
+    // accept/pass, both riding the existing guest-request machinery.
+    let hh = '';
+    if(partnerEntry){
+      hh += '<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;margin-bottom:10px;font-weight:700;">Your partner: ' + escapeHTML(partnerEntry[1].name) + clubBadge(partnerEntry[1].accountId, partnerEntry[1].name) + '</div>'
+        + '<button class="btn btn-d btn-w" style="margin-bottom:10px;" onclick="removePartner(\'' + escapeHTML(partnerEntry[0]).replace(/'/g,"\\'") + '\')">Remove Partner</button>';
+    }
+    if(pending.length){
+      // Accept only shows while the post is still open: with slots fixed at 1,
+      // a second accept would land someone on an invisible waitlist. Remove the
+      // partner first to accept somebody else.
+      hh += '<div style="font-weight:700;margin-bottom:6px;">Responses (' + pending.length + ')</div>'
+        + (partnerEntry ? '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">You already have a partner. Remove them first to accept someone else.</div>' : '')
+        + pending.map(([reqId, r]) => {
+            const safeId = escapeHTML(reqId).replace(/'/g,"\\'");
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
+              + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(r.name) + clubBadge(r.accountId, r.name) + '</span>'
+              + (partnerEntry ? '' : '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="approveGuestRequest(\'' + safeId + '\')">Accept</button>')
+              + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineGuestRequest(\'' + safeId + '\')">Pass</button>'
+              + '</div>';
+          }).join('');
+    } else if(!partnerEntry){
+      hh += '<div style="font-size:13px;color:var(--gray);">No responses yet. Share the post to get it in front of more players.</div>';
+    }
+    actionHTML = hh;
+  } else if(!isAuthed){
+    actionHTML = '<div style="font-weight:700;margin-bottom:6px;">Want to partner up?</div>'
+      + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to respond to this post.</div>'
+      + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
+  } else if(myRsvp && myRsvp.status === 'confirmed'){
+    actionHTML = '<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You\'re partnered with ' + escapeHTML(i.hostName || 'the poster') + ' for this one.</div>'
+      + '<button class="btn btn-d btn-w" onclick="dropOutInvite()">Back Out</button>';
+  } else if(myRsvp && myRsvp.status === 'waitlist'){
+    // Defensive: only reachable through an accept race; slots stay at 1 and
+    // Accept hides once partnered, so this state should be rare. declineRsvp's
+    // promotion makes them the partner automatically if the spot reopens.
+    actionHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">The poster already has a partner. You\'re their backup and get the spot automatically if it reopens.</div>'
+      + '<button class="btn btn-d btn-w" onclick="dropOutInvite()">Back Out</button>';
+  } else if(myReq){
+    actionHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">Response sent. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
+      + '<button class="btn btn-g btn-w" onclick="withdrawPartnerResponse(\'' + escapeHTML(myReq[0]).replace(/'/g,"\\'") + '\')">Withdraw Response</button>';
+  } else if(partnerEntry){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">Partner found.</div>';
+  } else if(!divisionAllowsViewer(i.division)){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is for the ' + divisionLabel(i.division) + ' division.</div>';
+  } else if(!(myKey && isChatEligible(i, myKey))){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is limited to ' + escapeHTML(partnerVisLabel(i.eligibility)) + ' members.</div>';
+  } else {
+    actionHTML = '<button class="btn btn-p btn-w" onclick="respondToPartnerPost()">I\'ll Partner With You</button>'
+      + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">' + escapeHTML(i.hostName || 'The poster') + ' gets notified and picks their partner.</div>';
+  }
+
+  let h = '<div class="card">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">'
+    +   '<div style="flex:1;">'
+    +     '<div style="font-family:\'Bebas Neue\';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">' + escapeHTML(i.name || 'Tournament') + '</div>'
+    +     '<div style="font-size:13px;color:var(--gray);margin-top:4px;">' + dateStr + '</div>'
+    +     (i.location ? '<div style="font-size:13px;margin-top:4px;">📍 ' + escapeHTML(i.location) + '</div>' : '')
+    +   '</div>'
+    +   (isCancelled ? '<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>' : '')
+    + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' + chip(i.surface === 'grass' ? 'GRASS' : 'SAND') + chip(divisionLabel(i.division).toUpperCase()) + chip('PARTNER WANTED') + '</div>'
+    + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Tournament registration and info ↗</a></div>' : '')
+    + (i.description ? '<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:6px;padding:10px 12px;background:var(--sand);border-radius:8px;">' + escapeHTML(i.description) + '</div>' : '')
+    + '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Posted by ' + escapeHTML(i.hostName || 'Anonymous') + clubBadge(i.hostId, i.hostName) + ' · Visible to ' + escapeHTML(partnerVisLabel(i.eligibility)) + '</div>'
+    + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
+    +   '<button class="btn btn-g btn-sm" onclick="shareJoinLink(\'' + escapeHTML(i.id).replace(/'/g,"\\'") + '\')">Share this post</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="card">' + actionHTML + '</div>';
+
+  if(isHost && !isCancelled){
+    h += '<div class="card"><button class="btn btn-d btn-w" onclick="cancelPartnerPost()">Cancel Post</button></div>';
+  }
+
+  // Post chat: the same per-game chat machinery (game_messages/{id}), gated by
+  // the same isChatEligible predicate, so the poster and eligible players can
+  // coordinate before committing.
+  const chatEligible = myKey ? isChatEligible(i, myKey) : false;
+  let chatBody;
+  if(!myKey){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see and join the chat.</p>';
+  } else if(!chatEligible){
+    chatBody = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Chat opens to players this post is visible to.</p>';
+  } else {
+    chatBody = '<div id="gc-list"></div>'
+      + '<div style="margin-top:10px;">'
+      +   '<textarea id="gc-text" maxlength="2000" oninput="updateGameChatCount()" placeholder="Message players about this tournament" style="width:100%;border:1px solid var(--sand-border);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;"></textarea>'
+      +   '<div id="gc-err" style="font-size:12px;color:#b91c1c;margin-top:4px;min-height:1px;"></div>'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">'
+      +     '<span id="gc-count" style="font-size:12px;color:var(--gray);">0/2000</span>'
+      +     '<button class="btn btn-p btn-sm" id="gc-post" onclick="postGameChat()">Post</button>'
+      +   '</div>'
+      + '</div>';
+  }
+  h += '<div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Post Chat</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin:-2px 0 8px;">Coordinate with players about this tournament.</div>'
+    + chatBody
+    + '</div>';
+
+  cont.innerHTML = h;
+  renderGameChatMessages();
+}
+
+// RESPOND: a response is a pending guestRequests entry (the same node and shape
+// the guest door writes) plus the same request-notify email to the poster,
+// resolved server-side from hostId. No responder email is stored: the invites
+// node is world-readable, and the poster notification does not need it.
+function respondToPartnerPost(){
+  const i = (D.invites||{})[activeInvite]; if(!i || i.postType !== 'partner') return;
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to respond'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
+  if(i.date && i.date < td()){ toast('This tournament has passed'); return; }
+  if(isLoggedInHost(i)){ toast('This is your post'); return; }
+  if(!divisionAllowsViewer(i.division)){ toast('This post is for the ' + divisionLabel(i.division) + ' division'); return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!me || !myKey){ toast('Pick your name first'); return; }
+  // Same circle gate as optInInvite, so club-only posts stay club-only.
+  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey)){ toast('This post is not open to you'); return; }
+  const rsvpsNow = i.rsvps || {};
+  if(Object.values(rsvpsNow).some(r => r && r.status === 'confirmed')){ toast('Partner already found'); return; }
+  const mine = rsvpsNow[myKey];
+  if(mine && mine.status !== 'declined'){ toast('You are already on this post'); return; }
+  const already = Object.values(i.guestRequests||{}).some(r => r && r.status === 'pending'
+    && ((r.accountId && r.accountId === currentAccountId()) || Identity.nameKey(r.name || '') === myKey));
+  if(already){ toast('Response already sent'); return; }
+
+  const reqId = gi('preq');
+  const record = { name: me.name, email: null, requestedAt: Date.now(), status: 'pending', accountId: currentAccountId(), partner: true };
+
+  // Optimistic local + mirror (same pattern as requestSpot).
+  if(!D.invites[activeInvite].guestRequests) D.invites[activeInvite].guestRequests = {};
+  D.invites[activeInvite].guestRequests[reqId] = record;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.guestRequests) inv.guestRequests = {};
+    inv.guestRequests[reqId] = record;
+  });
+  fbSet('invites/' + activeInvite + '/guestRequests/' + reqId, record);
+
+  // Poster notification: the exact request-notify the guest door uses; the
+  // worker resolves the poster's email server-side from the invite's hostId.
+  try {
+    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/request-notify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteId: activeInvite, guestName: me.name, guestEmail: '' })
+    }).catch(function(e){ console.warn('request-notify failed', e); });
+  } catch(e){ console.warn('request-notify failed', e); }
+
+  renderInviteDetail();
+  toast('Response sent ✓');
+}
+
+// Withdraw your own pending response. Own-response guarded; mirrors
+// declineGuestRequest's delete without the host gate or confirm.
+function withdrawPartnerResponse(reqId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const req = (i.guestRequests||{})[reqId]; if(!req || req.status !== 'pending') return;
+  const myKey = gameplayKey();
+  const mine = (req.accountId && req.accountId === currentAccountId())
+    || (myKey && Identity.nameKey(req.name || '') === myKey);
+  if(!mine){ toast('Not your response'); return; }
+  if(D.invites[activeInvite].guestRequests) delete D.invites[activeInvite].guestRequests[reqId];
+  pendInviteOverride(activeInvite, inv => { if(inv.guestRequests) delete inv.guestRequests[reqId]; });
+  renderInviteDetail();
+  fbDel('invites/' + activeInvite + '/guestRequests/' + reqId);
+  toast('Response withdrawn');
+}
+
+// Poster-only: remove the accepted partner (reopens the post). declineRsvp does
+// the actual write and renumbering, same as a game host removing a player.
+function removePartner(targetKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can do that'); return; }
+  const r = (i.rsvps||{})[targetKey]; if(!r) return;
+  if(!confirm('Remove ' + (r.name || 'this partner') + '? The post reopens for responses.')) return;
+  declineRsvp(targetKey);
+  toast('Removed');
+}
+
+// Poster-only cancel. Mirrors cancelInvite (same status write) with partner
+// wording so the confirm never says "pickup".
+function cancelPartnerPost(){
+  if(!isLoggedInHost((D.invites||{})[activeInvite])){ toast('Only the poster can cancel this post'); return; }
+  if(!confirm('Take this post down? Anyone who responded will see it as cancelled.')) return;
+  D.invites[activeInvite].status = 'cancelled';
+  pendInviteOverride(activeInvite, inv => { inv.status = 'cancelled'; });
+  renderInviteDetail();
+  fbSet('invites/' + activeInvite + '/status', 'cancelled');
+  toast('Post cancelled');
+}
 
 // SETUP / EDIT
 let _userEditedTitle = false;
@@ -3478,6 +4052,9 @@ function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
   if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
+  // Tournament partner posts render through their own detail view; everything
+  // else about the record (rsvps, guestRequests, chat, host checks) is shared.
+  if(i.postType === 'partner'){ renderPartnerDetail(i); return; }
   // Consume the Door 2 reveal flag once: this render may show the claim form, but the
   // flag never persists into a later re-render (Firebase .on / other views).
   const _claimFormNow = _showClaimForm; _showClaimForm = false;
@@ -4385,7 +4962,10 @@ function approveGuestRequest(reqId){
   const slotsLeft = (i.slots||8) - confirmed.length;
   const status = slotsLeft > 0 ? 'confirmed' : 'waitlist';
   const position = status==='confirmed' ? confirmed.length+1 : waitlist.length+1;
-  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now(), accountId: null, guestApproved: true };
+  // accountId rides through from the request when present (partner responses
+  // stamp it; guest-door requests have none), so badges and self-state checks
+  // resolve for account holders. Was hardcoded null before.
+  const newRsvp = { name: rsvpName, status, position, respondedAt: Date.now(), accountId: req.accountId || null, guestApproved: true };
 
   // Optimistic local: add the rsvps entry, drop the request from guestRequests.
   if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
