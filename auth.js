@@ -11,8 +11,10 @@
  *     codes: 'wrong_password' | 'no_account' | 'same_password' | 'failed'
  *     On ok:true the player's passwordHash + updatedAt are written and a
  *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
- *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, keepSignedIn })
+ *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, gender, keepSignedIn })
  *     -> Promise<{ok:true, playerKey} | {ok:false, error}>
+ *     gender is optional: 'M' | 'F' | 'unspecified'. When present it is stored
+ *     at profile.gender; absent or unrecognized values are dropped, never fatal.
  *     Self-serve community signup. Writes verified:false player record at
  *     {rosterPath}/{snake_case_displayName}, queues a 'welcome' email with
  *     generated_password:null (user picked their own), and signs the new
@@ -506,6 +508,7 @@
     const displayName = String(o.displayName == null ? '' : o.displayName).trim();
     const city = String(o.city == null ? '' : o.city).trim();
     const skillLevel = o.skillLevel == null ? '' : String(o.skillLevel);
+    const gender = o.gender == null ? '' : String(o.gender);
 
     if(!email) return { ok:false, error:'Email is required.' };
     if(!/^\S+@\S+\.\S+$/.test(email)) return { ok:false, error:"That email doesn't look right." };
@@ -515,6 +518,13 @@
     if(!city) return { ok:false, error:'City is required.' };
     const VALID_SKILLS = ['Recreational','BB','A','AA','Open'];
     if(VALID_SKILLS.indexOf(skillLevel) === -1) return { ok:false, error:'Pick a skill level.' };
+    // Gender is optional and never fatal. Single platform vocabulary:
+    // 'M' | 'F' | 'unspecified'. The Grass Club roster filter in app.js reads
+    // 'M'/'F' literally, so this vocabulary maps onto it without translation.
+    // Unrecognized values are dropped (with a warn) rather than failing signup.
+    const VALID_GENDERS = ['M','F','unspecified'];
+    const genderVal = VALID_GENDERS.indexOf(gender) !== -1 ? gender : null;
+    if(gender && !genderVal) console.warn('CourtSenseAuth.createPlayer: unrecognized gender value dropped');
 
     if(!_db || !_rosterPath){
       return { ok:false, error:'Auth not initialized. Reload the page.' };
@@ -580,7 +590,9 @@
       displayName: displayName,
       name: displayName, // legacy field used by the login picker (auth.js displayNameOf)
       city: city,
-      profile: { skillLevel: skillLevel },
+      // profile is the bucket for self-described player attributes; gender sits
+      // next to skillLevel and is only included when the caller supplied one.
+      profile: genderVal ? { skillLevel: skillLevel, gender: genderVal } : { skillLevel: skillLevel },
       leaguePlayerId: leagueMatch, // { side, playerId } if name matched a league roster, else null
       verified: false,
       createdAt: now,

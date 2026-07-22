@@ -144,6 +144,17 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
     </div>
 
     <div class="fg">
+      <label class="lbl" for="f-gender">Gender</label>
+      <select class="inp" id="f-gender">
+        <option value="">Select (optional)</option>
+        <option value="M">Male</option>
+        <option value="F">Female</option>
+        <option value="unspecified">Prefer not to say</option>
+      </select>
+      <div class="help">Optional. Helps with divisions for leagues and tournaments.</div>
+    </div>
+
+    <div class="fg">
       <span class="lbl">Skill level <span class="req">*</span></span>
       <div class="skill-list" id="skill-list">
         <label class="skill-opt" data-val="Recreational">
@@ -322,13 +333,18 @@ async function doSubmit(e){
   signupInFlight = true;
 
   try {
-    const res = await CourtSenseAuth.createPlayer({
+    // Gender is optional here: only passed when the player picked an option.
+    // Vocabulary matches createPlayer: 'M' | 'F' | 'unspecified'.
+    const opts = {
       email:       $('f-email').value.trim(),
       password:    $('f-password').value,
       displayName: $('f-displayName').value.trim(),
       city:        $('f-city').value.trim(),
       skillLevel:  readSkill()
-    });
+    };
+    const genderSel = $('f-gender') ? $('f-gender').value : '';
+    if(genderSel) opts.gender = genderSel;
+    const res = await CourtSenseAuth.createPlayer(opts);
 
     if(res && res.ok){
       var _next = safeNext();

@@ -315,6 +315,16 @@
                 <option>Other</option>
               </select>
             </div>
+            <div class="field">
+              <label for="gender">Gender</label>
+              <select id="gender">
+                <option value="" selected disabled>Select</option>
+                <option value="M">Male</option>
+                <option value="F">Female</option>
+                <option value="unspecified">Prefer not to say</option>
+              </select>
+              <span class="fld-err" id="err-gender"></span>
+            </div>
             <div class="field full">
               <label for="major">Major</label>
               <input type="text" id="major" placeholder="e.g. Marketing">
@@ -435,8 +445,8 @@
 //   unclaimed -> let the member set a password with /auth/register (claim)
 // Then attaches an fsu_grass membership, writes a club roster record (status
 // 'prospect') and a club profile record, all in one atomic multi-path write.
-// Existing accounts are never duplicated and gain only the membership and phone;
-// no other field changes.
+// Existing accounts are never duplicated and gain only the membership, phone,
+// and profile/gender; no other field changes.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -498,7 +508,7 @@ function setFieldErr(id, msg){
   if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; }
 }
 function clearErrors(){
-  ['email','pw','first','last'].forEach(f => setFieldErr(f, ''));
+  ['email','pw','first','last','gender'].forEach(f => setFieldErr(f, ''));
   const fe = $('form-err'); if(fe){ fe.textContent = ''; }
 }
 
@@ -557,16 +567,19 @@ async function onEmailBlur(){
   await lookupAccount(email);
 }
 
-// Basics apply on every path (email format plus a name for the club roster).
-// The password is validated per branch after the account state is known.
+// Basics apply on every path (email format, a name for the club roster, and a
+// gender selection since club divisions depend on it; "Prefer not to say" is a
+// valid selection). The password is validated per branch after the account
+// state is known.
 function validateBasics(){
   clearErrors();
   let ok = true;
-  const email = val('email'), first = val('first'), last = val('last');
+  const email = val('email'), first = val('first'), last = val('last'), gender = val('gender');
   if(!email){ setFieldErr('email','Email is required.'); ok = false; }
   else if(!emailValid(email)){ setFieldErr('email',"That email doesn't look right."); ok = false; }
   if(!first){ setFieldErr('first','First name is required.'); ok = false; }
   if(!last){ setFieldErr('last','Last name is required.'); ok = false; }
+  if(!gender){ setFieldErr('gender','Select an option.'); ok = false; }
   return ok;
 }
 
@@ -585,7 +598,7 @@ function csSeedFromTruVolley(v){
 // Build the shared write payload. accountKey is the CourtSense account key (new:
 // the createPlayer key; existing: the looked-up playerId). A new member lands on the
 // club roster (grass_club_matches/players) with status 'prospect' for exec review at
-// tryouts. Only the membership and phone touch the account record.
+// tryouts. Only the membership, phone, and profile/gender touch the account record.
 function buildClubWrites(accountKey){
   const clubId = genPlayerId();
   const now = Date.now();
@@ -599,6 +612,12 @@ function buildClubWrites(accountKey){
   const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null); // profile: number or raw string or null
   const truVolleyNum = isFinite(tvNum) ? tvNum : null;                // prospect: strict 0-10 number or null
   const seed = truVolleyNum != null ? csSeedFromTruVolley(truVolleyNum) : null;
+  // Gender vocabulary: the account stores 'M' | 'F' | 'unspecified' at
+  // profile.gender. The club roster record stores 'M' | 'F' | null, because the
+  // app.js Grass Club gender filter compares p.gender against 'M'/'F' literally;
+  // null (prefer not to say) simply never matches a gender sub-filter.
+  const genderAcct = val('gender');                                          // 'M' | 'F' | 'unspecified'
+  const genderRoster = (genderAcct === 'M' || genderAcct === 'F') ? genderAcct : null;
 
   const membership = {
     org: 'fsu_grass', orgName: 'FSU Grass Club', role: 'member', tier: null,
@@ -617,6 +636,7 @@ function buildClubWrites(accountKey){
   // member; prospect is roster placement, not membership.
   const rosterRecord = {
     id: clubId, firstName: first, lastName: last,
+    gender: genderRoster,
     classYear: classYearCode(yearRaw),
     court: null, jersey: null, tier: null,
     status: 'prospect', active: true,
@@ -655,6 +675,10 @@ function buildClubWrites(accountKey){
   const updates = {};
   updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
   updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
+  // Deep-path leaf write: sets only profile/gender, never clobbers profile
+  // siblings (skillLevel). Runs on all three branches so an existing account
+  // gains gender from this submission too.
+  updates[ROSTER_PATH + '/' + accountKey + '/profile/gender'] = genderAcct || 'unspecified';
   updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
   updates[CLUB_PASSWORDS + '/' + clubId + '/emailPrefs'] = emailPrefs;
@@ -725,7 +749,7 @@ async function doJoin(){
       const displayName = (first + ' ' + last).trim();
       let res;
       try {
-        res = await CourtSenseAuth.createPlayer({ email: email, password: pw, displayName: displayName, city: 'Not set', skillLevel: 'Recreational' });
+        res = await CourtSenseAuth.createPlayer({ email: email, password: pw, displayName: displayName, city: 'Not set', skillLevel: 'Recreational', gender: val('gender') });
       } catch(err){
         console.error('createPlayer threw', err);
         if($('form-err')) $('form-err').textContent = 'Unexpected error creating your account. Try again.';
