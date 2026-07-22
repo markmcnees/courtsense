@@ -5010,6 +5010,29 @@ function approveGuestRequest(reqId){
     } catch(e){ console.warn('claim-notify failed', e); }
   }
 
+  // Partner posts only: tell the accepted player by email, fire-and-forget
+  // (same error-handling convention as the request-notify call in
+  // respondToPartnerPost). The worker verifies the acceptance against the
+  // invite record and resolves the player's email server-side from their
+  // account id; we send only ids. Because the worker READS the rsvps entry
+  // before sending, the notify is chained on an idempotent re-set of the same
+  // entry (identical value, real completion ack), so it cannot race the
+  // fire-and-forget fbSet above and silently skip. Any failure never undoes
+  // the acceptance, which already stands. Regular pickup guest approvals
+  // (no postType) never reach this block.
+  if(i.postType === 'partner' && req.accountId && db){
+    const _pid = req.accountId;
+    const _inv = activeInvite;
+    try {
+      db.ref(DB_ROOT + '/invites/' + _inv + '/rsvps/' + rsvpKey).set(newRsvp).then(function(){
+        return fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/partner-accept-notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inviteId: _inv, playerId: _pid })
+        });
+      }).catch(function(e){ console.warn('partner-accept-notify failed', e); });
+    } catch(e){ console.warn('partner-accept-notify failed', e); }
+  }
+
   toast(status==='confirmed' ? 'Approved ✓' : 'Approved to waitlist');
 }
 
