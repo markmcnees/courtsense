@@ -8,7 +8,17 @@
  *
  * Storage: tally_kotb_pickup/ratings/{nameKey}/
  *   { rating, rd, volatility, gamesPlayed, peakRating, peakRatingDate, lastUpdated,
- *     history: { [gameId]: { ... } }, name }
+ *     history: { [gameId]: { ... } }, name, playerId? }
+ *
+ * Stage one of the platform rating: when a ratings record carries a playerId
+ * stamp (see scripts/reconcile-identities.js), applyGame and reverseGame ALSO
+ * mirror { rating, rd, vol, gamesPlayed, ratingUpdatedAt } onto the account at
+ * tally_kotb_pickup/players/{playerId}, alongside the name-keyed write, never
+ * instead of it. Records with no playerId (guests, picked names) keep writing
+ * the name-keyed record only and never fail. Nothing reads the account copy
+ * yet; every consumer still reads ratings/{nameKey}, so behavior is identical.
+ * The account field is 'vol' (not 'volatility') to match the existing rules
+ * validator on the players node.
  *
  * Per-player update:
  *   - Treat the game as me vs avg(opponents) in standard Glicko-2.
@@ -355,7 +365,10 @@
           lastUpdated: cur.lastUpdated || null,
           // Carry the TruVolley seed flag so capFor() applies the 5-point cap to
           // seeded players in LIVE scoring, not just in offline re-rate runs.
-          seededFromTruVolley: cur.seededFromTruVolley ?? null
+          seededFromTruVolley: cur.seededFromTruVolley ?? null,
+          // Carry the account stamp so the write below can mirror onto the
+          // account record. Absent on guest records; that is fine.
+          playerId: cur.playerId ?? null
         };
       } else {
         ratingsByKey[k] = newPlayerState(n);
@@ -380,6 +393,19 @@
         lastUpdated: rec.lastUpdated
       }));
       writes.push(db.ref(dbRoot+'/ratings/'+h.playerKey+'/history/'+gameId).set(h.entry));
+      // Stage-one account mirror: same numbers onto the account record when the
+      // ratings record is stamped with a playerId. Additive alongside the
+      // name-keyed write above, never instead of it. No stamp, no account
+      // write, no failure: guests keep playing and keep a rating by name.
+      if(rec.playerId){
+        writes.push(db.ref(dbRoot+'/players/'+rec.playerId).update({
+          rating: rec.rating,
+          rd: rec.rd,
+          vol: rec.volatility,
+          gamesPlayed: rec.gamesPlayed,
+          ratingUpdatedAt: rec.lastUpdated
+        }));
+      }
     });
     try { await Promise.all(writes); } catch(e){ console.warn('rating write failed', e); }
   }
@@ -402,12 +428,22 @@
       const rec = recSnap.val()||{};
       const newRating = (rec.rating ?? DEFAULT_RATING) - (h.ratingChange||0);
       const newGames = Math.max(0, (rec.gamesPlayed||0) - 1);
+      const reversedAt = Date.now();
       writes.push(db.ref(dbRoot+'/ratings/'+k).update({
         rating: newRating,
         gamesPlayed: newGames,
-        lastUpdated: Date.now()
+        lastUpdated: reversedAt
       }));
       writes.push(db.ref(dbRoot+'/ratings/'+k+'/history/'+gameId).remove());
+      // Stage-one account mirror on reversal too, so the account copy never
+      // drifts from the name-keyed record it shadows. Same no-stamp no-op rule.
+      if(rec.playerId){
+        writes.push(db.ref(dbRoot+'/players/'+rec.playerId).update({
+          rating: newRating,
+          gamesPlayed: newGames,
+          ratingUpdatedAt: reversedAt
+        }));
+      }
     }));
     try { await Promise.all(writes); } catch(e){ console.warn('rating reverse failed', e); }
   }
