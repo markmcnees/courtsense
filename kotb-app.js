@@ -914,7 +914,21 @@ function healSchedule(parsed,pool,pCounts,oCounts,TARGET_GAMES){
   return parsed;
 }
 
+// Renders an AI failure into the week detail panel. The ai-err class is what
+// clearAiError looks for, so a stale failure can be wiped without touching a
+// real schedule render.
+function aiErr(msg){
+  const el=$('week-detail'); if(!el) return;
+  el.innerHTML='<div class="ai-err" style="color:var(--loss);font-size:13px;padding:12px;">'+esc(msg)+'<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>';
+}
+// Clears a previous AI failure only. A rendered schedule is left alone.
+function clearAiError(){
+  const el=$('week-detail');
+  if(el&&el.querySelector('.ai-err')) el.innerHTML='';
+}
+
 async function genNight(skipOverwriteCheck){
+  clearAiError();
   const wid=$('week-sel').value;
   if(!wid){toast('Select a week first');return;}
   const week=D[SIDE].weeks[wid];if(!week)return;
@@ -1017,13 +1031,33 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
 
   try{
     const res=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:16000,messages:[{role:'user',content:prompt}]})});
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:16000,messages:[{role:'user',content:prompt}]})});
+    // A dead endpoint, an expired key, or a rate limit all arrive here. Without
+    // this check they fall through as an empty body and read as a parse failure.
+    if(!res.ok){
+      let body='';
+      try{ body=await res.text(); }catch(be){ body='(body unavailable)'; }
+      console.error('[KotB] AI HTTP error', res.status, body.slice(0,500));
+      aiErr('AI service error (status '+res.status+'). See console for details.');
+      return;
+    }
     const data=await res.json();
+    if(data.type==='error'||data.error!=null){
+      console.error('[KotB] AI error envelope', data);
+      const em=(data.error&&data.error.message)||data.message||'unknown error';
+      aiErr('AI service returned an error: '+em);
+      return;
+    }
     const text=data.content?.map(c=>c.text||'').join('')||'';
+    const clean=text.replace(/```json|```/g,'').trim();
+    const s=clean.indexOf('['),e=clean.lastIndexOf(']');
+    if(s===-1||e===-1){
+      console.error('[KotB] AI returned no JSON array', text.slice(0,500));
+      aiErr('AI returned no schedule data. Tap Retry.');
+      return;
+    }
     let parsed;
     try{
-      const clean=text.replace(/```json|```/g,'').trim();
-      const s=clean.indexOf('['),e=clean.lastIndexOf(']');
       parsed=JSON.parse(clean.slice(s,e+1));
       // Convert short IDs (P1..PN) back to real IDs, and fix any name-as-ID usage
       const nameToId={};
@@ -1047,7 +1081,8 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
         });
       });
     }catch(pe){
-      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Couldn't parse AI response — the AI response may have been cut off or malformed. Tap Retry to try again.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
+      console.error('[KotB] AI parse failed', pe, text.slice(0,500));
+      aiErr('Could not read the AI schedule response. Tap Retry, and check the console for details.');
       return;
     }
     // Heal first (fixes '?' and invalid slots), then validate
@@ -1057,8 +1092,8 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
     console.log('[KotB] Post-heal slots:', parsed.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...ct.t1,...ct.t2])));
     const hasPlaceholder=parsed.some(rd=>(rd.courts||[]).some(ct=>[...(ct.t1||[]),...(ct.t2||[])].some(id=>!id||id.trim()==='?')));
     if(hasPlaceholder){
-      $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">AI returned placeholder names instead of real players -- tap Retry to regenerate.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
-      toast('Schedule had bad slots -- please retry');
+      aiErr('AI returned placeholder names instead of real players. Tap Retry to regenerate.');
+      toast('Schedule had bad slots, please retry');
       return;
     }
     fbSet(SIDE+'/weeks/'+wid+'/rounds',parsed);
@@ -1070,8 +1105,8 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
     toast('Schedule generated! ✓');
     loadWeekDetail();
   }catch(err){
-    console.error(err);
-    $('week-detail').innerHTML=`<div style="color:var(--loss);font-size:13px;padding:12px;">Error connecting to AI — check your connection and try again.<br><button onclick="genNight(true)" style="margin-top:10px;padding:8px 18px;background:var(--acc);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔄 Retry</button></div>`;
+    console.error('[KotB] AI request failed', err);
+    aiErr('Error connecting to AI. Check your connection and try again.');
   }
 }
 
@@ -1139,6 +1174,7 @@ function promptGenFullSeason(){
 }
 function doGenSeasonAction(){ genFullSeason(); }
 function genFullSeason(){
+  clearAiError();
   const pool=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false).map(p=>p.id);
   if(pool.length<4){toast('Need at least 4 active players');return;}
   const weeks=Object.values(D[SIDE].weeks||{}).filter(w=>w&&!w.skipped&&!w.cancelled).sort((a,b)=>a.weekNum-b.weekNum);
