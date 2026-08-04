@@ -253,6 +253,20 @@ function initTabs(){
       renderRatings();
     });
   });
+  // Deep link support: /kotb/#ratings opens that tab on load. Planner is excluded
+  // on purpose, it sits behind the Admin PIN and a hash must not bypass that gate.
+  const hashTab=(location.hash||'').replace('#','');
+  if(hashTab&&hashTab!=='planner'){
+    const ht=document.querySelector('.tab[data-tab="'+hashTab+'"]');
+    const hp=$('pane-'+hashTab);
+    if(ht&&hp){
+      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+      document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+      ht.classList.add('on');
+      hp.classList.add('on');
+      tab=hashTab;
+    }
+  }
   $('cfg-start').value=td();
 }
 
