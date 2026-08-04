@@ -884,12 +884,18 @@ function healSchedule(parsed,pool,pCounts,oCounts,TARGET_GAMES){
     rd.sitting=[...sittingSet];
   });
 
-  // Pass 2: enforce TARGET_GAMES per player
+  // Pass 2: even out games played. Total slots rarely divide evenly by the
+  // roster, so an exact TARGET_GAMES for everyone is often unreachable. The
+  // bound is a one game spread: keep swapping the most played into the least
+  // played until max and min are within one.
   for(let iter=0;iter<50;iter++){
     const counts=countGames(parsed);
-    const under=validIds.filter(id=>counts[id]<TARGET_GAMES);
-    const over=validIds.filter(id=>counts[id]>TARGET_GAMES);
-    if(!under.length&&!over.length)break;
+    if(!validIds.length)break;
+    const vals=validIds.map(id=>counts[id]||0);
+    const min=Math.min.apply(null,vals),max=Math.max.apply(null,vals);
+    if(max-min<=1)break;
+    const under=validIds.filter(id=>(counts[id]||0)===min);
+    const over=validIds.filter(id=>(counts[id]||0)===max);
     let swapped=false;
     for(const uid of under){
       for(const rd of parsed){
@@ -912,6 +918,21 @@ function healSchedule(parsed,pool,pCounts,oCounts,TARGET_GAMES){
     if(!swapped)break;
   }
   return parsed;
+}
+
+// Pulls the first JSON array that actually parses. The model often writes prose
+// before the array, and that prose can itself contain a bracket, so anchoring on
+// the first '[' alone is not safe. Bounded: the response is a few KB.
+function extractJsonArray(clean){
+  const end=clean.lastIndexOf(']');
+  if(end===-1) return null;
+  for(let s=clean.indexOf('[');s!==-1&&s<end;s=clean.indexOf('[',s+1)){
+    try{
+      const v=JSON.parse(clean.slice(s,end+1));
+      if(Array.isArray(v)) return v;
+    }catch(ignored){}
+  }
+  return null;
 }
 
 // Renders an AI failure into the week detail panel. The ai-err class is what
@@ -1012,22 +1033,22 @@ RULES:
 - Each round: ${courts} courts running simultaneously. Each court = 2v2 (4 players per court).
 - Active per round: ${slotsPerRound} players. Sitting out: ${sitPerRound} per round.
 - Generate EXACTLY ${totalRounds} rounds.
-- PRIMARY GOAL: every player must play exactly ${TARGET_GAMES} games total.
-- Distribute sit-outs evenly — each player sits out roughly ${totalRounds-TARGET_GAMES} times.
+- PRIMARY GOAL: every player plays as close to ${TARGET_GAMES} games as possible. No player may finish more than one game above or below any other player. An exactly equal split is often impossible, so aim for the tightest spread, never wider than one game.
+- Distribute sit-outs evenly. Each player sits out roughly ${totalRounds-TARGET_GAMES} times.
 - PARTNER VARIETY: NEVER pair the same two players as partners twice in one night if possible. Prioritize pairs who have never partnered before.
-- OPPONENT VARIETY: equally important — avoid putting the same two players on opposite sides of the net repeatedly. Spread opponent matchups as evenly as possible across all players.
+- OPPONENT VARIETY: equally important. Avoid putting the same two players on opposite sides of the net repeatedly. Spread opponent matchups as evenly as possible across all players.
 - SEASON GOAL: by end of season every player should have partnered with AND faced every other player roughly equal times.
 - SUB players: include them in matchups normally. Track by their given IDs.
 
-Return ONLY a valid JSON array — no explanation, no markdown:
+Return ONLY a valid JSON array. No explanation, no markdown:
 [
   {"round":1,"courts":[{"court":1,"t1":["P1","P2"],"t2":["P3","P4"]},{"court":2,"t1":["P5","P6"],"t2":["P7","P8"]}],"sitting":["P9","P10"]},
   ...${totalRounds} rounds total
 ]
 
-VERIFICATION: Before returning, mentally count how many times each player ID appears across all t1+t2 arrays. Every player must appear exactly ${TARGET_GAMES} times. Adjust sitting lists until this is true for every player.
+VERIFICATION: Before returning, mentally count how many times each player ID appears across all t1+t2 arrays. The highest count and the lowest count must differ by at most one. Adjust sitting lists until this is true.
 
-Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER use "?" or any placeholder — every slot in t1 and t2 must be one of the P-codes from the player list. If unsure, use any valid P-code rather than "?". Return only the JSON array.`;
+Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER use "?" or any placeholder. Every slot in t1 and t2 must be one of the P-codes from the player list. If unsure, use any valid P-code rather than "?". Return only the JSON array.`;
 
   try{
     const res=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1056,9 +1077,13 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
       aiErr('AI returned no schedule data. Tap Retry.');
       return;
     }
-    let parsed;
+    let parsed=extractJsonArray(clean);
+    if(!parsed){
+      console.error('[KotB] AI parse failed, no candidate array parsed', text.slice(0,500));
+      aiErr('Could not read the AI schedule response. Tap Retry, and check the console for details.');
+      return;
+    }
     try{
-      parsed=JSON.parse(clean.slice(s,e+1));
       // Convert short IDs (P1..PN) back to real IDs, and fix any name-as-ID usage
       const nameToId={};
       pool.forEach(p=>{ nameToId[p.name.toLowerCase().trim()]=p.id; });
