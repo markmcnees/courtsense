@@ -217,6 +217,61 @@ tbody tr:nth-child(even){background:rgba(245,240,232,0.45);}
   background:var(--white);
 }
 
+/* EXPLAINER TRIGGER
+   A quiet secondary control. It sits under the lede and should not compete
+   with the action bar above it. */
+.howbtn{
+  display:inline-block;margin-top:16px;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;letter-spacing:1.5px;
+  color:var(--navy-deep);
+  background:none;
+  border:1px solid rgba(15,35,71,0.22);
+  border-radius:999px;
+  padding:7px 16px;
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+.howbtn:hover{border-color:var(--navy);background:var(--sand);}
+.howbtn:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
+
+/* EXPLAINER MODAL
+   Centered dialog, not a bottom sheet. z-index clears the sticky header at 50. */
+.overlay{
+  display:none;position:fixed;inset:0;z-index:500;
+  background:rgba(15,35,71,0.55);
+  align-items:center;justify-content:center;
+  padding:20px;
+}
+.overlay.on{display:flex;}
+.modal{
+  background:var(--white);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-hover);
+  width:100%;max-width:460px;max-height:85vh;
+  overflow-y:auto;
+  padding:22px 24px 26px;
+}
+.mtitle{
+  display:flex;align-items:center;justify-content:space-between;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;letter-spacing:1.5px;
+  color:var(--navy-deep);
+  margin-bottom:14px;
+}
+.mclose{
+  background:none;border:none;
+  font-size:22px;line-height:1;
+  color:var(--ink-soft);cursor:pointer;
+  padding:8px 10px;margin:-8px -10px 0 0;
+}
+.mclose:hover{color:var(--navy-deep);}
+.mclose:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
+.mbody{font-size:14px;line-height:1.6;color:var(--ink);}
+.mbody p{margin-bottom:12px;}
+.mbody p:last-child{margin-bottom:0;}
+body.noscroll{overflow:hidden;}
+
 /* STATES */
 .state{
   padding:40px 20px;text-align:center;color:var(--ink-soft);font-size:15px;
@@ -268,6 +323,7 @@ tbody tr:nth-child(even){background:rgba(245,240,232,0.45);}
       <div class="section-eyebrow">Community</div>
       <h2>Player <span class="accent">Rankings</span></h2>
       <p class="lede">One rating per player across leagues and pickup. Ratings update as games are scored.</p>
+      <button type="button" class="howbtn" id="how-btn">How rankings work</button>
     </div>
 
     <div id="stats" class="stats" style="display:none;">
@@ -307,6 +363,22 @@ tbody tr:nth-child(even){background:rgba(245,240,232,0.45);}
     <a class="backlink" href="/community/">Back to Community</a>
   </div>
 </section>
+
+<div class="overlay" id="how-modal" role="dialog" aria-modal="true" aria-labelledby="how-title" aria-hidden="true">
+  <div class="modal">
+    <div class="mtitle">
+      <span id="how-title">How Rankings Work</span>
+      <button type="button" class="mclose" id="how-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="mbody">
+      <p>Most players start at 1500. If you enter a TruVolley number on your profile, you start from a rating matched to that number instead, so your first games begin closer to your real level.</p>
+      <p>The number beside each rating is RD, or rating deviation. It shows how settled a rating is. A lower RD means the system is more confident.</p>
+      <p>New players start with a high RD because the system is still learning where they belong. The more you play, the more RD shrinks and the steadier your rating gets.</p>
+      <p>Your rating moves by a capped amount per game, so a single night will not swing it wildly. A full season is what settles it into an accurate picture.</p>
+      <p>Ratings carry across seasons and follow you between leagues and pickup. Subs do not earn rating changes.</p>
+    </div>
+  </div>
+</div>
 
 <script>
 var FB_CFG = {
@@ -456,7 +528,39 @@ function initFB(){
   }
 }
 
+// How rankings work modal. Backdrop click and Escape both dismiss, focus goes
+// to the close button on open and back to the trigger on close, and the page
+// behind is locked from scrolling while it is open.
+function openHow(){
+  var m = $('how-modal');
+  m.classList.add('on');
+  m.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('noscroll');
+  $('how-close').focus();
+}
+
+function closeHow(){
+  var m = $('how-modal');
+  if(!m.classList.contains('on')) return;
+  m.classList.remove('on');
+  m.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('noscroll');
+  $('how-btn').focus();
+}
+
+function initHow(){
+  $('how-btn').addEventListener('click', openHow);
+  $('how-close').addEventListener('click', closeHow);
+  $('how-modal').addEventListener('click', function(e){
+    if(e.target === this) closeHow();
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') closeHow();
+  });
+}
+
 initSort();
+initHow();
 initFB();
 </script>
 
