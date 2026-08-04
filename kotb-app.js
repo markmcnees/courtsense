@@ -947,6 +947,48 @@ function clearAiError(){
   const el=$('week-detail');
   if(el&&el.querySelector('.ai-err')) el.innerHTML='';
 }
+// Neutral notice above a rendered schedule. Not an error, so no error styling.
+// Called after loadWeekDetail, which rewrites the panel.
+function schedNote(msg){
+  const el=$('week-detail'); if(!el) return;
+  const d=document.createElement('div');
+  d.className='sched-note';
+  d.style.cssText='font-size:12px;color:var(--gray);padding:8px 12px;';
+  d.textContent=msg;
+  el.insertBefore(d,el.firstChild);
+}
+
+// One night from the deterministic season generator. Sit counts start fresh
+// because this is a single night, and the partner and opponent maps are copied
+// so buildSeasonNight's own bookkeeping does not inflate the history counts
+// that healSchedule scores against afterwards.
+function buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,weekIdx){
+  const ids=pool.map(p=>p.id);
+  const pC=JSON.parse(JSON.stringify(pCounts));
+  const oC=JSON.parse(JSON.stringify(oCounts));
+  const res=buildSeasonNight(ids,courts,pC,oC,{},TARGET_GAMES,weekIdx||0);
+  return res?res.rounds:null;
+}
+
+// Shared tail for both schedule engines: heal, validate, save, render. The save
+// shape is identical no matter which engine produced the rounds. Returns false
+// if placeholder slots survive healing, so the caller can decide what to do.
+function applyGeneratedRounds(wid,rounds,pool,pCounts,oCounts,TARGET_GAMES,noteMsg){
+  const parsed=healSchedule(rounds,pool,pCounts,oCounts,TARGET_GAMES);
+  console.log('[KotB] Post-heal slots:', parsed.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...ct.t1,...ct.t2])));
+  const hasPlaceholder=parsed.some(rd=>(rd.courts||[]).some(ct=>[...(ct.t1||[]),...(ct.t2||[])].some(id=>!id||String(id).trim()==='?')));
+  if(hasPlaceholder) return false;
+  fbSet(SIDE+'/weeks/'+wid+'/rounds',parsed);
+  // Store pending update so Firebase listener re-applies if it fires with stale data
+  _pendingRoundsUpdate={side:SIDE,weekId:wid,rounds:parsed,ts:Date.now()};
+  setTimeout(()=>{_pendingRoundsUpdate=null;},10000);
+  // Update in-memory D immediately so Score tab renders without waiting for Firebase roundtrip
+  if(D[SIDE]&&D[SIDE].weeks&&D[SIDE].weeks[wid]) D[SIDE].weeks[wid].rounds=parsed;
+  toast('Schedule generated! ✓');
+  loadWeekDetail();
+  if(noteMsg) schedNote(noteMsg);
+  return true;
+}
 
 async function genNight(skipOverwriteCheck){
   clearAiError();
@@ -1018,6 +1060,26 @@ async function genNight(skipOverwriteCheck){
     : Math.ceil(pool.length*TARGET_GAMES/slotsPerRound);
   const sitPerRound=Math.max(0,pool.length-slotsPerRound);
 
+  // Any AI failure lands here instead of dead ending. The logging at each call
+  // site is untouched, so the reason is still in the console.
+  const fallbackLocal=()=>{
+    const local=buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,week.weekNum);
+    if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES,'AI was unavailable, schedule generated locally.')){
+      aiErr('Could not build a schedule. Check the roster and the court count.');
+    }
+  };
+
+  // Single court nights skip the AI entirely. They need far more rounds, which
+  // pushes generation past the proxy timeout, and the deterministic generator
+  // handles them well.
+  if(courts===1){
+    const local=buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,week.weekNum);
+    if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES,'Schedule generated locally (single court).')){
+      aiErr('Could not build a schedule. Check the roster and the court count.');
+    }
+    return;
+  }
+
   const prompt=`You are scheduling a King/Queen of the Beach recreational league night.
 
 PLAYERS TONIGHT (${pool.length} players, ${courts} courts):
@@ -1059,14 +1121,13 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
       let body='';
       try{ body=await res.text(); }catch(be){ body='(body unavailable)'; }
       console.error('[KotB] AI HTTP error', res.status, body.slice(0,500));
-      aiErr('AI service error (status '+res.status+'). See console for details.');
+      fallbackLocal();
       return;
     }
     const data=await res.json();
     if(data.type==='error'||data.error!=null){
       console.error('[KotB] AI error envelope', data);
-      const em=(data.error&&data.error.message)||data.message||'unknown error';
-      aiErr('AI service returned an error: '+em);
+      fallbackLocal();
       return;
     }
     const text=data.content?.map(c=>c.text||'').join('')||'';
@@ -1074,13 +1135,13 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
     const s=clean.indexOf('['),e=clean.lastIndexOf(']');
     if(s===-1||e===-1){
       console.error('[KotB] AI returned no JSON array', text.slice(0,500));
-      aiErr('AI returned no schedule data. Tap Retry.');
+      fallbackLocal();
       return;
     }
     let parsed=extractJsonArray(clean);
     if(!parsed){
       console.error('[KotB] AI parse failed, no candidate array parsed', text.slice(0,500));
-      aiErr('Could not read the AI schedule response. Tap Retry, and check the console for details.');
+      fallbackLocal();
       return;
     }
     try{
@@ -1107,31 +1168,19 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
       });
     }catch(pe){
       console.error('[KotB] AI parse failed', pe, text.slice(0,500));
-      aiErr('Could not read the AI schedule response. Tap Retry, and check the console for details.');
+      fallbackLocal();
       return;
     }
     // Heal first (fixes '?' and invalid slots), then validate
     console.log('[KotB] Pool IDs:', pool.map(p=>p.id));
     console.log('[KotB] Raw AI slots (pre-heal):', parsed.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...ct.t1,...ct.t2])));
-    parsed=healSchedule(parsed,pool,pCounts,oCounts,TARGET_GAMES);
-    console.log('[KotB] Post-heal slots:', parsed.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...ct.t1,...ct.t2])));
-    const hasPlaceholder=parsed.some(rd=>(rd.courts||[]).some(ct=>[...(ct.t1||[]),...(ct.t2||[])].some(id=>!id||id.trim()==='?')));
-    if(hasPlaceholder){
-      aiErr('AI returned placeholder names instead of real players. Tap Retry to regenerate.');
-      toast('Schedule had bad slots, please retry');
-      return;
+    if(!applyGeneratedRounds(wid,parsed,pool,pCounts,oCounts,TARGET_GAMES)){
+      console.error('[KotB] AI schedule still had placeholder slots after healing');
+      fallbackLocal();
     }
-    fbSet(SIDE+'/weeks/'+wid+'/rounds',parsed);
-    // Store pending update so Firebase listener re-applies if it fires with stale data
-    _pendingRoundsUpdate={side:SIDE,weekId:wid,rounds:parsed,ts:Date.now()};
-    setTimeout(()=>{_pendingRoundsUpdate=null;},10000);
-    // Update in-memory D immediately so Score tab renders without waiting for Firebase roundtrip
-    if(D[SIDE]&&D[SIDE].weeks&&D[SIDE].weeks[wid]) D[SIDE].weeks[wid].rounds=parsed;
-    toast('Schedule generated! ✓');
-    loadWeekDetail();
   }catch(err){
     console.error('[KotB] AI request failed', err);
-    aiErr('Error connecting to AI. Check your connection and try again.');
+    fallbackLocal();
   }
 }
 
