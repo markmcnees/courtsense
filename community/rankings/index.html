@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Community Rankings</title>
+<meta name="description" content="Live player ratings for the CourtSense community. One rating per player across leagues and pickup.">
+<link rel="canonical" href="https://courtsense.app/community/rankings/">
+<meta name="author" content="CourtSense">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Community Rankings">
+<meta property="og:description" content="Live player ratings for the CourtSense community.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/community/rankings/">
+<meta property="og:site_name" content="CourtSense">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Community Rankings">
+<meta name="twitter:description" content="Live player ratings for the CourtSense community.">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --gold-deep:#b8902f;
+  --teal:#3a8c91;
+  --teal-deep:#2a6e72;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);
+  --shadow-hover:0 20px 50px rgba(15,35,71,0.18), 0 8px 16px rgba(15,35,71,0.10);
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:'Barlow',-apple-system,BlinkMacSystemFont,sans-serif;
+  color:var(--ink);
+  background:var(--white);
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.section{padding:56px 24px;}
+.section-inner{max-width:1100px;margin:0 auto;}
+.section-eyebrow{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px;
+  letter-spacing:3px;
+  color:var(--gold);
+  text-transform:uppercase;
+  margin-bottom:10px;
+}
+h2{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(28px,5vw,44px);
+  letter-spacing:1px;
+  color:var(--navy-deep);
+  line-height:1.05;
+}
+h2 .accent{color:var(--gold);}
+.section-head{margin-bottom:28px;}
+.lede{
+  font-size:17px;
+  color:var(--ink-soft);
+  max-width:620px;
+  margin-top:14px;
+}
+
+/* HEADER */
+.hdr{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(15,35,71,0.08);
+}
+.hdr-brand{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.hdr-logo{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:24px;letter-spacing:1px;color:var(--navy-deep);
+}
+.hdr-logo .c{color:var(--gold);}
+.hdr-wordmark{font-size:12px;color:var(--ink-soft);letter-spacing:1px;text-transform:uppercase;}
+.hdr-cta{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;letter-spacing:1.5px;
+  padding:9px 18px;border-radius:999px;
+  background:var(--gold);color:var(--navy-deep);
+  text-decoration:none;transition:all 0.2s ease;
+}
+.hdr-cta:hover{background:var(--gold-deep);transform:translateY(-1px);}
+.hdr-nav{display:flex;align-items:center;gap:14px;}
+.hdr-login{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;letter-spacing:1.5px;
+  color:var(--navy-deep);text-decoration:none;
+  padding:9px 8px;transition:color 0.2s ease;
+}
+.hdr-login:hover{color:var(--gold-deep);}
+
+/* ACTION BAR
+   The hero-cta classes below are lifted verbatim from community/index.html.
+   hero-cta-secondary is white text on a white border, so it only reads on a
+   dark surface. This bar stays navy for that reason, but slim, so the page
+   still reads as a content page rather than a hero. */
+.actionbar{
+  background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);
+  padding:22px 24px;
+}
+.actionbar-inner{
+  max-width:1100px;margin:0 auto;
+  display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+}
+.hero-cta{
+  display:inline-block;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:17px;letter-spacing:2px;
+  padding:15px 36px;border-radius:10px;
+  background:var(--gold);color:var(--navy-deep);
+  text-decoration:none;transition:all 0.2s ease;
+}
+.hero-cta:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,0.25);}
+.hero-cta.hero-cta-secondary{
+  background:transparent;
+  color:var(--white);
+  border:2px solid rgba(255,255,255,0.55);
+}
+.hero-cta.hero-cta-secondary:hover{
+  background:rgba(255,255,255,0.12);
+  border-color:var(--white);
+  color:var(--white);
+  box-shadow:none;
+}
+.hero-cta.hero-cta-tour{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  background:var(--teal);
+  color:var(--white);
+}
+.hero-cta.hero-cta-tour:hover{
+  background:var(--teal-deep);
+  color:var(--white);
+}
+
+/* STATS */
+.stats{
+  display:flex;gap:14px;flex-wrap:wrap;
+  background:var(--sand);
+  border-radius:var(--radius);
+  padding:20px 24px;
+  margin-bottom:26px;
+}
+.stat{flex:1;min-width:150px;}
+.stat-num{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:32px;line-height:1.1;
+  color:var(--navy-deep);
+}
+.stat-num.teal{color:var(--teal);}
+.stat-label{
+  font-size:11px;color:var(--ink-soft);
+  text-transform:uppercase;letter-spacing:1px;
+}
+
+/* TABLE */
+.tablewrap{
+  border:1px solid rgba(15,35,71,0.10);
+  border-radius:var(--radius);
+  overflow:hidden;
+  box-shadow:var(--shadow);
+}
+.tablescroll{overflow-x:auto;}
+table{border-collapse:collapse;width:100%;font-size:15px;}
+thead th{
+  background:var(--navy-deep);
+  color:var(--white);
+  font-family:'Bebas Neue',sans-serif;
+  font-size:14px;letter-spacing:1.5px;
+  text-align:left;
+  padding:12px 14px;
+  white-space:nowrap;
+}
+thead th.sortable{cursor:pointer;user-select:none;}
+thead th.sortable:hover{background:var(--navy);}
+tbody td{padding:12px 14px;border-top:1px solid rgba(15,35,71,0.08);}
+tbody tr:nth-child(even){background:rgba(245,240,232,0.45);}
+.col-rank{width:64px;}
+.rank{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:18px;
+  color:var(--ink-soft);
+}
+.rank.r1{color:var(--gold);}
+.rank.r2{color:#8d939b;}
+.rank.r3{color:#b07d42;}
+.pname{font-weight:600;}
+.rating{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:20px;
+  color:var(--navy-deep);
+}
+.rd,.gp{color:var(--ink-soft);font-size:14px;}
+.note{
+  font-size:12px;color:var(--ink-soft);
+  padding:12px 14px;
+  border-top:1px solid rgba(15,35,71,0.08);
+  background:var(--white);
+}
+
+/* STATES */
+.state{
+  padding:40px 20px;text-align:center;color:var(--ink-soft);font-size:15px;
+}
+.state.err{color:#a3364a;}
+.backlink{
+  display:inline-block;margin-top:26px;
+  color:var(--navy);font-size:14px;text-decoration:none;
+  border-bottom:1px solid rgba(26,58,107,0.35);
+}
+.backlink:hover{color:var(--gold-deep);border-bottom-color:var(--gold-deep);}
+
+/* RESPONSIVE */
+@media(max-width:640px){
+  .section{padding:40px 20px;}
+  .actionbar-inner{flex-direction:column;align-items:stretch;}
+  .actionbar-inner .hero-cta{width:100%;text-align:center;}
+  .stat{min-width:120px;}
+}
+@media(max-width:420px){
+  .hdr-wordmark{display:none;}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <a class="hdr-brand" href="/">
+    <span class="hdr-logo"><span class="c">Court</span>Sense</span>
+    <span class="hdr-wordmark">Community</span>
+  </a>
+  <nav class="hdr-nav">
+    <a class="hdr-login" href="/community/profile/">Log in</a>
+    <a class="hdr-cta" href="/community/signup/">Sign up</a>
+  </nav>
+</header>
+
+<div class="actionbar">
+  <div class="actionbar-inner">
+    <a class="hero-cta hero-cta-tour" href="/pickup/">Create/Join a Pickup Game</a>
+    <a class="hero-cta" href="/community/signup/">Sign up</a>
+    <a class="hero-cta hero-cta-secondary" href="/community/profile/">Log in</a>
+  </div>
+</div>
+
+<section class="section">
+  <div class="section-inner">
+    <div class="section-head">
+      <div class="section-eyebrow">Community</div>
+      <h2>Player <span class="accent">Rankings</span></h2>
+      <p class="lede">One rating per player across leagues and pickup. Ratings update as games are scored.</p>
+    </div>
+
+    <div id="stats" class="stats" style="display:none;">
+      <div class="stat">
+        <div class="stat-num" id="stat-count">0</div>
+        <div class="stat-label">Players Ranked</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num teal" id="stat-avg">1500</div>
+        <div class="stat-label">Average Rating</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-updated" style="font-size:20px;">never</div>
+        <div class="stat-label">Last Updated</div>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <div id="state" class="state">Loading rankings...</div>
+      <div class="tablescroll" id="tablescroll" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-rank">#</th>
+              <th class="sortable" data-sort="name">Player</th>
+              <th class="sortable" data-sort="rating">Rating</th>
+              <th class="sortable" data-sort="rd">RD</th>
+              <th class="sortable" data-sort="gp">GP</th>
+            </tr>
+          </thead>
+          <tbody id="rbody"></tbody>
+        </table>
+      </div>
+      <p class="note" id="note" style="display:none;">Rank is by rating and does not change when you sort by another column. RD is rating deviation, a measure of how settled a rating is. Lower is more certain.</p>
+    </div>
+
+    <a class="backlink" href="/community/">Back to Community</a>
+  </div>
+</section>
+
+<script>
+var FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+};
+
+// Ported from kotb-app.js so the wording matches the league app.
+function timeAgo(ts){
+  var d = Date.now() - ts;
+  if(d < 60*1000) return 'just now';
+  if(d < 60*60*1000) return Math.round(d/60000)+' min ago';
+  if(d < 24*60*60*1000) return Math.round(d/3600000)+' hr ago';
+  return Math.round(d/86400000)+' day'+(Math.round(d/86400000)===1?'':'s')+' ago';
+}
+
+var rows = [];                                  // frozen rank lives on each row
+var sortKey = 'rating', sortDir = 'desc';
+
+// Standard competition ranking on rating: ties share a rank and the next rank
+// skips. Computed once, stored on the row, and never recomputed on re-sort.
+function buildRows(ratings){
+  var all = Object.keys(ratings || {}).map(function(k){ return ratings[k]; })
+    .filter(function(r){ return r && r.name; });
+  all.sort(function(a,b){ return (b.rating||1500) - (a.rating||1500); });
+  var rank = 0, prev = null, seen = 0;
+  return all.map(function(r){
+    var rating = Math.round(r.rating || 1500);
+    seen++;
+    if(prev === null || rating !== prev){ rank = seen; prev = rating; }
+    return {
+      name: r.name,
+      rating: rating,
+      rd: Math.round(r.rd || 350),
+      gp: r.gamesPlayed || 0,
+      rank: rank
+    };
+  });
+}
+
+function renderStats(ratings){
+  var all = Object.keys(ratings || {}).map(function(k){ return ratings[k]; })
+    .filter(function(r){ return r && r.name; });
+  var total = all.length;
+  var avg = total ? Math.round(all.reduce(function(s,r){ return s + (r.rating || 1500); }, 0) / total) : 1500;
+  var lastTs = all.reduce(function(m,r){ return Math.max(m, r.lastUpdated || 0); }, 0);
+  $('stat-count').textContent = total;
+  $('stat-avg').textContent = avg;
+  $('stat-updated').textContent = lastTs ? timeAgo(lastTs) : 'never';
+  $('stats').style.display = 'flex';
+}
+
+function renderTable(){
+  var view = rows.slice().sort(function(a,b){
+    var va = a[sortKey], vb = b[sortKey];
+    if(sortKey === 'name'){
+      var cmp = String(va).localeCompare(String(vb));
+      return sortDir === 'asc' ? cmp : -cmp;
+    }
+    return sortDir === 'asc' ? va - vb : vb - va;
+  });
+  var medal = ['r1','r2','r3'];
+  $('rbody').innerHTML = view.map(function(r){
+    return '<tr>' +
+      '<td class="col-rank"><span class="rank ' + (medal[r.rank-1] || '') + '">' + r.rank + '</span></td>' +
+      '<td class="pname">' + esc(r.name) + '</td>' +
+      '<td class="rating">' + r.rating + '</td>' +
+      '<td class="rd">&plusmn; ' + r.rd + '</td>' +
+      '<td class="gp">' + r.gp + '</td>' +
+      '</tr>';
+  }).join('');
+  var labels = { name:'Player', rating:'Rating', rd:'RD', gp:'GP' };
+  var ths = document.querySelectorAll('thead th.sortable');
+  for(var i=0;i<ths.length;i++){
+    var k = ths[i].getAttribute('data-sort');
+    ths[i].textContent = labels[k] + (k === sortKey ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+  }
+}
+
+function showEmpty(){
+  $('tablescroll').style.display = 'none';
+  $('note').style.display = 'none';
+  $('state').className = 'state';
+  $('state').textContent = 'No ratings yet.';
+  $('state').style.display = 'block';
+}
+
+function showError(){
+  $('tablescroll').style.display = 'none';
+  $('note').style.display = 'none';
+  $('stats').style.display = 'none';
+  $('state').className = 'state err';
+  $('state').textContent = 'Rankings are not available right now.';
+  $('state').style.display = 'block';
+}
+
+function initSort(){
+  var ths = document.querySelectorAll('thead th.sortable');
+  for(var i=0;i<ths.length;i++){
+    ths[i].addEventListener('click', function(){
+      var k = this.getAttribute('data-sort');
+      if(sortKey === k){
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortKey = k;
+        sortDir = (k === 'name') ? 'asc' : 'desc';
+      }
+      renderTable();
+    });
+  }
+}
+
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    var db = firebase.database();
+    // Absolute top level path. This node is shared across leagues and pickup
+    // and is deliberately not scoped under any school or league dbRoot.
+    db.ref('tally_kotb_pickup/ratings').on('value', function(snap){
+      var ratings = snap.val() || {};
+      rows = buildRows(ratings);
+      if(!rows.length){ showEmpty(); return; }
+      renderStats(ratings);
+      $('state').style.display = 'none';
+      $('tablescroll').style.display = 'block';
+      $('note').style.display = 'block';
+      renderTable();
+    }, function(err){
+      console.error('[Rankings] ratings read failed', err);
+      showError();
+    });
+  }catch(e){
+    console.error('[Rankings] Firebase init failed', e);
+    showError();
+  }
+}
+
+initSort();
+initFB();
+</script>
+
+</body>
+</html>
