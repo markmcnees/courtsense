@@ -314,19 +314,19 @@ body.admin-locked .card-admin-export{display:none;}
     <a href="https://courtsense.app/pickup" target="_blank" rel="noopener" title="Launch one-day pickup tournament" style="display:inline-flex;align-items:center;padding:7px 14px;border-radius:20px;border:none;font-family:'Bebas Neue';font-size:13px;letter-spacing:1.5px;cursor:pointer;background:var(--accent);color:#1a1a1a;white-space:nowrap;text-decoration:none;box-shadow:0 2px 6px rgba(0,0,0,.2);">Pickup Games</a>
   </div>
   <div class="tabs">
-    <button class="tab on" data-tab="schedule">Schedule</button>
-    <button class="tab" data-tab="standings">Standings</button>
+    <button class="tab" data-tab="schedule">Schedule</button>
+    <button class="tab on" data-tab="standings">Standings</button>
     <button class="tab" data-tab="admin">Admin</button>
   </div>
 </div>
 
 <div class="content">
 
-  <div class="pane on" id="pane-schedule">
+  <div class="pane" id="pane-schedule">
     <div id="pub-sched-host"></div>
   </div>
 
-  <div class="pane" id="pane-standings">
+  <div class="pane on" id="pane-standings">
     <div id="standings-host"></div>
   </div>
 
@@ -577,7 +577,7 @@ const AI_URL = 'https://leon-beach-ai.markmcnees-479.workers.dev';
 // STATE
 let db = null;
 let DIV = 'rec';
-let tab = 'schedule';
+let tab = 'standings';
 let _pinAdminUntil = 0;
 let _mainFP = null; // fingerprint of the MAPPED children only; skips re-render when only unmapped nodes (e.g. messages) change
 const SESSION_PIN_MS = 60 * 60 * 1000;
@@ -751,6 +751,21 @@ function initTabs(){
       activateTab(t);
     });
   });
+}
+// Deep link support: /4v4/#schedule opens that tab on load, overriding the
+// hardcoded Standings default. Admin is excluded on purpose, it sits behind the
+// Admin PIN and a hash must not bypass that gate.
+function applyHashTab(){
+  const hashTab = (location.hash || '').replace('#', '');
+  if(!hashTab || hashTab === 'admin') return;
+  const ht = document.querySelector('.tab[data-tab="' + hashTab + '"]');
+  const hp = $('pane-' + hashTab);
+  if(!ht || !hp) return;
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x => x.classList.remove('on'));
+  ht.classList.add('on');
+  hp.classList.add('on');
+  tab = hashTab;
 }
 function activateTab(t){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
@@ -3288,6 +3303,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadDivState();
   applyAdminLock();
   initTabs();
+  applyHashTab();
   renderSwatches();
   renderIcons();
   initFB();
