@@ -19,7 +19,15 @@ let tab  = 'standings';
 let sortK = {key:'diff', dir:'desc'};
 let liveWeek = null;
 let liveRound = 1;
+// In progress (unsaved) score entry, keyed by side + week + round + court index so
+// that each round is completely independent. Keying on court index alone made every
+// round share the same slot, so typing a score in one round showed it in all of them.
+// Side is part of the key because switchSide does not reset liveWeek and both sides
+// use the same week ids.
 const lscore = {};
+function scoreKey(idx,side,wid,round){
+  return (side||SIDE)+':'+(wid||liveWeek)+':'+(round||liveRound)+':'+idx;
+}
 
 let D = {
   kings:  {config:{}, players:{}, weeks:{}, results:{}},
@@ -1592,7 +1600,8 @@ function renderLiveCourts(){
         <button class="btn btn-g btn-sm" onclick="delResult('${existing.id}')">✕ Clear</button>
       </div>`;
     } else {
-      const us = lscore[idx]?.us||0, them = lscore[idx]?.them||0;
+      const sk = scoreKey(idx);
+      const us = lscore[sk]?.us||0, them = lscore[sk]?.them||0;
       h += `<div class="matchup" style="margin-bottom:12px;">
         <div class="tname">${t1html}</div><div class="vs">vs</div><div class="tname right">${t2html}</div>
       </div>`;
@@ -1706,14 +1715,14 @@ function applySubSwap(){
 }
 
 function adj(idx,side,d){
-  if(!lscore[idx])lscore[idx]={us:0,them:0};
-  lscore[idx][side]=Math.max(0,(lscore[idx][side]||0)+d);
-  const el=$(('su-'+idx===('su-'+idx)&&side==='us')?'su-'+idx:'st-'+idx);
+  const k=scoreKey(idx);
+  if(!lscore[k])lscore[k]={us:0,them:0};
+  lscore[k][side]=Math.max(0,(lscore[k][side]||0)+d);
   const el2=$(side==='us'?'su-'+idx:'st-'+idx);
-  if(el2)el2.value=lscore[idx][side];
+  if(el2)el2.value=lscore[k][side];
 }
 
-function setS(idx,side,v){if(!lscore[idx])lscore[idx]={us:0,them:0};lscore[idx][side]=Math.max(0,parseInt(v)||0);}
+function setS(idx,side,v){const k=scoreKey(idx);if(!lscore[k])lscore[k]={us:0,them:0};lscore[k][side]=Math.max(0,parseInt(v)||0);}
 
 function ratingsSourceForSide(){ return SIDE==='queens' ? 'league_queens' : 'league_kings'; }
 function namesForRatedTeam(team, subSlots){
@@ -1769,7 +1778,8 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
   fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
   applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
-  lscore[idx]={us:0,them:0};
+  // Clear only the game just saved. Other rounds may have entry in progress.
+  delete lscore[scoreKey(idx,SIDE,wid,round)];
   toast((s1>s2?'Win':'Loss')+' · '+s1+'–'+s2+' saved ✓');
   const _sy=window.scrollY;
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sy,behavior:'instant'});},400);
