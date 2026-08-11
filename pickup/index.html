@@ -111,6 +111,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .pnum{font-family:'Bebas Neue';font-size:18px;color:var(--gray-light);min-width:26px;text-align:right;}
 .pname2{flex:1;font-weight:700;font-size:15px;}
 .psource{font-size:10px;color:var(--gray);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-right:4px;}
+.rbadge{display:inline-block;background:var(--light);color:var(--primary);font-family:'Bebas Neue';font-size:10px;letter-spacing:.5px;padding:1px 6px;border-radius:4px;vertical-align:middle;margin-left:5px;}
+.rbadge.unrated{background:var(--gray-lighter);color:var(--gray);}
 
 .chips{display:flex;flex-wrap:wrap;gap:6px;}
 .chip{padding:8px 12px;border-radius:18px;border:1.5px solid var(--gray-light);background:var(--white);font-size:13px;font-weight:600;color:var(--black);cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:36px;}
@@ -1083,7 +1085,7 @@ function renderSetup(){
     ? setupState.roster.map((p,i)=>`<div class="pitem">
         <span class="pnum">${i+1}</span>
         ${p.source?`<span class="psource">${p.source}</span>`:''}
-        <span class="pname2">${escapeHTML(p.name)}</span>
+        <span class="pname2">${escapeHTML(p.name)}${ratingBadge(p.name)}</span>
         <button class="btn btn-d btn-sm" onclick="removeSetupPlayer(${i})">✕</button>
       </div>`).join('')
     : '<p style="color:var(--gray);font-size:14px;padding:14px;text-align:center;">Tap a name below or type one above.</p>';
@@ -1209,7 +1211,7 @@ function renderEventRoster(){
         const games = countCompleted(p.id);
         return `<div class="pitem">
           <span class="pnum">${i+1}</span>
-          <span class="pname2">${escapeHTML(p.name)}</span>
+          <span class="pname2">${escapeHTML(p.name)}${ratingBadge(p.name)}</span>
           <span style="font-size:12px;color:var(--gray);margin-right:6px;">${games} game${games===1?'':'s'}</span>
           <button class="btn btn-d btn-sm" onclick="confirmDropPlayer('${p.id}')">Drop</button>
         </div>`;
@@ -1589,8 +1591,8 @@ function renderLiveCourts(){
 
   let h = '';
   (rd.courts||[]).forEach((c,idx)=>{
-    const t1html = (c.t1||[]).map(id=>escapeHTML(pN(id))).join(' &amp; ');
-    const t2html = (c.t2||[]).map(id=>escapeHTML(pN(id))).join(' &amp; ');
+    const t1html = (c.t1||[]).map(id=>escapeHTML(pN(id))+ratingBadge(pN(id))).join(' &amp; ');
+    const t2html = (c.t2||[]).map(id=>escapeHTML(pN(id))+ratingBadge(pN(id))).join(' &amp; ');
     const existing = results.find(r=>r.round===liveRound && r.court===c.court);
     const cls = existing ? 'done' : '';
     h += `<div class="scard ${cls}" id="sc-${idx}">
@@ -1635,7 +1637,7 @@ function renderLiveCourts(){
   });
 
   if(rd.sitting && rd.sitting.length){
-    h += `<div class="card" style="opacity:.7;"><div style="font-size:14px;color:var(--gray);">Sitting Round ${rd.round}: <strong>${rd.sitting.map(id=>escapeHTML(pN(id))).join(', ')}</strong></div></div>`;
+    h += `<div class="card" style="opacity:.7;"><div style="font-size:14px;color:var(--gray);">Sitting Round ${rd.round}: <strong>${rd.sitting.map(id=>escapeHTML(pN(id))+ratingBadge(pN(id))).join(', ')}</strong></div></div>`;
   }
   cont.innerHTML = h;
 }
@@ -1775,7 +1777,7 @@ function renderStandings(){
   $('sbody').innerHTML = rows.map(({p,s},i)=>`
     <tr class="tappable" onclick="showPlayerRatingDetailById('${p.id}')">
       <td style="padding-left:14px;"><span class="rnk ${rc[i]||''}">${i+1}</span></td>
-      <td class="pname">${escapeHTML(p.name)}</td>
+      <td class="pname">${escapeHTML(p.name)}${ratingBadge(p.name)}</td>
       <td class="gp">${s.gp}</td>
       <td class="win">${s.w}</td>
       <td class="loss">${s.l}</td>
@@ -1798,6 +1800,48 @@ function showPlayerRatingDetailById(pid){
   showPlayerRatingDetail(p.name);
 }
 function showPlayerRatingDetailForArchive(name){ showPlayerRatingDetail(name); }
+
+// ── RATING BADGE ───────────────────────────────────────────────────────
+// Small inline rating rendered beside a player name.
+//
+// Resolution order is deliberate. A rating record's own key and the account's
+// key are DIFFERENT nameKeys in almost every case (live data: they match on 1
+// of 20 stamped records), so the playerId stamp is the only reliable bridge
+// between the two. Prefer it whenever the caller has an accountId. Falling
+// back to the display name is the join that can silently mismatch, so it is
+// used only where the render context carries no account.
+//
+//   gamesPlayed > 0        -> the rounded rating
+//   record but no games    -> 'Unrated'
+//   no record at all       -> '' so nothing renders
+//
+// The playerId index is rebuilt only when D.ratings is replaced, because these
+// helpers are called once per name per render and D.ratings is a live listener.
+let _rbIndex = null, _rbIndexSrc = null;
+function ratingRecordFor(nameOrKey, accountId){
+  const R = D.ratings || {};
+  if(accountId){
+    if(_rbIndexSrc !== R){
+      _rbIndex = {};
+      for(const k in R){ const rec = R[k]; if(rec && rec.playerId) _rbIndex[rec.playerId] = rec; }
+      _rbIndexSrc = R;
+    }
+    const hit = _rbIndex[accountId];
+    if(hit) return hit;
+  }
+  if(!nameOrKey) return null;
+  // Accepts a display name or an already-computed nameKey; nameKey is idempotent.
+  const k = window.Ratings ? Ratings.nameKey(nameOrKey) : String(nameOrKey).toLowerCase().trim().replace(/\s+/g,'_');
+  return R[k] || null;
+}
+function ratingBadge(nameOrKey, accountId){
+  const rec = ratingRecordFor(nameOrKey, accountId);
+  if(!rec) return '';
+  const played = (rec.gamesPlayed || 0) > 0;
+  return played
+    ? ' <span class="rbadge">' + Math.round(rec.rating || 1500) + '</span>'
+    : ' <span class="rbadge unrated">Unrated</span>';
+}
 
 function showPlayerRatingDetail(name){
   if(!name) return;
@@ -2243,7 +2287,7 @@ function renderGroupMembers(){
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} onchange="toggleGroupMember('${safe}',this.checked)" style="width:18px;height:18px;flex-shrink:0;">
-      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(name)}</span>
+      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(name)}${ratingBadge(name)}</span>
     </label>`;
   }).join('');
 }
@@ -2997,7 +3041,7 @@ function renderPartnerDetail(i){
         + pending.map(([reqId, r]) => {
             const safeId = escapeHTML(reqId).replace(/'/g,"\\'");
             return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
-              + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(r.name) + clubBadge(r.accountId, r.name) + '</span>'
+              + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + clubBadge(r.accountId, r.name) + '</span>'
               + (partnerEntry ? '' : '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="approveGuestRequest(\'' + safeId + '\')">Accept</button>')
               + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineGuestRequest(\'' + safeId + '\')">Pass</button>'
               + '</div>';
@@ -3687,7 +3731,7 @@ function renderInclude(){
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} onchange="toggleIncMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
-      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${ratingBadge(name)}</span>
     </label>`;
   }).join('');
 }
@@ -3701,7 +3745,7 @@ function renderExclude(){
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'#fee2e2':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
-      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${ratingBadge(name)}</span>
     </label>`;
   }).join('');
 }
@@ -4180,7 +4224,7 @@ function renderInviteDetail(){
     <div class="ctitle"><span class="bar"></span>Confirmed (${confirmed.length}/${i.slots||6})</div>
     ${confirmed.length ? confirmed.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk">${idx+1}</span>
-      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</span>
       ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('') : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No one confirmed yet.</p>'}
   </div>
@@ -4189,21 +4233,21 @@ function renderInviteDetail(){
     <div class="ctitle"><span class="bar"></span>Waitlist (${waitlist.length})</div>
     ${waitlist.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk" style="color:var(--gray);">#${idx+1}</span>
-      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</span>
       ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('')}
   </div>` : ''}
 
   ${declined.length ? `<div class="card" style="opacity:.7;">
     <div class="ctitle"><span class="bar"></span>Dropped (${declined.length})</div>
-    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)).join(', ')}</div>
+    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)+ratingBadge(r.name, r.accountId)).join(', ')}</div>
   </div>` : ''}
 
   ${(isLoggedInHost(i) && guestReqs.length) ? `<div class="card">
     <div class="ctitle"><span class="bar"></span>Requests (${guestReqs.length})</div>
     ${guestReqs.map(([id,r])=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <div style="flex:1;">
-        <div style="font-weight:600;">${escapeHTML(r.name)}</div>
+        <div style="font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</div>
         ${r.email ? `<div style="font-size:12px;color:var(--gray);">${escapeHTML(r.email)}</div>` : ''}
       </div>
       <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="approveGuestRequest('${escapeHTML(id).replace(/'/g,"\\'")}')">Approve</button>
@@ -4416,7 +4460,7 @@ function renderGameChatMessages(){
       : '';
     return '<div style="padding:8px 0;border-bottom:1px solid var(--sand-border);">'
       + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">'
-      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(m.authorName || 'Player') + '</span>'
+      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(m.authorName || 'Player') + ratingBadge(m.authorKey || m.authorName) + '</span>'
       +   '<span style="font-size:11px;color:var(--gray);white-space:nowrap;">' + escapeHTML(fmtDateTime(m.createdAt)) + '</span>'
       + '</div>'
       + '<div style="font-size:14px;color:var(--black);white-space:pre-wrap;word-break:break-word;margin-top:2px;">' + escapeHTML(m.text || '') + '</div>'
