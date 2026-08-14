@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>CourtSense — Team / League / Community Management</title>
-<meta name="description" content="A beach volleyball platform for teams, leagues, and players. Pick your path.">
+<title>CourtSense | Beach Volleyball Team, League, and Community Management</title>
+<meta name="description" content="Beach volleyball software for coaches, league directors, and players. Rosters, live scoring, standings, ratings, and pickup games in one platform.">
 <link rel="canonical" href="https://courtsense.app/">
 <meta name="author" content="CourtSense">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="CourtSense">
-<meta property="og:description" content="Beach volleyball, organized. Run a league, manage a team, find a pickup game.">
+<meta property="og:title" content="CourtSense | Beach Volleyball Team, League, and Community Management">
+<meta property="og:description" content="Beach volleyball software for coaches, league directors, and players. Rosters, live scoring, standings, ratings, and pickup games in one platform.">
 <meta property="og:image" content="https://courtsense.app/og-image.png">
 <meta property="og:url" content="https://courtsense.app/">
 <meta property="og:site_name" content="CourtSense">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CourtSense">
-<meta name="twitter:description" content="Beach volleyball, organized. Run a league, manage a team, find a pickup game.">
+<meta name="twitter:title" content="CourtSense | Beach Volleyball Team, League, and Community Management">
+<meta name="twitter:description" content="Beach volleyball software for coaches, league directors, and players. Rosters, live scoring, standings, ratings, and pickup games in one platform.">
 <meta name="twitter:image" content="https://courtsense.app/og-image.png">
 
 <link rel="icon" type="image/png" href="/favicon_large.png">
@@ -28,6 +28,7 @@
 <style>
 :root{
   --navy:#1a3a6b;
+  --navy-head:#082A4F;
   --navy-deep:#0f2347;
   --gold:#d4a843;
   --teal:#3a8c91;
@@ -155,6 +156,45 @@ main{
   color:#8a6a1a;
 }
 
+/* ── PAGE HEADING ── */
+.pagetitle{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(30px, 6.4vw, 54px);
+  letter-spacing:clamp(1px, 0.3vw, 2px);
+  line-height:1.02;
+  color:var(--navy-head);
+  text-align:center;
+  margin-bottom:clamp(10px, 1.6vw, 18px);
+  animation:fadeUp 0.8s 0.1s ease-out backwards;
+}
+
+/* ── INTRO ── */
+.intro{
+  width:100%;
+  max-width:780px;
+  text-align:center;
+  margin:0 auto clamp(18px, 2.6vw, 34px);
+  animation:fadeUp 0.8s 0.15s ease-out backwards;
+}
+.intro p{
+  font-size:clamp(13px, 1.45vw, 16px);
+  line-height:1.55;
+  color:var(--ink-soft);
+}
+.intro p + p{margin-top:clamp(8px, 1.2vw, 14px);}
+
+/* ── ONE PROFILE ── */
+.oneprofile{
+  width:100%;
+  max-width:780px;
+  margin:clamp(18px, 2.6vw, 34px) auto 0;
+  text-align:center;
+  font-size:clamp(13px, 1.45vw, 16px);
+  line-height:1.55;
+  color:var(--navy-head);
+  animation:fadeUp 0.8s 0.3s ease-out backwards;
+}
+
 /* ── FOOTER ── */
 footer{
   text-align:center;
@@ -184,6 +224,11 @@ footer a:hover{text-decoration:underline;}
 @media (max-width:480px){
   main{padding:24px 12px 50px;}
   .logo{max-width:220px;margin-bottom:24px;}
+  .pagetitle{font-size:29px;margin-bottom:14px;}
+  .pillars{order:2;}
+  .intro{order:3;margin:26px auto 0;}
+  .intro p{font-size:13px;line-height:1.5;}
+  .oneprofile{order:4;font-size:13px;line-height:1.5;margin-top:18px;}
 }
 </style>
 <script type="application/ld+json">
@@ -193,7 +238,7 @@ footer a:hover{text-decoration:underline;}
   "name": "CourtSense",
   "url": "https://courtsense.app/",
   "logo": "https://courtsense.app/og-image.png",
-  "description": "A beach volleyball platform for teams, leagues, and players. Pick your path.",
+  "description": "Beach volleyball software for coaches, league directors, and players. Rosters, live scoring, standings, ratings, and pickup games in one platform.",
   "sameAs": []
 }
 </script>
@@ -201,7 +246,14 @@ footer a:hover{text-decoration:underline;}
 <body>
 
 <main>
-  <h1><img src="logo.png" alt="CourtSense.app — Team / League / Community Management" class="logo"></h1>
+  <img src="logo.png" alt="" class="logo">
+
+  <h1 class="pagetitle">Beach Volleyball, Organized.</h1>
+
+  <div class="intro">
+    <p>CourtSense is a beach volleyball platform for the people who run the game and the people who play it. Coaches manage rosters, lineups, and live scoring for high school and college programs. League directors build schedules, track standings, and run a full season without a spreadsheet. Players find a pickup game, get a rating, and carry one profile across every court they step on.</p>
+    <p>It was built courtside in Tallahassee, Florida, by a coach and league director who needed it to work on a phone in the sand. The City of Tallahassee Parks Department runs its summer beach leagues on CourtSense, and Florida high school programs are using it for the 2026 season.</p>
+  </div>
 
   <div class="pillars">
 
@@ -227,6 +279,8 @@ footer a:hover{text-decoration:underline;}
     </a>
 
   </div>
+
+  <p class="oneprofile">One profile follows a player everywhere. Play a pickup game, join a city league, make a high school roster, and it is the same account and the same rating.</p>
 </main>
 
 <footer>
