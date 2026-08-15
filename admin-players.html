@@ -288,6 +288,53 @@ function adminNotify(payload){
     .catch(err => { console.warn('notify failed', err); logLine('  notify error: '+(err && err.message || err)); return false; });
 }
 
+// Volleyball Life verification emails. Admin-key gated worker routes. Like
+// adminNotify it NEVER sends a recipient address: the worker resolves that
+// server-side from the account id. Fire-and-forget relative to the Firebase
+// write, which has already committed before this runs, so nothing here can
+// roll it back or block it.
+//
+// Both routes answer 200 with sent:false and a reason when nothing goes out, so
+// every outcome is reported to the Activity Log. A quiet non-send is the case
+// worth surfacing: the approval still succeeded, the player just did not hear
+// about it.
+//
+// name is for the log only and is deliberately NOT part of the payload: the
+// worker reads the display name from the player record server-side. It is here
+// because these lines land asynchronously, after the approval lines, so several
+// approvals in a row would otherwise produce outcomes nobody can match to a
+// person.
+function vbNotify(path, name, payload){
+  const who = name || 'this player';
+  const key = ensureAdminKey();
+  if(!key){ logLine('  email skipped for '+who+': no admin key. The approval still stands.'); return Promise.resolve(false); }
+  return fetch(AUTH_WORKER + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ adminKey: key }, payload))
+  }).then(r => r.json().then(res => ({ status: r.status, res })))
+    .then(({ status, res }) => {
+      if(status === 403 && res && res.code === 'forbidden'){
+        clearAdminKey('vb-notify');
+        logLine('  email NOT sent to '+who+': admin key rejected. Re-enter it to send future ones.');
+        return false;
+      }
+      if(status === 429 || (res && res.code === 'rate_limited')){
+        logLine('  email NOT sent to '+who+': rate limited. Wait a few minutes.');
+        return false;
+      }
+      if(!res || !res.ok){
+        logLine('  email NOT sent to '+who+': '+((res && res.error) || ('HTTP '+status)));
+        return false;
+      }
+      if(res.sent === true){ logLine('  email sent to '+who+'.'); return true; }
+      if(res.skipped === 'no_email'){ logLine('  email NOT sent to '+who+': no address on file.'); return false; }
+      if(res.error === 'send_failed'){ logLine('  email NOT sent to '+who+': the mail provider rejected it.'); return false; }
+      logLine('  email NOT sent to '+who+(res.skipped ? ': '+res.skipped : '.'));
+      return false;
+    })
+    .catch(err => { console.warn('vb notify failed', err); logLine('  email error for '+who+': '+(err && err.message || err)); return false; });
+}
+
 function loadContacts(){
   const key = ensureAdminKey();
   if(!key){ logLine('No admin key set; contact info hidden. Reload to set one.'); return; }
@@ -480,6 +527,15 @@ async function doVbApprove(pid){
     logLine('  approved. '+(ratingExists ? 'preserved existing rating.' : 'wrote starting rating '+seed.rating+'.'));
     toast(ratingExists ? 'Approved, existing rating preserved' : 'Approved, rating set');
     renderVbQueue();
+    // seedApplied is the INVERSE of ratingExists: a seed was applied only when no
+    // rating record existed. Inverting this would tell a player with a full season
+    // of games that they are starting from a seeded number. rating rides along only
+    // when a seed was actually written.
+    vbNotify('/pickup/vb-verified-notify', name, Object.assign({
+      playerId: pid,
+      truvolley: tv,
+      seedApplied: !ratingExists
+    }, ratingExists ? {} : { rating: seed.rating }));
   } catch(err){
     console.error(err);
     logLine('  APPROVE FAILED: '+(err && err.message || err));
@@ -509,6 +565,7 @@ async function doVbReject(pid){
     logLine('  rejected. no rating written.');
     toast('Rejected');
     renderVbQueue();
+    vbNotify('/pickup/vb-rejected-notify', name, Object.assign({ playerId: pid }, note ? { note: note } : {}));
   } catch(err){
     console.error(err);
     logLine('  REJECT FAILED: '+(err && err.message || err));
