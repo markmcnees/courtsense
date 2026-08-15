@@ -98,6 +98,12 @@ tr.blocked td{background:#fef2f2;}
   </div>
 
   <div class="card">
+    <h2>Volleyball Life Verification (<span id="vb-count">0</span>)</h2>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Players who submitted a Volleyball Life profile link from their CourtSense profile. Open the link, read the TruVolley rating off the page, and enter it. Nothing is written until you approve.</p>
+    <div id="vb-list"></div>
+  </div>
+
+  <div class="card">
     <h2>All Profiles (<span id="count">0</span>)</h2>
     <div id="summary" class="sub" style="margin:-2px 0 12px;"></div>
     <input class="inp search" id="search" type="search" placeholder="Filter by name or email..." autocomplete="off" data-1p-ignore data-lpignore="true" oninput="renderList()">
@@ -339,6 +345,7 @@ function loadPlayers(){
     PLAYERS = snap.val()||{};
     renderList();
     renderPending();
+    renderVbQueue();
   }, err=>{ console.error(err); toast("Couldn't read player profiles"); });
   // Pending registrations are fetched (admin-gated), not live-listened. See loadPending().
   loadPending();
@@ -347,10 +354,167 @@ function loadPlayers(){
     RATINGS_KEYS = {};
     Object.keys(v).forEach(k=>{ RATINGS_KEYS[k] = true; });
     renderPending();
+    renderVbQueue();
   }).catch(err=>console.warn('ratings keys read failed', err));
 }
 
 function nameKey(n){ return String(n||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_'); }
+
+// TruVolley to Glicko-2 seed bands. Bands own their lower edge, so exactly 4.0
+// lands in the 4 to 6 band. This is the code behind the reference table
+// rendered in the approve panel above.
+//
+// OTHER COPIES OF THESE BANDS, keep in sync if they ever change:
+//   scripts/rerate-both-sides.js  truvolleySeed
+//   fsu_grass/signup.html         csSeedFromTruVolley  (takes a pre-parsed number)
+//   sand_sharks/signup.html       same pattern as fsu_grass
+// The community/profile copy was deleted when verification moved to this page.
+// This cannot live in ratings.js today without editing that file.
+function truvolleySeed(raw){
+  const v = parseFloat(raw);
+  if(!isFinite(v)) return null;
+  if(v < 2)  return { rating: 1300, rd: 300 };
+  if(v < 4)  return { rating: 1450, rd: 250 };
+  if(v < 6)  return { rating: 1600, rd: 200 };
+  if(v < 8)  return { rating: 1800, rd: 150 };
+  if(v < 10) return { rating: 2000, rd: 150 };
+  return { rating: 2200, rd: 100 };
+}
+
+// Pending verification requests, read straight off the live PLAYERS listener.
+// players is a .read:true node, so no extra admin call is needed here. The
+// existing PIN plus worker-key gate on this page is the only gate.
+function vbPending(){
+  return Object.entries(PLAYERS||{})
+    .map(([pid, p]) => ({ pid, p, req: p && p.externalRatings && p.externalRatings.volleyballLife }))
+    .filter(x => x.req && x.req.status === 'pending')
+    .sort((a,b) => (a.req.submittedAt||0) - (b.req.submittedAt||0));
+}
+
+function renderVbQueue(){
+  const cont = $('vb-list'); if(!cont) return;
+  const all = vbPending();
+  $('vb-count').textContent = all.length;
+  if(!all.length){
+    cont.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No verification requests waiting.</p>';
+    return;
+  }
+  cont.innerHTML = all.map(x => {
+    const name = recordName(x.p, x.pid);
+    const k = nameKey(name);
+    const dupeRating = !!RATINGS_KEYS[k];
+    const when = x.req.submittedAt
+      ? new Date(x.req.submittedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
+      : '';
+    const url = String(x.req.url || '');
+    return `<div style="border:1px solid var(--gray-lighter);border-radius:12px;padding:14px;margin-bottom:12px;background:#fafaf7;">
+      <div style="margin-bottom:8px;">
+        <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--primary);">${esc(name)}</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:2px;">submitted ${esc(when)}</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="font-size:13px;word-break:break-all;">${esc(url)}</a>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="flex:1;min-width:140px;">
+          <div class="lbl">TruVolley number from the page</div>
+          <input class="inp" type="number" min="0" max="20" step="0.01" id="vb-tv-${esc(x.pid)}" placeholder="e.g. 5.14">
+        </div>
+        <div style="flex:1;min-width:200px;">
+          <div class="lbl">Optional note (reject only)</div>
+          <input class="inp" id="vb-note-${esc(x.pid)}" placeholder="Reason, if rejecting">
+        </div>
+        ${dupeRating ? '<div style="flex-basis:100%;font-size:11px;color:var(--gray);">Existing rating record found. Approve will stamp the request but preserve their current rating.</div>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="background:var(--win);color:#fff;flex:1;" onclick="doVbApprove('${esc(x.pid)}')">\u2713 Approve</button>
+        <button class="btn btn-d" style="flex:1;" onclick="doVbReject('${esc(x.pid)}')">\u2715 Reject</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// One atomic root update, mirroring doApprove. The rating record is written
+// ONLY when none exists, using the same RATINGS_KEYS guard, so an active
+// player's history is never clobbered. The request is stamped in place and
+// never deleted, so the audit trail survives.
+async function doVbApprove(pid){
+  const p = (PLAYERS||{})[pid];
+  const req = p && p.externalRatings && p.externalRatings.volleyballLife;
+  if(!req || req.status !== 'pending'){ toast('That request is no longer pending'); renderVbQueue(); return; }
+  const tvRaw = ($('vb-tv-'+pid) || {}).value;
+  const seed = truvolleySeed(tvRaw);
+  if(!seed){ toast('Enter the TruVolley number from the page'); return; }
+  const tv = parseFloat(tvRaw);
+  const name = recordName(p, pid);
+  const k = nameKey(name);
+  if(!k){ toast('Name normalizes to empty'); return; }
+
+  const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
+  const now = Date.now();
+  const ratingExists = !!RATINGS_KEYS[k];
+  logLine('Approving Volleyball Life for '+name+' (TruVolley '+tv+' -> rating '+seed.rating+', RD '+seed.rd+')');
+
+  const updates = {};
+  if(!ratingExists){
+    updates[RATINGS_ROOT+'/'+k+'/name']                = name;
+    updates[RATINGS_ROOT+'/'+k+'/rating']              = seed.rating;
+    updates[RATINGS_ROOT+'/'+k+'/rd']                  = seed.rd;
+    updates[RATINGS_ROOT+'/'+k+'/volatility']          = 0.06;
+    updates[RATINGS_ROOT+'/'+k+'/gamesPlayed']         = 0;
+    updates[RATINGS_ROOT+'/'+k+'/peakRating']          = seed.rating;
+    updates[RATINGS_ROOT+'/'+k+'/peakRatingDate']      = null;
+    updates[RATINGS_ROOT+'/'+k+'/lastUpdated']         = now;
+    updates[RATINGS_ROOT+'/'+k+'/seededFromTruVolley'] = tv;
+  }
+  const base = ROOT+'/'+pid+'/externalRatings/volleyballLife';
+  updates[base+'/status']           = 'approved';
+  updates[base+'/reviewedAt']       = now;
+  updates[base+'/reviewedBy']       = reviewer;
+  updates[base+'/appliedRating']    = ratingExists ? null : seed.rating;
+  updates[base+'/appliedTruvolley'] = tv;
+
+  try {
+    await db.ref().update(updates);
+    RATINGS_KEYS[k] = true;
+    logLine('  approved. '+(ratingExists ? 'preserved existing rating.' : 'wrote starting rating '+seed.rating+'.'));
+    toast(ratingExists ? 'Approved, existing rating preserved' : 'Approved, rating set');
+    renderVbQueue();
+  } catch(err){
+    console.error(err);
+    logLine('  APPROVE FAILED: '+(err && err.message || err));
+    toast("Couldn't approve. Try again.");
+  }
+}
+
+// Stamps the request only. Writes no rating.
+async function doVbReject(pid){
+  const p = (PLAYERS||{})[pid];
+  const req = p && p.externalRatings && p.externalRatings.volleyballLife;
+  if(!req || req.status !== 'pending'){ toast('That request is no longer pending'); renderVbQueue(); return; }
+  const name = recordName(p, pid);
+  const note = (($('vb-note-'+pid) || {}).value || '').trim();
+  if(!confirm('Reject the Volleyball Life link for '+name+'? No rating will be written.')) return;
+  const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
+  const now = Date.now();
+  logLine('Rejecting Volleyball Life for '+name+(note ? ' ('+note+')' : ''));
+  const base = ROOT+'/'+pid+'/externalRatings/volleyballLife';
+  const updates = {};
+  updates[base+'/status']       = 'rejected';
+  updates[base+'/reviewedAt']   = now;
+  updates[base+'/reviewedBy']   = reviewer;
+  updates[base+'/reviewNote']   = note || null;
+  try {
+    await db.ref().update(updates);
+    logLine('  rejected. no rating written.');
+    toast('Rejected');
+    renderVbQueue();
+  } catch(err){
+    console.error(err);
+    logLine('  REJECT FAILED: '+(err && err.message || err));
+    toast("Couldn't reject. Try again.");
+  }
+}
 
 function renderPending(){
   const cont = $('pending-list'); if(!cont) return;

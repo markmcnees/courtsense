@@ -213,10 +213,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div class="note">
         You do not have a rating yet. Here is how to get one.
         <ul>
-          <li>Enter your TruVolley number in the Settings tab to get an instant starting rating. <a href="https://truvolley.com/ratings" target="_blank" rel="noopener">Find your TruVolley number</a>.</li>
+          <li id="gs-vb">Add your Volleyball Life profile link in the Settings tab. We will verify it and set your starting rating.</li>
           <li>League games will also build your rating over time.</li>
           <li>Counted in-app pickup games are coming soon. They will build your rating once the count this game option goes live.</li>
         </ul>
+        <div id="gs-vb-status" style="display:none;margin-top:8px;"></div>
       </div>
     </section>
 
@@ -288,9 +289,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <p class="sub">Help us seed your starting numbers from systems you already play in.</p>
       <div class="row two">
         <div class="fg">
-          <label class="lbl" for="f-truvolley">TruVolley Rating</label>
-          <input class="inp" id="f-truvolley" inputmode="decimal" placeholder="e.g. 5.1">
-          <div class="help"><a class="help-link" href="https://truvolley.com/ratings" target="_blank" rel="noopener noreferrer">Find your TruVolley number</a></div>
+          <label class="lbl" for="f-vblink">Volleyball Life Profile</label>
+          <input class="inp" id="f-vblink" inputmode="url" placeholder="https://volleyballlife.com/player/240662">
+          <div class="help">Paste the link to your Volleyball Life player page. We will verify it and set your starting rating.</div>
         </div>
         <div class="fg">
           <label class="lbl" for="f-avp">AVP number</label>
@@ -462,6 +463,9 @@ const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 let db = null;
 let currentPid = null;
+// The player's own externalRatings block, read at login. Drives the pending
+// state and stops a save from downgrading an approved request.
+let currentExternal = null;
 let currentDisplayName = '';
 let myKey = ''; // nameKey(currentDisplayName); the key ratings/history/leaderboard resolve by
 
@@ -594,7 +598,6 @@ function doSaveNotifications(){
 
 function fillFromProfile(profile){
   profile = profile || {};
-  $('f-truvolley').value   = profile.truvolleyRankingNumber || '';
   $('f-avp').value         = profile.avpNumber || '';
   $('f-skill').value       = profile.skillLevel || '';
   $('f-zip').value         = profile.zipCode || '';
@@ -618,7 +621,6 @@ function nullIfBlank(v){
 
 function readForm(){
   return {
-    truvolleyRankingNumber: nullIfBlank($('f-truvolley').value),
     avpNumber:              nullIfBlank($('f-avp').value),
     skillLevel:             nullIfBlank($('f-skill').value),
     zipCode:                nullIfBlank($('f-zip').value),
@@ -652,7 +654,21 @@ function doSave(e){
     return false;
   }
 
-  const stringFields = ['truvolleyRankingNumber','avpNumber','skillLevel','zipCode','height',
+  // An empty link is valid and simply means no verification request.
+  $('f-vblink').classList.remove('invalid');
+  const vbRaw = ($('f-vblink').value || '').trim();
+  let vb = null;
+  if(vbRaw){
+    vb = parseVolleyballLifeUrl(vbRaw);
+    if(!vb){
+      errEl.textContent = 'That does not look like a Volleyball Life player link. It should look like https://volleyballlife.com/player/240662';
+      $('f-vblink').classList.add('invalid');
+      $('f-vblink').focus();
+      return false;
+    }
+  }
+
+  const stringFields = ['avpNumber','skillLevel','zipCode','height',
                         'dominantHand','reach','blockJumpTouch','approachJumpTouch',
                         'usualSide','preferredSide','usualDefense','preferredDefense'];
   const hasInput = stringFields.some(k => profile[k] != null) || profile.indoorExperience || profile.grassExperience;
@@ -661,13 +677,13 @@ function doSave(e){
     $('welcome').style.display = 'none';
   }
 
-  // On a successful save, seed the Glicko-2 rating from the TruVolley Rating
-  // (no-op when TruVolley is blank/non-numeric or a rating already exists),
-  // then confirm to the user only after the write resolves so the toast is
-  // write-confirmed rather than optimistic.
+  // The profile write no longer seeds a rating. A Volleyball Life link queues a
+  // verification request on the player's own record; only an admin approval in
+  // admin-players.html ever writes to the ratings node. The toast fires after
+  // the write resolves so it is write-confirmed rather than optimistic.
   db.ref(ROSTER_PATH+'/'+currentPid+'/profile').set(profile)
     .then(() => {
-      seedRatingFromTruVolley(currentDisplayName, profile.truvolleyRankingNumber);
+      submitVolleyballLifeRequest(vb);
       toast('Profile saved');
     })
     .catch(err => { console.error('profile save failed', err); toast("Couldn't save. Try again."); });
@@ -704,63 +720,86 @@ async function doChangePassword(){
   toast('Password updated');
 }
 
-// Mirror ratings.js nameKey EXACTLY so the profile reads/writes the same rating
-// key the live KotB scoring uses (tally_kotb_pickup/ratings/{nameKey}).
-function nameKey(name){
-  return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
+// Single implementation lives in ratings.js, which loads at the top of this
+// page. This delegates so the profile can never drift from live scoring.
+function nameKey(name){ return Ratings.nameKey(name); }
+
+// Volleyball Life player link -> { playerId, url }, or null when it does not
+// match. Tolerates http or https, a leading www, a trailing slash, and a query
+// string or hash. The stored url is normalised to one canonical form so the
+// admin queue always shows the same shape.
+function parseVolleyballLifeUrl(raw){
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t) return null;
+  const m = t.match(/^https?:\/\/(?:www\.)?volleyballlife\.com\/player\/(\d+)\/?(?:[?#].*)?$/i);
+  if(!m) return null;
+  return { playerId: m[1], url: 'https://volleyballlife.com/player/' + m[1] };
 }
 
-// TruVolley Rating (0-10 decimal) -> Glicko-2 seed. Bands own their lower edge,
-// so exactly 4.0 lands in 4-6. Returns { rating, rd }, or null if the value is
-// blank or not a usable number (in which case we do NOT seed).
-function truvolleySeed(raw){
-  const v = parseFloat(raw);
-  if(!isFinite(v)) return null;
-  if(v < 2)  return { rating: 1300, rd: 300 };
-  if(v < 4)  return { rating: 1450, rd: 250 };
-  if(v < 6)  return { rating: 1600, rd: 200 };
-  if(v < 8)  return { rating: 1800, rd: 150 };
-  if(v < 10) return { rating: 2000, rd: 150 };
-  return { rating: 2200, rd: 100 };
-}
-
-// Seed a Glicko-2 rating from the player's TruVolley Rating, keyed by
-// nameKey(displayName) — the same key live scoring uses. Guarded: never
-// overwrites an existing rating (preserves game history), mirroring doApprove.
-// No-op when the TruVolley value is blank/non-numeric.
-async function seedRatingFromTruVolley(displayName, truvolleyRaw){
-  const seed = truvolleySeed(truvolleyRaw);
-  if(!seed) return;
-  const key = nameKey(displayName);
-  if(!key) return;
+// Queue a verification request on the player's OWN account record. Writes NO
+// rating: only an admin approval does that. Never downgrades an existing
+// request. An approved one is left alone, and a pending one keeps its status
+// while the url and playerId refresh.
+async function submitVolleyballLifeRequest(vb){
+  if(!vb || !currentPid) return;
+  const base = ROSTER_PATH + '/' + currentPid + '/externalRatings/volleyballLife';
+  const cur = (currentExternal && currentExternal.volleyballLife) || null;
+  const status = cur && cur.status ? cur.status : null;
   try {
-    const snap = await db.ref(RATINGS_PATH+'/'+key).once('value');
-    const existing = snap.val();
-    if(existing && existing.rating != null) return; // already rated -> preserve history
-    const now = Date.now();
-    await db.ref(RATINGS_PATH+'/'+key).update({
-      name: displayName,
-      rating: seed.rating,
-      rd: seed.rd,
-      volatility: 0.06,
-      gamesPlayed: 0,
-      peakRating: seed.rating,
-      peakRatingDate: null,
-      lastUpdated: now,
-      seededFromTruVolley: parseFloat(truvolleyRaw)
+    if(status === 'approved') return;
+    if(status === 'pending'){
+      if(cur.url === vb.url) return;
+      await db.ref(base).update({ playerId: vb.playerId, url: vb.url });
+    } else {
+      await db.ref(base).set({
+        playerId: vb.playerId,
+        url: vb.url,
+        status: 'pending',
+        submittedAt: Date.now(),
+        reviewedAt: null,
+        reviewedBy: null,
+        appliedRating: null,
+        appliedTruvolley: null
+      });
+    }
+    currentExternal = currentExternal || {};
+    currentExternal.volleyballLife = Object.assign({}, cur, {
+      playerId: vb.playerId, url: vb.url, status: 'pending'
     });
-    loadRating(displayName); // refresh the shown rating immediately
-  } catch(e){ console.warn('rating seed failed', e); }
+    renderVbStatus();
+  } catch(e){ console.warn('verification request failed', e); }
+}
+
+// Pending copy for the getting-started card. Approved hides the bullet, since
+// the seed is applied and there is nothing left for the player to do.
+function renderVbStatus(){
+  const li = $('gs-vb'), box = $('gs-vb-status');
+  if(!li || !box) return;
+  const cur = (currentExternal && currentExternal.volleyballLife) || null;
+  const status = cur && cur.status ? cur.status : null;
+  if(status === 'pending'){
+    li.style.display = '';
+    box.style.display = '';
+    box.textContent = 'Your Volleyball Life link is submitted and waiting to be verified. We will set your starting rating once it is checked.';
+  } else if(status === 'approved'){
+    li.style.display = 'none';
+    box.style.display = 'none';
+  } else {
+    li.style.display = '';
+    box.style.display = 'none';
+  }
 }
 
 async function loadRating(displayName){
   try {
     const snap = await db.ref(RATINGS_PATH+'/'+nameKey(displayName)).once('value');
     const r = snap.val();
-    if(r && typeof r.rating === 'number'){
+    // Same gate as pickup and the leaderboard: a record alone is not a rating.
+    if(Ratings.isRated(r)){
       $('who-rating').innerHTML = '<strong>'+Math.round(r.rating)+'</strong><span>'+(r.gamesPlayed||0)+' games</span>';
     } else {
-      $('who-rating').innerHTML = '<strong>—</strong><span>No rating yet</span>';
+      const toGo = Ratings.gamesUntilRated(r);
+      $('who-rating').innerHTML = '<strong>Unrated</strong><span>'+(toGo > 0 ? toGo+' more game'+(toGo===1?'':'s')+' to get rated' : 'no games yet')+'</span>';
     }
   } catch(e){
     console.warn('rating read failed', e);
@@ -825,11 +864,13 @@ function sourceLabel(s){
   return 'Game';
 }
 
-// Leaderboard: every record with a numeric rating, sorted desc, ranked.
+// Leaderboard: every RATED record, sorted desc, ranked. Membership uses the
+// shared gate so this board matches community/rankings and so a player is never
+// told they are unranked while still appearing in the list.
 function computeBoard(ratingsAll){
   return Object.keys(ratingsAll || {})
     .map(k => ({ key: k, rec: ratingsAll[k] }))
-    .filter(x => x.rec && num(x.rec.rating) != null)
+    .filter(x => Ratings.isRated(x.rec))
     .map(x => ({ key: x.key, name: (x.rec.name || x.key), rating: x.rec.rating }))
     .sort((a, b) => b.rating - a.rating)
     .map((x, i) => { x.rank = i + 1; return x; });
@@ -863,19 +904,22 @@ function isInGroup(groupId, groupsAll){
   return members.some(m => nameKey(m) === myKey);
 }
 
-// Rating-number eligibility (matches the dashboard spec). myRating is number or null.
-function qualifies(inv, myRating, groupsAll){
+// Rating eligibility. myRating is the raw number or null; isRated is the shared
+// display gate. An unrated player does not qualify by rating for a gated event,
+// however high their provisional number is. A direct invite still overrides,
+// through the includeList check at the bottom of this function.
+function qualifies(inv, myRating, groupsAll, isRated){
   const e = inv.eligibility || {};
   const mode = e.baseMode || 'all';
   let ok;
   if(mode === 'ratingMin'){
     const min = num(parseFloat(e.ratingMin)) != null ? parseFloat(e.ratingMin) : 0;
-    ok = (min === 0) ? true : (myRating != null && myRating >= min);
+    ok = (min === 0) ? true : (isRated && myRating != null && myRating >= min);
   } else if(mode === 'ratingRange'){
     const min = num(parseFloat(e.ratingMin)) != null ? parseFloat(e.ratingMin) : 0;
     const maxRaw = parseFloat(e.ratingMax);
     const max = isFinite(maxRaw) ? maxRaw : Infinity;
-    ok = (myRating != null && myRating >= min && myRating <= max);
+    ok = (isRated && myRating != null && myRating >= min && myRating <= max);
   } else if(mode === 'group'){
     ok = isInGroup(e.groupId, groupsAll);
   } else {
@@ -892,11 +936,15 @@ function renderRating(myRec, board){
   const el = $('card-rating');
   const rating = myRec ? num(myRec.rating) : null;
 
-  if(rating == null){
+  // Same gate as pickup and the leaderboard, not a bare null check.
+  if(!Ratings.isRated(myRec)){
+    const toGo = Ratings.gamesUntilRated(myRec);
     el.innerHTML =
-      '<div class="rating-hero"><div class="big-rating na">N/A</div></div>' +
-      '<div class="empty">No rating yet. See the getting started steps below.</div>';
+      '<div class="rating-hero"><div class="big-rating na">Unrated</div></div>' +
+      '<div class="empty">' + (toGo > 0 ? toGo + ' more game' + (toGo===1?'':'s') + ' to get rated.' : 'No games yet.') +
+      ' See the getting started steps below.</div>';
     $('card-getstarted').style.display = 'block';
+    renderVbStatus();
     return;
   }
   $('card-getstarted').style.display = 'none';
@@ -982,7 +1030,7 @@ function renderPickups(invitesAll, myRating, groupsAll, hasMyRating){
     .map(id => invitesAll[id])
     .filter(inv => inv && inv.status === 'open')
     .filter(inv => eventStartMs(inv) > now)
-    .filter(inv => qualifies(inv, myRating, groupsAll))
+    .filter(inv => qualifies(inv, myRating, groupsAll, hasMyRating))
     .sort((a, b) => eventStartMs(a) - eventStartMs(b));
 
   if(!list.length){
@@ -1117,7 +1165,9 @@ async function loadOverview(){
 
     const myRec = ratingsAll[myKey] || null;
     const myRating = myRec ? num(myRec.rating) : null;
-    const hasMyRating = myRating != null;
+    // Display gate, shared with pickup and the public leaderboard. myRating stays
+    // the raw number because qualifies() compares it against a tier range.
+    const hasMyRating = Ratings.isRated(myRec);
     const board = computeBoard(ratingsAll);
 
     renderRating(myRec, board);
@@ -1139,7 +1189,11 @@ async function onLogin(player){
   $('logout-btn').style.display = 'inline-flex';
   $('page').classList.add('on');
 
+  currentExternal = player.externalRatings || null;
   fillFromProfile(player.profile);
+  const vbCur = (currentExternal && currentExternal.volleyballLife) || null;
+  $('f-vblink').value = (vbCur && vbCur.url) || '';
+  renderVbStatus();
   fillNotifications(player);
   loadRating(currentDisplayName);
   // Overview is the default tab, so it must render on first paint for a logged-in

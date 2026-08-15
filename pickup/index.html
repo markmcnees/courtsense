@@ -2506,6 +2506,11 @@ function allKnownPlayerNames(){
   return byKey;
 }
 
+// Rating-gated circles admit RATED players only, using the shared gate. An
+// unrated player does not qualify by rating however high their provisional
+// number is. The includeList pass below still overrides up, so a host can
+// invite an unrated player to a gated game directly. Widening tiers call this
+// same function with their own spec, so they inherit the rule.
 function computeEligible(e){
   e = e || {};
   const allByKey = allKnownPlayerNames();
@@ -2513,12 +2518,12 @@ function computeEligible(e){
   if(e.baseMode === 'ratingMin'){
     const min = +e.ratingMin || 0;
     names = Object.entries(allByKey)
-      .filter(([k]) => { const r=(D.ratings||{})[k]; return r && (r.rating||0) >= min; })
+      .filter(([k]) => { const r=(D.ratings||{})[k]; return Ratings.isRated(r) && (r.rating||0) >= min; })
       .map(([,n]) => n);
   } else if(e.baseMode === 'ratingRange'){
     const min = +e.ratingMin || 0, max = +e.ratingMax || 9999;
     names = Object.entries(allByKey)
-      .filter(([k]) => { const r=(D.ratings||{})[k]; const rt=(r&&r.rating)||0; return rt>=min && rt<=max; })
+      .filter(([k]) => { const r=(D.ratings||{})[k]; const rt=(r&&r.rating)||0; return Ratings.isRated(r) && rt>=min && rt<=max; })
       .map(([,n]) => n);
   } else if(e.baseMode === 'group'){
     const g = (D.groups||{})[e.groupId];
