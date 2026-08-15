@@ -292,6 +292,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <label class="lbl" for="f-vblink">Volleyball Life Profile</label>
           <input class="inp" id="f-vblink" inputmode="url" placeholder="https://volleyballlife.com/player/240662">
           <div class="help">Paste the link to your Volleyball Life player page. We will verify it and set your starting rating.</div>
+          <div class="help" id="vb-field-status" style="display:none;"></div>
         </div>
         <div class="fg">
           <label class="lbl" for="f-avp">AVP number</label>
@@ -736,54 +737,117 @@ function parseVolleyballLifeUrl(raw){
   return { playerId: m[1], url: 'https://volleyballlife.com/player/' + m[1] };
 }
 
+// How many decided requests to keep on the record. Newest first, oldest
+// falls off. Enough to see a pattern (a player relinking every season, or
+// arguing with a rejection) without letting one record grow without bound.
+const VB_HISTORY_MAX = 5;
+
 // Queue a verification request on the player's OWN account record. Writes NO
-// rating: only an admin approval does that. Never downgrades an existing
-// request. An approved one is left alone, and a pending one keeps its status
-// while the url and playerId refresh.
+// rating: only an admin approval does that.
+//
+// A player may resubmit at any time, including after an approval, because a
+// Volleyball Life rating moves and the one we verified goes stale. Every
+// submission that counts as new lands as pending with a fresh submittedAt and
+// the prior decision fields cleared, so the admin queue always sees a clean
+// request rather than a half-stamped one.
+//
+// Counting as new is the whole guard here. This function runs on every profile
+// save, so a player who edits their phone number resubmits the url already in
+// the field. We treat a submission as new only when the url differs from the
+// one on the record, or when the record carries a decision (approved or
+// rejected) that this submission is asking us to revisit. Same url while still
+// pending returns before any write, which is what keeps submittedAt at its
+// original value and keeps duplicate entries out of history.
 async function submitVolleyballLifeRequest(vb){
   if(!vb || !currentPid) return;
   const base = ROSTER_PATH + '/' + currentPid + '/externalRatings/volleyballLife';
   const cur = (currentExternal && currentExternal.volleyballLife) || null;
   const status = cur && cur.status ? cur.status : null;
+  if(status === 'pending' && cur.url === vb.url) return;
   try {
-    if(status === 'approved') return;
-    if(status === 'pending'){
-      if(cur.url === vb.url) return;
-      await db.ref(base).update({ playerId: vb.playerId, url: vb.url });
-    } else {
-      await db.ref(base).set({
-        playerId: vb.playerId,
-        url: vb.url,
-        status: 'pending',
-        submittedAt: Date.now(),
-        reviewedAt: null,
-        reviewedBy: null,
-        appliedRating: null,
-        appliedTruvolley: null
-      });
+    const next = {
+      playerId: vb.playerId,
+      url: vb.url,
+      status: 'pending',
+      submittedAt: Date.now(),
+      reviewedAt: null,
+      reviewedBy: null,
+      appliedRating: null,
+      appliedTruvolley: null
+    };
+    const prior = Array.isArray(cur && cur.history) ? cur.history : [];
+    if(status === 'approved' || status === 'rejected'){
+      // Snapshot the decision before overwriting it, so the audit trail
+      // survives a re-verify. Nulls are dropped by Firebase on write, which is
+      // fine: a missing field reads back as undefined either way.
+      next.history = [{
+        url: cur.url || null,
+        playerId: cur.playerId || null,
+        status: status,
+        submittedAt: cur.submittedAt || null,
+        reviewedAt: cur.reviewedAt || null,
+        reviewedBy: cur.reviewedBy || null,
+        appliedRating: cur.appliedRating != null ? cur.appliedRating : null,
+        appliedTruvolley: cur.appliedTruvolley != null ? cur.appliedTruvolley : null,
+        reviewNote: cur.reviewNote || null
+      }].concat(prior).slice(0, VB_HISTORY_MAX);
+    } else if(prior.length){
+      // Pending with a changed url. There is no new decision to record, but
+      // this is a set(), so history has to be carried forward explicitly or the
+      // earlier entries are wiped.
+      next.history = prior.slice(0, VB_HISTORY_MAX);
     }
+    await db.ref(base).set(next);
     currentExternal = currentExternal || {};
-    currentExternal.volleyballLife = Object.assign({}, cur, {
-      playerId: vb.playerId, url: vb.url, status: 'pending'
-    });
+    currentExternal.volleyballLife = next;
     renderVbStatus();
   } catch(e){ console.warn('verification request failed', e); }
 }
 
-// Pending copy for the getting-started card. Approved hides the bullet, since
-// the seed is applied and there is nothing left for the player to do.
+// Copy for all three states. Two surfaces, because they have different
+// lifetimes: the getting-started card only renders while a player is unrated,
+// so an approved and seeded player stops seeing gs-vb-status entirely. The
+// Settings line sits under the input and is always reachable, which is where
+// an approved player needs to be told they can relink.
 function renderVbStatus(){
-  const li = $('gs-vb'), box = $('gs-vb-status');
-  if(!li || !box) return;
+  const li = $('gs-vb'), box = $('gs-vb-status'), field = $('vb-field-status');
   const cur = (currentExternal && currentExternal.volleyballLife) || null;
   const status = cur && cur.status ? cur.status : null;
+  const note = (cur && cur.reviewNote) ? String(cur.reviewNote) : '';
+
+  const PENDING = 'Your Volleyball Life link is submitted and waiting to be verified. We will set your starting rating once it is checked.';
+  const APPROVED = 'Your Volleyball Life profile is verified. If your Volleyball Life rating changes, paste the link again and we will take another look.';
+  const REJECTED_BASE = 'We could not verify that Volleyball Life link.';
+  const REJECTED_TAIL = 'Paste a corrected link and we will review it again.';
+  const rejected = note
+    ? REJECTED_BASE + ' ' + note + ' ' + REJECTED_TAIL
+    : REJECTED_BASE + ' ' + REJECTED_TAIL;
+
+  if(field){
+    const msg = status === 'pending' ? PENDING
+      : status === 'approved' ? APPROVED
+      : status === 'rejected' ? rejected
+      : '';
+    field.textContent = msg;
+    field.style.display = msg ? '' : 'none';
+  }
+
+  if(!li || !box) return;
   if(status === 'pending'){
     li.style.display = '';
     box.style.display = '';
-    box.textContent = 'Your Volleyball Life link is submitted and waiting to be verified. We will set your starting rating once it is checked.';
+    box.textContent = PENDING;
   } else if(status === 'approved'){
+    // Approved but still on this card means the approval preserved an existing
+    // rating rather than seeding one, so the player is unrated on games alone.
+    // Saying nothing here would read as the request having been ignored.
     li.style.display = 'none';
-    box.style.display = 'none';
+    box.style.display = '';
+    box.textContent = APPROVED;
+  } else if(status === 'rejected'){
+    li.style.display = '';
+    box.style.display = '';
+    box.textContent = rejected;
   } else {
     li.style.display = '';
     box.style.display = 'none';
