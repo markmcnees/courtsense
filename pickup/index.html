@@ -1452,8 +1452,17 @@ Use ONLY the listed P-codes. NEVER use "?" or any placeholder. Return only the J
   const res = await fetch(AI_URL, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:8000, messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:8000, messages:[{role:'user',content:prompt}] })
   });
+  // A retired model, a dead endpoint, an expired key, or a rate limit all land
+  // here. Without this check the error body falls through to the bracket scan
+  // below and surfaces as 'AI did not return JSON', which hides the real cause.
+  if(!res.ok){
+    let body='';
+    try{ body=await res.text(); }catch(be){ body='(body unavailable)'; }
+    console.error('[Pickup] AI HTTP error', res.status, body.slice(0,500));
+    throw new Error('AI request failed with HTTP '+res.status);
+  }
   const data = await res.json();
   const text = data.content?.map(c=>c.text||'').join('')||'';
   const clean = text.replace(/```json|```/g,'').trim();
