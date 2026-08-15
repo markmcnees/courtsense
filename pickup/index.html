@@ -1827,9 +1827,12 @@ function showPlayerRatingDetailForArchive(name){ showPlayerRatingDetail(name); }
 // back to the display name is the join that can silently mismatch, so it is
 // used only where the render context carries no account.
 //
-//   gamesPlayed > 0        -> the rounded rating
-//   record but no games    -> 'Unrated'
-//   no record at all       -> '' so nothing renders
+// Two states, never three:
+//   rated (seeded, or 5+ games) -> the rounded rating
+//   everything else             -> the Unrated pill
+// A player with no record at all is unrated in exactly the same way as one with
+// four games, so both render the same pill. This used to return an empty string
+// for a missing record, which made those players silently badge-less.
 //
 // The playerId index is rebuilt only when D.ratings is replaced, because these
 // helpers are called once per name per render and D.ratings is a live listener.
@@ -1851,8 +1854,9 @@ function ratingRecordFor(nameOrKey, accountId){
   return R[k] || null;
 }
 function ratingBadge(nameOrKey, accountId){
+  // rec may be null. Ratings.isRated(null) is false, so a missing record falls
+  // through to the same Unrated pill an under-five-games record gets.
   const rec = ratingRecordFor(nameOrKey, accountId);
-  if(!rec) return '';
   return Ratings.isRated(rec)
     ? ' <span class="rbadge">' + Math.round(rec.rating) + '</span>'
     : ' <span class="rbadge unrated">Unrated</span>';
@@ -1889,12 +1893,25 @@ function showPlayerRatingDetail(name){
     .sort((a,b)=>b[1].gp-a[1].gp || (b[1].w-b[1].l)-(a[1].w-a[1].l));
 
   // Best win / worst loss using opponents' CURRENT ratings
-  function ratingOf(nm){ const k = Ratings.nameKey(nm); return (D.ratings||{})[k]?.rating ?? 1500; }
+  // The display gate applies to opponents too. An opponent with no record, or
+  // one under the games threshold, has no number to show, so they cannot anchor
+  // a highlight. Returns null rather than an invented 1500. Games where no
+  // opponent has a shown rating are skipped below instead of being ranked
+  // against a number nobody earned.
+  function ratingOf(nm){
+    const k = Ratings.nameKey(nm);
+    const rec = (D.ratings||{})[k] || null;
+    return Ratings.isRated(rec) ? rec.rating : null;
+  }
   let bestWin = null, worstLoss = null;
   history.forEach(h=>{
     const opps = [h.opponent1, h.opponent2].filter(Boolean);
     if(!opps.length) return;
-    const oppRatings = opps.map(ratingOf);
+    // Only opponents with a shown rating can rank a highlight. Dropping the
+    // nulls keeps the ordering honest: max and min are taken over real
+    // ratings only, and a game with no rated opponent is not a candidate.
+    const oppRatings = opps.map(ratingOf).filter(v => v != null);
+    if(!oppRatings.length) return;
     const oppPeak = Math.max(...oppRatings);
     const oppWeak = Math.min(...oppRatings);
     if(h.won && (!bestWin || oppPeak > bestWin.r)) bestWin = { r:oppPeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
@@ -1972,12 +1989,12 @@ function showPlayerRatingDetail(name){
     ${(bestWin || worstLoss) ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Highlights</div>
     ${bestWin ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
       <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Best Win</div>
-      <div style="font-weight:700;">vs ${escapeHTML(bestWin.opp)} (${Math.round(bestWin.r)})</div>
+      <div style="font-weight:700;">vs ${escapeHTML(bestWin.opp)}${bestWin.r != null ? ' (' + Math.round(bestWin.r) + ')' : ''}</div>
       <div style="font-size:12px;color:var(--gray);">${bestWin.score} on ${new Date(bestWin.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
     </div>` : ''}
     ${worstLoss ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
       <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Toughest Loss</div>
-      <div style="font-weight:700;">vs ${escapeHTML(worstLoss.opp)} (${Math.round(worstLoss.r)})</div>
+      <div style="font-weight:700;">vs ${escapeHTML(worstLoss.opp)}${worstLoss.r != null ? ' (' + Math.round(worstLoss.r) + ')' : ''}</div>
       <div style="font-size:12px;color:var(--gray);">${worstLoss.score} on ${new Date(worstLoss.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
     </div>` : ''}` : ''}
 

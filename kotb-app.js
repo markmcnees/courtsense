@@ -384,12 +384,25 @@ function showPlayerRatingDetail(name){
   });
   const partnerRows = Object.entries(partnerAgg).sort((a,b)=>b[1].gp-a[1].gp || (b[1].w-b[1].l)-(a[1].w-a[1].l));
 
-  function ratingOf(nm){ const kk = Ratings.nameKey(nm); return (D.ratings||{})[kk]?.rating ?? 1500; }
+  // The display gate applies to opponents too. An opponent with no record, or
+  // one under the games threshold, has no number to show, so they cannot anchor
+  // a highlight. Returns null rather than an invented 1500. Games where no
+  // opponent has a shown rating are skipped below instead of being ranked
+  // against a number nobody earned.
+  function ratingOf(nm){
+    const kk = Ratings.nameKey(nm);
+    const rec = (D.ratings||{})[kk] || null;
+    return Ratings.isRated(rec) ? rec.rating : null;
+  }
   let bestWin = null, worstLoss = null;
   history.forEach(h=>{
     const opps = [h.opponent1, h.opponent2].filter(Boolean);
     if(!opps.length) return;
-    const oppRatings = opps.map(ratingOf);
+    // Only opponents with a shown rating can rank a highlight. Dropping the
+    // nulls keeps the ordering honest: max and min are taken over real
+    // ratings only, and a game with no rated opponent is not a candidate.
+    const oppRatings = opps.map(ratingOf).filter(v => v != null);
+    if(!oppRatings.length) return;
     const oppPeak = Math.max(...oppRatings), oppWeak = Math.min(...oppRatings);
     if(h.won && (!bestWin || oppPeak > bestWin.r)) bestWin = { r:oppPeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
     if(!h.won && (!worstLoss || oppWeak < worstLoss.r)) worstLoss = { r:oppWeak, opp:opps.join(' & '), score:h.score+'-'+h.opponentScore, ts:h.timestamp };
@@ -458,12 +471,12 @@ function showPlayerRatingDetail(name){
     ${(bestWin || worstLoss) ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Highlights</div>
     ${bestWin ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
       <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Best Win</div>
-      <div style="font-weight:700;">vs ${esc(bestWin.opp)} (${Math.round(bestWin.r)})</div>
+      <div style="font-weight:700;">vs ${esc(bestWin.opp)}${bestWin.r != null ? ' (' + Math.round(bestWin.r) + ')' : ''}</div>
       <div style="font-size:12px;color:var(--gray);">${bestWin.score} on ${new Date(bestWin.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
     </div>` : ''}
     ${worstLoss ? `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);font-size:13px;">
       <div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;">Toughest Loss</div>
-      <div style="font-weight:700;">vs ${esc(worstLoss.opp)} (${Math.round(worstLoss.r)})</div>
+      <div style="font-weight:700;">vs ${esc(worstLoss.opp)}${worstLoss.r != null ? ' (' + Math.round(worstLoss.r) + ')' : ''}</div>
       <div style="font-size:12px;color:var(--gray);">${worstLoss.score} on ${new Date(worstLoss.ts).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
     </div>` : ''}` : ''}
     ${partnerRows.length ? `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Partners</div>
