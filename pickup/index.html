@@ -1853,21 +1853,24 @@ function ratingRecordFor(nameOrKey, accountId){
 function ratingBadge(nameOrKey, accountId){
   const rec = ratingRecordFor(nameOrKey, accountId);
   if(!rec) return '';
-  const played = (rec.gamesPlayed || 0) > 0;
-  return played
-    ? ' <span class="rbadge">' + Math.round(rec.rating || 1500) + '</span>'
+  return Ratings.isRated(rec)
+    ? ' <span class="rbadge">' + Math.round(rec.rating) + '</span>'
     : ' <span class="rbadge unrated">Unrated</span>';
 }
 
 function showPlayerRatingDetail(name){
   if(!name) return;
   const k = window.Ratings ? Ratings.nameKey(name) : '';
-  const rec = (D.ratings||{})[k] || {};
-  const rating = rec.rating ?? 1500;
-  const rd = rec.rd ?? 350;
-  const gp = rec.gamesPlayed || 0;
-  const peak = rec.peakRating ?? rating;
-  const history = rec.history ? Object.values(rec.history) : [];
+  // No fabricated record. A player with no rating row reads as null here, and
+  // an unrated player never has a rating or an RD rendered.
+  const rec = (D.ratings||{})[k] || null;
+  const rated = Ratings.isRated(rec);
+  const toGo = Ratings.gamesUntilRated(rec);
+  const rating = rec && rec.rating != null ? rec.rating : null;
+  const rd = rec && rec.rd != null ? rec.rd : null;
+  const gp = (rec && rec.gamesPlayed) || 0;
+  const peak = rec && rec.peakRating != null ? rec.peakRating : rating;
+  const history = rec && rec.history ? Object.values(rec.history) : [];
   history.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
   const wins = history.filter(h=>h.won).length;
   const losses = history.length - wins;
@@ -1935,8 +1938,11 @@ function showPlayerRatingDetail(name){
   $('ph-body').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
       <div>
-        <div style="font-family:'Bebas Neue';font-size:42px;line-height:1;color:var(--primary);">${Math.round(rating)}</div>
-        <div style="font-size:12px;color:var(--gray);margin-top:2px;">± ${Math.round(rd)} · ${gp} game${gp===1?'':'s'} · peak ${Math.round(peak)}</div>
+        ${rated
+          ? `<div style="font-family:'Bebas Neue';font-size:42px;line-height:1;color:var(--primary);">${Math.round(rating)}</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:2px;">± ${Math.round(rd)} · ${gp} game${gp===1?'':'s'} · peak ${Math.round(peak)}</div>`
+          : `<div style="font-family:'Bebas Neue';font-size:42px;line-height:1;color:var(--gray);">Unrated</div>
+        <div style="font-size:12px;color:var(--gray);margin-top:2px;">${rec ? (toGo > 0 ? toGo + ' more game' + (toGo===1?'':'s') + ' to get rated' : gp + ' game' + (gp===1?'':'s')) : 'No games played yet'}</div>`}
       </div>
       <div style="text-align:right;">
         <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;"><span class="win">${wins}W</span> · <span class="loss">${losses}L</span></div>
@@ -2004,7 +2010,9 @@ function renderRatingsHeader(){
   const cont = $('ratings-header'); if(!cont) return;
   const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
   const total = all.length;
-  const avg = total ? Math.round(all.reduce((s,r)=>s+(r.rating||1500),0)/total) : 1500;
+  // Average across rated players only, so provisional records do not drag it.
+  const ratedOnly = all.filter(r=>Ratings.isRated(r));
+  const avg = ratedOnly.length ? Math.round(ratedOnly.reduce((s,r)=>s+r.rating,0)/ratedOnly.length) : 0;
   const lastTs = all.reduce((m,r)=>Math.max(m, r.lastUpdated||0), 0);
   const ago = lastTs ? timeAgo(lastTs) : 'never';
   cont.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
@@ -2046,8 +2054,8 @@ function renderRatings(){
     <tr class="tappable" onclick="showPlayerRatingDetail('${escapeHTML(r.name).replace(/'/g,"&#39;")}')">
       <td style="padding-left:14px;"><span class="rnk ${rc[i]||''}">${i+1}</span></td>
       <td class="pname">${escapeHTML(r.name)}</td>
-      <td style="font-family:'Bebas Neue';font-size:18px;color:var(--primary);">${Math.round(r.rating||1500)}</td>
-      <td style="font-size:12px;color:var(--gray);">± ${Math.round(r.rd||350)}</td>
+      <td style="font-family:'Bebas Neue';font-size:18px;color:${Ratings.isRated(r)?'var(--primary)':'var(--gray)'};">${Ratings.isRated(r)?Math.round(r.rating):'Unrated'}</td>
+      <td style="font-size:12px;color:var(--gray);">${Ratings.isRated(r)?'± '+Math.round(r.rd):''}</td>
       <td class="gp">${r.gamesPlayed||0}</td>
     </tr>`).join('');
   document.querySelectorAll('#rtbl th[data-rsort]').forEach(th=>{

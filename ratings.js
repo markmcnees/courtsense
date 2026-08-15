@@ -41,6 +41,26 @@
   const CAP_SEEDED = 5;
   function capFor(rec){ return (rec && rec.seededFromTruVolley != null) ? CAP_SEEDED : CAP_DEFAULT; }
 
+  // Display gate. A rating is SHOWN once a player carries a TruVolley seed or
+  // has played RATED_MIN_GAMES games. Below that they display as Unrated. This
+  // is presentation only: nothing here reads or writes Firebase, and no stored
+  // value is altered. RATED_MIN_GAMES is the single place the threshold lives.
+  const RATED_MIN_GAMES = 5;
+
+  // True when the record exists and has earned a shown rating.
+  function isRated(rec){
+    if(!rec) return false;
+    return rec.seededFromTruVolley != null || (rec.gamesPlayed || 0) >= RATED_MIN_GAMES;
+  }
+
+  // Games still needed before the rating is shown. 0 when already rated, and 0
+  // when there is no record at all, since there is no progress to report.
+  function gamesUntilRated(rec){
+    if(!rec) return 0;
+    if(isRated(rec)) return 0;
+    return Math.max(0, RATED_MIN_GAMES - (rec.gamesPlayed || 0));
+  }
+
   function nameKey(name){
     return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
   }
@@ -450,6 +470,9 @@
 
   global.Ratings = {
     DEFAULT_RATING, DEFAULT_RD, DEFAULT_VOL, TAU,
+    RATED_MIN_GAMES,
+    isRated,
+    gamesUntilRated,
     nameKey,
     newPlayerState,
     updateOnePlayer,

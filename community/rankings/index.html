@@ -23,6 +23,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/ratings.js"></script>
 <style>
 :root{
   --navy:#1a3a6b;
@@ -411,11 +412,25 @@ function timeAgo(ts){
 var rows = [];                                  // frozen rank lives on each row
 var sortKey = 'rating', sortDir = 'desc';
 
+// Display gate, with a local fallback. ratings.js owns the rule; this page uses
+// it when the script is present and applies the same logic inline when it is
+// not, so a failed script load degrades to a correct leaderboard instead of an
+// empty one.
+//
+// KEEP IN SYNC: the 5 below is RATED_MIN_GAMES in ratings.js. If that constant
+// changes, change it here too. There is no check that catches drift.
+function isRatedRow(r){
+  if(!r) return false;
+  return window.Ratings
+    ? Ratings.isRated(r)
+    : (r.seededFromTruVolley != null || (r.gamesPlayed || 0) >= 5);
+}
+
 // Standard competition ranking on rating: ties share a rank and the next rank
 // skips. Computed once, stored on the row, and never recomputed on re-sort.
 function buildRows(ratings){
   var all = Object.keys(ratings || {}).map(function(k){ return ratings[k]; })
-    .filter(function(r){ return r && r.name; });
+    .filter(function(r){ return r && r.name && isRatedRow(r); });
   all.sort(function(a,b){ return (b.rating||1500) - (a.rating||1500); });
   var rank = 0, prev = null, seen = 0;
   return all.map(function(r){
@@ -434,7 +449,7 @@ function buildRows(ratings){
 
 function renderStats(ratings){
   var all = Object.keys(ratings || {}).map(function(k){ return ratings[k]; })
-    .filter(function(r){ return r && r.name; });
+    .filter(function(r){ return r && r.name && isRatedRow(r); });
   var total = all.length;
   var avg = total ? Math.round(all.reduce(function(s,r){ return s + (r.rating || 1500); }, 0) / total) : 1500;
   var lastTs = all.reduce(function(m,r){ return Math.max(m, r.lastUpdated || 0); }, 0);
