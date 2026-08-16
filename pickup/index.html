@@ -1875,8 +1875,15 @@ function showPlayerRatingDetail(name){
   const peak = rec && rec.peakRating != null ? rec.peakRating : rating;
   const history = rec && rec.history ? Object.values(rec.history) : [];
   history.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
-  const wins = history.filter(h=>h.won).length;
-  const losses = history.length - wins;
+  // A history entry is a game only when it carries a boolean won. Rating
+  // history also holds non-game events, specifically a verification raise where
+  // an admin lifts a stale rating to match an external number. Those have no
+  // won, no partner, no opponents and no score, and every count below either
+  // derives losses by subtraction or labels itself in games, so they have to be
+  // filtered out here rather than guarded against one site at a time.
+  const games = history.filter(h => h && typeof h.won === 'boolean');
+  const wins = games.filter(h=>h.won).length;
+  const losses = games.length - wins;
 
   // Build partner aggregation
   const partnerAgg = {};
@@ -1918,15 +1925,15 @@ function showPlayerRatingDetail(name){
   });
 
   // Recent 20 games
-  const recent = history.slice(0, 20);
+  const recent = games.slice(0, 20);
 
   // Sparkline SVG
   const chartH = 90, chartW = 320, pad = 6;
   let chartHTML;
-  if(history.length<2){
+  if(games.length<2){
     chartHTML = `<p style="font-size:12px;color:var(--gray);text-align:center;padding:18px 0;">Need at least 2 games for a chart.</p>`;
   } else {
-    const sortedAsc = history.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
+    const sortedAsc = games.slice().sort((a,b)=>(a.timestamp||0)-(b.timestamp||0));
     const ratings = sortedAsc.map(h=>h.ratingAfter);
     const minR = Math.min(...ratings), maxR = Math.max(...ratings);
     const span = Math.max(1, maxR - minR);

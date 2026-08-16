@@ -215,6 +215,10 @@ let db = null;
 let PLAYERS = {};
 let PENDING = {};
 let RATINGS_KEYS = {};
+// key -> { rating, rd, peakRating }. Same snapshot as RATINGS_KEYS, kept
+// alongside it because a Volleyball Life approval now has to compare the seed
+// against what the player already has.
+let RATINGS_RECS = {};
 let CONTACTS = {};       // playerId -> { email, phone }; loaded from /auth/admin-list (private PII node)
 let ADMIN_KEY = '';      // worker ADMIN_API_KEY, supplied at runtime, cached in localStorage, never hardcoded
 let actionKey = null;
@@ -399,7 +403,16 @@ function loadPlayers(){
   db.ref(RATINGS_ROOT).once('value').then(snap=>{
     const v = snap.val()||{};
     RATINGS_KEYS = {};
-    Object.keys(v).forEach(k=>{ RATINGS_KEYS[k] = true; });
+    RATINGS_RECS = {};
+    Object.keys(v).forEach(k=>{
+      RATINGS_KEYS[k] = true;
+      const r = v[k] || {};
+      RATINGS_RECS[k] = {
+        rating:     typeof r.rating === 'number' ? r.rating : null,
+        rd:         typeof r.rd === 'number' ? r.rd : null,
+        peakRating: typeof r.peakRating === 'number' ? r.peakRating : null
+      };
+    });
     renderPending();
     renderVbQueue();
   }).catch(err=>console.warn('ratings keys read failed', err));
@@ -428,6 +441,39 @@ function truvolleySeed(raw){
   return { rating: 2200, rd: 100 };
 }
 
+// Marks a history entry as a verification raise rather than a game. The
+// player's profile card reads this exact string, so the two have to agree.
+const VB_VERIFY_SOURCE = 'volleyball_life_verification';
+
+// The single decision point for what an approval does to a rating. Both the
+// live preview under the input and the write in doVbApprove call this, so the
+// admin cannot be shown one outcome and get another.
+//
+// The rule: TruVolley is the external source of truth for a player who competes
+// in rated events and skips local play, so their CourtSense number goes stale
+// low. A seed above their current rating raises them to it. A seed at or below
+// it changes nothing, because local games are real results and a lower external
+// number is not evidence they got worse.
+//
+// Returns one of:
+//   { kind: 'seed'  } no record exists, create it
+//   { kind: 'raise' } record exists and the seed is higher
+//   { kind: 'hold'  } record exists and the seed is not higher, write nothing
+// unreadable is set when a record exists but carries no numeric rating. That
+// falls to hold: we will not overwrite a value we cannot read.
+function vbRatingOutcome(k, seed){
+  const exists = !!RATINGS_KEYS[k];
+  if(!exists) return { kind: 'seed', current: null, peak: null, rd: null, unreadable: false };
+  const rec = RATINGS_RECS[k] || {};
+  const current = typeof rec.rating === 'number' ? rec.rating : null;
+  if(current == null) return { kind: 'hold', current: null, peak: null, rd: null, unreadable: true };
+  const peak = typeof rec.peakRating === 'number' ? rec.peakRating : current;
+  // rd rides along so the raise can record what it was before the reset.
+  const rd = typeof rec.rd === 'number' ? rec.rd : null;
+  if(!seed || seed.rating <= current) return { kind: 'hold', current: current, peak: peak, rd: rd, unreadable: false };
+  return { kind: 'raise', current: current, peak: peak, rd: rd, unreadable: false };
+}
+
 // Pending verification requests, read straight off the live PLAYERS listener.
 // players is a .read:true node, so no extra admin call is needed here. The
 // existing PIN plus worker-key gate on this page is the only gate.
@@ -448,8 +494,6 @@ function renderVbQueue(){
   }
   cont.innerHTML = all.map(x => {
     const name = recordName(x.p, x.pid);
-    const k = nameKey(name);
-    const dupeRating = !!RATINGS_KEYS[k];
     const when = x.req.submittedAt
       ? new Date(x.req.submittedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
       : '';
@@ -487,13 +531,13 @@ function renderVbQueue(){
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">
         <div style="flex:1;min-width:140px;">
           <div class="lbl">TruVolley number from the page</div>
-          <input class="inp" type="number" min="0" max="20" step="0.01" id="vb-tv-${esc(x.pid)}" placeholder="e.g. 5.14">
+          <input class="inp" type="number" min="0" max="20" step="0.01" id="vb-tv-${esc(x.pid)}" placeholder="e.g. 5.14" oninput="vbPreview('${esc(x.pid)}')">
         </div>
         <div style="flex:1;min-width:200px;">
           <div class="lbl">Optional note (reject only)</div>
           <input class="inp" id="vb-note-${esc(x.pid)}" placeholder="Reason, if rejecting">
         </div>
-        ${dupeRating ? '<div style="flex-basis:100%;font-size:11px;color:var(--gray);">Existing rating record found. Approve will stamp the request but preserve their current rating.</div>' : ''}
+        <div style="flex-basis:100%;font-size:11px;" id="vb-effect-${esc(x.pid)}"></div>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn" style="background:var(--win);color:#fff;flex:1;" onclick="doVbApprove('${esc(x.pid)}')">\u2713 Approve</button>
@@ -501,6 +545,37 @@ function renderVbQueue(){
       </div>
     </div>`;
   }).join('');
+  all.forEach(x => vbPreview(x.pid));
+}
+
+// Live preview of what Approve will do to the rating, given the number
+// currently in the box. Recomputed on every keystroke. Reads the same
+// vbRatingOutcome the write uses, so the two cannot drift apart.
+function vbPreview(pid){
+  const el = $('vb-effect-'+pid); if(!el) return;
+  const p = (PLAYERS||{})[pid];
+  const k = p ? nameKey(recordName(p, pid)) : '';
+  const raw = ($('vb-tv-'+pid) || {}).value;
+  const seed = truvolleySeed(raw);
+  if(!seed){
+    el.style.color = 'var(--gray)';
+    el.textContent = 'Enter the TruVolley number to see what Approve will do.';
+    return;
+  }
+  const o = vbRatingOutcome(k, seed);
+  if(o.kind === 'seed'){
+    el.style.color = 'var(--gray)';
+    el.textContent = 'No rating record yet. Approve will seed them at '+seed.rating+' (RD '+seed.rd+').';
+  } else if(o.kind === 'raise'){
+    el.style.color = 'var(--win)';
+    el.textContent = 'Currently '+Math.round(o.current)+'. Approve will RAISE them to '+seed.rating+' (RD '+seed.rd+'). Games played are not changed.';
+  } else if(o.unreadable){
+    el.style.color = 'var(--gray)';
+    el.textContent = 'A rating record exists but has no readable number. Approve will stamp the request and change no rating.';
+  } else {
+    el.style.color = 'var(--gray)';
+    el.textContent = 'Currently '+Math.round(o.current)+'. Seed '+seed.rating+' is not higher, so their rating will not change.';
+  }
 }
 
 // One atomic root update, mirroring doApprove. The rating record is written
@@ -521,11 +596,11 @@ async function doVbApprove(pid){
 
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
   const now = Date.now();
-  const ratingExists = !!RATINGS_KEYS[k];
+  const outcome = vbRatingOutcome(k, seed);
   logLine('Approving Volleyball Life for '+name+' (TruVolley '+tv+' -> rating '+seed.rating+', RD '+seed.rd+')');
 
   const updates = {};
-  if(!ratingExists){
+  if(outcome.kind === 'seed'){
     updates[RATINGS_ROOT+'/'+k+'/name']                = name;
     updates[RATINGS_ROOT+'/'+k+'/rating']              = seed.rating;
     updates[RATINGS_ROOT+'/'+k+'/rd']                  = seed.rd;
@@ -535,29 +610,91 @@ async function doVbApprove(pid){
     updates[RATINGS_ROOT+'/'+k+'/peakRatingDate']      = null;
     updates[RATINGS_ROOT+'/'+k+'/lastUpdated']         = now;
     updates[RATINGS_ROOT+'/'+k+'/seededFromTruVolley'] = tv;
+  } else if(outcome.kind === 'raise'){
+    // A fresh external claim, not something the games produced, so rd goes back
+    // to the seed's confidence rather than the tighter number their local play
+    // had earned.
+    updates[RATINGS_ROOT+'/'+k+'/rating']              = seed.rating;
+    updates[RATINGS_ROOT+'/'+k+'/rd']                  = seed.rd;
+    updates[RATINGS_ROOT+'/'+k+'/lastUpdated']         = now;
+    updates[RATINGS_ROOT+'/'+k+'/seededFromTruVolley'] = tv;
+    // gamesPlayed and volatility are deliberately absent. Those games happened,
+    // and volatility describes how erratic their results are, which a rating
+    // correction says nothing about.
+    if(seed.rating > outcome.peak){
+      updates[RATINGS_ROOT+'/'+k+'/peakRating']     = seed.rating;
+      updates[RATINGS_ROOT+'/'+k+'/peakRatingDate'] = now;
+    }
+    // A non-game history entry, so the record itself says why the number moved.
+    // It deliberately carries no won, partner, opponent or score field. Absence
+    // of a boolean won is exactly what keeps it out of every game renderer, so
+    // adding any of those later would put a phantom loss on the player's page.
+    // Same key space as game entries, prefixed so it is obvious in the console.
+    updates[RATINGS_ROOT+'/'+k+'/history/vbverify_'+now] = {
+      timestamp: now,
+      source: VB_VERIFY_SOURCE,
+      ratingBefore: outcome.current,
+      ratingAfter: seed.rating,
+      rdBefore: outcome.rd,
+      rdAfter: seed.rd,
+      truvolley: tv
+    };
   }
+  // outcome.kind === 'hold' writes no rating fields at all.
+  const applied = (outcome.kind === 'hold') ? null : seed.rating;
   const base = ROOT+'/'+pid+'/externalRatings/volleyballLife';
   updates[base+'/status']           = 'approved';
   updates[base+'/reviewedAt']       = now;
   updates[base+'/reviewedBy']       = reviewer;
-  updates[base+'/appliedRating']    = ratingExists ? null : seed.rating;
+  updates[base+'/appliedRating']    = applied;
   updates[base+'/appliedTruvolley'] = tv;
 
   try {
     await db.ref().update(updates);
     RATINGS_KEYS[k] = true;
-    logLine('  approved. '+(ratingExists ? 'preserved existing rating.' : 'wrote starting rating '+seed.rating+'.'));
-    toast(ratingExists ? 'Approved, existing rating preserved' : 'Approved, rating set');
+    // Keep the in-session copy honest, so approving the same player twice in one
+    // sitting compares against what was just written rather than the stale load.
+    if(outcome.kind === 'seed' || outcome.kind === 'raise'){
+      const prevPeak = (outcome.peak == null) ? seed.rating : outcome.peak;
+      RATINGS_RECS[k] = {
+        rating: seed.rating,
+        rd: seed.rd,
+        peakRating: Math.max(seed.rating, prevPeak)
+      };
+    }
+    if(outcome.kind === 'seed'){
+      logLine('  approved. wrote starting rating '+seed.rating+'.');
+      toast('Approved, rating set');
+    } else if(outcome.kind === 'raise'){
+      logLine('  approved. RAISED rating '+Math.round(outcome.current)+' -> '+seed.rating+' (RD '+seed.rd+'). games played unchanged.');
+      toast('Approved, rating raised to '+seed.rating);
+    } else if(outcome.unreadable){
+      logLine('  approved. rating record has no readable number, so nothing was written to it.');
+      toast('Approved, no rating change');
+    } else {
+      logLine('  approved. seed '+seed.rating+' is not above their '+Math.round(outcome.current)+', so the rating stands.');
+      toast('Approved, existing rating preserved');
+    }
     renderVbQueue();
-    // seedApplied is the INVERSE of ratingExists: a seed was applied only when no
-    // rating record existed. Inverting this would tell a player with a full season
-    // of games that they are starting from a seeded number. rating rides along only
-    // when a seed was actually written.
+    // outcome.kind IS the worker's outcome value: seed, raise or hold, passed
+    // straight through. The worker answers 400 on anything else, so the two
+    // vocabularies have to stay identical; do not translate or abbreviate here.
+    //
+    // Each outcome carries exactly the figures its email branch prints and no
+    // others. A stray figure cannot change which email goes out, because the
+    // worker picks the branch from outcome, but sending one would still be a
+    // number nobody meant to publish.
+    //   seed  rating, the number they start at
+    //   raise previousRating and newRating, so the email can show the move
+    //   hold  neither, because the email names no rating at all
     vbNotify('/pickup/vb-verified-notify', name, Object.assign({
       playerId: pid,
       truvolley: tv,
-      seedApplied: !ratingExists
-    }, ratingExists ? {} : { rating: seed.rating }));
+      outcome: outcome.kind
+    },
+      outcome.kind === 'seed'  ? { rating: seed.rating } :
+      outcome.kind === 'raise' ? { previousRating: outcome.current, newRating: seed.rating } :
+      {}));
   } catch(err){
     console.error(err);
     logLine('  APPROVE FAILED: '+(err && err.message || err));
