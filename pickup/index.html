@@ -122,6 +122,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .chip.added{background:var(--gray-lighter);color:var(--gray);border-color:var(--gray-lighter);text-decoration:line-through;cursor:default;}
 .chip .src{font-family:'Bebas Neue';font-size:9px;letter-spacing:1px;color:var(--gray);background:var(--sand);padding:2px 6px;border-radius:6px;}
 .chip.added .src{color:var(--gray-light);background:var(--gray-lighter);}
+/* CLUB tag only. Same shape as the base .src tag, navy on pale blue so a club member reads
+   as different from a league or past-pickup name at a glance. The added-state rule below
+   repeats the muting because it has to out-specify the club colors on the line above. */
+.chip .src.src-club{color:var(--primary);background:var(--light);}
+.chip.added .src.src-club{color:var(--gray-light);background:var(--gray-lighter);}
 
 .rblock{background:var(--white);border-radius:var(--radius);padding:12px;margin-bottom:10px;box-shadow:var(--shadow);border-left:4px solid var(--primary);}
 .rtitle{font-family:'Bebas Neue';font-size:12px;letter-spacing:2px;color:var(--gray);margin-bottom:8px;}
@@ -772,6 +777,11 @@ const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
 const APP_NAME = 'Tallahassee Pickup';
 const LEAGUE_KINGS_PATH  = 'tally_kotb/kings/players';
 const LEAGUE_QUEENS_PATH = 'tally_kotb/queens/players';
+// Club roster feeding Quick Add. One club hardcoded into a city-wide pickup app is a
+// stopgap and should become a registry lookup: courtsense_school_configs already holds
+// dbRoots.matches for every school and is client readable, so a later pass can walk it
+// and pull in every club instead of this one node. Change this line, not the reader.
+const CLUB_ROSTER_PATH   = 'grass_club_matches/players';
 const AI_URL  = 'https://leon-beach-ai.markmcnees-479.workers.dev';
 
 let db = null;
@@ -783,6 +793,7 @@ const lscore = {};
 let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invites:{} };
 let leagueKings  = {};
 let leagueQueens = {};
+let clubRoster   = {};
 let _pendingRoundsUpdate = null;
 let _pendingInviteOverrides = {}; // inviteId -> { ts, apply: (invite)=>void }
 let sortK = { key:'diff', dir:'desc' };
@@ -908,6 +919,7 @@ function initFB(){
     db.ref(DB_ROOT+'/player_history').on('value', s=>{ D.player_history = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
     db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
     db.ref(LEAGUE_QUEENS_PATH).on('value', s=>{ leagueQueens = s.val()||{}; refreshAll(); }, e=>console.warn('queens read failed',e));
+    db.ref(CLUB_ROSTER_PATH).on('value',   s=>{ clubRoster   = s.val()||{}; refreshAll(); }, e=>console.warn('club roster read failed',e));
     db.ref('.info/connected').on('value', s=>setSS(s.val()===true));
   }catch(e){console.error(e);setSS(false);}
 }
@@ -927,6 +939,15 @@ function quickSourceNames(){
   Object.values(leagueKings ).forEach(p=>{ if(p&&p.name && p.active!==false) add(p.name,'KINGS'); });
   Object.values(leagueQueens).forEach(p=>{ if(p&&p.name && p.active!==false) add(p.name,'QUEENS'); });
   Object.values(D.player_history||{}).forEach(p=>{ if(p&&p.name) add(p.name,'PICKUP'); });
+  // Club roster last, so a name already known from a league or a past pickup keeps that tag.
+  // Prospects are included on purpose: someone who signed up but has not been placed on a
+  // squad still plays pickup. Only active === false is excluded, which is the flag an exec
+  // sets for an applicant who never showed.
+  Object.values(clubRoster||{}).forEach(p=>{
+    if(!p || p.active===false) return;
+    const nm = ((p.firstName||'')+' '+(p.lastName||'')).trim();
+    if(nm) add(nm,'CLUB');
+  });
   out.sort((a,b)=>a.name.localeCompare(b.name));
   return out;
 }
@@ -1102,7 +1123,7 @@ function renderSetup(){
     ? sources.map(s=>{
         const added = taken.has(s.name.toLowerCase());
         return `<button class="chip ${added?'added':''}" ${added?'disabled':`onclick="addSetupPlayer('${escapeHTML(s.name)}','${s.source}')"`}>
-          <span class="src">${s.source}</span>${escapeHTML(s.name)}
+          <span class="src src-${(s.source||'').toLowerCase()}">${s.source}</span>${escapeHTML(s.name)}
         </button>`;
       }).join('')
     : '<p style="font-size:12px;color:var(--gray);">No suggestions yet. Add players above.</p>';
@@ -1232,7 +1253,7 @@ function renderLateQuick(){
     ? sources.map(s=>{
         const added = taken.has(s.name.toLowerCase());
         return `<button class="chip ${added?'added':''}" ${added?'disabled':`onclick="addLatePlayer('${escapeHTML(s.name)}','${s.source}')"`}>
-          <span class="src">${s.source}</span>${escapeHTML(s.name)}
+          <span class="src src-${(s.source||'').toLowerCase()}">${s.source}</span>${escapeHTML(s.name)}
         </button>`;
       }).join('')
     : '<p style="font-size:12px;color:var(--gray);">No suggestions yet.</p>';
