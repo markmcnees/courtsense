@@ -187,8 +187,16 @@
     <div class="drill" id="st-drill"></div>
     <div class="assess">
       <label for="playerDD">Player being assessed</label>
-      <div class="pselect"><select class="player-dd" id="playerDD" onchange="onPick(this.value)"></select></div>
+      <div class="pselect" id="pselectWrap"><select class="player-dd" id="playerDD" onchange="onPick(this.value)"></select></div>
+      <div class="noplayer" id="rosterMsg" style="display:none;"></div>
+      <div id="rosterRow" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-10px 0 14px;">
+        <span id="rosterNote" style="font-size:11.5px;color:var(--slate);"></span>
+        <button type="button" class="back-link" id="refreshBtn" onclick="refreshRoster()" style="margin:0;flex-shrink:0;">&#8635; Refresh roster</button>
+      </div>
       <div id="scoreArea"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="exportStationCSV()">Export this station</button>
+      </div>
     </div>
   </div>
 
@@ -201,11 +209,14 @@
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
-    <p class="hint">Scores live on this device only in this preview. Export before closing so nothing is lost.</p>
+    <p class="hint" id="restoreNote" style="display:none;"></p>
+    <p class="hint">Scores are saved on this device and survive a lock screen or a closed tab. They are not on the server, so export before the end of the clinic or they never leave this phone.</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script>
 /* ==========================================================================
    Stations with full drill detail lifted from the Leon Queens assessment sheet.
@@ -263,24 +274,172 @@ function rawToRating(raw){
 }
 var RAW_MIN=-10, RAW_MAX=20;
 
-/* Demo roster for the FSU Grass mockup. Using the same sample 16 as the Sand
-   Sharks page so the flow can be shown end to end. Real club roster comes from
-   the signup flow later. */
-var ROSTER=[
- {id:"sd01",name:"Suzie Spiker",yr:"SR"},{id:"sd02",name:"Debby Digger",yr:"SR"},
- {id:"sd03",name:"Bonnie Blocker",yr:"JR"},{id:"sd04",name:"Sammy Setter",yr:"JR"},
- {id:"sd05",name:"Penny Passer",yr:"JR"},{id:"sd06",name:"Sandy Server",yr:"SO"},
- {id:"sd07",name:"Sarah Sandbagger",yr:"SO"},{id:"sd08",name:"Holly Hitter",yr:"SO"},
- {id:"sd09",name:"Riley Receiver",yr:"FR"},{id:"sd10",name:"Olivia Option",yr:"FR"},
- {id:"sd11",name:"Wendy Wave",yr:"SO"},{id:"sd12",name:"Dana Dune",yr:"FR"},
- {id:"sd13",name:"Tara Tide",yr:"SO"},{id:"sd14",name:"Cora Coral",yr:"FR"},
- {id:"sd15",name:"Marina Mist",yr:"FR"},{id:"sd16",name:"Shelly Shoal",yr:"SO"}
-];
+/* ==========================================================================
+   LIVE ROSTER, READ ONLY.
+   This page opens a Firebase connection to read the club roster and does
+   nothing else with it. There is no set, update or remove anywhere in this
+   file, and no rules change is needed: grass_club_matches is already covered
+   by the $school_node rule. SDK tags and config are copied from
+   fsu_grass/signup.html so the two pages never drift apart.
+   ========================================================================== */
+var FB_CFG = {
+  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
+  authDomain: "leon-beach-volleyball.firebaseapp.com",
+  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
+  projectId: "leon-beach-volleyball",
+  storageBucket: "leon-beach-volleyball.firebasestorage.app",
+  messagingSenderId: "937804799976",
+  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
+};
+var CLUB_ROOT="grass_club_matches";   // club roster node, the same DB_ROOT app.js uses
+var db=null;
 
-/* scores[playerId][stationId] = raw int. Shaped for a later Firebase lift to
-   assessment/fsugrass/scores/{playerId}/{stationId}. */
+/* ROSTER is filled from grass_club_matches/players and starts empty. On a failed
+   or empty read it stays empty and the page says so. The demo names are gone for
+   good: nothing here ever invents a player. */
+var ROSTER=[];
+var rosterState="loading";   // loading | ready | empty | error
+
+function esc(x){
+  return String(x==null?"":x).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+/* One-time read of the club roster.
+   Prospects are included on purpose. status 'prospect' is what signup.html writes,
+   and prospects at tryouts are exactly who this page exists to assess, so status is
+   not filtered at all. The only exclusion is active === false, the flag an exec sets
+   for someone who applied and never showed. */
+function loadRoster(done){
+  if(!db){ ROSTER=[]; rosterState="error"; if(done)done(); return; }
+  db.ref(CLUB_ROOT+"/players").once("value").then(function(snap){
+    var val=snap.val(), arr=[];
+    if(val&&typeof val==="object"){
+      Object.keys(val).forEach(function(k){
+        var p=val[k];
+        if(!p||typeof p!=="object") return;
+        if(p.active===false) return;
+        var first=String(p.firstName||"").trim(), last=String(p.lastName||"").trim();
+        var name=(first+" "+last).trim();
+        arr.push({
+          id: p.id||k,
+          // A record with no name still shows, labelled, rather than vanishing silently.
+          name: name||"(no name on record)",
+          yr: p.classYear||"",
+          _n: !!name,
+          _l: last.toLowerCase(),
+          _f: first.toLowerCase()
+        });
+      });
+    }
+    arr.sort(function(a,b){
+      // A record with no name sorts last. It stays visible so the gap gets fixed,
+      // but it never sits above the players the coach is actually looking for.
+      if(a._n!==b._n) return a._n?-1:1;
+      var c=a._l.localeCompare(b._l); if(c) return c;
+      return a._f.localeCompare(b._f);
+    });
+    ROSTER=arr;
+    rosterState=ROSTER.length?"ready":"empty";
+    if(done)done();
+  }).catch(function(err){
+    console.error("roster read failed",err);
+    ROSTER=[]; rosterState="error";
+    if(done)done();
+  });
+}
+
+/* scores[playerId][stationId] = raw int, keyed by the club player id so a row maps
+   straight back to a grass_club_matches/players record. Autosaved to this device on
+   every save so a locked phone or an evicted tab does not cost a station. Never
+   written to Firebase. */
+var LS_KEY="cs_fsu_grass_assessment_v1";
 var scores={};
+var restoredAt=null;
 var cur={station:null, player:"", draftRaw:0, touched:false};
+
+function persistScores(){
+  try{ localStorage.setItem(LS_KEY,JSON.stringify({savedAt:Date.now(),scores:scores})); }
+  catch(e){ console.warn("score autosave failed",e); }
+}
+function restoreScores(){
+  try{
+    var raw=localStorage.getItem(LS_KEY); if(!raw) return;
+    var o=JSON.parse(raw);
+    if(o&&o.scores&&typeof o.scores==="object"){ scores=o.scores; restoredAt=o.savedAt||null; }
+  }catch(e){ console.warn("score restore failed",e); }
+}
+function scoreCount(){
+  var t=0; Object.keys(scores).forEach(function(k){ t+=Object.keys(scores[k]||{}).length; }); return t;
+}
+function paintRestoreNote(){
+  var el=document.getElementById("restoreNote"); if(!el) return;
+  var t=scoreCount();
+  if(restoredAt&&t){
+    var d=new Date(restoredAt);
+    el.textContent="↺ Restored "+t+" saved score"+(t===1?"":"s")+" from this device, last saved "+
+      d.toLocaleDateString([],{month:"short",day:"numeric"})+" at "+
+      d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+".";
+    el.style.display="block";
+  } else { el.style.display="none"; }
+}
+
+/* Paint the player select for a station. Rebuilt on open, on save and on refresh,
+   always from the current ROSTER. keepPid holds a selection across a repaint so a
+   mid-drill refresh never loses the player standing in front of you. Names come from
+   a world-writable node, so everything interpolated here goes through esc(). */
+function paintPlayerDD(stId, keepPid){
+  var wrap=document.getElementById("pselectWrap");
+  var msg=document.getElementById("rosterMsg");
+  var dd=document.getElementById("playerDD");
+  var note=document.getElementById("rosterNote");
+  if(!wrap||!msg||!dd) return;
+  if(rosterState!=="ready"){
+    dd.innerHTML="";
+    wrap.style.display="none";
+    msg.style.display="block";
+    msg.textContent =
+      rosterState==="loading" ? "Loading the club roster..." :
+      rosterState==="empty"   ? "No active players on the FSU Grass roster yet. Once someone signs up, tap Refresh roster." :
+                                "The roster could not load. Check your connection, then tap Refresh roster.";
+    if(note) note.textContent="";
+    return;
+  }
+  wrap.style.display="";
+  msg.style.display="none";
+  dd.innerHTML='<option value="">Select a player...</option>'+
+    ROSTER.map(function(p){
+      var done = scores[p.id]&&scores[p.id][stId]!==undefined;
+      return '<option value="'+esc(p.id)+'"'+(p.id===keepPid?" selected":"")+'>'+
+        esc(p.name)+(p.yr?" ("+esc(p.yr)+")":"")+(done?"  ✓":"")+'</option>';
+    }).join("");
+  if(note) note.textContent=ROSTER.length+" player"+(ROSTER.length===1?"":"s")+" on the roster";
+}
+
+/* Re-read the roster with no page reload, so a walk-up who signs up at check-in
+   appears mid-clinic. Scores are untouched (they live in `scores`, keyed by player
+   id, not by list position) and an unsaved draft in the stepper is left alone. */
+function refreshRoster(){
+  var btn=document.getElementById("refreshBtn");
+  if(btn){ btn.disabled=true; btn.textContent="Refreshing..."; }
+  loadRoster(function(){
+    if(btn){ btn.disabled=false; btn.innerHTML="&#8635; Refresh roster"; }
+    var keep=cur.player;
+    var stillOn=!!keep&&ROSTER.some(function(p){return p.id===keep;});
+    if(cur.station) paintPlayerDD(cur.station, stillOn?keep:"");
+    if(keep&&!stillOn){
+      cur.player=""; cur.draftRaw=0; cur.touched=false;
+      var area=document.getElementById("scoreArea"); if(area) area.innerHTML="";
+      toast("That player is no longer on the roster");
+    } else if(rosterState==="ready"){
+      toast("Roster refreshed. "+ROSTER.length+" player"+(ROSTER.length===1?"":"s"));
+    } else {
+      toast("Roster could not load");
+    }
+    renderMenu();
+  });
+}
 
 function show(s){
   document.querySelectorAll(".screen").forEach(function(x){x.classList.remove("active");});
@@ -298,7 +457,13 @@ function renderMenu(){
   [1,2].forEach(function(c){
     var g=document.getElementById("grid"+c); g.innerHTML="";
     STATIONS.filter(function(s){return s.circuit===c;}).forEach(function(s){
-      var pr=stationDone(s.id), complete=pr.done===pr.total;
+      // pr.total is 0 until the roster lands, so completeness has to require a real roster
+      // or every station would sit green at "0 of 0" before Firebase answers.
+      var pr=stationDone(s.id), complete=pr.total>0&&pr.done===pr.total;
+      var prog = rosterState==="ready"   ? pr.done+" of "+pr.total+" scored"
+               : rosterState==="loading" ? "Loading roster..."
+               : rosterState==="empty"   ? "No players on the roster yet"
+               :                           "Roster unavailable";
       var b=document.createElement("button");
       b.className="station-card"+(complete?" done":"");
       b.onclick=function(){openStation(s.id);};
@@ -306,7 +471,7 @@ function renderMenu(){
         (s.coach?'<span class="coach-tag">Coach fed</span>':'')+
         '<div class="st-name">'+s.name+'</div>'+
         '<div class="st-skill">'+s.skill+'</div>'+
-        '<div class="st-prog"><span class="dot"></span>'+pr.done+' of '+pr.total+' scored</div>';
+        '<div class="st-prog"><span class="dot"></span>'+prog+'</div>';
       g.appendChild(b);
     });
   });
@@ -331,12 +496,7 @@ function openStation(stId){
     '<div class="row"><span class="k">Scoring</span><span class="v">10 reps. Any ball into the net or out is minus 1.<div class="scorekey">'+keyHtml+'</div></span></div>'+
     '<div class="coachnote"><b>Coach eye:</b> '+s.note+'</div>';
 
-  var dd=document.getElementById("playerDD");
-  dd.innerHTML='<option value="">Select a player...</option>'+
-    ROSTER.map(function(p){
-      var done = scores[p.id]&&scores[p.id][stId]!==undefined;
-      return '<option value="'+p.id+'">'+p.name+(p.yr?" ("+p.yr+")":"")+(done?"  \u2713":"")+'</option>';
-    }).join("");
+  paintPlayerDD(stId,"");
   document.getElementById("scoreArea").innerHTML="";
   show("station");
 }
@@ -386,6 +546,7 @@ function saveScore(){
   if(!cur.player) return;
   if(!scores[cur.player]) scores[cur.player]={};
   scores[cur.player][cur.station]=cur.draftRaw;
+  persistScores();
   document.getElementById("savedFlag").textContent="\u2713 Saved. Rating "+rawToRating(cur.draftRaw)+" recorded.";
   // refresh the dropdown checkmark
   var dd=document.getElementById("playerDD"), keep=dd.value;
@@ -394,24 +555,25 @@ function saveScore(){
 }
 /* re-open station but keep the selected player and their score visible */
 function openStationKeep(stId, keepPid){
-  var s=STATIONS.filter(function(x){return x.id===stId;})[0];
-  var dd=document.getElementById("playerDD");
-  dd.innerHTML='<option value="">Select a player...</option>'+
-    ROSTER.map(function(p){
-      var done = scores[p.id]&&scores[p.id][stId]!==undefined;
-      return '<option value="'+p.id+'"'+(p.id===keepPid?" selected":"")+'>'+p.name+(p.yr?" ("+p.yr+")":"")+(done?"  \u2713":"")+'</option>';
-    }).join("");
+  paintPlayerDD(stId, keepPid);
 }
 function playerName(pid){var p=ROSTER.filter(function(x){return x.id===pid;})[0];return p?p.name:"";}
 
 function renderResults(){
+  paintRestoreNote();
   var t=document.getElementById("rt");
   var head='<tr><th class="pn">Player</th>';
   STATIONS.forEach(function(s){head+='<th>'+s.num+'</th>';});
   head+='<th>Avg</th></tr>';
+  if(!ROSTER.length){
+    t.innerHTML=head+'<tr><td colspan="'+(STATIONS.length+2)+'" style="padding:18px 8px;font-size:13px;color:var(--slate);text-align:center;">'+
+      (rosterState==="error"?"The roster could not load, so there is nothing to show here. Tap Refresh roster on any station.":"No active players on the FSU Grass roster yet.")+
+      '</td></tr>';
+    return;
+  }
   var body="";
   ROSTER.forEach(function(p){
-    var row='<tr><td class="pn">'+p.name+' <span style="color:var(--slate);font-weight:500;font-size:11px;">'+p.yr+'</span></td>';
+    var row='<tr><td class="pn">'+esc(p.name)+' <span style="color:var(--slate);font-weight:500;font-size:11px;">'+esc(p.yr)+'</span></td>';
     var vals=[];
     STATIONS.forEach(function(s){
       var raw=(scores[p.id]&&scores[p.id][s.id]!==undefined)?scores[p.id][s.id]:null;
@@ -426,29 +588,92 @@ function renderResults(){
   t.innerHTML=head+body;
 }
 
+/* ---- Export -------------------------------------------------------------
+   Both exports lead with the club player id so every row maps back to a
+   grass_club_matches/players record, and both filenames carry a timestamp so two
+   exports off the same phone never collide in the downloads folder. */
+function stamp(){
+  var d=new Date(), p=function(v){return String(v).length<2?"0"+v:String(v);};
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"_"+p(d.getHours())+p(d.getMinutes());
+}
+function downloadCSV(rows,filename){
+  var csv=rows.map(function(r){return r.map(function(c){var s=String(c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(",");}).join("\n");
+  var blob=new Blob([csv],{type:"text/csv"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+/* Any player id carrying a score that is not on the current roster: a score taken
+   before an exec deactivated someone, or one restored from this device after the
+   roster moved on. Those rows still leave in the export instead of vanishing. */
+function orphanScoreIds(){
+  var onRoster={}; ROSTER.forEach(function(p){onRoster[p.id]=true;});
+  return Object.keys(scores).filter(function(id){
+    return !onRoster[id] && Object.keys(scores[id]||{}).length>0;
+  });
+}
+
 function exportCSV(){
-  var head=["Player","Year"].concat(STATIONS.map(function(s){return s.name;})).concat(["Average"]);
+  var head=["Player ID","Player","Year"].concat(STATIONS.map(function(s){return s.name;})).concat(["Average"]);
   var rows=[head];
-  ROSTER.forEach(function(p){
-    var line=[p.name,p.yr],vals=[];
+  var addRow=function(id,name,yr){
+    var line=[id,name,yr],vals=[];
     STATIONS.forEach(function(s){
-      var raw=(scores[p.id]&&scores[p.id][s.id]!==undefined)?scores[p.id][s.id]:null;
+      var raw=(scores[id]&&scores[id][s.id]!==undefined)?scores[id][s.id]:null;
       var r=rawToRating(raw); if(r!==null)vals.push(r);
       line.push(r!==null?r:"");
     });
     line.push(vals.length?(vals.reduce(function(a,b){return a+b;},0)/vals.length).toFixed(1):"");
     rows.push(line);
-  });
-  var csv=rows.map(function(r){return r.map(function(c){var s=String(c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(",");}).join("\n");
-  var blob=new Blob([csv],{type:"text/csv"}),url=URL.createObjectURL(blob),a=document.createElement("a");
-  a.href=url;a.download="fsu_grass_skill_assessment.csv";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  };
+  ROSTER.forEach(function(p){ addRow(p.id,p.name,p.yr); });
+  orphanScoreIds().forEach(function(id){ addRow(id,"(not on current roster)",""); });
+  if(rows.length===1){ toast("Nothing to export yet"); return; }
+  downloadCSV(rows,"fsu_grass_skill_assessment_"+stamp()+".csv");
   toast("Exported CSV");
+}
+
+/* One observer, one station. Exports the raw total alongside the converted rating
+   for the station currently open, so the coach running it can hand off just their
+   own numbers without waiting on the whole circuit. */
+function exportStationCSV(){
+  var s=STATIONS.filter(function(x){return x.id===cur.station;})[0];
+  if(!s){ toast("Open a station first"); return; }
+  var rows=[["Player ID","Player","Year","Station","Raw","Rating"]];
+  var addRow=function(id,name,yr){
+    var raw=(scores[id]&&scores[id][s.id]!==undefined)?scores[id][s.id]:null;
+    var r=rawToRating(raw);
+    rows.push([id,name,yr,s.name,raw!==null?raw:"",r!==null?r:""]);
+  };
+  ROSTER.forEach(function(p){ addRow(p.id,p.name,p.yr); });
+  orphanScoreIds().forEach(function(id){
+    if(scores[id][s.id]!==undefined) addRow(id,"(not on current roster)","");
+  });
+  if(rows.length===1){ toast("Nothing to export yet"); return; }
+  downloadCSV(rows,"fsu_grass_"+s.id+"_"+stamp()+".csv");
+  toast("Exported "+s.name);
 }
 
 var tt=null;
 function toast(m){var t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(function(){t.classList.remove("show");},1600);}
 
-renderMenu();
+/* Boot. Restore this device's scores first so the menu shows real progress even
+   before Firebase answers, then open the read-only connection and load the roster. */
+function boot(){
+  restoreScores();
+  try{
+    if(typeof firebase==="undefined") throw new Error("Firebase SDK did not load");
+    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    db=firebase.database();
+  }catch(e){
+    console.error("Firebase init failed",e);
+    db=null; rosterState="error";
+  }
+  renderMenu();
+  loadRoster(function(){
+    renderMenu();
+    if(cur.station) paintPlayerDD(cur.station, cur.player);
+  });
+}
+boot();
 </script>
 </body>
 </html>
