@@ -152,6 +152,16 @@
   .rt td.blank{color:var(--line);}
   .hint{font-size:12px;color:var(--slate);margin-top:8px;}
 
+  /* ---- Upload status indicators ---- */
+  .up-pill{
+    margin-left:auto;flex-shrink:0;font-family:'Barlow';font-size:10px;font-weight:800;
+    letter-spacing:0.06em;text-transform:uppercase;background:var(--accent);color:var(--brand-deep);
+    padding:6px 10px;border-radius:999px;border:none;cursor:pointer;line-height:1.1;max-width:42%;
+  }
+  .up-pill.err{background:var(--bad);color:#fff;}
+  .saved-flag.warn{color:var(--slate);}
+  .saved-flag.err{color:var(--bad);text-align:center;line-height:1.35;}
+
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:40;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
@@ -165,6 +175,7 @@
       <div class="brand-name">GRASS AT FSU</div>
       <div class="brand-sub">Beach Skill Assessment</div>
     </div>
+    <button type="button" class="up-pill" id="upPill" style="display:none;" onclick="retryUploads()"></button>
   </div>
 
   <!-- MENU -->
@@ -209,8 +220,9 @@
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
+    <p class="hint" id="uploadNote" style="display:none;"></p>
     <p class="hint" id="restoreNote" style="display:none;"></p>
-    <p class="hint">Scores are saved on this device and survive a lock screen or a closed tab. They are not on the server, so export before the end of the clinic or they never leave this phone.</p>
+    <p class="hint">Each save writes straight to the player's club profile, and stays on this device until it lands. Export is a backup, not the delivery.</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -385,6 +397,202 @@ function paintRestoreNote(){
   } else { el.style.display="none"; }
 }
 
+/* ==========================================================================
+   UPLOAD TO THE CLUB PROFILE.
+   One write path, one shape, nothing else:
+
+     grass_club_profiles/skills/{clubPlayerId}/{skillKey}  <- integer 1..10
+
+   Always the individual LEAF, never the skills object for a player. Four
+   observers running four stations write four different leaves for the same
+   player and cannot clobber each other. app.js already writes partial skills
+   this way (_importCommitSkills), so this matches the live contract.
+
+   0 is never written. In this app 0 means unassessed, and rawToRating() never
+   returns it, so a computed 0/null is a bug: refuse the write and surface it.
+   ========================================================================== */
+var PROFILES_ROOT="grass_club_profiles";
+
+/* Station id -> skill key. Explicit, because the two orders differ and zipping
+   by index would silently mis-file half the circuit (station 3 is Defense but
+   skill 3 is setting). An id missing from this table is never written. */
+var SKILL_KEY_BY_STATION={
+  serve:   "serving",
+  pass:    "passing",
+  defense: "defense",
+  hit:     "hitting",
+  block:   "blocking",
+  set:     "setting",
+  court:   "courtSense",
+  comm:    "communication"
+};
+
+/* The upload queue. pending holds everything still owed to the server, sent
+   holds what has landed. Both persist, so a locked phone, a killed tab or a
+   dead signal never loses a score: the queue comes back on the next load and
+   drains itself. */
+var LS_QUEUE_KEY="cs_fsu_grass_assessment_queue_v1";
+var pending={};    // "pid|stationId" -> {pid, st, at, err}
+var sent={};       // "pid|stationId" -> timestamp it landed
+var inflight={};   // "pid|stationId" -> true while a write is in the air
+var flushing=false;
+
+function qKey(pid,stId){ return pid+"|"+stId; }
+function pendingCount(){ return Object.keys(pending).length; }
+function failedCount(){
+  var n=0; Object.keys(pending).forEach(function(k){ if(pending[k].err) n++; }); return n;
+}
+function persistQueue(){
+  try{ localStorage.setItem(LS_QUEUE_KEY,JSON.stringify({pending:pending,sent:sent})); }
+  catch(e){ console.warn("queue autosave failed",e); }
+}
+function restoreQueue(){
+  try{
+    var raw=localStorage.getItem(LS_QUEUE_KEY); if(!raw) return;
+    var o=JSON.parse(raw);
+    if(o&&o.pending&&typeof o.pending==="object") pending=o.pending;
+    if(o&&o.sent&&typeof o.sent==="object") sent=o.sent;
+  }catch(e){ console.warn("queue restore failed",e); }
+}
+/* Any score on this device that has never landed gets queued. Covers scores
+   taken before this page could upload at all, and any queue entry lost to a
+   storage wipe. Re-sending a leaf is harmless: the same value overwrites. */
+function reconcileQueue(){
+  Object.keys(scores).forEach(function(pid){
+    Object.keys(scores[pid]||{}).forEach(function(stId){
+      var k=qKey(pid,stId);
+      if(sent[k]||pending[k]) return;
+      pending[k]={pid:pid, st:stId, at:Date.now(), err:null};
+    });
+  });
+}
+function upStateOf(pid,stId){
+  var k=qKey(pid,stId);
+  if(inflight[k]) return "saving";
+  if(pending[k]) return pending[k].err ? "failed" : "queued";
+  if(sent[k]) return "saved";
+  return "none";
+}
+
+/* Write one leaf. Every refusal path returns an Error rather than writing, so a
+   bad station id or a bad rating surfaces instead of landing something wrong. */
+function uploadOne(pid, stId, done){
+  var key=SKILL_KEY_BY_STATION[stId];
+  if(!key){ done(new Error('Station "'+stId+'" has no skill key')); return; }
+  var raw=(scores[pid]||{})[stId];
+  var rating=(raw===undefined||raw===null)?null:rawToRating(raw);
+  // 1..10 integer or nothing. A 0 would read as "unassessed" everywhere in app.js.
+  if(typeof rating!=="number"||!isFinite(rating)||rating<1||rating>10||rating!==Math.round(rating)){
+    done(new Error("Refusing to write rating "+rating)); return;
+  }
+  if(!db){ done(new Error("No connection")); return; }
+  db.ref(PROFILES_ROOT+"/skills/"+pid+"/"+key).set(rating)
+    .then(function(){ done(null); })
+    .catch(function(err){ done(err||new Error("Write failed")); });
+}
+
+/* Drain the queue one leaf at a time. A success retries whatever is left, which
+   is how a queue that piled up offline empties as soon as signal returns. */
+function flushQueue(){
+  if(flushing||!db) { paintUploadUI(); return; }
+  var keys=Object.keys(pending);
+  if(!keys.length){ paintUploadUI(); return; }
+  flushing=true;
+  var i=0;
+  function next(){
+    if(i>=keys.length){ flushing=false; persistQueue(); paintUploadUI(); return; }
+    var k=keys[i++];
+    var item=pending[k];
+    if(!item){ next(); return; }
+    inflight[k]=true; paintUploadUI();
+    uploadOne(item.pid, item.st, function(err){
+      delete inflight[k];
+      if(err){
+        if(pending[k]) pending[k].err=String(err.message||err);
+        console.warn("skill upload failed",item.pid,item.st,err);
+      } else {
+        delete pending[k];
+        sent[k]=Date.now();
+      }
+      persistQueue(); paintUploadUI();
+      next();
+    });
+  }
+  next();
+}
+
+/* Every surface that reports upload state, repainted together so they can never
+   disagree: the always-visible pill, the current player's flag, the dropdown
+   marks and the results-screen summary. */
+function paintUploadUI(){
+  var n=pendingCount(), bad=failedCount();
+  var pill=document.getElementById("upPill");
+  if(pill){
+    if(n>0){
+      pill.style.display="";
+      pill.className="up-pill"+(bad?" err":"");
+      pill.textContent=(bad?"⚠ ":"↺ ")+n+" to upload";
+      pill.title=bad?bad+" failed, tap to retry":"Uploading, tap to retry now";
+    } else { pill.style.display="none"; }
+  }
+  paintSavedFlag();
+  if(cur.station) paintPlayerDD(cur.station, cur.player);
+  paintUploadSummary();
+}
+function paintUploadSummary(){
+  var el=document.getElementById("uploadNote"); if(!el) return;
+  var n=pendingCount(), bad=failedCount(), done=Object.keys(sent).length;
+  if(n>0){
+    el.className="hint";
+    el.style.color=bad?"var(--bad)":"var(--slate)";
+    el.textContent=(bad?"⚠ ":"↺ ")+n+" score"+(n===1?"":"s")+" still to upload"+
+      (bad?" ("+bad+" failed so far)":"")+". Tap the badge at the top to retry. Keep this tab open.";
+    el.style.display="block";
+  } else if(done){
+    el.className="hint";
+    el.style.color="var(--good)";
+    el.textContent="✓ All "+done+" score"+(done===1?"":"s")+" uploaded to the club profiles.";
+    el.style.display="block";
+  } else { el.style.display="none"; }
+}
+/* The flag under the stepper. It reports the CURRENT player and station only,
+   and only while the stepper still shows the value that was saved: edit the
+   number and it clears, because that number is not the one on the server. */
+function paintSavedFlag(){
+  var el=document.getElementById("savedFlag"); if(!el) return;
+  el.className="saved-flag";
+  var pid=cur.player, stId=cur.station;
+  var stored=(pid&&scores[pid])?scores[pid][stId]:undefined;
+  if(!pid||!cur.touched||stored===undefined||stored!==cur.draftRaw){ el.textContent=""; return; }
+  var rating=rawToRating(stored);
+  switch(upStateOf(pid,stId)){
+    case "saving":
+      el.className="saved-flag warn";
+      el.textContent="↺ Saving rating "+rating+" to her club profile...";
+      break;
+    case "queued":
+      el.className="saved-flag warn";
+      el.textContent="↺ Rating "+rating+" saved on this device, waiting to upload.";
+      break;
+    case "failed":
+      el.className="saved-flag err";
+      el.textContent="⚠ Rating "+rating+" is NOT on the server yet. Saved here and queued; it will retry.";
+      break;
+    case "saved":
+      el.textContent="✓ Saved. Rating "+rating+" is on her club profile.";
+      break;
+    default:
+      el.textContent="";
+  }
+}
+function retryUploads(){
+  Object.keys(pending).forEach(function(k){ pending[k].err=null; });
+  persistQueue();
+  if(!db){ toast("Still offline. Scores are safe on this device."); paintUploadUI(); return; }
+  toast("Retrying "+pendingCount()+" upload"+(pendingCount()===1?"":"s"));
+  flushQueue();
+}
+
 /* Paint the player select for a station. Rebuilt on open, on save and on refresh,
    always from the current ROSTER. keepPid holds a selection across a repaint so a
    mid-drill refresh never loses the player standing in front of you. Names come from
@@ -411,8 +619,12 @@ function paintPlayerDD(stId, keepPid){
   dd.innerHTML='<option value="">Select a player...</option>'+
     ROSTER.map(function(p){
       var done = scores[p.id]&&scores[p.id][stId]!==undefined;
+      // The mark carries upload state, not just "scored": check = on the server,
+      // ellipsis = queued, warning = failed so far and still retrying.
+      var st = done ? upStateOf(p.id, stId) : "none";
+      var mark = st==="saved" ? "  \u2713" : st==="failed" ? "  \u26a0" : done ? "  \u2026" : "";
       return '<option value="'+esc(p.id)+'"'+(p.id===keepPid?" selected":"")+'>'+
-        esc(p.name)+(p.yr?" ("+esc(p.yr)+")":"")+(done?"  ✓":"")+'</option>';
+        esc(p.name)+(p.yr?" ("+esc(p.yr)+")":"")+mark+'</option>';
     }).join("");
   if(note) note.textContent=ROSTER.length+" player"+(ROSTER.length===1?"":"s")+" on the roster";
 }
@@ -540,18 +752,24 @@ function paintDraft(){
     big.textContent="\u2013"; big.classList.add("empty"); /* en dash placeholder, not scored */
     out.textContent="not scored";
   }
-  document.getElementById("savedFlag").textContent="";
+  paintSavedFlag();
 }
 function saveScore(){
   if(!cur.player) return;
-  if(!scores[cur.player]) scores[cur.player]={};
-  scores[cur.player][cur.station]=cur.draftRaw;
+  var pid=cur.player, stId=cur.station;
+  // Local first, always. localStorage stays the offline buffer; the upload is
+  // additive, so a failed or offline write never costs the observer the score.
+  if(!scores[pid]) scores[pid]={};
+  scores[pid][stId]=cur.draftRaw;
   persistScores();
-  document.getElementById("savedFlag").textContent="\u2713 Saved. Rating "+rawToRating(cur.draftRaw)+" recorded.";
-  // refresh the dropdown checkmark
-  var dd=document.getElementById("playerDD"), keep=dd.value;
-  openStationKeep(cur.station, keep);
-  toast("Saved "+playerName(cur.player));
+  // Queue the leaf, then try it now. A re-save of an already-sent station drops
+  // its sent stamp and re-queues, so the overwrite reaches the server too.
+  var k=qKey(pid,stId);
+  delete sent[k];
+  pending[k]={pid:pid, st:stId, at:Date.now(), err:null};
+  persistQueue();
+  toast("Saved "+playerName(pid));
+  flushQueue();   // repaints the flag, the dropdown mark and the pill
 }
 /* re-open station but keep the selected player and their score visible */
 function openStationKeep(stId, keepPid){
@@ -561,6 +779,7 @@ function playerName(pid){var p=ROSTER.filter(function(x){return x.id===pid;})[0]
 
 function renderResults(){
   paintRestoreNote();
+  paintUploadSummary();
   var t=document.getElementById("rt");
   var head='<tr><th class="pn">Player</th>';
   STATIONS.forEach(function(s){head+='<th>'+s.num+'</th>';});
@@ -659,6 +878,7 @@ function toast(m){var t=document.getElementById("toast");t.textContent=m;t.class
    before Firebase answers, then open the read-only connection and load the roster. */
 function boot(){
   restoreScores();
+  restoreQueue();
   try{
     if(typeof firebase==="undefined") throw new Error("Firebase SDK did not load");
     if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
@@ -667,10 +887,19 @@ function boot(){
     console.error("Firebase init failed",e);
     db=null; rosterState="error";
   }
+  // Anything scored on this device that never landed goes back in the queue,
+  // then the queue drains. Nothing is dropped because a tab died mid-upload.
+  reconcileQueue();
+  persistQueue();
   renderMenu();
+  paintUploadUI();
+  flushQueue();
+  // Signal came back: drain without waiting for the next save or a reload.
+  window.addEventListener("online", function(){ flushQueue(); });
   loadRoster(function(){
     renderMenu();
     if(cur.station) paintPlayerDD(cur.station, cur.player);
+    paintUploadUI();
   });
 }
 boot();
