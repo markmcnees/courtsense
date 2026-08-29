@@ -872,6 +872,19 @@ function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
 function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function nameKey(name){return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');}
+// Absolute start instant in ms. Computed HERE, in the browser, because only the
+// browser knows the local timezone. Cloudflare Workers run in UTC, so the same
+// 'YYYY-MM-DDTHH:MM:00' string parses four or five hours off there depending on the
+// season. Storing a number means the worker never parses it and never guesses a zone.
+// Returns null when the inputs cannot produce a finite instant. Every caller omits the
+// field entirely in that case rather than writing NaN or null, because the worker guards
+// on typeof startMs === 'number': an absent field degrades to today's behavior, while a
+// NaN would pass that guard and poison every comparison it reached.
+function computeStartMs(date, startTime){
+  if(!date) return null;
+  const ms = new Date(date + 'T' + (startTime || '00:00') + ':00').getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
 function ev(){return D.events[activeEvent]||null;}
 function evMeta(){const e=ev();return e&&e.meta?e.meta:{};}
 function gP(id){const e=ev();return e&&e.players?e.players[id]:null;}
@@ -3054,6 +3067,9 @@ async function savePartnerPost(){
     description: note,
     slots: 1, minSlots: 1,     // one partner sought; reuses the confirmed-slot math
     rsvpDeadline: new Date(date + 'T23:59:00').getTime(),  // responses stay open through tournament day
+    // Midnight local on the tournament day, matching the '00:00' startTime above.
+    // Same omit-rather-than-write-NaN rule as every other path.
+    ...(computeStartMs(date, '00:00') !== null ? { startMs: computeStartMs(date, '00:00') } : {}),
     eligibility: eligibility,
     hostName: me ? me.name : (auth.displayName || auth.name || 'Anonymous'),
     hostId: auth.id || null,
@@ -3946,6 +3962,10 @@ function buildInviteRecord(){
   const minSlots = Math.max(1, parseInt($('iv-min-slots').value)||4);
   const dl = $('iv-deadline').value;
   const rsvpDeadline = dl ? new Date(dl).getTime() : (date && startTime ? new Date(date+'T'+startTime+':00').getTime() - 2*60*60*1000 : null);
+  // Recomputed on every save, so editing the date or start time of an existing game
+  // replaces the stored instant instead of carrying the stale one through the merge.
+  // The create loop overrides this per occurrence; see the note there.
+  const startMs = computeStartMs(date, startTime);
   const eligibility = getCurrentEligibilitySpec();
   const me = window.Identity ? Identity.getCurrent() : null;
 
@@ -3977,7 +3997,7 @@ function buildInviteRecord(){
   const _hostAuth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const hostId = _hostAuth && _hostAuth.id ? _hostAuth.id : null;
 
-  return { name, date, startTime, endTime, location, court, courts, description, slots, minSlots, rsvpDeadline, eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
+  return { name, date, startTime, endTime, location, court, courts, description, slots, minSlots, rsvpDeadline, ...(startMs !== null ? { startMs } : {}), eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
 }
 
 async function saveInvite(){
@@ -4100,11 +4120,19 @@ async function saveInvite(){
     const id = gi('inv');
     if(!firstId) firstId = id;
     const dl = base.startTime ? new Date(iso+'T'+base.startTime+':00').getTime() - 2*60*60*1000 : null;
+    // Per-occurrence start instant, from THIS occurrence's own date. A recurring game
+    // spreads one base record across N dates, so the base's startMs is right only for
+    // occurrence 1. Every later week would inherit week one's instant if this were not
+    // recomputed and overridden below, exactly as date and rsvpDeadline already are.
+    const occStartMs = computeStartMs(iso, base.startTime);
     const rec = {
       ...base,
       id,
       date: iso,
       rsvpDeadline: n===0 ? base.rsvpDeadline : dl,
+      // Overrides the spread base value. Omitted (and the base value deleted below) when
+      // the instant is not finite, so the record never carries a wrong or unparseable one.
+      ...(occStartMs !== null ? { startMs: occStartMs } : {}),
       // Deep-copy nested fields so each occurrence owns its objects instead of
       // sharing the single base reference (the prior shallow-spread bug). Offset
       // fields (cancelDeadlineOffsetMins, wideningTiers[].atOffsetMins) are stored
@@ -4122,6 +4150,9 @@ async function saveInvite(){
         ? { [gameplayKey()]: { name: me.name, status: 'confirmed', position: 1, respondedAt: Date.now(), accountId: currentAccountId() } }
         : {}
     };
+    // Belt and braces for the null case: the spread above cannot remove an inherited key,
+    // so drop it explicitly rather than let occurrence 1's instant ride along.
+    if(occStartMs === null) delete rec.startMs;
     updates['tally_kotb_pickup/invites/'+id] = rec;
   }
   try {
