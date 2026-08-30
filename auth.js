@@ -11,10 +11,15 @@
  *     codes: 'wrong_password' | 'no_account' | 'same_password' | 'failed'
  *     On ok:true the player's passwordHash + updatedAt are written and a
  *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
- *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, gender, keepSignedIn })
+ *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, gender, keepSignedIn, tenant })
  *     -> Promise<{ok:true, playerKey} | {ok:false, error}>
  *     gender is optional: 'M' | 'F' | 'unspecified'. When present it is stored
  *     at profile.gender; absent or unrecognized values are dropped, never fatal.
+ *     tenant is optional: { slug, name } identifying the club or school this
+ *     signup came through (slug is the courtsense_school_configs key). When
+ *     present it rides along in the welcome email payload so the worker can
+ *     brand the email. Absent on the plain community signup, which keeps that
+ *     path byte-identical.
  *     Self-serve community signup. Writes verified:false player record at
  *     {rosterPath}/{snake_case_displayName}, queues a 'welcome' email with
  *     generated_password:null (user picked their own), and signs the new
@@ -509,6 +514,13 @@
     const city = String(o.city == null ? '' : o.city).trim();
     const skillLevel = o.skillLevel == null ? '' : String(o.skillLevel);
     const gender = o.gender == null ? '' : String(o.gender);
+    // Optional club or school context, supplied by a tenant signup page. Never
+    // validated against the registry here: the worker resolves the slug against
+    // courtsense_school_configs and ignores anything it cannot match, so a bad
+    // value degrades to the plain CourtSense welcome rather than failing signup.
+    const tenant = (o.tenant && typeof o.tenant === 'object') ? o.tenant : null;
+    const tenantSlug = tenant ? String(tenant.slug == null ? '' : tenant.slug).trim() : '';
+    const tenantName = tenant ? String(tenant.name == null ? '' : tenant.name).trim() : '';
 
     if(!email) return { ok:false, error:'Email is required.' };
     if(!/^\S+@\S+\.\S+$/.test(email)) return { ok:false, error:"That email doesn't look right." };
@@ -649,6 +661,12 @@
 
     // Welcome email via the worker /notify endpoint (recipient resolved
     // server-side from the just-created record). Fire-and-forget.
+    // Tenant keys go inside data, not at the top level: /auth/notify reads only
+    // its known top-level fields and drops the rest, but passes data through whole.
+    // With no tenant the object is exactly what it has always been.
+    const notifyData = { player_name: displayName, player_email: emailLower, generated_password: null };
+    if(tenantSlug) notifyData.tenant_slug = tenantSlug;
+    if(tenantName) notifyData.tenant_name = tenantName;
     try {
       fetch(AUTH_WORKER + '/auth/notify', {
         method: 'POST',
@@ -658,7 +676,7 @@
           rosterPath: _rosterPath,
           playerId: playerKey,
           email: emailLower,
-          data: { player_name: displayName, player_email: emailLower, generated_password: null }
+          data: notifyData
         })
       }).catch(function(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); });
     } catch(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); }

@@ -456,6 +456,13 @@ const FB_CFG = {
   messagingSenderId: "937804799976",
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
+// Tenant identity for this page, in one place. SLUG is the courtsense_school_configs
+// key, which is also the app folder name, so the worker resolves branding (club name
+// and colors) from it and derives the club app URL from it. Every membership path and
+// every notify payload below reads these two, never a repeated inline literal.
+const SLUG         = 'fsu_grass';
+const TENANT_NAME  = 'FSU Grass Club';
+
 const ROSTER_PATH   = 'tally_kotb_pickup/players'; // CourtSense community account node
 const CLUB_ROOT     = 'grass_club_matches';        // club roster lives here (app.js DB_ROOT)
 const CLUB_PROFILES = 'grass_club_profiles';       // club profile detail node
@@ -620,7 +627,7 @@ function buildClubWrites(accountKey){
   const genderRoster = (genderAcct === 'M' || genderAcct === 'F') ? genderAcct : null;
 
   const membership = {
-    org: 'fsu_grass', orgName: 'FSU Grass Club', role: 'member', tier: null,
+    org: SLUG, orgName: TENANT_NAME, role: 'member', tier: null,
     tierRequest: tierChoice, tierRequestedAt: tierChoice ? now : null,
     shirtSize: shirt || null,
     duesAgreed: duesAgreed, duesAgreedAt: duesAgreed ? now : null,
@@ -673,7 +680,7 @@ function buildClubWrites(accountKey){
   };
 
   const updates = {};
-  updates[ROSTER_PATH + '/' + accountKey + '/memberships/fsu_grass'] = membership;
+  updates[ROSTER_PATH + '/' + accountKey + '/memberships/' + SLUG] = membership;
   updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
   // Deep-path leaf write: sets only profile/gender, never clobbers profile
   // siblings (skillLevel). Runs on all three branches so an existing account
@@ -707,6 +714,39 @@ function showConfirm(){
 
 function alreadyMember(){
   if($('form-err')) $('form-err').innerHTML = 'Good news, you are already an FSU Grass Club member. Head to the <a href="' + CLUB_APP_URL + '">club app</a> to log in.';
+}
+
+// Club welcome for the two RETURNING-member branches (claiming an unclaimed account,
+// and signing in with an existing one). The new-account branch does not use this:
+// CourtSenseAuth.createPlayer already sends its own welcome with the same tenant keys.
+//
+// tenant_returning:true switches the worker to the returning-member copy, which
+// confirms them into the club rather than welcoming them to CourtSense. Same
+// fire-and-forget contract as createPlayer's welcome: the recipient is resolved
+// server-side from playerId, a failure only warns to the console, and nothing here
+// can block or fail the join. Called only after writeClub has succeeded, so nobody
+// is told they are in when the club write did not land.
+function notifyClubWelcome(accountKey, email, displayName){
+  try {
+    fetch(AUTH_WORKER + '/auth/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'welcome',
+        rosterPath: ROSTER_PATH,
+        playerId: accountKey,
+        email: email,
+        data: {
+          player_name: displayName,
+          player_email: email,
+          generated_password: null,
+          tenant_slug: SLUG,
+          tenant_name: TENANT_NAME,
+          tenant_returning: true
+        }
+      })
+    }).catch(function(e){ console.warn('club welcome notify failed', e); });
+  } catch(e){ console.warn('club welcome notify failed', e); }
 }
 
 async function doJoin(){
@@ -749,7 +789,7 @@ async function doJoin(){
       const displayName = (first + ' ' + last).trim();
       let res;
       try {
-        res = await CourtSenseAuth.createPlayer({ email: email, password: pw, displayName: displayName, city: 'Not set', skillLevel: 'Recreational', gender: val('gender') });
+        res = await CourtSenseAuth.createPlayer({ email: email, password: pw, displayName: displayName, city: 'Not set', skillLevel: 'Recreational', gender: val('gender'), tenant: { slug: SLUG, name: TENANT_NAME } });
       } catch(err){
         console.error('createPlayer threw', err);
         if($('form-err')) $('form-err').textContent = 'Unexpected error creating your account. Try again.';
@@ -796,7 +836,10 @@ async function doJoin(){
         return;
       }
       if(!reg || reg.ok !== true){ if($('form-err')) $('form-err').textContent = (reg && reg.error) || 'Could not set your password. Try again.'; return; }
-      if(await writeClub(acctPlayerId)) showConfirm();
+      if(await writeClub(acctPlayerId)){
+        notifyClubWelcome(acctPlayerId, email.toLowerCase(), (first + ' ' + last).trim());
+        showConfirm();
+      }
       return;
     }
 
@@ -824,8 +867,11 @@ async function doJoin(){
       const acct = ver.player || {};
       const accountKey = acct.id || acctPlayerId;
       // Do not duplicate an existing membership.
-      if(acct.memberships && acct.memberships.fsu_grass){ alreadyMember(); return; }
-      if(await writeClub(accountKey)) showConfirm();
+      if(acct.memberships && acct.memberships[SLUG]){ alreadyMember(); return; }
+      if(await writeClub(accountKey)){
+        notifyClubWelcome(accountKey, email.toLowerCase(), (first + ' ' + last).trim());
+        showConfirm();
+      }
       return;
     }
 
