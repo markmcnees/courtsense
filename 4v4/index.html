@@ -231,11 +231,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .card-admin-sched { order: 3; }
 .card-admin-score { order: 4; }
 .card-admin-export{ order: 5; }
+.card-admin-archive{ order: 6; }
 body.sched-locked .card-admin-score  { order: 1; }
 body.sched-locked .card-admin-sched  { order: 2; }
 body.sched-locked .card-admin-teams  { order: 3; }
 body.sched-locked .card-admin-roster { order: 4; }
 body.sched-locked .card-admin-export { order: 5; }
+body.sched-locked .card-admin-archive{ order: 6; }
 
 /* ADMIN LOCK SCREEN */
 .card-admin-lock{display:none;order:0;}
@@ -244,7 +246,8 @@ body.admin-locked .card-admin-teams,
 body.admin-locked .card-admin-roster,
 body.admin-locked .card-admin-sched,
 body.admin-locked .card-admin-score,
-body.admin-locked .card-admin-export{display:none;}
+body.admin-locked .card-admin-export,
+body.admin-locked .card-admin-archive{display:none;}
 
 /* EXPORT PANEL */
 .exp-chk{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--black);cursor:pointer;user-select:none;}
@@ -477,6 +480,7 @@ body.admin-locked .card-admin-export{display:none;}
       <div id="sg-helper" style="font-size:12px;color:var(--gray);margin:4px 0 12px;line-height:1.5;"></div>
       <button class="btn btn-a btn-w" id="sg-gen-btn" onclick="genSchedule()">&#129302; Generate Full Season</button>
       <button class="btn btn-p btn-w" id="sg-lock-btn" onclick="lockSeason()" style="margin-top:10px;display:none;">&#128274; Lock Season</button>
+      <button class="btn btn-g btn-w" id="sg-unlock-btn" onclick="unlockSeason()" style="margin-top:10px;display:none;">&#128275; Unlock Season</button>
       <div id="sg-preview" style="margin-top:14px;"></div>
     </div>
 
@@ -498,6 +502,20 @@ body.admin-locked .card-admin-export{display:none;}
         <button class="btn btn-p btn-sm" type="button" onclick="runExport('xlsx')">&#128202; Export to Excel</button>
         <button class="btn btn-p btn-sm" type="button" onclick="runExport('pdf')">&#128196; Export to PDF</button>
       </div>
+    </div>
+
+    <div class="card card-admin-archive">
+      <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 6</span>Season Archive</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">
+        Save this season's teams, schedule, and results, then clear them so a new season can start.
+        The archive is verified before anything is deleted. Park, courts, times, and scoring are kept.
+        The other division and the league chat are not touched.
+      </div>
+      <button class="btn btn-a btn-w" id="arch-btn" type="button" onclick="archiveSeason()">&#128230; Archive Season</button>
+      <div id="arch-status" style="font-size:12px;color:var(--gray);margin-top:10px;min-height:16px;"></div>
+      <div id="arch-justdone" style="display:none;margin-top:10px;"></div>
+      <div style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin:16px 0 6px;">ARCHIVED SEASONS</div>
+      <div id="arch-list"><div style="font-size:13px;color:var(--gray);">Open this tab to load archived seasons.</div></div>
     </div>
 
   </div>
@@ -582,8 +600,9 @@ let _pinAdminUntil = 0;
 let _mainFP = null; // fingerprint of the MAPPED children only; skips re-render when only unmapped nodes (e.g. messages) change
 const SESSION_PIN_MS = 60 * 60 * 1000;
 let D = {
-  rec:  {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}, archive:{}},
-  comp: {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}, archive:{}}
+  // archive is intentionally absent: archived seasons are read on demand, never held here.
+  rec:  {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}},
+  comp: {config:{}, teams:{}, schedule:{}, scheduleMeta:{}, results:{}}
 };
 let _selectedWeek = null;
 let _previewBannerDismissed = false;
@@ -669,8 +688,40 @@ function migrateScoreDraftsToLocal(){
 const $ = id => document.getElementById(id);
 function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
-function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
-function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
+// Firebase write failure reporting. set() and remove() return a promise that rejects on
+// a rules denial or a lost connection. Discarding it made a failed write look exactly
+// like a successful one, because the call sites toast success on the next line either
+// way. Handled once here so no existing call site has to change. The promise is also
+// returned and resolves to true only on a server-acknowledged write, which the season
+// archive depends on: it must know the snapshot landed before it deletes anything.
+const _FB_LABELS = {
+  teams:'the team', schedule:'the schedule', scheduleMeta:'the schedule settings',
+  results:'the result', config:'the settings', archive:'the archive'
+};
+function _fbLabel(p){
+  const seg = String(p == null ? '' : p).split('/');
+  for(let i=0;i<seg.length;i++){ if(_FB_LABELS[seg[i]]) return _FB_LABELS[seg[i]]; }
+  return '';
+}
+// Guarded: the toast element can be absent mid-render, and a reporting failure must not
+// become a second silent failure or an unhandled rejection.
+function _fbWriteFailed(verb,p,err){
+  console.error('Firebase '+verb+' failed:', DB_ROOT+'/'+p, err);
+  const lbl = _fbLabel(p);
+  try{ toast('Could not '+verb+(lbl?' '+lbl:'')+'. Try again.'); }catch(e){}
+}
+// The rejection is reported and swallowed so the existing fire-and-forget call sites do
+// not become unhandled rejections. Callers that need the outcome await and check.
+function fbSet(p,v){
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT+'/'+p).set(v).then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('save',p,err); return false; });
+}
+function fbDel(p){
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT+'/'+p).remove().then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('delete',p,err); return false; });
+}
 function closeModal(id){$(id).classList.remove('on');}
 
 // FIREBASE INIT
@@ -688,13 +739,17 @@ function initFB(){
         D[s].schedule     = sv.schedule     || {};
         D[s].scheduleMeta = sv.scheduleMeta || {};
         D[s].results      = sv.results      || {};
-        D[s].archive      = sv.archive      || {};
       });
       // Skip the full re-render when only unmapped nodes (e.g. <div>/messages) changed.
       // Fingerprint the MAPPED children only. First fire: _mainFP is null -> renders.
+      //
+      // archive is deliberately NOT mapped or fingerprinted. Every archived season would
+      // otherwise be pulled into memory on every snapshot and re-stringified on every
+      // change, and archiving a season would trigger a full re-render of the live app.
+      // It is read on demand with .once instead (see readArchiveIndex/readArchivedSeason).
       const fp = JSON.stringify([
-        D.rec.config,  D.rec.teams,  D.rec.schedule,  D.rec.scheduleMeta,  D.rec.results,  D.rec.archive,
-        D.comp.config, D.comp.teams, D.comp.schedule, D.comp.scheduleMeta, D.comp.results, D.comp.archive
+        D.rec.config,  D.rec.teams,  D.rec.schedule,  D.rec.scheduleMeta,  D.rec.results,
+        D.comp.config, D.comp.teams, D.comp.schedule, D.comp.scheduleMeta, D.comp.results
       ]);
       if(fp === _mainFP) return;
       _mainFP = fp;
@@ -793,6 +848,9 @@ function refreshTab(which){
     renderScheduleGen();
     renderScoreEntry();
     renderExportLabel();
+    // Archived seasons are not in D, so this reads them on demand. Only when the admin
+    // tab is actually open, and only for the active division.
+    if(isAdminAuthed()) renderArchiveCard();
   }
   if(which === 'schedule') renderPublicSchedule();
   if(which === 'standings') renderStandings();
@@ -1221,12 +1279,14 @@ function promptAdminUnlock(){
 }
 
 // SCHEDULE: SHARED
-function teamById(id){
+// teamsSrc lets the exporters resolve names against an archived season's teams. Omitted
+// everywhere in the live app, which keeps reading the active division.
+function teamById(id, teamsSrc){
   if(!id) return null;
-  return (D[DIV].teams||{})[id] || null;
+  return ((teamsSrc || D[DIV].teams) || {})[id] || null;
 }
-function teamLabel(id){
-  const t = teamById(id);
+function teamLabel(id, teamsSrc){
+  const t = teamById(id, teamsSrc);
   return t ? t.name : '(deleted team)';
 }
 function teamColor(id){
@@ -1337,12 +1397,18 @@ function renderScheduleGen(){
     }
   }
   const lockBtn = $('sg-lock-btn');
+  const unlockBtn = $('sg-unlock-btn');
   const isLocked = meta.status === 'locked' || meta.locked === true;
   if(btn){
-    btn.disabled = teamCount < 4;
-    btn.style.opacity = teamCount < 4 ? '.5' : '1';
-    btn.style.cursor = teamCount < 4 ? 'not-allowed' : 'pointer';
-    if(hasSched){
+    // Disabled while locked so the refusal is visible before the click. genSchedule
+    // re-checks the lock itself, since a disabled button is only cosmetic.
+    const blocked = teamCount < 4 || isLocked;
+    btn.disabled = blocked;
+    btn.style.opacity = blocked ? '.5' : '1';
+    btn.style.cursor = blocked ? 'not-allowed' : 'pointer';
+    if(isLocked){
+      btn.innerHTML = '&#128274; Locked, unlock to regenerate';
+    }else if(hasSched){
       btn.textContent = '♻ Regenerate Schedule';
     }else{
       btn.innerHTML = '&#129302; Generate Full Season';
@@ -1350,6 +1416,9 @@ function renderScheduleGen(){
   }
   if(lockBtn){
     lockBtn.style.display = (hasSched && !isLocked) ? '' : 'none';
+  }
+  if(unlockBtn){
+    unlockBtn.style.display = isLocked ? '' : 'none';
   }
   if(status){
     if(hasSched){
@@ -1767,6 +1836,15 @@ async function genSchedule(){
   const meta = D[DIV].scheduleMeta || {};
   const wasLocked = meta.status === 'locked' || meta.locked === true;
 
+  // A locked season cannot be regenerated at all. Locked used to be presentational: it
+  // reworded this confirm and reordered the admin cards, but a single OK still replaced
+  // the schedule and deleted every result. Unlock is now an explicit, separate action.
+  if(wasLocked){
+    $('sg-preview').innerHTML = '<div class="err-banner">This season is locked, so the schedule cannot be regenerated. Unlock it first if you really mean to replace the schedule and delete the recorded results.</div>';
+    toast('Season is locked. Unlock it first.');
+    return;
+  }
+
   // Single regenerate confirm: OK = replace schedule (and delete any recorded results);
   // Cancel = nothing changes. Replaces the prior three-confirm chain that included a
   // misleading "Cancel to keep results" trap which silently aborted the whole regenerate.
@@ -1774,9 +1852,7 @@ async function genSchedule(){
     const resultsLine = rCount > 0
       ? ' and DELETE all ' + rCount + ' recorded result' + (rCount===1?'':'s')
       : '';
-    const lockPrefix = wasLocked ? 'This season is LOCKED. ' : '';
-    const undoLine = wasLocked ? ' This cannot be undone.' : '';
-    const msg = lockPrefix + 'Regenerating will REPLACE the current schedule' + resultsLine + '.' + undoLine
+    const msg = 'Regenerating will REPLACE the current schedule' + resultsLine + '.'
       + '\n\nClick OK to regenerate, or Cancel to keep the current schedule unchanged.';
     if(!confirm(msg)) return;
   }
@@ -1972,10 +2048,294 @@ function lockSeason(){
   if(!hasSched){ toast('Generate a schedule first'); return; }
   const meta = D[DIV].scheduleMeta || {};
   if(meta.status === 'locked' || meta.locked === true){ toast('Already locked'); return; }
-  if(!confirm('Lock this season? Once locked, regenerating will require an explicit confirmation and may affect recorded results.')) return;
+  if(!confirm('Lock this season?\n\nWhile locked the schedule cannot be regenerated at all, so recorded results are safe. You can unlock it later if you need to rebuild the schedule.')) return;
   const newMeta = Object.assign({}, meta, { status: 'locked', locked: true, lockedAt: Date.now() });
-  if(db) db.ref(DB_ROOT+'/'+DIV+'/scheduleMeta').set(newMeta);
+  fbSet(DIV+'/scheduleMeta', newMeta);
   toast('Season locked');
+}
+
+// The counterpart to lockSeason. Regeneration is blocked while locked, so this is the
+// only way back to a regenerable season and it names what unlocking exposes.
+function unlockSeason(){
+  if(!requireAdmin('unlockSeason')) return;
+  const meta = D[DIV].scheduleMeta || {};
+  if(!(meta.status === 'locked' || meta.locked === true)){ toast('Season is not locked'); return; }
+  const rCount = resultsCount();
+  const resultsLine = rCount > 0
+    ? '\n\nThis season has ' + rCount + ' recorded result' + (rCount===1?'':'s') + '. Regenerating after unlocking would delete ' + (rCount===1?'it':'them') + '.'
+    : '';
+  if(!confirm('Unlock this season?\n\nUnlocking allows the schedule to be regenerated, which replaces every matchup.' + resultsLine + '\n\nClick OK to unlock, or Cancel to leave it locked.')) return;
+  const newMeta = Object.assign({}, meta, { status: 'draft', locked: false, unlockedAt: Date.now() });
+  fbSet(DIV+'/scheduleMeta', newMeta);
+  toast('Season unlocked');
+}
+
+// ─── SEASON ARCHIVE ───
+// Snapshot the active division's season under {DIV}/archive/{label}, VERIFY the snapshot
+// reads back, and only then clear the live season. Nothing is deleted unless the archive
+// is confirmed present; that ordering is the whole point of the feature.
+//
+// Scope guarantees, enforced by pinning the division into a local at entry:
+//   - only the active division is read or written, never the other one
+//   - {DIV}/messages is never read, written, or deleted
+//   - {DIV}/config survives, so park, courts, slots, and scoring carry into next season
+
+// Firebase keys cannot contain . # $ / [ ] and cannot be empty.
+function sanitizeSeasonLabel(s){
+  return String(s == null ? '' : s)
+    .replace(/[.#$/[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
+// Child count and key list that tolerate Firebase returning a numerically keyed node as
+// an array. Used by the verifier so a legitimate array/object shift is not read as loss.
+function _childKeys(v){
+  if(v == null) return [];
+  if(Array.isArray(v)) return v.map((x,i) => x == null ? null : String(i)).filter(x => x !== null);
+  if(typeof v !== 'object') return [];
+  return Object.keys(v);
+}
+function _childCount(v){ return _childKeys(v).length; }
+
+// Compares what came back from Firebase against what we sent. Returns null when the
+// snapshot is sound, or a plain sentence naming the first problem found. Deliberately
+// key-based rather than a deep JSON compare: Firebase drops empty objects and may return
+// numeric-keyed maps as arrays, either of which would fail a naive equality check and
+// block a perfectly good archive.
+function verifyArchiveSnapshot(back, snap){
+  if(!back) return 'the archive came back empty';
+  if(back.label !== snap.label) return 'the season name did not match';
+  if(back.division !== snap.division) return 'the division did not match';
+  const parts = ['teams','schedule','results'];
+  for(let i=0;i<parts.length;i++){
+    const p = parts[i];
+    const want = _childKeys(snap[p]).slice().sort();
+    const got  = _childKeys(back[p]).slice().sort();
+    if(want.length !== got.length){
+      return want.length + ' ' + p + ' were sent but ' + got.length + ' read back';
+    }
+    for(let j=0;j<want.length;j++){
+      if(want[j] !== got[j]) return 'a ' + p + ' entry did not match (' + want[j] + ')';
+    }
+  }
+  if(_childCount(snap.config) > 0 && _childCount(back.config) === 0) return 'the settings did not read back';
+  if(_childCount(snap.scheduleMeta) > 0 && _childCount(back.scheduleMeta) === 0) return 'the schedule settings did not read back';
+  return null;
+}
+
+// Holds the season just archived so the export buttons can offer it without a re-read.
+let _lastArchived = null;
+
+async function archiveSeason(){
+  if(!requireAdmin('archiveSeason')) return;
+  if(!db){ toast('Not connected'); return; }
+
+  // Pin the division for the whole run. DIV is a global the header toggle can change
+  // mid-await, and a half-archived pair of divisions is the worst outcome here.
+  const div = DIV;
+  const S = D[div] || {};
+  const nTeams   = _childCount(S.teams);
+  const nWeeks   = _childCount(S.schedule);
+  const nResults = _childCount(S.results);
+  if(nTeams === 0 && nWeeks === 0 && nResults === 0){
+    toast('Nothing to archive in this division');
+    return;
+  }
+
+  const divFull = div === 'rec' ? 'Recreational 4v4' : 'Competitive 4v4';
+  const suggested = 'Season ' + new Date().getFullYear();
+  const raw = prompt('Name this season before archiving (e.g. "Summer 2026"):', suggested);
+  if(raw === null) return;
+  const label = sanitizeSeasonLabel(raw);
+  if(!label){ toast('A season name is required'); return; }
+
+  // Refuse to silently overwrite a previous archive under the same name.
+  let existing = null;
+  try{
+    existing = (await db.ref(DB_ROOT+'/'+div+'/archive/'+label).once('value')).val();
+  }catch(e){
+    console.error('archive: existing check failed', e);
+    alert('Could not read the existing archives, so nothing was changed.\n\nCheck your connection and try again.');
+    return;
+  }
+  if(existing){
+    if(!confirm('An archive named "' + label + '" already exists for ' + divFull + '.\n\nClick OK to replace it, or Cancel to pick another name.')) return;
+  }
+
+  const summary = nTeams + ' team' + (nTeams===1?'':'s') + ', '
+                + nWeeks + ' week' + (nWeeks===1?'':'s') + ', '
+                + nResults + ' recorded result' + (nResults===1?'':'s');
+  if(!confirm('Archive the ' + divFull + ' season as "' + label + '"?\n\nThis saves ' + summary
+    + ', then clears the teams, schedule, and results so a new season can start.\n\n'
+    + 'The archive is verified before anything is deleted. Your park, courts, times, and scoring settings are kept. '
+    + 'The other division and the league chat are not touched.\n\nClick OK to archive, or Cancel to stop.')) return;
+
+  const btn = $('arch-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Archiving...'; }
+  const setStatus = (msg, bad) => {
+    const el = $('arch-status');
+    if(el){ el.textContent = msg; el.style.color = bad ? 'var(--loss)' : 'var(--gray)'; }
+  };
+  const done = () => { if(btn){ btn.disabled = false; btn.innerHTML = '&#128230; Archive Season'; } };
+
+  try{
+    // (a) Write the full snapshot.
+    setStatus('Saving the archive...', false);
+    const snap = {
+      label: label,
+      division: div,
+      archivedAt: Date.now(),
+      counts: { teams: nTeams, weeks: nWeeks, results: nResults },
+      config:       S.config       || {},
+      teams:        S.teams        || {},
+      schedule:     S.schedule     || {},
+      scheduleMeta: S.scheduleMeta || {},
+      results:      S.results      || {}
+    };
+    const wrote = await fbSet(div + '/archive/' + label, snap);
+    if(!wrote){
+      setStatus('Archive failed. Nothing was deleted.', true);
+      alert('The archive could not be saved, so nothing was deleted.\n\nYour season is exactly as it was. Check your connection and try again.');
+      done();
+      return;
+    }
+
+    // (b) Read it back and verify BEFORE deleting anything.
+    setStatus('Verifying the archive...', false);
+    let back = null;
+    try{
+      back = (await db.ref(DB_ROOT+'/'+div+'/archive/'+label).once('value')).val();
+    }catch(e){
+      console.error('archive: verification read failed', e);
+      setStatus('Could not verify the archive. Nothing was deleted.', true);
+      alert('The archive was saved but could not be read back to verify it, so nothing was deleted.\n\nYour season is exactly as it was. Try again in a moment.');
+      done();
+      return;
+    }
+    const problem = verifyArchiveSnapshot(back, snap);
+    if(problem){
+      console.error('archive: verification failed:', problem, {sent: snap, back: back});
+      setStatus('Verification failed. Nothing was deleted.', true);
+      alert('The archive did not verify: ' + problem + '.\n\nNothing was deleted and your season is exactly as it was. Try again, and if it keeps failing use Export to save a copy before doing anything else.');
+      done();
+      return;
+    }
+
+    // (c) Verified. Now clear the live season, one node at a time so a partial failure
+    // is reported rather than assumed. config and messages are deliberately left alone.
+    setStatus('Archive verified. Clearing the season...', false);
+    const cleared = [];
+    const failed = [];
+    const nodes = ['teams','schedule','scheduleMeta','results'];
+    for(let i=0;i<nodes.length;i++){
+      const ok = await fbDel(div + '/' + nodes[i]);
+      if(ok) cleared.push(nodes[i]); else failed.push(nodes[i]);
+    }
+
+    _lastArchived = { label: label, div: div, divFull: divFull, data: snap };
+    // Offer the download of the season just archived, right where the coach is looking.
+    // Served from the in-memory snapshot, so it works even if the read-back is slow.
+    const jd = $('arch-justdone');
+    if(jd){
+      const arg = escapeHtml(String(label).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      jd.style.display = '';
+      jd.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">Download "'
+        + escapeHtml(label) + '" before you start the new season:</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<button class="btn btn-p btn-sm" type="button" onclick="exportArchivedSeason(\'' + arg + '\',\'xlsx\')">&#128202; Excel</button>'
+        + '<button class="btn btn-p btn-sm" type="button" onclick="exportArchivedSeason(\'' + arg + '\',\'pdf\')">&#128196; PDF</button>'
+        + '</div>';
+    }
+
+    if(failed.length){
+      setStatus('Archived, but ' + failed.join(', ') + ' did not clear.', true);
+      alert('The season was archived and verified as "' + label + '".\n\nBut these did not clear: ' + failed.join(', ')
+        + '.\n\nNothing was lost, the archive holds a full copy. Try Archive Season again with the same name to finish clearing.');
+    }else{
+      setStatus('Archived as "' + label + '". Season cleared and ready for a new one.', false);
+      toast('Season archived as "' + label + '"');
+    }
+    done();
+    renderArchiveCard();
+  }catch(err){
+    console.error('archive: unexpected failure', err);
+    setStatus('Archive failed. Nothing was deleted.', true);
+    alert('Something went wrong while archiving, so nothing was deleted.\n\nYour season is exactly as it was.');
+    done();
+  }
+}
+
+// Archived seasons are read on demand, never held in D.
+async function readArchiveIndex(div){
+  if(!db) return {};
+  try{
+    return (await db.ref(DB_ROOT+'/'+div+'/archive').once('value')).val() || {};
+  }catch(e){ console.error('archive: index read failed', e); return {}; }
+}
+async function readArchivedSeason(div, label){
+  if(!db) return null;
+  try{
+    return (await db.ref(DB_ROOT+'/'+div+'/archive/'+label).once('value')).val();
+  }catch(e){ console.error('archive: season read failed', e); return null; }
+}
+
+// Export a named archived season. Reuses the live exporters by handing them the snapshot
+// as their data source, so schedule and standings render identically to a live export.
+async function exportArchivedSeason(label, format){
+  if(!requireAdmin('exportArchivedSeason')) return;
+  const div = DIV;
+  let data = (_lastArchived && _lastArchived.div === div && _lastArchived.label === label)
+    ? _lastArchived.data
+    : await readArchivedSeason(div, label);
+  if(!data){ toast('Could not load that archived season'); return; }
+  const divLabel = div === 'rec' ? 'Rec' : 'Comp';
+  const divFull  = div === 'rec' ? 'Recreational 4v4' : 'Competitive 4v4';
+  const opts = { src: data, seasonLabel: label, divLabel: divLabel, divFull: divFull };
+  if(format === 'xlsx') exportToExcel(true, true, opts);
+  else exportToPdf(true, true, opts);
+}
+
+function renderArchiveCard(){
+  const host = $('arch-list');
+  if(!host) return;
+  if(!db){ host.innerHTML = '<div style="font-size:13px;color:var(--gray);">Not connected.</div>'; return; }
+  const div = DIV;
+  host.innerHTML = '<div style="font-size:13px;color:var(--gray);">Loading archived seasons...</div>';
+  readArchiveIndex(div).then(arch => {
+    // A division toggle mid-read must not paint the wrong division's archives.
+    if(DIV !== div) return;
+    const labels = Object.keys(arch).sort().reverse();
+    if(!labels.length){
+      host.innerHTML = '<div style="font-size:13px;color:var(--gray);">No archived seasons yet.</div>';
+      return;
+    }
+    host.innerHTML = labels.map(name => {
+      const a = arch[name] || {};
+      const c = a.counts || {};
+      const nT = (typeof c.teams === 'number') ? c.teams : _childCount(a.teams);
+      const nW = (typeof c.weeks === 'number') ? c.weeks : _childCount(a.schedule);
+      const nR = (typeof c.results === 'number') ? c.results : _childCount(a.results);
+      const when = a.archivedAt ? new Date(a.archivedAt).toLocaleDateString() : '';
+      const esc = escapeHtml(name);
+      // JS-escape the RAW name first, then HTML-escape the result. The parser decodes the
+      // entities back before the handler runs, so the function receives the exact label.
+      // Escaping the already-escaped string instead would break on any apostrophe.
+      const arg = escapeHtml(String(name).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      return '<div style="padding:12px 0;border-bottom:1px solid var(--sand-border);">'
+        + '<div style="font-weight:700;font-size:14px;">' + esc + '</div>'
+        + '<div style="font-size:12px;color:var(--gray);margin-top:2px;">'
+        +   nT + ' team' + (nT===1?'':'s') + ' &middot; ' + nW + ' week' + (nW===1?'':'s')
+        +   ' &middot; ' + nR + ' result' + (nR===1?'':'s')
+        +   (when ? (' &middot; archived ' + escapeHtml(when)) : '')
+        + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+        +   '<button class="btn btn-g btn-sm" type="button" onclick="exportArchivedSeason(\'' + arg + '\',\'xlsx\')">&#128202; Excel</button>'
+        +   '<button class="btn btn-g btn-sm" type="button" onclick="exportArchivedSeason(\'' + arg + '\',\'pdf\')">&#128196; PDF</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  });
 }
 
 // ─── WHOLE-NIGHT CANCEL / UNCANCEL / MAKEUP ───
@@ -2229,15 +2589,19 @@ function renderExportLabel(){
 
 // Build schedule rows shared by Excel + PDF.
 // Returns [{week, day, date, visitors, home, court, park, time, byes}], byes filled only on first row of each week.
-function buildScheduleRowsForExport(){
-  const sched = D[DIV].schedule || {};
-  const cfg = D[DIV].config || {};
+// src is a season-shaped object ({schedule, config, teams}). Defaults to the active
+// division, so every existing caller is unchanged; the archive exporters pass a snapshot.
+function buildScheduleRowsForExport(src){
+  const S = src || D[DIV] || {};
+  const sched = S.schedule || {};
+  const cfg = S.config || {};
+  const teamsSrc = S.teams || null;
   const defaultPark = (cfg.park || 'Tom Brown Park');
   const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
   const rows = [];
   weeks.forEach(w => {
     const items = (w.matchups || []).slice().sort((a,b) => (a.round - b.round) || (a.court - b.court));
-    const byeNames = (w.byes || []).map(id => teamLabel(id)).filter(Boolean).join(', ');
+    const byeNames = (w.byes || []).map(id => teamLabel(id, teamsSrc)).filter(Boolean).join(', ');
     if(items.length === 0){
       rows.push({
         week: w.week, day: fmtDayOfWeek(w.date), date: fmtDateLong(w.date),
@@ -2249,8 +2613,8 @@ function buildScheduleRowsForExport(){
           week: w.week,
           day:  fmtDayOfWeek(w.date),
           date: fmtDateLong(w.date),
-          visitors: teamLabel(m.teamAId),
-          home:     teamLabel(m.teamBId),
+          visitors: teamLabel(m.teamAId, teamsSrc),
+          home:     teamLabel(m.teamBId, teamsSrc),
           court:    m.court,
           park:     m.park || defaultPark,
           time:     m.time || '',
@@ -2264,8 +2628,8 @@ function buildScheduleRowsForExport(){
 
 // Build standings rows shared by Excel + PDF. Uses computeStandings() so sort order
 // matches the on-screen standings (W desc, set diff, pt diff, then name).
-function buildStandingsRowsForExport(){
-  const standings = computeStandings();
+function buildStandingsRowsForExport(src){
+  const standings = computeStandings(src);
   return standings.map((s, i) => {
     const total = s.w + s.l;
     const winPctStr = total > 0 ? (Math.round((s.w / total) * 1000) / 10).toFixed(1) + '%' : '—';
@@ -2285,16 +2649,24 @@ function buildStandingsRowsForExport(){
   });
 }
 
-function exportToExcel(includeSchedule, includeStandings){
+// opts is optional: {src, seasonLabel, divLabel, divFull}. Omitted for a live export, so
+// every existing caller keeps exporting the active division exactly as before. The
+// archive path passes a snapshot plus its season label, which is stamped into the sheet
+// names and the filename so the file identifies which season it holds.
+function exportToExcel(includeSchedule, includeStandings, opts){
   if(typeof XLSX === 'undefined'){ toast('Excel library not loaded'); return; }
+  const o = opts || {};
+  const src = o.src || null;
+  const season = o.seasonLabel ? String(o.seasonLabel) : '';
   const wb = XLSX.utils.book_new();
-  const divLabel = getDivLabel();
+  const divLabel = o.divLabel || getDivLabel();
   const today = todayYMD();
+  const tag = season ? (divLabel + ' ' + season) : divLabel;
   let appended = 0;
   let kindParts = [];
 
   if(includeSchedule){
-    const rows = buildScheduleRowsForExport();
+    const rows = buildScheduleRowsForExport(src);
     const header = ['Week','Day','Date','Visitors','Home','Court','Park','Time','Bye(s) this week'];
     const aoa = [header];
     if(rows.length === 0){
@@ -2304,12 +2676,13 @@ function exportToExcel(includeSchedule, includeStandings){
     }
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{wch:6},{wch:9},{wch:18},{wch:24},{wch:24},{wch:6},{wch:18},{wch:10},{wch:30}];
-    XLSX.utils.book_append_sheet(wb, ws, divLabel + ' Schedule');
+    // Excel caps sheet names at 31 chars and rejects several punctuation marks.
+    XLSX.utils.book_append_sheet(wb, ws, sheetName(tag, 'Schedule'));
     appended++;
     kindParts.push('Schedule');
   }
   if(includeStandings){
-    const rows = buildStandingsRowsForExport();
+    const rows = buildStandingsRowsForExport(src);
     const header = ['Rank','Team','W','L','Win%','Sets W','Sets L','Set Diff','Pts For','Pts Ag','Pt Diff'];
     const aoa = [header];
     if(rows.length === 0){
@@ -2319,24 +2692,42 @@ function exportToExcel(includeSchedule, includeStandings){
     }
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{wch:6},{wch:24},{wch:5},{wch:5},{wch:8},{wch:7},{wch:7},{wch:8},{wch:8},{wch:8},{wch:8}];
-    XLSX.utils.book_append_sheet(wb, ws, divLabel + ' Standings');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName(tag, 'Standings'));
     appended++;
     kindParts.push('Standings');
   }
   if(appended === 0) return;
   const kind = kindParts.length === 2 ? 'Full' : kindParts[0];
-  const filename = 'Tally4v4_' + divLabel + '_' + kind + '_' + today + '.xlsx';
+  const seasonPart = season ? (fileSafe(season) + '_') : '';
+  const filename = 'Tally4v4_' + divLabel + '_' + seasonPart + kind + '_' + today + '.xlsx';
   XLSX.writeFile(wb, filename);
   toast('Excel exported');
 }
 
-function exportToPdf(includeSchedule, includeStandings){
+// Excel sheet names: 31 chars max, and / \ ? * [ ] : are illegal. Trim the season part
+// first so the kind ("Schedule" / "Standings") always survives.
+function sheetName(tag, kind){
+  const clean = String(tag||'').replace(/[\/\\?*\[\]:]/g, ' ').replace(/\s+/g,' ').trim();
+  const room = 31 - (kind.length + 1);
+  return (clean.length > room ? clean.slice(0, room).trim() : clean) + ' ' + kind;
+}
+// Filenames: keep it to characters every OS accepts.
+function fileSafe(s){
+  return String(s==null?'':s).replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+}
+
+// Same optional opts contract as exportToExcel. The season label, when present, is
+// stamped into the document title and the filename.
+function exportToPdf(includeSchedule, includeStandings, opts){
   const ns = window.jspdf;
   if(!ns || !ns.jsPDF){ toast('PDF library not loaded'); return; }
   const doc = new ns.jsPDF({unit: 'pt', format: 'letter'});
   if(typeof doc.autoTable !== 'function'){ toast('PDF table plugin missing'); return; }
-  const divLabel = getDivLabel();
-  const divFull = getDivFullLabel();
+  const o = opts || {};
+  const src = o.src || null;
+  const season = o.seasonLabel ? String(o.seasonLabel) : '';
+  const divLabel = o.divLabel || getDivLabel();
+  const divFull = (o.divFull || getDivFullLabel()) + (season ? (' (' + season + ')') : '');
   const today = todayYMD();
   const generatedStr = new Date().toLocaleString();
   let kindParts = [];
@@ -2347,7 +2738,7 @@ function exportToPdf(includeSchedule, includeStandings){
   doc.text(divFull, 40, 50);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text('Generated: ' + generatedStr, 40, 66);
+  doc.text((season ? 'Archived season. ' : '') + 'Generated: ' + generatedStr, 40, 66);
   let yCursor = 84;
 
   if(includeSchedule){
@@ -2356,8 +2747,10 @@ function exportToPdf(includeSchedule, includeStandings){
     doc.text('Schedule', 40, yCursor);
     yCursor += 12;
 
-    const sched = D[DIV].schedule || {};
-    const cfg = D[DIV].config || {};
+    const SP = src || D[DIV] || {};
+    const sched = SP.schedule || {};
+    const cfg = SP.config || {};
+    const teamsSrc = SP.teams || null;
     const defaultPark = cfg.park || 'Tom Brown Park';
     const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
 
@@ -2369,13 +2762,13 @@ function exportToPdf(includeSchedule, includeStandings){
     } else {
       weeks.forEach(w => {
         const items = (w.matchups || []).slice().sort((a,b) => (a.round - b.round) || (a.court - b.court));
-        const byeNames = (w.byes || []).map(id => teamLabel(id)).filter(Boolean).join(', ');
+        const byeNames = (w.byes || []).map(id => teamLabel(id, teamsSrc)).filter(Boolean).join(', ');
         const weekHdr = 'Week ' + w.week + ' — ' + fmtDayOfWeek(w.date) + ', ' + fmtDateLong(w.date);
         const body = items.length === 0
           ? [['(no matches)','','','','']]
           : items.map(m => [
-              teamLabel(m.teamAId),
-              teamLabel(m.teamBId),
+              teamLabel(m.teamAId, teamsSrc),
+              teamLabel(m.teamBId, teamsSrc),
               String(m.court),
               m.park || defaultPark,
               m.time || ''
@@ -2425,7 +2818,7 @@ function exportToPdf(includeSchedule, includeStandings){
     doc.text('Generated: ' + generatedStr, 40, y + 4);
     y += 22;
 
-    const rows = buildStandingsRowsForExport();
+    const rows = buildStandingsRowsForExport(src);
     if(rows.length === 0){
       doc.setFont('helvetica', 'italic');
       doc.text('(no teams yet)', 40, y);
@@ -2446,7 +2839,8 @@ function exportToPdf(includeSchedule, includeStandings){
 
   if(kindParts.length === 0) return;
   const kind = kindParts.length === 2 ? 'Full' : kindParts[0];
-  const filename = 'Tally4v4_' + divLabel + '_' + kind + '_' + today + '.pdf';
+  const seasonPart = season ? (fileSafe(season) + '_') : '';
+  const filename = 'Tally4v4_' + divLabel + '_' + seasonPart + kind + '_' + today + '.pdf';
   doc.save(filename);
   toast('PDF exported');
 }
@@ -2964,11 +3358,14 @@ function deleteResult(mid){
 }
 
 // STANDINGS
-function computeStandings(){
-  const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name);
+// src is a season-shaped object ({teams, results, ...}). Defaults to the active division,
+// so every existing caller is unchanged; the archive exporters pass a snapshot instead.
+function computeStandings(src){
+  const S = src || D[DIV] || {};
+  const teams = Object.values(S.teams||{}).filter(t=>t&&t.id&&t.name);
   const stats = {};
   teams.forEach(t => { stats[t.id] = { id: t.id, name: t.name, color: t.color||'', w:0, l:0, setsW:0, setsL:0, ptsFor:0, ptsAgainst:0 }; });
-  const results = Object.values(D[DIV].results||{});
+  const results = Object.values(S.results||{});
   results.forEach(r => {
     if(!r) return;
     const a = stats[r.teamAId];
