@@ -1,0 +1,115 @@
+#!/bin/sh
+#
+# CourtSense pre-push hook: keep the ?v= cache-buster stamps current.
+#
+# WHY
+# The same-repo scripts (auth.js, ratings.js, identity.js, nav.js, kotb-app.js,
+# cs-config-gen.js) ship by a plain push to this repo, not by deploy.sh. Without a
+# stamp that moves when the file moves, a browser keeps serving a stale copy after a
+# change ships. That cost a live debugging session once already.
+#
+# WHAT IT STAMPS WITH
+# The first 8 characters of the script's own git blob hash, not a commit SHA.
+# A commit cannot contain its own short SHA: writing the SHA into a tracked file
+# changes the file, which changes the commit, which changes the SHA. Using a commit
+# SHA would also loop, because the follow-up stamp commit shifts HEAD and the hook
+# would want to restamp on the next push, forever.
+#
+# A content hash has neither problem. It is idempotent, so a second run over an
+# already-stamped tree changes nothing and the push goes straight through. It also
+# changes ONLY when that script's bytes change, so editing kotb-app.js does not
+# needlessly bust the cache on pages that only load nav.js.
+#
+# WHAT IT NEVER TOUCHES
+#   /app.js?v=            deploy.sh owns that stamp. Two writers fighting over one
+#                         string is worse than no hook at all.
+#   onboard/index.html    line 691 is a generator template, not a live tag. Stamping
+#                         it would bake a fixed version into every school shell it
+#                         writes from then on.
+#
+# FAIL SAFE
+# Every failure path exits 0 so the push proceeds. The hook never blocks a push
+# because something went wrong. The single non-zero exit is the deliberate one:
+# stamps were refreshed and committed, so push again to include that commit.
+
+SCRIPTS="auth.js ratings.js identity.js nav.js kotb-app.js cs-config-gen.js"
+ZERO="0000000000000000000000000000000000000000"
+
+REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -n "$REPO" ] || exit 0
+cd "$REPO" 2>/dev/null || exit 0
+
+# A dirty tree means the user has work in progress. Never fold that into a stamp
+# commit, and never leave the tree dirty after a push, because deploy.sh runs
+# git pull --rebase here and a dirty tracked tree aborts it mid-run.
+git diff --quiet 2>/dev/null || exit 0
+git diff --cached --quiet 2>/dev/null || exit 0
+
+# Did any watched script change in what is being pushed? If not, there is nothing to
+# restamp and the push goes through untouched.
+touched=0
+while read -r localref localsha remoteref remotesha; do
+  [ -n "$localsha" ] || continue
+  [ "$localsha" = "$ZERO" ] && continue          # branch delete
+  if [ -z "$remotesha" ] || [ "$remotesha" = "$ZERO" ]; then
+    touched=1                                     # new branch, check everything
+    continue
+  fi
+  changed=$(git diff --name-only "$remotesha" "$localsha" 2>/dev/null) || continue
+  for s in $SCRIPTS; do
+    case "$changed" in
+      "$s"|"$s
+"*|*"
+$s"|*"
+$s
+"*) touched=1 ;;
+    esac
+  done
+done
+
+[ "$touched" = "1" ] || exit 0
+
+# Rewrite the stamps. Tracked HTML only, so nothing in node_modules or an untracked
+# backup directory is ever rewritten.
+html=$(git ls-files -- '*.html' 2>/dev/null) || exit 0
+[ -n "$html" ] || exit 0
+
+for s in $SCRIPTS; do
+  [ -f "$s" ] || continue
+  ver=$(git hash-object "$s" 2>/dev/null | cut -c1-8)
+  [ -n "$ver" ] || continue
+  esc=$(printf '%s' "$s" | sed 's/\./\\./g')
+  printf '%s\n' "$html" | while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in onboard/index.html) continue ;; esac   # generator template, leave bare
+    [ -f "$f" ] || continue
+    grep -q "$s?v=" "$f" 2>/dev/null || continue
+    sed -i -E "s|(<script[^>]*src=\")(/?)${esc}\?v=[A-Za-z0-9._-]+(\")|\1\2${s}?v=${ver}\3|g" "$f" 2>/dev/null
+  done
+done
+
+# Nothing actually moved, so the stamps were already current. Let the push through.
+git diff --quiet 2>/dev/null && exit 0
+
+# Stage only the files this hook rewrote, by explicit path. The tree was verified
+# clean above, so every modified file here is one of ours. Never git add -A or dot.
+git diff --name-only -- '*.html' 2>/dev/null | while IFS= read -r f; do
+  [ -n "$f" ] && git add -- "$f" 2>/dev/null
+done
+
+if git diff --cached --quiet 2>/dev/null; then
+  exit 0
+fi
+
+git commit -m "Refresh script cache-buster stamps" >/dev/null 2>&1 || {
+  # Could not commit. Put the tree back so the push does not leave it dirty.
+  git reset --hard HEAD >/dev/null 2>&1
+  exit 0
+}
+
+echo ""
+echo "pre-push: script cache-buster stamps were out of date."
+echo "pre-push: refreshed them and committed as \"Refresh script cache-buster stamps\"."
+echo "pre-push: run git push again to send both commits."
+echo ""
+exit 1
