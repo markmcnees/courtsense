@@ -1348,29 +1348,88 @@ function buildSeasonNight(ids,courtNums,pC,oC,sitCount,TARGET,weekIdx){
   }
   const undo=(c,d)=>{_csChg(pC,c.t1[0],c.t1[1],d);_csChg(pC,c.t2[0],c.t2[1],d);c.t1.forEach(a=>c.t2.forEach(b=>_csChg(oC,a,b,d)));};
   rounds.forEach(rd=>rd.courts.forEach(c=>undo(c,1)));
-  const cost=()=>{let s=0;for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){const p=_csPv(pC,ids[i],ids[j]),o=_csPv(oC,ids[i],ids[j]);s+=p*p*3+o*o+(p===0?40:0)+(o===0?15:0);}return s;};
+  // Cost of one pair. Partners are weighted 3x opponents and a never-paired couple
+  // carries a large flat penalty, because this league scores individuals and the
+  // partner draw moves the standings. Unchanged from the original weighting.
+  const pairCost=(a,b)=>{const p=_csPv(pC,a,b),o=_csPv(oC,a,b);return p*p*3+o*o+(p===0?40:0)+(o===0?15:0);};
   const activeArr=rd=>{const m=[];rd.courts.forEach((c,ci)=>['t1','t2'].forEach(tk=>c[tk].forEach((id,si)=>m.push({id,ci,tk,si}))));return m;};
+
+  // Exchange the players sitting in two slots, keep it only when the season cost drops.
+  //
+  // Cost is evaluated INCREMENTALLY. undo() only ever touches pairs drawn from a single
+  // court's four players, so the only pairs a swap can change are those among the union
+  // of the two courts' members, which is at most 8 players and 28 pairs. Scoring just
+  // those instead of recomputing the full O(n squared) sum makes each candidate constant
+  // work, which is what pays for the much larger candidate set below. The membership set
+  // is the same before and after, since the swap only exchanges two players who are both
+  // already in it, so one set serves both measurements.
+  //
+  // Ids are read live from the courts rather than from a captured slot list, so a list
+  // built before an earlier swap in the same pass is still safe to use.
+  const trySwap=(rd1,A,rd2,B)=>{
+    const c1=rd1.courts[A.ci],c2=rd2.courts[B.ci];
+    const idA=c1[A.tk][A.si],idB=c2[B.tk][B.si];
+    if(idA===idB)return false;
+    const one=(c1===c2);
+    const memb=[];
+    [c1.t1,c1.t2].concat(one?[]:[c2.t1,c2.t2]).forEach(t=>t.forEach(x=>{if(memb.indexOf(x)<0)memb.push(x);}));
+    const sub=()=>{let s=0;for(let i=0;i<memb.length;i++)for(let j=i+1;j<memb.length;j++)s+=pairCost(memb[i],memb[j]);return s;};
+    const before=sub();
+    undo(c1,-1);if(!one)undo(c2,-1);
+    c1[A.tk][A.si]=idB;c2[B.tk][B.si]=idA;
+    undo(c1,1);if(!one)undo(c2,1);
+    if(sub()<before)return true;
+    undo(c1,-1);if(!one)undo(c2,-1);
+    c1[A.tk][A.si]=idA;c2[B.tk][B.si]=idB;
+    undo(c1,1);if(!one)undo(c2,1);
+    return false;
+  };
+
   let moves=1,guard=0;
   while(moves>0&&guard++<400){
     moves=0;
-    for(let r1=0;r1<rounds.length&&moves===0;r1++)for(let r2=0;r2<rounds.length&&moves===0;r2++){
+
+    // Pass 1: WITHIN-ROUND play swaps. Exchange two players who are both playing in the
+    // same round, which re-pairs a court. The old loop skipped r1===r2 because a sit swap
+    // inside one round is meaningless, but a PLAY swap inside one round is the move the
+    // starved shapes need: with one sitter the cross-round pass has at most one candidate
+    // per round pair, and with zero sitters it has none at all, leaving the optimiser
+    // completely inert. Every invariant holds for free here, since both players are
+    // already in this round: who sits, games per player, court count and round structure
+    // are all untouched, and only the pairing changes.
+    for(let r=0;r<rounds.length;r++){
+      const slots=activeArr(rounds[r]);
+      for(let i=0;i<slots.length;i++){
+        for(let j=i+1;j<slots.length;j++){
+          const A=slots[i],B=slots[j];
+          if(A.ci===B.ci&&A.tk===B.tk)continue; // same team, a reorder that changes nothing
+          if(trySwap(rounds[r],A,rounds[r],B))moves++;
+        }
+      }
+    }
+
+    // Pass 2: CROSS-ROUND sit swaps, the original move, unchanged in what it can do.
+    // A cross-round PLAY swap is not a separate case: moving a player into another round
+    // is only legal when they are absent from it, which means they are sitting there, so
+    // it is exactly this move. Kept because it works well wherever sitters are plentiful.
+    for(let r1=0;r1<rounds.length;r1++)for(let r2=0;r2<rounds.length;r2++){
       if(r1===r2)continue;
       const aList=activeArr(rounds[r1]).filter(x=>rounds[r2].sitting.includes(x.id));
+      if(!aList.length)continue;
+      const bList=activeArr(rounds[r2]).filter(x=>rounds[r1].sitting.includes(x.id));
+      if(!bList.length)continue;
       for(const A of aList){
-        if(moves)break;
-        const bList=activeArr(rounds[r2]).filter(x=>rounds[r1].sitting.includes(x.id));
         for(const B of bList){
-          if(A.id===B.id)continue;
-          const c1=rounds[r1].courts[A.ci],c2=rounds[r2].courts[B.ci];
-          const before=cost();
-          undo(c1,-1);undo(c2,-1);
-          c1[A.tk][A.si]=B.id;c2[B.tk][B.si]=A.id;
-          undo(c1,1);undo(c2,1);
-          if(cost()<before){
-            rounds[r1].sitting=rounds[r1].sitting.map(x=>x===B.id?A.id:x);
-            rounds[r2].sitting=rounds[r2].sitting.map(x=>x===A.id?B.id:x);
-            moves=1;break;
-          }else{undo(c1,-1);undo(c2,-1);c1[A.tk][A.si]=A.id;c2[B.tk][B.si]=B.id;undo(c1,1);undo(c2,1);}
+          const idA=rounds[r1].courts[A.ci][A.tk][A.si],idB=rounds[r2].courts[B.ci][B.tk][B.si];
+          if(idA===idB)continue;
+          // Both must still be playing here and sitting there; an earlier accepted swap
+          // in this pass may have moved one of them.
+          if(!rounds[r2].sitting.includes(idA)||!rounds[r1].sitting.includes(idB))continue;
+          if(trySwap(rounds[r1],A,rounds[r2],B)){
+            rounds[r1].sitting=rounds[r1].sitting.map(x=>x===idB?idA:x);
+            rounds[r2].sitting=rounds[r2].sitting.map(x=>x===idA?idB:x);
+            moves++;
+          }
         }
       }
     }
