@@ -308,8 +308,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div id="iv-court-hint" style="font-size:11px;color:var(--gray);margin-top:4px;"></div>
       </div>
       <div class="fg">
-        <label class="lbl">Courts</label>
-        <input class="inp" id="iv-courts" type="number" min="1" max="8" value="1" oninput="onCourtsInput()">
+        <label class="lbl">Court numbers</label>
+        <input class="inp" id="iv-courts" type="text" value="1" placeholder="1" maxlength="40" oninput="onCourtsInput()">
+        <div id="iv-courts-hint" style="font-size:11px;color:var(--gray);margin-top:4px;min-height:14px;">Which courts you are on, not how many. Comma separated, for example 3, 4.</div>
       </div>
       <div class="fg">
         <label class="lbl">Notes (optional)</label>
@@ -523,8 +524,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <input class="inp" id="su-date" type="date">
         </div>
         <div>
-          <label class="lbl">Courts</label>
-          <input class="inp" id="su-courts" type="number" min="1" max="8" value="2">
+          <label class="lbl">Court numbers</label>
+          <input class="inp" id="su-courts" type="text" value="1, 2" placeholder="1, 2" maxlength="40">
+          <div style="font-size:11px;color:var(--gray);margin-top:4px;">Which courts you are on, not how many. Comma separated.</div>
         </div>
         <div>
           <label class="lbl">Win Score</label>
@@ -1164,7 +1166,7 @@ function startNewEvent(){
   setupState = {
     name:   'Pickup, '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}),
     date:   td(),
-    courts: 2,
+    courts: [1, 2],
     targetScore: 15,
     gamesPerPlayer: 6,
     roster: []
@@ -1173,7 +1175,7 @@ function startNewEvent(){
   setTimeout(()=>{
     $('su-name').value   = setupState.name;
     $('su-date').value   = setupState.date;
-    $('su-courts').value = setupState.courts;
+    $('su-courts').value = storedCourts(setupState.courts).join(', ');
     $('su-score').value  = setupState.targetScore;
     $('su-games').value  = setupState.gamesPerPlayer;
   }, 0);
@@ -1184,7 +1186,10 @@ function readSetupMeta(){
   if(!setupState) return;
   setupState.name           = ($('su-name').value||'').trim() || 'Pickup';
   setupState.date           = $('su-date').value || td();
-  setupState.courts         = parseInt($('su-courts').value)||2;
+  // Stored as an explicit array of court numbers. An empty or unparseable field
+  // keeps the previous value rather than silently resetting the event to 1, 2.
+  const _sc = parseCourts($('su-courts').value);
+  setupState.courts         = _sc.length ? _sc : storedCourts(setupState.courts);
   setupState.targetScore    = parseInt($('su-score').value)||15;
   setupState.gamesPerPlayer = parseInt($('su-games').value)||6;
 }
@@ -1500,8 +1505,12 @@ function countPartnersFromRounds(rounds, results, players){
 
 // AI ROUND BUILDER (per-player targets)
 async function buildRoundsAI(opts){
-  const { players, courts, targets, startRound, header } = opts;
+  const { players, targets, startRound, header } = opts;
   if(!players.length) return [];
+  // opts.courts is the physical court list. A legacy stored count still arrives here
+  // from older events, and storedCourts turns it into the numbers it has always meant.
+  const courtNums = storedCourts(opts.courts);
+  const courts = courtNums.length;
   const slotsPerRound = courts*4;
   const totalSlots = Object.values(targets).reduce((a,b)=>a+b,0);
   const maxPerPlayer = Math.max(0, ...Object.values(targets));
@@ -1534,7 +1543,8 @@ EXISTING PARTNER PAIRINGS (avoid repeating):
 ${pSummary}
 
 RULES:
-- Each round: ${courts} courts running simultaneously, 2v2 each (4 players per court).
+- Each round: ${courts} court${courts===1?'':'s'} running simultaneously, 2v2 each (4 players per court).
+- COURT NUMBERS: this event plays on court${courts===1?'':'s'} ${courtsPhrase(courtNums)}. Use exactly ${courts===1?'that number':'those numbers'} in the "court" field, in that order, one per court in each round. Do not renumber them starting at 1.
 - Active per round: up to ${slotsPerRound} players. Sitting out: ~${sittingHint} per round (varies if some players have low targets).
 - Generate EXACTLY ${totalRounds} rounds.
 - HARD GOAL: each player must appear in exactly the number of t1/t2 slots specified above.
@@ -1545,7 +1555,7 @@ RULES:
 
 Return ONLY a valid JSON array, no markdown, no explanation:
 [
-  {"round":${startRound},"courts":[{"court":1,"t1":["P1","P2"],"t2":["P3","P4"]}],"sitting":["P5"]},
+  {"round":${startRound},"courts":[${courtNums.map((cn,i)=>'{"court":'+cn+',"t1":["P'+(i*4+1)+'","P'+(i*4+2)+'"],"t2":["P'+(i*4+3)+'","P'+(i*4+4)+'"]}').join(',')}],"sitting":["P${courts*4+1}"]},
   ...${totalRounds} rounds total
 ]
 
@@ -1576,9 +1586,16 @@ Use ONLY the listed P-codes. NEVER use "?" or any placeholder. Return only the J
 
   const nameToId = {}; players.forEach(p=>{ nameToId[p.name.toLowerCase().trim()] = p.id; });
   parsed.forEach(rd=>{
-    (rd.courts||[]).forEach(ct=>['t1','t2'].forEach(team=>{
-      ct[team] = (ct[team]||[]).map(sid=>shortIdRev[sid] || nameToId[String(sid).toLowerCase().trim()] || sid);
-    }));
+    (rd.courts||[]).forEach((ct,ci)=>{
+      // Court numbers are assigned by POSITION from the event's court list, not taken
+      // from the model. The prompt asks for the real numbers, but a model that
+      // renumbers from 1 anyway would show the wrong court on the score card, which
+      // is the exact defect this change removes.
+      ct.court = courtNums[ci] != null ? courtNums[ci] : (ci + 1);
+      ['t1','t2'].forEach(team=>{
+        ct[team] = (ct[team]||[]).map(sid=>shortIdRev[sid] || nameToId[String(sid).toLowerCase().trim()] || sid);
+      });
+    });
     rd.sitting = (rd.sitting||[]).map(sid=>shortIdRev[sid] || nameToId[String(sid).toLowerCase().trim()] || sid);
   });
 
@@ -2531,6 +2548,50 @@ function gameCourts(i){
   if(i && i.court != null) return [i.court];
   return [];
 }
+
+// ─── COURT NUMBER PARSING ───
+// Courts are physical court NUMBERS, not a count. Two games on the same sand that
+// both number their courts from 1 put two different matches on one patch of ground.
+// Same shape kotb-app.js and 4v4 use.
+
+// parseCourts handles what a host TYPES: "4" means court 4, "3, 4" means those two.
+// Never expands a number into a range, because in a text field a bare 3 means court
+// 3. Duplicates dropped, typed order kept.
+function parseCourts(raw){
+  const list = Array.isArray(raw) ? raw : (typeof raw === 'string' ? raw.split(',') : []);
+  const out = [];
+  list.forEach(x => {
+    const n = parseInt(String(x).trim(), 10);
+    if(Number.isInteger(n) && n > 0 && out.indexOf(n) < 0) out.push(n);
+  });
+  return out;
+}
+
+// storedCourts handles what is SAVED on an event. An array is the current shape. A
+// bare number is the legacy count, so a stored 2 still means courts 1, 2 and every
+// event created before this change keeps generating and rendering exactly as it did.
+// Nothing is migrated on read or write.
+function storedCourts(raw){
+  if(Array.isArray(raw)){
+    const a = parseCourts(raw);
+    if(a.length) return a;
+  }
+  const n = parseInt(raw, 10);
+  if(Number.isInteger(n) && n > 0){
+    const out = [];
+    for(let i = 1; i <= n; i++) out.push(i);   // legacy count, 2 means 1, 2
+    return out;
+  }
+  return [1, 2];
+}
+
+// "4" / "3 and 4" / "1, 2 and 3", for prompts and hints.
+function courtsPhrase(nums){
+  const a = (nums || []).slice();
+  if(!a.length) return '';
+  if(a.length === 1) return String(a[0]);
+  return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+}
 // Display string for a game's courts. [] -> ''; [4] -> 'Court 4'; [3,4] -> 'Courts 3 and
 // 4'; [1,2,3] -> 'Courts 1, 2 and 3'. Sorted ascending.
 function courtLabel(i){
@@ -3396,20 +3457,22 @@ function wireSetupListeners(){
   $('iv-end').onchange = rebuildCourtPicker;
 }
 
-// Court count follows the venue. A known park caps the input at its real court
-// count and clamps a value that is already too high; anywhere else, including
-// Other and any free-text venue, stays free-form at 8 with no clamping.
+// Court numbers follow the venue. A known park has a fixed number of courts, so any
+// number above that cannot exist there and is dropped; anywhere else, including Other
+// and any free-text venue, stays free-form with no clamping. Same cap the old count
+// input enforced, applied to each number instead of to a total.
 function syncCourtsMax(){
   const inp = $('iv-courts'); if(!inp) return;
   const sel = $('iv-loc');
   const venue = sel ? (sel.value === '__other__' ? '' : sel.value) : '';
   const known = venue ? PARK_COURTS[venue] : 0;
+  const hint = $('iv-courts-hint');
   if(known){
-    inp.max = known;
-    const n = parseInt(inp.value, 10);
-    if(n > known) inp.value = known;
-  } else {
-    inp.max = 8;
+    const kept = parseCourts(inp.value).filter(n => n <= known);
+    if(kept.length) inp.value = kept.join(', ');
+    if(hint) hint.textContent = venue + ' has ' + known + ' court' + (known===1?'':'s') + ', numbered 1 to ' + known + '. Comma separated.';
+  } else if(hint){
+    hint.textContent = 'Which courts you are on, not how many. Comma separated, for example 3, 4.';
   }
   updateSitHint();
 }
@@ -3422,7 +3485,8 @@ const FORMAT_ON_COURT = { '2s': 4, '3s': 6, '4s': 8, 'combo': 4 };
 // submit, never clamps slots, and never fires a toast.
 function updateSitHint(){
   const el = $('iv-sit-hint'); if(!el) return;
-  const courts = Math.max(1, parseInt($('iv-courts') ? $('iv-courts').value : '', 10) || 1);
+  // Court NUMBERS now, so the sit math uses how many were listed.
+  const courts = Math.max(1, parseCourts($('iv-courts') ? $('iv-courts').value : '').length);
   const slots  = Math.max(0, parseInt($('iv-slots')  ? $('iv-slots').value  : '', 10) || 0);
   const fmt    = ($('iv-game-format') && $('iv-game-format').value) || '2s';
   const onCourt = courts * (FORMAT_ON_COURT[fmt] || 4);
@@ -3561,7 +3625,19 @@ function updateCourtHint(){
   if(conf){ const gw = pgGameWindow(conf); hint.textContent = 'Looks in use '+fmtTime(minToHHMM(gw[0]))+'-'+fmtTime(minToHHMM(gw[1]))+' by another CourtSense game. You can still post here, or pick another court.'; }
   else { hint.textContent = ''; }
 }
-function onCourtPick(){ updateCourtHint(); }
+// Picking a specific court in the optional selector seeds the court-numbers field on a
+// NEW game, so a host who picks court 4 gets "4" rather than a stale "1". Never
+// overwrites an edit, where the stored numbers are already filled in and authoritative.
+function onCourtPick(){
+  const sel = $('iv-court'), inp = $('iv-courts');
+  if(!inviteEditId && sel && inp && sel.value){
+    const picked = parseInt(sel.value, 10);
+    const cur = parseCourts(inp.value);
+    if(Number.isInteger(picked) && picked > 0 && cur.length <= 1) inp.value = String(picked);
+  }
+  updateCourtHint();
+  updateSitHint();
+}
 
 function startNewInvite(){
   // Create gate: any logged-in CourtSense account may create; a picked name or
@@ -3673,7 +3749,9 @@ function startEditInvite(id){
       wireSetupListeners();
       rebuildCourtPicker();
       if($('iv-court')) $('iv-court').value = (i.court != null && i.court !== '') ? String(i.court) : '';
-      if($('iv-courts')) $('iv-courts').value = String(Math.max(1, gameCourts(i).length || 1));
+      // Prefill the real numbers this game already occupies. gameCourts normalises the
+      // courts array and the legacy singular court, so both stored shapes fill in.
+      if($('iv-courts')) $('iv-courts').value = gameCourts(i).slice().sort((a,b)=>a-b).join(', ') || '1';
       syncCourtsMax();
       updateCourtHint();
       renderEligibilityFields(e);
@@ -3998,32 +4076,29 @@ function buildInviteRecord(){
   // Optional court (known parks only). Null when unset, park unknown, or "Other".
   const _courtSel = $('iv-court') ? $('iv-court').value : '';
   const court = (PARK_COURTS[location] && _courtSel) ? parseInt(_courtSel,10) : null;
-  // Court count from the host. Slots are deliberately NOT derived from this; the
-  // host sets slots independently.
+  // Court NUMBERS from the host, typed directly. Slots are deliberately NOT derived
+  // from this; the host sets slots independently.
   //
-  // The array must never discard the real court numbers a game already occupies.
-  // A game on court 4 that keeps a count of 1 stays [4], it does not become [1].
-  // Precedence, using gameCourts to normalise the stored array and the legacy
-  // singular court into one list:
-  //   base empty            -> sequential [1..n], the genuinely new game case
-  //   n <= base.length      -> keep the stored numbers, trimmed to n, sorted
-  //   n >  base.length      -> keep them and fill the lowest unused numbers
-  const _courtsN = Math.max(1, parseInt($('iv-courts') ? $('iv-courts').value : '', 10) || 1);
+  // The old field was a count, so the array had to be inferred from a count plus
+  // whatever real numbers the game already had, precisely so a game on court 4 with a
+  // count of 1 stayed [4] instead of collapsing to [1]. The host now states the
+  // numbers, so no inference is needed and the ambiguity is gone.
+  //
+  // Fallbacks keep every prior shape working:
+  //   typed numbers   -> exactly those, capped to the venue's real courts
+  //   nothing typed   -> the stored courts on an edit (gameCourts normalises the
+  //                      legacy singular court too), else the optional court picker,
+  //                      else [1]
   const _editing = inviteEditId ? (D.invites || {})[inviteEditId] : null;
-  // On an edit the stored courts win. On a new game the only real number available
-  // is whatever the host picked in the optional court selector.
-  const _base = _editing ? gameCourts(_editing) : (court != null ? [court] : []);
-  let courts;
-  if(!_base.length){
-    courts = Array.from({ length: _courtsN }, (_v, x) => x + 1);
-  } else if(_courtsN <= _base.length){
-    courts = _base.slice().sort((a,b)=>a-b).slice(0, _courtsN);
-  } else {
-    const _set = new Set(_base);
-    let _c = 1;
-    while(_set.size < _courtsN){ if(!_set.has(_c)) _set.add(_c); _c++; }
-    courts = [..._set].sort((a,b)=>a-b);
+  const _typed = parseCourts($('iv-courts') ? $('iv-courts').value : '');
+  const _known = PARK_COURTS[location] || 0;
+  const _capped = _known ? _typed.filter(n => n <= _known) : _typed;
+  let courts = _capped.slice();
+  if(!courts.length){
+    const _base = _editing ? gameCourts(_editing) : (court != null ? [court] : []);
+    courts = _base.length ? _base.slice() : [1];
   }
+  courts.sort((a,b)=>a-b);
   const description = ($('iv-desc').value||'').trim();
   const slots = Math.max(2, parseInt($('iv-slots').value)||6);
   // minSlots: minimum players for the game to be considered "on". Captured and

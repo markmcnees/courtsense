@@ -43,6 +43,54 @@ function fD(s){if(!s)return'';return new Date(s+'T12:00:00').toLocaleDateString(
 function pm(v){return(v>0?'+':'')+v;}
 function pmc(v){return v>0?'pos':v<0?'neg':'neu';}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
+
+// ─── COURTS ───
+// Courts are an explicit list of physical court NUMBERS, not a count. Kings and
+// Queens run the same night on the same sand, so both sides numbering their courts
+// from 1 put two different games on one patch of ground. Storing the real numbers
+// lets Queens hold 1, 2, 3 while Kings holds 4. Same shape 4v4 already uses.
+const DEFAULT_COURTS = [1, 2];
+
+// parseCourts handles what a director TYPES: "4" means court 4, "1, 2, 3" means
+// those three. Never expands a number into a range, because in the text field a
+// bare 3 means court 3. Duplicates are dropped, typed order is kept.
+function parseCourts(raw){
+  const list = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'string' ? raw.split(',') : []);
+  const out = [];
+  list.forEach(x => {
+    const n = parseInt(String(x).trim(), 10);
+    if(Number.isInteger(n) && n > 0 && out.indexOf(n) < 0) out.push(n);
+  });
+  return out;
+}
+
+// configCourts handles what is STORED. An array is the current shape. A bare number
+// is the legacy count written by the old spinner, so a stored 3 still means courts
+// 1, 2, 3 and keeps working untouched. Nothing is migrated on read or write.
+function configCourts(cfg){
+  const raw = (cfg || {}).courts;
+  if(Array.isArray(raw)){
+    const a = parseCourts(raw);
+    return a.length ? a : DEFAULT_COURTS.slice();
+  }
+  const n = parseInt(raw, 10);
+  if(Number.isInteger(n) && n > 0){
+    const out = [];
+    for(let i = 1; i <= n; i++) out.push(i);   // legacy count, 3 means 1, 2, 3
+    return out;
+  }
+  return DEFAULT_COURTS.slice();
+}
+
+// "4" / "1 and 2" / "1, 2 and 3", for prompts and messages.
+function courtsPhrase(nums){
+  const a = (nums || []).slice();
+  if(!a.length) return '';
+  if(a.length === 1) return String(a[0]);
+  return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+}
 // Firebase write failure reporting. set() and remove() return a promise that
 // rejects on a rules denial or a lost connection. Discarding it made a failed
 // write look exactly like a successful one, because the call sites toast success
@@ -646,9 +694,12 @@ function saveSeasonCfg(){
     dayOfWeek:parseInt($('cfg-day').value),
     startDate:$('cfg-start').value,
     numWeeks:parseInt($('cfg-weeks').value)||10,
-    courts:parseInt($('cfg-courts').value)||2,
+    // Stored as an explicit array of court numbers so this side does not collide
+    // with the other one running the same night.
+    courts:parseCourts($('cfg-courts').value),
     winScore:parseInt($('cfg-score').value)||15
   };
+  if(!cfg.courts.length){toast('Enter at least one court number, e.g. 4 or 1, 2, 3');return;}
   if(!cfg.startDate){toast('Pick a start date');return;}
   const skipText=$('cfg-skips')?$('cfg-skips').value.trim():'';
   const skipDates=skipText?skipText.split('\n').map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)):[];
@@ -671,7 +722,11 @@ function renderPlannerCfg(){
   if(c.dayOfWeek!=null)$('cfg-day').value=c.dayOfWeek;
   if(c.startDate)$('cfg-start').value=c.startDate;
   if(c.numWeeks)$('cfg-weeks').value=c.numWeeks;
-  if(c.courts)$('cfg-courts').value=c.courts;
+  // Always fill from configCourts so a legacy stored count shows as the court
+  // numbers it has always meant (3 becomes "1, 2, 3") instead of a bare "3",
+  // which in the new field would read as court 3 only. Null guarded because this
+  // line is unconditional, unlike the c.X checks around it.
+  const _cc=$('cfg-courts'); if(_cc)_cc.value=configCourts(c).join(', ');
   if(c.winScore)$('cfg-score').value=c.winScore;
   if(c.skipDates&&c.skipDates.length){const el=$('cfg-skips');if(el)el.value=c.skipDates.join('\n');}
 }
@@ -1030,11 +1085,11 @@ function schedNote(msg){
 // because this is a single night, and the partner and opponent maps are copied
 // so buildSeasonNight's own bookkeeping does not inflate the history counts
 // that healSchedule scores against afterwards.
-function buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,weekIdx){
+function buildLocalNight(pool,courtNums,pCounts,oCounts,TARGET_GAMES,weekIdx){
   const ids=pool.map(p=>p.id);
   const pC=JSON.parse(JSON.stringify(pCounts));
   const oC=JSON.parse(JSON.stringify(oCounts));
-  const res=buildSeasonNight(ids,courts,pC,oC,{},TARGET_GAMES,weekIdx||0);
+  const res=buildSeasonNight(ids,courtNums,pC,oC,{},TARGET_GAMES,weekIdx||0);
   return res?res.rounds:null;
 }
 
@@ -1075,7 +1130,10 @@ async function genNight(skipOverwriteCheck){
     }
   }
   const cfg=D[SIDE].config||{};
-  const courts=cfg.courts||2;
+  // courtNums is the physical court list; courts stays the count that the capacity
+  // math and the single court shortcut below already depend on.
+  const courtNums=configCourts(cfg);
+  const courts=courtNums.length;
   const absences=getSessionAbsences();
   const allP=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false);
   const present=allP.filter(p=>!absences.includes(p.id));
@@ -1131,7 +1189,7 @@ async function genNight(skipOverwriteCheck){
   // Any AI failure lands here instead of dead ending. The logging at each call
   // site is untouched, so the reason is still in the console.
   const fallbackLocal=()=>{
-    const local=buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,week.weekNum);
+    const local=buildLocalNight(pool,courtNums,pCounts,oCounts,TARGET_GAMES,week.weekNum);
     if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES,'AI was unavailable, schedule generated locally.')){
       aiErr('Could not build a schedule. Check the roster and the court count.');
     }
@@ -1141,7 +1199,7 @@ async function genNight(skipOverwriteCheck){
   // pushes generation past the proxy timeout, and the deterministic generator
   // handles them well.
   if(courts===1){
-    const local=buildLocalNight(pool,courts,pCounts,oCounts,TARGET_GAMES,week.weekNum);
+    const local=buildLocalNight(pool,courtNums,pCounts,oCounts,TARGET_GAMES,week.weekNum);
     if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES,'Schedule generated locally (single court).')){
       aiErr('Could not build a schedule. Check the roster and the court count.');
     }
@@ -1150,7 +1208,7 @@ async function genNight(skipOverwriteCheck){
 
   const prompt=`You are scheduling a King/Queen of the Beach recreational league night.
 
-PLAYERS TONIGHT (${pool.length} players, ${courts} courts):
+PLAYERS TONIGHT (${pool.length} players, ${courts} court${courts===1?'':'s'}, numbered ${courtsPhrase(courtNums)}):
 ${playerList}
 
 PAST PARTNER HISTORY (who has played on the same team together):
@@ -1160,7 +1218,8 @@ PAST OPPONENT HISTORY (who has played against each other):
 ${oSummary}
 
 RULES:
-- Each round: ${courts} courts running simultaneously. Each court = 2v2 (4 players per court).
+- Each round: ${courts} court${courts===1?'':'s'} running simultaneously. Each court = 2v2 (4 players per court).
+- COURT NUMBERS: this side plays on court${courts===1?'':'s'} ${courtsPhrase(courtNums)}. Use exactly ${courts===1?'that number':'those numbers'} in the "court" field, in that order, one per court in each round. Do not renumber them starting at 1.
 - Active per round: ${slotsPerRound} players. Sitting out: ${sitPerRound} per round.
 - Generate EXACTLY ${totalRounds} rounds.
 - PRIMARY GOAL: every player plays as close to ${TARGET_GAMES} games as possible. No player may finish more than one game above or below any other player. An exactly equal split is often impossible, so aim for the tightest spread, never wider than one game.
@@ -1172,7 +1231,7 @@ RULES:
 
 Return ONLY a valid JSON array. No explanation, no markdown:
 [
-  {"round":1,"courts":[{"court":1,"t1":["P1","P2"],"t2":["P3","P4"]},{"court":2,"t1":["P5","P6"],"t2":["P7","P8"]}],"sitting":["P9","P10"]},
+  {"round":1,"courts":[${courtNums.map((cn,i)=>'{"court":'+cn+',"t1":["P'+(i*4+1)+'","P'+(i*4+2)+'"],"t2":["P'+(i*4+3)+'","P'+(i*4+4)+'"]}').join(',')}],"sitting":["P${courts*4+1}","P${courts*4+2}"]},
   ...${totalRounds} rounds total
 ]
 
@@ -1217,7 +1276,12 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
       const nameToId={};
       pool.forEach(p=>{ nameToId[p.name.toLowerCase().trim()]=p.id; });
       parsed.forEach(rd=>{
-        (rd.courts||[]).forEach(ct=>{
+        (rd.courts||[]).forEach((ct,ci)=>{
+          // Court numbers are assigned by POSITION from the configured list, not taken
+          // from the model. The prompt asks for the real numbers, but a model that
+          // renumbers from 1 anyway would silently put this side on the other side's
+          // sand, and that is the exact collision this change exists to remove.
+          ct.court = courtNums[ci] != null ? courtNums[ci] : (ci + 1);
           ['t1','t2'].forEach(team=>{
             ct[team]=(ct[team]||[]).map(sid=>{
               if(shortIdRev[sid]) return shortIdRev[sid];            // P1..PN -> real ID
@@ -1259,8 +1323,13 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
 // Subs are handled purely at game time on the Score tab and never touch this schedule.
 function _csPv(C,a,b){return (C[a]&&C[a][b])||0;}
 function _csChg(C,a,b,d){if(!C[a])C[a]={};if(!C[b])C[b]={};C[a][b]=(C[a][b]||0)+d;C[b][a]=(C[b][a]||0)+d;}
-function buildSeasonNight(ids,courts,pC,oC,sitCount,TARGET,weekIdx){
-  const n=ids.length,courtsN=Math.min(courts,Math.floor(n/4));
+// courtNums is the explicit list of physical court numbers this side plays on, e.g.
+// [4] or [1,2,3]. A legacy integer is still accepted so any older caller keeps working.
+// Pairing and rotation logic below is unchanged; only the number written onto each
+// court object comes from the list now instead of counting from 1.
+function buildSeasonNight(ids,courtNums,pC,oC,sitCount,TARGET,weekIdx){
+  const courtList=Array.isArray(courtNums)?parseCourts(courtNums):configCourts({courts:courtNums});
+  const n=ids.length,courtsN=Math.min(courtList.length,Math.floor(n/4));
   if(courtsN<1)return null;
   const slots=courtsN*4,sitPer=n-slots;
   const totalRounds=sitPer===0?TARGET:Math.ceil(n*TARGET/slots);
@@ -1273,8 +1342,8 @@ function buildSeasonNight(ids,courts,pC,oC,sitCount,TARGET,weekIdx){
     sitters.forEach(id=>sitCount[id]=(sitCount[id]||0)+1);active.forEach(id=>gtw[id]++);
     const rem=active.slice(),teams=[];
     while(rem.length){let bi=0,bj=1,bc=Infinity;for(let i=0;i<rem.length;i++)for(let j=i+1;j<rem.length;j++){const c=_csPv(pC,rem[i],rem[j]);if(c<bc){bc=c;bi=i;bj=j;}}teams.push([rem[bi],rem[bj]]);rem.splice(bj,1);rem.splice(bi,1);}
-    const tr=teams.slice(),carr=[];let cn=1;
-    while(tr.length>=2){let bi=0,bj=1,bc=Infinity;for(let i=0;i<tr.length;i++)for(let j=i+1;j<tr.length;j++){let c=0;tr[i].forEach(a=>tr[j].forEach(b=>c+=_csPv(oC,a,b)));if(c<bc){bc=c;bi=i;bj=j;}}carr.push({court:cn++,t1:tr[bi].slice(),t2:tr[bj].slice()});tr.splice(bj,1);tr.splice(bi,1);}
+    const tr=teams.slice(),carr=[];let ci=0;
+    while(tr.length>=2){let bi=0,bj=1,bc=Infinity;for(let i=0;i<tr.length;i++)for(let j=i+1;j<tr.length;j++){let c=0;tr[i].forEach(a=>tr[j].forEach(b=>c+=_csPv(oC,a,b)));if(c<bc){bc=c;bi=i;bj=j;}}carr.push({court:courtList[ci]!=null?courtList[ci]:(ci+1),t1:tr[bi].slice(),t2:tr[bj].slice()});ci++;tr.splice(bj,1);tr.splice(bi,1);}
     rounds.push({round:r,courts:carr,sitting:sitters.slice()});
   }
   const undo=(c,d)=>{_csChg(pC,c.t1[0],c.t1[1],d);_csChg(pC,c.t2[0],c.t2[1],d);c.t1.forEach(a=>c.t2.forEach(b=>_csChg(oC,a,b,d)));};
@@ -1328,12 +1397,12 @@ function genFullSeason(){
   }
   const hasSchedules=weeks.some(w=>w.rounds&&(Array.isArray(w.rounds)?w.rounds.length:Object.keys(w.rounds).length));
   if(hasSchedules&&!confirm('This replaces the schedule for all '+weeks.length+' weeks. No results are recorded yet, so nothing is lost. Continue?')) return;
-  const courts=(D[SIDE].config||{}).courts||2;
+  const courtNums=configCourts(D[SIDE].config||{});
   const TARGET=6;
   const pC={},oC={},sitCount={};
   let built=0;
   for(let wi=0;wi<weeks.length;wi++){
-    const res=buildSeasonNight(pool,courts,pC,oC,sitCount,TARGET,wi);
+    const res=buildSeasonNight(pool,courtNums,pC,oC,sitCount,TARGET,wi);
     if(!res){toast('Need at least 4 active players for the configured courts');return;}
     const wid=weeks[wi].id;
     fbSet(SIDE+'/weeks/'+wid+'/rounds',res.rounds);
