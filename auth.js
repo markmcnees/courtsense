@@ -478,9 +478,12 @@
     // Queue the password_changed notification via the worker /notify endpoint
     // (the client no longer writes email_queue directly). The worker resolves the
     // recipient server-side from the player record. Best-effort.
+    // The password has already been changed server-side and stays changed either way.
+    // This is only the confirmation email. The response was never inspected, so a
+    // worker 500 left no trace at all: the fetch resolved and the catch never ran.
     try {
       const now = Date.now();
-      await fetch(AUTH_WORKER + '/auth/notify', {
+      const nr = await fetch(AUTH_WORKER + '/auth/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -495,9 +498,15 @@
           }
         })
       });
+      if(!nr.ok){
+        let t=''; try{ t = await nr.text(); }catch(te){ t='(body unavailable)'; }
+        console.error('CourtSenseAuth changePassword: notify HTTP', nr.status, t.slice(0,300));
+      }
     } catch(e) {
-      console.warn('CourtSenseAuth changePassword: notification enqueue failed', e);
+      console.error('CourtSenseAuth changePassword: notification enqueue failed', e);
     }
+    // Unconditional: the change succeeded. A failed confirmation email never turns a
+    // successful password change into a failure.
     return { ok:true };
   }
 
@@ -667,6 +676,9 @@
     const notifyData = { player_name: displayName, player_email: emailLower, generated_password: null };
     if(tenantSlug) notifyData.tenant_slug = tenantSlug;
     if(tenantName) notifyData.tenant_name = tenantName;
+    // Not awaited, so signup stays instant. The account is already created and the
+    // session already set; a failed welcome email never undoes either. The old .catch
+    // fired only on a network fault, so a worker 500 produced no record anywhere.
     try {
       fetch(AUTH_WORKER + '/auth/notify', {
         method: 'POST',
@@ -678,8 +690,13 @@
           email: emailLower,
           data: notifyData
         })
-      }).catch(function(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); });
-    } catch(e){ console.warn('CourtSenseAuth.createPlayer: welcome notify failed', e); }
+      }).then(function(nr){
+        if(nr.ok) return;
+        return nr.text().catch(function(){ return '(body unavailable)'; }).then(function(t){
+          console.error('CourtSenseAuth.createPlayer: welcome notify HTTP', nr.status, String(t).slice(0,300));
+        });
+      }).catch(function(e){ console.error('CourtSenseAuth.createPlayer: welcome notify failed', e); });
+    } catch(e){ console.error('CourtSenseAuth.createPlayer: welcome notify failed', e); }
 
     if(typeof _onLogin === 'function'){
       try { _onLogin(_currentPlayer); }

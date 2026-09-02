@@ -727,6 +727,10 @@ function alreadyMember(){
 // can block or fail the join. Called only after writeClub has succeeded, so nobody
 // is told they are in when the club write did not land.
 function notifyClubWelcome(accountKey, email, displayName){
+  // The club join has already been written by writeClub and stays written. This is
+  // only the confirmation email, so nothing here can fail the join. The old .catch
+  // fired only on a network fault, so a worker 500 produced no record at all; the
+  // status is now checked and logged either way.
   try {
     fetch(AUTH_WORKER + '/auth/notify', {
       method: 'POST',
@@ -745,8 +749,13 @@ function notifyClubWelcome(accountKey, email, displayName){
           tenant_returning: true
         }
       })
-    }).catch(function(e){ console.warn('club welcome notify failed', e); });
-  } catch(e){ console.warn('club welcome notify failed', e); }
+    }).then(function(nr){
+      if(nr.ok) return;
+      return nr.text().catch(function(){ return '(body unavailable)'; }).then(function(t){
+        console.error('club welcome notify HTTP', nr.status, String(t).slice(0,300));
+      });
+    }).catch(function(e){ console.error('club welcome notify failed', e); });
+  } catch(e){ console.error('club welcome notify failed', e); }
 }
 
 async function doJoin(){

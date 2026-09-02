@@ -868,8 +868,79 @@ function shareJoinLink(game){
     toast('Copy failed');
   }
 }
-function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
-function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
+// Firebase write failure reporting. set() and remove() return a promise that
+// rejects on a rules denial or a lost connection. Discarding it made a failed
+// write look exactly like a successful one, because the call sites toast success
+// on the next line either way. Handled once here so no call site has to change.
+const _FB_LABELS={
+  invites:'the game', events:'the event', players:'the player',
+  groups:'the group', pending_registrations:'the registration',
+  game_messages:'the message', rsvps:'the RSVP'
+};
+function _fbLabel(p){
+  const seg=String(p==null?'':p).split('/');
+  for(let i=0;i<seg.length;i++){ if(_FB_LABELS[seg[i]]) return _FB_LABELS[seg[i]]; }
+  return '';
+}
+// Guarded: the toast element can be absent mid-render, and a reporting failure
+// must not become a second silent failure or an unhandled rejection.
+function _fbWriteFailed(verb,p,err){
+  console.error('Firebase '+verb+' failed:',DB_ROOT+'/'+p,err);
+  const lbl=_fbLabel(p);
+  try{ toast('Could not '+verb+(lbl?' '+lbl:'')+'. Try again.'); }catch(e){}
+}
+// The promise is returned so a future call site can await it. The rejection is
+// reported and swallowed: re-throwing would turn every existing fire-and-forget
+// call site into an unhandled rejection.
+function fbSet(p,v){
+  if(!db)return;
+  return db.ref(DB_ROOT+'/'+p).set(v).catch(function(err){_fbWriteFailed('save',p,err);});
+}
+function fbDel(p){
+  if(!db)return;
+  return db.ref(DB_ROOT+'/'+p).remove().catch(function(err){_fbWriteFailed('delete',p,err);});
+}
+
+// ── WORKER NOTIFICATIONS ─────────────────────────────────────
+// An HTTP error resolves the fetch promise, so the old .catch(console.warn) only
+// ever fired on a network fault. A worker 500 logged nothing at all and the caller
+// toasted success regardless, which is the defect the comment above sendRequest
+// already described. Resolves true only when the worker confirmed the send.
+//
+// Never throws, and nothing here rolls anything back. By the time a notify runs the
+// RSVP, invite, or promotion has already been written and it stays written whether
+// or not the email goes out. A failure only changes what the toast says.
+const NOTIFY_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+async function notifyWorker(path, payload){
+  try{
+    const res = await fetch(NOTIFY_WORKER + path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok){
+      let t=''; try{ t = await res.text(); }catch(te){ t='(body unavailable)'; }
+      console.error('notify HTTP', path, res.status, t.slice(0,300));
+      return false;
+    }
+    let j=null; try{ j = await res.json(); }catch(je){ j=null; }
+    if(j && j.ok === false){ console.error('notify rejected', path, JSON.stringify(j).slice(0,300)); return false; }
+    return true;
+  }catch(e){ console.error('notify failed', path, e); return false; }
+}
+// Follow-up toast, shown only when the email did not go out. The action's own success
+// toast has already fired and is never retracted.
+function warnIfNotEmailed(p, note){
+  Promise.resolve(p).then(function(ok){ if(ok !== true) toast(note); });
+}
+// Batch form: silent unless at least one did not go out.
+function warnIfAnyNotEmailed(list, note){
+  if(!list || !list.length) return;
+  Promise.allSettled(list).then(function(rs){
+    const missed = rs.filter(function(r){ return r.status !== 'fulfilled' || r.value !== true; }).length;
+    if(!missed) return;
+    toast(missed === rs.length ? note : (missed + ' of ' + rs.length + ' were not emailed.'));
+  });
+}
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function nameKey(name){return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');}
 // Absolute start instant in ms. Computed HERE, in the browser, because only the
@@ -3257,15 +3328,13 @@ function respondToPartnerPost(){
 
   // Poster notification: the exact request-notify the guest door uses; the
   // worker resolves the poster's email server-side from the invite's hostId.
-  try {
-    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/request-notify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inviteId: activeInvite, guestName: me.name, guestEmail: '' })
-    }).catch(function(e){ console.warn('request-notify failed', e); });
-  } catch(e){ console.warn('request-notify failed', e); }
+  const _reqNotify = notifyWorker('/pickup/request-notify',
+    { inviteId: activeInvite, guestName: me.name, guestEmail: '' });
 
   renderInviteDetail();
+  // The response is recorded either way. Only the host's email can fail.
   toast('Response sent ✓');
+  warnIfNotEmailed(_reqNotify, 'Response saved, but the host was not emailed.');
 }
 
 // Withdraw your own pending response. Own-response guarded; mirrors
@@ -4079,19 +4148,19 @@ async function saveInvite(){
       // notify per newly promoted player (mirrors declineRsvp's persist-then-notify, fire-once).
       const updates = {}; updates['tally_kotb_pickup/invites/'+_id] = merged;
       db.ref().update(updates).then(()=>{
-        promoted.forEach(p=>{
-          fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'waitlist_promotion', data: {
-              playerId: p.accountId || undefined,
-              playerKey: p.key || undefined,
-              playerName: p.name,
-              inviteId: _id,
-              name: merged.name, date: merged.date, startTime: merged.startTime, slots: merged.slots,
-              rsvpDeadline: merged.rsvpDeadline, hostName: merged.hostName, location: merged.location
-            } })
-          }).catch(function(e){ console.warn('notify failed', e); });
-        });
+        // The promotions are already committed above. These emails are separate and
+        // a failure here never un-promotes anyone.
+        const _promoNotifies = promoted.map(p=>
+          notifyWorker('/auth/notify', { type: 'waitlist_promotion', data: {
+            playerId: p.accountId || undefined,
+            playerKey: p.key || undefined,
+            playerName: p.name,
+            inviteId: _id,
+            name: merged.name, date: merged.date, startTime: merged.startTime, slots: merged.slots,
+            rsvpDeadline: merged.rsvpDeadline, hostName: merged.hostName, location: merged.location
+          } })
+        );
+        warnIfAnyNotEmailed(_promoNotifies, 'Promoted, but no one was emailed.');
       }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
       toast('Saved. Promoted '+promoted.length+' from the waitlist');
     } else {
@@ -4169,9 +4238,10 @@ async function saveInvite(){
       const players = checked.map(nm => ({ playerId: resolveAccountId(nm), name: nm }))
         .filter(p => p.playerId);
       if(players.length){
-        fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/invite-notify', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        // The game is already scheduled. A failed invite email does not unschedule it,
+        // but the host must know the invites did not reach anyone.
+        warnIfNotEmailed(
+          notifyWorker('/pickup/invite-notify', {
             inviteId: firstId,
             hostKey: base.hostId || null,
             players,
@@ -4179,8 +4249,9 @@ async function saveInvite(){
               name: base.name, date: base.date, startTime: base.startTime, slots: base.slots,
               rsvpDeadline: base.rsvpDeadline, hostName: base.hostName, location: base.location
             }
-          })
-        }).catch(function(e){ console.warn('invite-notify failed', e); });
+          }),
+          'Game scheduled, but the invites were not emailed.'
+        );
       }
     } catch(e){ console.warn('invite-notify build failed', e); }
   } catch(err){
@@ -4862,8 +4933,10 @@ async function claimSpot(){
   }
 
   // Instant emails via the worker: a confirmation to the claimer always, plus a host
-  // notification for new people only. One fire-and-forget call so the claim UI never
-  // blocks; a failure must not undo the RSVP (they are already in the game).
+  // notification for new people only. The call is not awaited so the claim UI never
+  // blocks; a failure must not undo the RSVP (they are already in the game) and only
+  // changes the follow-up toast.
+  let _claimNotify = null;
   try {
     const payload = {
       email,
@@ -4878,13 +4951,12 @@ async function claimSpot(){
       payload.relatedRegistration = regId;
       payload.applicant = { name: fullName, email, phone: null, submittedAt };
     }
-    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/claim-notify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).catch(function(e){ console.warn('claim-notify failed', e); });
-  } catch(e){ console.warn('claim-notify failed', e); }
+    _claimNotify = notifyWorker('/auth/claim-notify', payload);
+  } catch(e){ console.error('claim-notify build failed', e); }
 
+  // The spot is already held either way. Only the confirmation email can fail.
   toast(status==='confirmed' ? "You're in ✓" : 'Added to the waitlist');
+  if(_claimNotify) warnIfNotEmailed(_claimNotify, "You're in, but the confirmation email did not send.");
 }
 
 // Door 2 reveal: flip the consume-once flag and re-render so the !myKey branch shows
@@ -5026,20 +5098,17 @@ function requestSpot(){
     Identity.setCurrent(first + ' ' + last, Identity.nameKey(first + ' ' + last));
   }
 
-  // Notify the host by email, fire-and-forget (mirrors the claim-notify call in
-  // claimSpot). The worker resolves the host email SERVER-SIDE from the invite's
-  // hostId; we send no host email or host id from the client. Any failure is
-  // swallowed (console.warn only) and never undoes the request, which already
-  // succeeded above.
-  try {
-    fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/request-notify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inviteId: activeInvite, guestName: first+' '+last, guestEmail: email || '' })
-    }).catch(function(e){ console.warn('request-notify failed', e); });
-  } catch(e){ console.warn('request-notify failed', e); }
+  // Notify the host by email (mirrors the claim-notify call in claimSpot). The worker
+  // resolves the host email SERVER-SIDE from the invite's hostId; we send no host email
+  // or host id from the client. A failure never undoes the request, which already
+  // succeeded above, but it is now reported rather than swallowed: the guest used to be
+  // told the request was sent while the host had in fact never been told anything.
+  const _hostNotify = notifyWorker('/pickup/request-notify',
+    { inviteId: activeInvite, guestName: first+' '+last, guestEmail: email || '' });
 
   renderInviteDetail();
   toast('Request sent ✓');
+  warnIfNotEmailed(_hostNotify, 'Request saved, but the host was not emailed.');
 }
 
 // Decline one participant's RSVP on the active game by their rsvps map key, then
@@ -5106,17 +5175,19 @@ function declineRsvp(targetKey){
       // Player-facing waitlist email: send the promoted player's account id (preferred)
       // and gameplay key so the worker can resolve their private email, plus event
       // display fields so it renders date/time/host. Worker gates on notifyWaitlist.
-      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'waitlist_promotion', data: {
+      // The promotion is already committed above and stays committed. Only the email
+      // to the promoted player can fail, and it now says so instead of going quiet.
+      warnIfNotEmailed(
+        notifyWorker('/auth/notify', { type: 'waitlist_promotion', data: {
           playerId: promotedAccountId || undefined,
           playerKey: promotedKey || undefined,
           playerName: promotedName,
           inviteId: activeInvite,
           name: i.name, date: i.date, startTime: i.startTime, slots: i.slots,
           rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
-        } })
-      }).catch(function(e){ console.warn('notify failed', e); });
+        } }),
+        promotedName + ' was promoted but not emailed.'
+      );
     }
   }).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
 }
@@ -5198,26 +5269,26 @@ function approveGuestRequest(reqId){
   // when the guest left an email on their request. A failure never undoes the approval.
   const guestEmail = (req && req.email) ? req.email : '';
   if(guestEmail){
-    try {
-      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/claim-notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: guestEmail,
-          playerName: rsvpName,
-          isReturning: false,
-          status: status,
-          position: position,
-          game: {
-            gameId: activeInvite,
-            gameName: i.name,
-            date: i.date,
-            startTime: i.startTime,
-            location: i.location,
-            court: i.court
-          }
-        })
-      }).catch(function(e){ console.warn('claim-notify failed', e); });
-    } catch(e){ console.warn('claim-notify failed', e); }
+    // The approval already stands. Only the guest's confirmation email can fail, and
+    // the host is now told when it did rather than assuming the guest heard.
+    warnIfNotEmailed(
+      notifyWorker('/auth/claim-notify', {
+        email: guestEmail,
+        playerName: rsvpName,
+        isReturning: false,
+        status: status,
+        position: position,
+        game: {
+          gameId: activeInvite,
+          gameName: i.name,
+          date: i.date,
+          startTime: i.startTime,
+          location: i.location,
+          court: i.court
+        }
+      }),
+      'Approved, but ' + rsvpName + ' was not emailed.'
+    );
   }
 
   // Partner posts only: tell the accepted player by email, fire-and-forget
@@ -5235,12 +5306,13 @@ function approveGuestRequest(reqId){
     const _inv = activeInvite;
     try {
       db.ref(DB_ROOT + '/invites/' + _inv + '/rsvps/' + rsvpKey).set(newRsvp).then(function(){
-        return fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/pickup/partner-accept-notify', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ inviteId: _inv, playerId: _pid })
-        });
-      }).catch(function(e){ console.warn('partner-accept-notify failed', e); });
-    } catch(e){ console.warn('partner-accept-notify failed', e); }
+        // The acceptance already stands. Only the email to the accepted player can fail.
+        warnIfNotEmailed(
+          notifyWorker('/pickup/partner-accept-notify', { inviteId: _inv, playerId: _pid }),
+          'Approved, but the player was not emailed.'
+        );
+      }).catch(function(e){ console.error('partner-accept re-set failed', e); });
+    } catch(e){ console.error('partner-accept-notify failed', e); }
   }
 
   toast(status==='confirmed' ? 'Approved ✓' : 'Approved to waitlist');
@@ -5318,30 +5390,25 @@ function hostAddToGame(rsvpName, rsvpKey, accountId){
   if(isFull) updates['tally_kotb_pickup/invites/'+activeInvite+'/slots'] = newSlots;
   if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't add player"); });
 
-  // Fire-and-forget: notify a REGISTERED added player (one whose account we resolved)
-  // by email. Skips entirely when accountId is falsy (an unregistered person has no
-  // email on file). Reuses the shared /auth/notify endpoint declineRsvp uses for
-  // waitlist_promotion, with a NEW 'host_added' type. Must never block the add or undo
-  // the write that already succeeded. NOTE: the worker does not recognize 'host_added'
-  // yet, so it will log this as unsupported and send nothing until a matching template
-  // is added worker-side. That is expected and safe: the add still stands.
+  // Notify a REGISTERED added player (one whose account we resolved) by email. Skips
+  // entirely when accountId is falsy (an unregistered person has no email on file).
+  // Reuses the shared /auth/notify endpoint declineRsvp uses for waitlist_promotion,
+  // with the 'host_added' type. Never blocks the add or undoes the write that already
+  // succeeded; a failure only adds a follow-up toast.
+  let _addNotify = null;
   if(accountId){
-    try {
-      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/auth/notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'host_added', data: {
-          playerId: accountId,
-          playerKey: rsvpKey,
-          playerName: rsvpName,
-          inviteId: activeInvite,
-          name: i.name, date: i.date, startTime: i.startTime, slots: newSlots,
-          rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
-        } })
-      }).catch(function(e){ console.warn('notify failed', e); });
-    } catch(e){ console.warn('notify failed', e); }
+    _addNotify = notifyWorker('/auth/notify', { type: 'host_added', data: {
+      playerId: accountId,
+      playerKey: rsvpKey,
+      playerName: rsvpName,
+      inviteId: activeInvite,
+      name: i.name, date: i.date, startTime: i.startTime, slots: newSlots,
+      rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
+    } });
   }
 
   toast(isFull ? 'Added, game expanded to '+newSlots : 'Added ✓');
+  if(_addNotify) warnIfNotEmailed(_addNotify, 'Added, but ' + rsvpName + ' was not emailed.');
 }
 
 // Host-only: add a registered player picked from the list. Resolves the display name

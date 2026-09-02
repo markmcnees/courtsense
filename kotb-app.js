@@ -43,8 +43,39 @@ function fD(s){if(!s)return'';return new Date(s+'T12:00:00').toLocaleDateString(
 function pm(v){return(v>0?'+':'')+v;}
 function pmc(v){return v>0?'pos':v<0?'neg':'neu';}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
-function fbSet(p,v){if(db)db.ref(DB_ROOT+'/'+p).set(v);}
-function fbDel(p){if(db)db.ref(DB_ROOT+'/'+p).remove();}
+// Firebase write failure reporting. set() and remove() return a promise that
+// rejects on a rules denial or a lost connection. Discarding it made a failed
+// write look exactly like a successful one, because the call sites toast success
+// on the next line either way. Handled once here so no call site has to change.
+// Every path here is SIDE-prefixed (mens/results/x), so the label walk starts at
+// the second segment; keying on the first would only ever find the side.
+const _FB_LABELS={
+  players:'the player', results:'the result', weeks:'the week',
+  config:'the settings', messages:'the message'
+};
+function _fbLabel(p){
+  const seg=String(p==null?'':p).split('/');
+  for(let i=0;i<seg.length;i++){ if(_FB_LABELS[seg[i]]) return _FB_LABELS[seg[i]]; }
+  return '';
+}
+// Guarded: the toast element can be absent mid-render, and a reporting failure
+// must not become a second silent failure or an unhandled rejection.
+function _fbWriteFailed(verb,p,err){
+  console.error('Firebase '+verb+' failed:',DB_ROOT+'/'+p,err);
+  const lbl=_fbLabel(p);
+  try{ toast('Could not '+verb+(lbl?' '+lbl:'')+'. Try again.'); }catch(e){}
+}
+// The promise is returned so a future call site can await it. The rejection is
+// reported and swallowed: re-throwing would turn every existing fire-and-forget
+// call site into an unhandled rejection.
+function fbSet(p,v){
+  if(!db)return;
+  return db.ref(DB_ROOT+'/'+p).set(v).catch(function(err){_fbWriteFailed('save',p,err);});
+}
+function fbDel(p){
+  if(!db)return;
+  return db.ref(DB_ROOT+'/'+p).remove().catch(function(err){_fbWriteFailed('delete',p,err);});
+}
 function gP(id){return (D[SIDE].players||{})[id]||null;}
 function pN(id){const p=gP(id);return p?p.name:'?';}
 function closeModal(id){$(id).classList.remove('on');}

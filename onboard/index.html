@@ -456,11 +456,16 @@ async function suggestColors(){
   sw.innerHTML='';
   document.getElementById('btn-ai').disabled=true;
   try{
-    var resp=await fetch('https://api.anthropic.com/v1/messages',{
+    // Routed through the shared AI proxy worker, the same endpoint this page writes
+    // into every shell it generates as aiProxyUrl, and the same one app.js calls.
+    // The worker holds ANTHROPIC_API_KEY as a Cloudflare secret and forwards the
+    // body verbatim. This page is served publicly from GitHub Pages, so a key here
+    // would be a published key. That is the whole reason for the proxy. Never add one.
+    var resp=await fetch('https://beach-volleyball-ai.markmcnees-479.workers.dev',{
       method:'POST',
-      headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01'},
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:'claude-sonnet-4-6',
         max_tokens:500,
         system:'You are a color suggestion assistant for a school sports app. Given a school name and mascot, suggest a plausible 5-color brand palette based on commonly known school colors or reasonable guesses for that mascot/region. Return ONLY a valid JSON object with exactly these 5 keys: primary, primaryDark, primaryDeeper, primaryLight, primaryBg. All values must be hex color codes starting with #. primary is the dominant brand color. primaryDark is a darker shade (multiply primary by ~0.7). primaryDeeper is even darker (multiply by ~0.5). primaryLight is a lighter/brighter tint. primaryBg is a very light tint suitable for a page background. Return nothing else \u2014 no markdown, no explanation, just the JSON object.',
         messages:[{role:'user',content:'Suggest school brand colors for: '+inp}]
