@@ -15,6 +15,12 @@ let _pendingRoundsUpdate = null;
 let _mainFP = null; // fingerprint of the MAPPED children only; skips re-render when only unmapped nodes (e.g. messages) change
 let _genFromScore = false;
 let _editCourtCtx = null;
+// promptClearSchedule reads this to decide whether to skip the PIN. It was never
+// declared, so that read threw a ReferenceError and the Clear Schedule button did
+// nothing at all. Declared false here, which is the safe branch: clearing always goes
+// through the admin PIN.
+let _plannerUnlocked = false;
+let _pendingUnlockWid = null;
 let tab  = 'standings';
 let sortK = {key:'diff', dir:'desc'};
 let liveWeek = null;
@@ -113,20 +119,113 @@ function _fbWriteFailed(verb,p,err){
   const lbl=_fbLabel(p);
   try{ toast('Could not '+verb+(lbl?' '+lbl:'')+'. Try again.'); }catch(e){}
 }
-// The promise is returned so a future call site can await it. The rejection is
-// reported and swallowed: re-throwing would turn every existing fire-and-forget
-// call site into an unhandled rejection.
+// Resolve true only on a server-acknowledged write, false on any failure. The
+// promise previously resolved undefined either way, so a caller could not tell a
+// landed write from a failed one, which is what the archive verify-before-delete
+// and the schedule lock both need to know. Same contract as 4v4.
+//
+// The rejection is reported and swallowed so the existing fire-and-forget call
+// sites do not become unhandled rejections. Callers that need the outcome await
+// and check. No connection means no write, so that resolves false.
 function fbSet(p,v){
-  if(!db)return;
-  return db.ref(DB_ROOT+'/'+p).set(v).catch(function(err){_fbWriteFailed('save',p,err);});
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT+'/'+p).set(v).then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('save',p,err); return false; });
 }
 function fbDel(p){
-  if(!db)return;
-  return db.ref(DB_ROOT+'/'+p).remove().catch(function(err){_fbWriteFailed('delete',p,err);});
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT+'/'+p).remove().then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('delete',p,err); return false; });
 }
 function gP(id){return (D[SIDE].players||{})[id]||null;}
 function pN(id){const p=gP(id);return p?p.name:'?';}
 function closeModal(id){$(id).classList.remove('on');}
+
+// ─── WEEK LOCK ───
+// A week locks itself the first time a score is recorded on it, and a locked week
+// refuses regeneration and clearing until it is explicitly unlocked. Results carry a
+// weekId, round and court, so replacing the rounds under a scored week leaves those
+// scores pointing at matchups that no longer exist, with no way to match them back up.
+//
+// side is an explicit parameter on every helper so a caller that has pinned its side
+// can pass it rather than reading the global again.
+function isWeekLocked(wid, side){
+  const w = ((D[side || SIDE] || {}).weeks || {})[wid];
+  return !!(w && w.locked === true);
+}
+function weekResultCount(wid, side){
+  return Object.values((D[side || SIDE] || {}).results || {}).filter(r => r && r.weekId === wid).length;
+}
+function weekNumOf(wid, side){
+  const w = ((D[side || SIDE] || {}).weeks || {})[wid];
+  return (w && w.weekNum != null) ? w.weekNum : '?';
+}
+// One refusal shared by every path that would rewrite or remove a locked week's rounds.
+// Returns true when the week is locked and the caller must stop. A visible message and
+// a return, never a confirm: a locked week is not a question.
+function _refuseLockedWeek(wid, action, side){
+  if(!isWeekLocked(wid, side)) return false;
+  const n = weekResultCount(wid, side);
+  const wn = weekNumOf(wid, side);
+  alert('Week ' + wn + ' is locked because ' + n + ' result' + (n === 1 ? ' has' : 's have')
+    + ' been recorded on it.\n\nA locked week cannot be ' + action
+    + ', so those scores stay matched to the rounds they were played on.\n\n'
+    + 'Unlock the week first if you really mean to replace those matchups.');
+  toast('Week ' + wn + ' is locked');
+  return true;
+}
+// Locks the week the first time a result lands on it, so a director never has to
+// remember to do it. Deliberately does NOT patch D optimistically. If the write fails
+// the week is genuinely still unlocked, and painting it as locked would be worse than
+// painting it unlocked, so the failure is reported and the listener brings the truth
+// back on success.
+async function _autoLockWeek(wid, side){
+  if(!wid || isWeekLocked(wid, side)) return;
+  const ok = await fbSet((side || SIDE) + '/weeks/' + wid + '/locked', true);
+  if(!ok){
+    alert('The score was saved, but this week could not be locked.\n\n'
+      + 'That means regenerating or clearing the schedule could still replace the rounds these scores were played on. '
+      + 'Check your connection, then record another score or reload to lock it.');
+    return;
+  }
+  loadWeekDetail();
+}
+function promptUnlockWeek(wid){
+  if(!wid){ toast('Select a week first'); return; }
+  if(!isWeekLocked(wid)){ toast('That week is not locked'); return; }
+  _pendingUnlockWid = wid;
+  _pinAction = 'unlockweek';
+  _pinEntry = '';
+  updatePinDots();
+  $('pin-error').textContent = '';
+  $('pin-modal-title').textContent = 'Admin PIN: Unlock Week';
+  $('pin-modal').classList.add('on');
+}
+// The only way back to a regenerable week. Names the exact number of results that
+// regenerating would decouple, the way the 4v4 unlock names its count.
+async function doUnlockWeek(){
+  const wid = _pendingUnlockWid;
+  _pendingUnlockWid = null;
+  if(!wid) return;
+  const side = SIDE;
+  if(!isWeekLocked(wid, side)){ toast('That week is not locked'); return; }
+  const n = weekResultCount(wid, side);
+  const wn = weekNumOf(wid, side);
+  if(!confirm('Unlock week ' + wn + '?\n\n'
+    + 'Unlocking allows this week to be regenerated or cleared, which replaces every matchup.\n\n'
+    + 'This week has ' + n + ' recorded result' + (n === 1 ? '' : 's') + '. '
+    + (n === 1 ? 'It stays' : 'They stay') + ' saved and still ' + (n === 1 ? 'counts' : 'count')
+    + ' in the standings, but ' + (n === 1 ? 'it' : 'they') + ' will no longer match the rounds shown, '
+    + 'and there is no way to match ' + (n === 1 ? 'it' : 'them') + ' back up.\n\n'
+    + 'Click OK to unlock, or Cancel to leave it locked.')) return;
+  const ok = await fbSet(side + '/weeks/' + wid + '/locked', false);
+  if(!ok){
+    alert('The week could not be unlocked, so it stays locked and your schedule is unchanged.\n\nCheck your connection and try again.');
+    return;
+  }
+  toast('Week ' + wn + ' unlocked');
+  loadWeekDetail();
+}
 
 
 // ─── SEASON MANAGEMENT ───
@@ -141,32 +240,198 @@ function promptCloseSeason(){
   $('pin-modal').classList.add('on');
 }
 
+// Firebase forbids . # $ / [ ] in a key. They become spaces rather than underscores,
+// and the result is whitespace collapsed, trimmed and capped. Ported from the 4v4
+// build so the two apps sanitize a season name identically.
+function sanitizeSeasonLabel(s){
+  return String(s == null ? '' : s)
+    .replace(/[.#$/[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
+// Child count and key list that tolerate Firebase returning a numerically keyed node
+// as an array. Used by the verifier so a legitimate array or object shift is not read
+// as data loss.
+function _childKeys(v){
+  if(v == null) return [];
+  if(Array.isArray(v)) return v.map((x,i) => x == null ? null : String(i)).filter(x => x !== null);
+  if(typeof v !== 'object') return [];
+  return Object.keys(v);
+}
+function _childCount(v){ return _childKeys(v).length; }
+
+// Compares what came back from Firebase against what we sent. Returns null when the
+// snapshot is sound, or a plain sentence naming the first problem found. Deliberately
+// key based rather than a deep JSON compare: Firebase drops empty objects and may
+// return numeric-keyed maps as arrays, either of which would fail a naive equality
+// check and block a perfectly good archive.
+//
+// players is verified here as well as weeks and results. That is the one place this
+// differs from the 4v4 verifier, and it differs because KotB clears the roster on
+// close and 4v4 does not, so the roster is data this archive is responsible for.
+function verifyArchiveSnapshot(back, snap){
+  if(!back) return 'the archive came back empty';
+  if(back.label !== snap.label) return 'the season name did not match';
+  if(back.side !== snap.side) return 'the side did not match';
+  const parts = ['players','weeks','results'];
+  for(let i=0;i<parts.length;i++){
+    const p = parts[i];
+    const want = _childKeys(snap[p]).slice().sort();
+    const got  = _childKeys(back[p]).slice().sort();
+    if(want.length !== got.length){
+      return want.length + ' ' + p + ' were sent but ' + got.length + ' read back';
+    }
+    for(let j=0;j<want.length;j++){
+      if(want[j] !== got[j]) return 'a ' + p + ' entry did not match (' + want[j] + ')';
+    }
+  }
+  if(_childCount(snap.config) > 0 && _childCount(back.config) === 0) return 'the settings did not read back';
+  return null;
+}
+
+// The PIN dispatch calls doCloseSeason without awaiting it, so nothing else prevents
+// two overlapping runs.
+let _closeSeasonInProgress = false;
+
+// Snapshot the pinned side's season under archive/{label}/{side}, VERIFY that snapshot
+// reads back, and only then clear the live season. Nothing is deleted unless the
+// archive is confirmed present, which is the whole point of the function.
 async function doCloseSeason(){
-  const label=window._pendingSeasonLabel;
-  if(!label)return;
-  const archKey='archive/'+label.replace(/[.#$/[\]]/g,'_')+'/'+SIDE;
-  const snap={
-    config:D[SIDE].config||{},
-    players:D[SIDE].players||{},
-    weeks:D[SIDE].weeks||{},
-    results:D[SIDE].results||{}
+  const raw = window._pendingSeasonLabel;
+  // Consumed once, so a run that stops early leaves no stale label behind for the next
+  // PIN entry to pick up.
+  window._pendingSeasonLabel = null;
+  if(!raw) return;
+  if(_closeSeasonInProgress){ toast('An archive is already running'); return; }
+  if(!db){ alert('Not connected, so nothing was changed.\n\nCheck your connection and try again.'); return; }
+
+  // Pin the side for the whole run. SIDE is a global that the header toggle reassigns,
+  // and archiving one side while deleting the other is the worst outcome available
+  // here. Every path below uses this local, never SIDE.
+  const side = SIDE;
+  const sideLabel = side === 'kings' ? 'Kings' : 'Queens';
+
+  // Freeze the four values BEFORE the first await. The Firebase listener reassigns
+  // D[side].players and friends wholesale on every remote change, so holding only a
+  // reference to D[side] would let the payload drift out from under the counts. The
+  // listener replaces these objects rather than mutating them, so the references
+  // captured here stay the season as it was at this moment.
+  const S = D[side] || {};
+  const srcConfig  = S.config  || {};
+  const srcPlayers = S.players || {};
+  const srcWeeks   = S.weeks   || {};
+  const srcResults = S.results || {};
+  const nPlayers = _childCount(srcPlayers);
+  const nWeeks   = _childCount(srcWeeks);
+  const nResults = _childCount(srcResults);
+  if(nPlayers === 0 && nWeeks === 0 && nResults === 0){
+    alert('There is nothing to archive on the ' + sideLabel + ' side.\n\nNo players, weeks, or results are recorded, so nothing was changed.');
+    return;
+  }
+
+  const label = sanitizeSeasonLabel(raw);
+  if(!label){ alert('A season name is required, so nothing was changed.'); return; }
+  const archPath = 'archive/' + label + '/' + side;
+
+  // label, side, archivedAt and counts live INSIDE the side node on purpose.
+  // renderArchives enumerates Object.keys(archive) to list seasons, so a metadata
+  // sibling at the label level would render as a phantom season row.
+  const snap = {
+    label: label,
+    side: side,
+    archivedAt: Date.now(),
+    counts: { players: nPlayers, weeks: nWeeks, results: nResults },
+    config:  srcConfig,
+    players: srcPlayers,
+    weeks:   srcWeeks,
+    results: srcResults
   };
-  // Archive full season
-  await db.ref(DB_ROOT+'/'+archKey).set(snap);
-  // Clear weeks, results, and players — new season starts fresh
-  await db.ref(DB_ROOT+'/'+SIDE+'/weeks').remove();
-  await db.ref(DB_ROOT+'/'+SIDE+'/results').remove();
-  await db.ref(DB_ROOT+'/'+SIDE+'/players').remove();
-  // Reset config but preserve courts/day preferences
-  const oldCfg=D[SIDE].config||{};
-  await db.ref(DB_ROOT+'/'+SIDE+'/config').set({
-    courts:oldCfg.courts||2,
-    dayOfWeek:oldCfg.dayOfWeek??1,
-    winScore:oldCfg.winScore||15
-  });
-  window._pendingSeasonLabel=null;
-  toast('Season "'+label+'" archived! Set a new start date to begin.');
-  renderPlannerCfg();
+
+  // Refuse to silently overwrite a previous archive. This probes the SIDE leaf, not
+  // the label. Both sides legitimately archive under the same season name, so a label
+  // level check would false positive the moment the other side had been archived.
+  let existing = null;
+  try{
+    existing = (await db.ref(DB_ROOT + '/' + archPath).once('value')).val();
+  }catch(e){
+    console.error('archive: existing check failed', e);
+    alert('Could not read the existing archives, so nothing was changed.\n\nCheck your connection and try again.');
+    return;
+  }
+  if(existing){
+    if(!confirm('A ' + sideLabel + ' archive named "' + label + '" already exists.\n\nClick OK to replace it, or Cancel to pick another name.')) return;
+  }
+
+  const summary = nPlayers + ' player' + (nPlayers===1?'':'s') + ', '
+                + nWeeks + ' week' + (nWeeks===1?'':'s') + ', '
+                + nResults + ' recorded result' + (nResults===1?'':'s');
+  if(!confirm('Archive the ' + sideLabel + ' season as "' + label + '"?\n\nThis saves ' + summary
+    + ', then clears the roster, the weeks, and the results so a new season can start.\n\n'
+    + 'The archive is verified before anything is deleted. Your courts, night, and win score are kept. '
+    + 'The other side is not touched.\n\nClick OK to archive, or Cancel to stop.')) return;
+
+  _closeSeasonInProgress = true;
+  try{
+    // (a) Write the full snapshot.
+    toast('Saving the archive...');
+    const wrote = await fbSet(archPath, snap);
+    if(!wrote){
+      alert('The archive could not be saved, so nothing was deleted.\n\nYour season is exactly as it was. Check your connection and try again.');
+      return;
+    }
+
+    // (b) Read it back and verify BEFORE deleting anything.
+    toast('Verifying the archive...');
+    let back = null;
+    try{
+      back = (await db.ref(DB_ROOT + '/' + archPath).once('value')).val();
+    }catch(e){
+      console.error('archive: verification read failed', e);
+      alert('The archive was saved but could not be read back to verify it, so nothing was deleted.\n\nYour season is exactly as it was. Try again in a moment.');
+      return;
+    }
+    const problem = verifyArchiveSnapshot(back, snap);
+    if(problem){
+      console.error('archive: verification failed:', problem, {sent: snap, back: back});
+      alert('The archive did not verify: ' + problem + '.\n\nNothing was deleted and your season is exactly as it was. Try again, and if it keeps failing take your own copy of the season before doing anything else.');
+      return;
+    }
+
+    // (c) Verified. Now clear the live season, one node at a time so a partial failure
+    // is reported rather than assumed.
+    toast('Archive verified. Clearing the season...');
+    const failed = [];
+    const nodes = ['weeks','results','players'];
+    for(let i=0;i<nodes.length;i++){
+      const ok = await fbDel(side + '/' + nodes[i]);
+      if(!ok) failed.push(nodes[i]);
+    }
+    // Config is reduced, not deleted, so the court list, night and win score carry into
+    // the new season. Existing intended behavior, now with a checked outcome and reading
+    // from the same frozen config that was archived.
+    const cfgOk = await fbSet(side + '/config', {
+      courts: srcConfig.courts || 2,
+      dayOfWeek: srcConfig.dayOfWeek ?? 1,
+      winScore: srcConfig.winScore || 15
+    });
+    if(!cfgOk) failed.push('settings');
+
+    if(failed.length){
+      alert('The ' + sideLabel + ' season was archived and verified as "' + label + '".\n\n'
+        + 'But these did not clear: ' + failed.join(', ') + '.\n\n'
+        + 'Nothing was lost, the archive holds a full copy. Run Close & Archive Season again with the same name to finish clearing.');
+    }else{
+      toast('Season "' + label + '" archived. Set a new start date to begin.');
+    }
+  }catch(err){
+    console.error('archive: unexpected failure', err);
+    alert('Something went wrong while archiving.\n\nNothing is deleted until the archive has been read back and verified, so if that had not happened yet your season is exactly as it was.');
+  }finally{
+    _closeSeasonInProgress = false;
+    renderPlannerCfg();
+    renderArchives();
+  }
 }
 
 function renderArchives(){
@@ -185,9 +450,9 @@ function renderArchives(){
       const wins=results.filter(r=>r.s1>r.s2).length;
       const label=name.replace(/_/g,' ');
       return `<div style="padding:12px 0;border-bottom:1px solid var(--sand-border);">
-        <div style="font-weight:700;font-size:14px;">${label}</div>
+        <div style="font-weight:700;font-size:14px;">${esc(label)}</div>
         <div style="font-size:12px;color:var(--gray);margin-top:2px;">${players.length} players · ${results.length} games played</div>
-        <button class="btn btn-g btn-sm" style="margin-top:8px;" onclick="viewArchiveSeason('${name}')">📊 View Standings</button>
+        <button class="btn btn-g btn-sm" style="margin-top:8px;" onclick="viewArchiveSeason('${escAttr(name)}')">📊 View Standings</button>
       </div>`;
     }).join('');
   });
@@ -745,11 +1010,27 @@ function fillWeekSels(){
 }
 
 // ─── WEEK DETAIL ───
+// Keeps the planner's regenerate button in step with the selected week's lock, so the
+// refusal is visible before the click rather than after it.
+function _syncGenWeekBtn(week){
+  const gb=$('gen-week-btn'); if(!gb)return;
+  const locked=!!(week&&week.locked===true);
+  gb.disabled=locked;
+  gb.textContent=locked
+    ? '🔒 Week '+(week.weekNum!=null?week.weekNum:'?')+' locked, unlock to regenerate'
+    : '🤖 Regenerate one week (fallback)';
+  gb.style.opacity=locked?'0.55':'';
+  gb.style.cursor=locked?'not-allowed':'';
+}
+
 function loadWeekDetail(){
   const wid=$('week-sel').value;
   const week=D[SIDE].weeks[wid];
   const cont=$('week-detail');
+  _syncGenWeekBtn(week);
   if(!week){cont.innerHTML='';return;}
+  const locked=week.locked===true;
+  const nRes=weekResultCount(wid);
   const absences=week.absences||[];
   const subs=week.subs||[];
   let h=`<div style="font-size:14px;margin-bottom:10px;">
@@ -759,6 +1040,11 @@ function loadWeekDetail(){
   const subNames=(subs||[]).map(s=>`${s.name} ➜ ${pN(s.forPlayerId)}`);
   if(subNames.length) h+=`<div class="chip-grp">${subNames.map(n=>`<span class="abs-chip sub-chip">🔄 ${n}</span>`).join('')}</div>`;
   h+='</div>';
+  if(locked){
+    h+=`<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#92400e;line-height:1.5;">
+      🔒 <strong>Week ${week.weekNum} is locked.</strong> ${nRes} result${nRes===1?' has':'s have'} been recorded, so this schedule cannot be regenerated or cleared. Those scores stay matched to the rounds they were played on. Unlock the week to replace the matchups.
+    </div>`;
+  }
   if(week.rounds&&week.rounds.length){
     week.rounds.forEach(rd=>{
       h+=`<div class="rblock"><div class="rtitle">Round ${rd.round}</div>`;
@@ -780,14 +1066,24 @@ function loadWeekDetail(){
   } else {
     h+=`<div class="empty"><div class="eico">🤖</div><p class="etxt">No schedule yet. Tap Generate Tonight's Schedule above.</p></div>`;
   }
-  if(week.rounds&&week.rounds.length){
+  // Clearing is disabled and relabelled on a locked week rather than failing after the
+  // tap. The unlock sits directly under it, so the way forward is where the refusal is.
+  if(week.rounds&&week.rounds.length&&!locked){
     h+=`<button onclick="promptClearSchedule('${wid}')" style="margin-top:12px;width:100%;padding:10px;background:#fee2e2;color:var(--loss);border:1.5px solid #fca5a5;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">🗑 Clear Schedule</button>`;
+  }else if(week.rounds&&week.rounds.length&&locked){
+    h+=`<button disabled title="Unlock the week first" style="margin-top:12px;width:100%;padding:10px;background:var(--gray-lighter);color:var(--gray);border:1.5px solid #ddd;border-radius:10px;font-size:13px;font-weight:700;cursor:not-allowed;">🔒 Locked, unlock to clear</button>`;
+  }
+  if(locked){
+    h+=`<button onclick="promptUnlockWeek('${wid}')" style="margin-top:8px;width:100%;padding:10px;background:#fff;color:#92400e;border:1.5px solid #fcd34d;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">🔓 Unlock Week ${week.weekNum}</button>`;
   }
   cont.innerHTML=h;
 }
 
 // ─── CLEAR SCHEDULE ───
 function promptClearSchedule(wid){
+  // Refuse before the PIN as well as inside doClearSchedule, so a coach is never asked
+  // for a PIN to authorize something that is going to be refused anyway.
+  if(_refuseLockedWeek(wid,'cleared')) return;
   if(_plannerUnlocked){
     if(confirm('Clear the schedule for this week? This cannot be undone.')) doClearSchedule(wid);
     return;
@@ -801,6 +1097,9 @@ function promptClearSchedule(wid){
   $('pin-modal').classList.add('on');
 }
 function doClearSchedule(wid){
+  // Checked here too, not only in promptClearSchedule. The PIN dispatch calls this
+  // directly, so the prompt is not the only way in.
+  if(_refuseLockedWeek(wid,'cleared')) return;
   fbDel(SIDE+'/weeks/'+wid+'/rounds');
   toast('Schedule cleared.');
   loadWeekDetail();
@@ -1118,6 +1417,12 @@ async function genNight(skipOverwriteCheck){
   const wid=$('week-sel').value;
   if(!wid){toast('Select a week first');return;}
   const week=D[SIDE].weeks[wid];if(!week)return;
+  // ── Lock guard ──
+  // Deliberately OUTSIDE the skipOverwriteCheck branch below. The Retry button in the
+  // AI error banner calls genNight(true), so a guard placed inside that branch would
+  // let Retry walk straight through it. A locked week refuses here no matter which
+  // entry point called, and no matter what skipOverwriteCheck says.
+  if(_refuseLockedWeek(wid,'regenerated')){ loadWeekDetail(); return; }
   // ── Overwrite guard (fix #1): warn before replacing an existing schedule ──
   if(!skipOverwriteCheck){
     const existingRounds=Array.isArray(week.rounds)?week.rounds.length:(week.rounds?Object.keys(week.rounds).length:0);
@@ -1452,6 +1757,17 @@ function genFullSeason(){
   const resultCount=Object.values(D[SIDE].results||{}).length;
   if(resultCount>0){
     alert('Cannot regenerate the season: '+resultCount+' result'+(resultCount===1?' is':'s are')+' already recorded.\n\nRegenerating would break the link between recorded scores and the schedule. Use Close & Archive Season to start fresh.');
+    return;
+  }
+  // Additive to the result-count block above, which is unchanged. A week keeps its lock
+  // after its results are deleted, so that count can read zero while a locked week still
+  // holds the rounds those scores were played on. Without this, deleting the last result
+  // would quietly reopen every locked week to a full season regenerate.
+  const lockedWeeks=weeks.filter(w=>w&&w.locked===true);
+  if(lockedWeeks.length){
+    alert('Cannot regenerate the season: week'+(lockedWeeks.length===1?' ':'s ')
+      +lockedWeeks.map(w=>w.weekNum).join(', ')+' '+(lockedWeeks.length===1?'is':'are')+' locked.\n\n'
+      +'Unlock '+(lockedWeeks.length===1?'it':'them')+' first, or use Close & Archive Season to start fresh.');
     return;
   }
   const hasSchedules=weeks.some(w=>w.rounds&&(Array.isArray(w.rounds)?w.rounds.length:Object.keys(w.rounds).length));
@@ -1965,6 +2281,9 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   const namedSubs=[...t1,...t2].filter(pid=>ov[pid]&&ov[pid]!=='__SUB__').map(pid=>ov[pid]);
   const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
   fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
+  // First score on this week locks it. Side is pinned at the call so the lock cannot
+  // land on the other side if the header is tapped while the write is in the air.
+  _autoLockWeek(wid, SIDE);
   applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
   // Clear only the game just saved. Other rounds may have entry in progress.
   delete lscore[scoreKey(idx,SIDE,wid,round)];
@@ -1984,6 +2303,8 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   const st1=resolveIds(t1),st2=resolveIds(t2);
   const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
   fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()});
+  // A forfeit is a recorded result like any other, so it locks the week too.
+  _autoLockWeek(wid, SIDE);
   applyRatingsLeague(id, st1, st2, s1, s2, null, true);
   toast('Forfeit recorded · 15-10');
   const _sf=window.scrollY;
@@ -2407,6 +2728,7 @@ function pinTap(v){
       else if(_pinAction==='cancel') doCancelNight();
       else if(_pinAction==='uncancel') doUncancelNight();
       else if(_pinAction==='closeseason') doCloseSeason();
+      else if(_pinAction==='unlockweek') doUnlockWeek();
       else if(_pinAction==='addplayer') _doAddPlayer();
       else if(_pinAction==='planner') _openPlanner();
       else if(_pinAction==='score'){ _scoreUnlocked=true; toast('Scoring unlocked for this session'); }
@@ -2478,6 +2800,14 @@ function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
     {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
   ));
+}
+// For a value going into a single-quoted inline handler attribute. JS-escape the RAW
+// string first, then HTML-escape the result. The parser decodes the entities back
+// before the handler runs, so the function receives the exact original text. Escaping
+// the already-escaped string instead would break on any apostrophe, which is what a
+// season named Spring '26 used to do to the View Standings button.
+function escAttr(s){
+  return esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 function lcDisplayNameOf(p){
   p = p || {};

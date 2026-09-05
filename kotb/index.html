@@ -319,7 +319,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <button class="btn btn-p btn-sm" onclick="openAbsModal()">Absences / Subs</button>
       </div>
       <button class="btn btn-a btn-w" style="margin-bottom:8px;" onclick="promptGenFullSeason()">🗓️ Generate Full Season</button>
-      <button class="btn btn-g btn-sm" style="margin-bottom:12px;width:100%;" onclick="promptGenSchedule(false)">🤖 Regenerate one week (fallback)</button>
+      <button class="btn btn-g btn-sm" id="gen-week-btn" style="margin-bottom:12px;width:100%;" onclick="promptGenSchedule(false)">🤖 Regenerate one week (fallback)</button>
       <div id="week-detail"></div>
     </div>
 
