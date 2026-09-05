@@ -21,6 +21,8 @@ let _editCourtCtx = null;
 // through the admin PIN.
 let _plannerUnlocked = false;
 let _pendingUnlockWid = null;
+// The scoring action waiting on the PIN pad, replayed once the PIN is correct.
+let _pendingScoreAction = null;
 let tab  = 'standings';
 let sortK = {key:'diff', dir:'desc'};
 let liveWeek = null;
@@ -1023,6 +1025,26 @@ function _syncGenWeekBtn(week){
   gb.style.cursor=locked?'not-allowed':'';
 }
 
+// The planner's week selector. The planner and the score tab used to hold independent
+// selections that were never synced, so a coach could score week 1 on the Score tab
+// while the planner sat on week 2, then regenerate week 2 believing it was the week
+// just scored. Both the lock guard and the result count read the planner's week, so
+// they answered for the wrong one.
+//
+// Mirroring lives here rather than in loadWeekDetail because loadWeekDetail is also
+// called by renders and by _autoLockWeek, and moving liveWeek from a render would
+// change the scored week out from under an active session. Only a real week id
+// mirrors: the blank "Select Week" option must never clear the other tab's choice.
+function pickPlannerWeek(){
+  const wid=$('week-sel').value;
+  if(wid){
+    const ls=$('live-sel');
+    if(ls && ls.value!==wid) ls.value=wid;
+    if(liveWeek!==wid){ liveWeek=wid; liveRound=1; }
+  }
+  loadWeekDetail();
+}
+
 function loadWeekDetail(){
   const wid=$('week-sel').value;
   const week=D[SIDE].weeks[wid];
@@ -1989,6 +2011,9 @@ function lateArrival(pid){
 function loadLive(){
   const wid=$('live-sel').value;
   liveWeek=wid;liveRound=1;
+  // Mirror onto the planner so genNight's lock guard and its result count ask about the
+  // week that is actually being scored here.
+  if(wid){ const ws=$('week-sel'); if(ws && ws.value!==wid) ws.value=wid; }
   renderScoreAbsencePanel();
   renderWeekActions();
   renderRoundPills();
@@ -2266,7 +2291,9 @@ function reverseRatingsLeague(gameId, t1, t2, subSlots){
 }
 
 function saveScore(wid,round,court,t1s,t2s,idx){
-  if(!_scoreGate()) return;
+  // The replay re-reads the score inputs, which the PIN modal does not disturb, so the
+  // coach's typed values are the ones saved.
+  if(!_scoreGate(function(){ saveScore(wid,round,court,t1s,t2s,idx); })) return;
   const s1=parseInt($('su-'+idx)?.value)||0;
   const s2=parseInt($('st-'+idx)?.value)||0;
   if(s1===s2){toast('Scores cannot be tied');return;}
@@ -2293,7 +2320,7 @@ function saveScore(wid,round,court,t1s,t2s,idx){
 }
 
 function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
-  if(!_scoreGate()) return;
+  if(!_scoreGate(function(){ saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx); })) return;
   const t1=t1s.split(',').filter(Boolean);
   const t2=t2s.split(',').filter(Boolean);
   const id=gi('r');
@@ -2312,7 +2339,7 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
 }
 
 function openEditResult(id){
-  if(!_scoreGate()) return;
+  if(!_scoreGate(function(){ openEditResult(id); })) return;
   const r=((D[SIDE]||{}).results||{})[id];if(!r)return;
   window._editResultId=id;
   // Resolve display names: if value looks like a player ID, get name; else it's already a name
@@ -2373,7 +2400,7 @@ function saveEditResult(){
 }
 
 function delResult(id){
-  if(!_scoreGate()) return;
+  if(!_scoreGate(function(){ delResult(id); })) return;
   const r=((D[SIDE]||{}).results||{})[id];
   if(r) reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
   fbDel(SIDE+'/results/'+id);
@@ -2703,8 +2730,14 @@ function runExportPdf(){
 
 let _pinEntry='',_pinAction=null;
 let _scoreUnlocked=false;
-function _scoreGate(){
+// Gate for every scoring action. Callers pass a thunk that repeats the exact call they
+// were about to make, and the PIN dispatch runs it once the PIN is correct. Without the
+// thunk the first tap of a session opened the PIN pad, returned false, and the coach's
+// input was gone: the score looked recorded because the unlock toast reads like success,
+// but nothing was ever written. Same _pendingX shape the other PIN actions use.
+function _scoreGate(replay){
   if(_scoreUnlocked) return true;
+  _pendingScoreAction = (typeof replay === 'function') ? replay : null;
   _pinAction='score';_pinEntry='';updatePinDots();
   $('pin-error').textContent='';
   $('pin-modal-title').textContent='Admin PIN — Scoring';
@@ -2731,7 +2764,15 @@ function pinTap(v){
       else if(_pinAction==='unlockweek') doUnlockWeek();
       else if(_pinAction==='addplayer') _doAddPlayer();
       else if(_pinAction==='planner') _openPlanner();
-      else if(_pinAction==='score'){ _scoreUnlocked=true; toast('Scoring unlocked for this session'); }
+      else if(_pinAction==='score'){
+        // Unlock first, so the replayed call passes the gate instead of reopening it.
+        _scoreUnlocked=true;
+        const replay=_pendingScoreAction; _pendingScoreAction=null;
+        // A replayed action reports its own outcome, so the coach sees the real save
+        // feedback rather than an unlock message that reads like a save confirmation.
+        if(replay) replay();
+        else toast('Scoring unlocked for this session');
+      }
       else if(_pinAction==='boarddelete'){ doBoardDelete(); }
     }else{
       $('pin-error').textContent='Incorrect PIN';
