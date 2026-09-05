@@ -171,12 +171,13 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
     </form>
   </section>
 
-  <!-- Success -->
+  <!-- Success. Default copy is the pickup reset; a school claim rewrites it via
+       applySchoolSuccess so the same section serves both. -->
   <section class="state intro" id="state-success">
-    <h2>Password reset</h2>
-    <p class="muted">Your password has been reset. You can now log in with your email and new password.</p>
+    <h2 id="success-title">Password reset</h2>
+    <p class="muted" id="success-msg">Your password has been reset. You can now log in with your email and new password.</p>
     <div class="actions" style="margin-top:14px;">
-      <a class="btn btn-p btn-w" href="/community/dashboard/">Log in</a>
+      <a class="btn btn-p btn-w" id="success-cta" href="/community/dashboard/">Log in</a>
     </div>
   </section>
 
@@ -191,6 +192,11 @@ const ROSTER_PATH = 'tally_kotb_pickup/players';
 const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 
 let resetToken = '';
+// A school invite link carries ?s=<slug> beside the token. Present means this is a
+// school claim, which resolves or creates a CourtSense account and links it to the
+// roster record. Absent means the pickup reset this page has always served, which is
+// left exactly as it was.
+let schoolSlug = '';
 
 const $ = id => document.getElementById(id);
 
@@ -204,11 +210,39 @@ function getToken(){
   try { return new URLSearchParams(window.location.search).get('token') || ''; }
   catch(e){ return ''; }
 }
+// Slug shape is validated server-side too. Checking it here as well keeps a junk
+// value from turning a plain reset into a school claim that can only fail.
+function getSlug(){
+  try {
+    const s = new URLSearchParams(window.location.search).get('s') || '';
+    return /^[a-z0-9]+([_-][a-z0-9]+)*$/.test(s) ? s : '';
+  } catch(e){ return ''; }
+}
 
 function togglePw(){
   const inp = $('f-password'), btn = $('pw-toggle');
   if(inp.type === 'password'){ inp.type = 'text'; btn.textContent = 'Hide'; btn.setAttribute('aria-label','Hide password'); }
   else { inp.type = 'password'; btn.textContent = 'Show'; btn.setAttribute('aria-label','Show password'); }
+}
+
+// Rewrite the shared success section for a school claim. Two outcomes to tell apart:
+// a password was just set, or the player already had a CourtSense account and we
+// linked it, in which case telling them to use a new password would be wrong.
+// The CTA points at the school's own app, which is where they were invited from and
+// where their stats live. Text only, no markup from the response.
+function applySchoolSuccess(res){
+  const school = (res && res.schoolName) || 'your team';
+  const t = $('success-title'), m = $('success-msg'), c = $('success-cta');
+  if(t) t.textContent = res && res.passwordSet ? 'You are all set' : 'Your account is linked';
+  if(m){
+    m.textContent = res && res.passwordSet
+      ? 'Your password is set and your ' + school + ' record is linked to your CourtSense account.'
+      : 'You already had a CourtSense account, so we linked it to your ' + school + ' record. Log in with the password you already use.';
+  }
+  // appPath is built server-side from the registry slug, so it is always a same-site
+  // path. Guarded anyway: only a leading-slash relative path is accepted as a CTA.
+  const path = (res && typeof res.appPath === 'string' && /^\/[a-z0-9_\-\/]*$/.test(res.appPath)) ? res.appPath : '';
+  if(c && path){ c.setAttribute('href', path); c.textContent = 'Go to ' + school; }
 }
 
 function showInvalid(title, msg){
@@ -219,6 +253,7 @@ function showInvalid(title, msg){
 
 function init(){
   resetToken = getToken();
+  schoolSlug = getSlug();
   if(!resetToken){
     // No token in the URL: this is the REQUEST entry point. Collect an email and
     // ask the worker to send a reset link.
@@ -258,22 +293,39 @@ async function doReset(e){
     // expiry), writes the new bcrypt hash to the credentials node, and burns the
     // token (single-use). The client never hashes or touches passwordHash.
     let res, status;
+    // A school claim goes to /hs/claim, which resolves or creates the account and links
+    // it to the roster record. A pickup reset goes to /auth/reset-consume exactly as
+    // before. The two never share a request shape or an endpoint.
+    const isSchoolClaim = !!schoolSlug;
+    const endpoint = isSchoolClaim ? '/hs/claim' : '/auth/reset-consume';
+    const payload = isSchoolClaim
+      ? { slug: schoolSlug, token: resetToken, newPassword: pw }
+      : { rosterPath: ROSTER_PATH, token: resetToken, newPassword: pw };
     try {
-      const r = await fetch(AUTH_WORKER + '/auth/reset-consume', {
+      const r = await fetch(AUTH_WORKER + endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: ROSTER_PATH, token: resetToken, newPassword: pw })
+        body: JSON.stringify(payload)
       });
       status = r.status;
       res = await r.json();
     } catch(err){
-      console.error('reset-consume failed', err);
+      console.error(endpoint + ' failed', err);
       $('form-err').textContent = 'Network error. Try again.';
       return false;
     }
 
     if(res && res.ok === true){
+      if(isSchoolClaim) applySchoolSuccess(res);
       showState('success');
+      return false;
+    }
+    if(res && res.code === 'no_email'){
+      showInvalid('We need an email on your record', (res && res.error) || 'This roster record has no email address. Ask your coach to add one.');
+      return false;
+    }
+    if(res && res.code === 'account_conflict'){
+      showInvalid('We could not finish setting up your account', (res && res.error) || 'Ask your coach to contact support.');
       return false;
     }
     const code = res && res.code;
