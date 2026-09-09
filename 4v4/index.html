@@ -688,6 +688,153 @@ function migrateScoreDraftsToLocal(){
 const $ = id => document.getElementById(id);
 function gi(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
+
+// ─── STICKY SCORE FAILURE NOTICE ───
+// A failed score is the one write a director cannot recover by redoing, because the
+// typed value is normally gone by the time they notice. toast() is the wrong carrier
+// for it: every toast shares one element and one 2400ms timer, so the next court's
+// "saved" message overwrites this one within two seconds.
+//
+// This renders into its own fixed element that no toast can touch, and it stays until
+// the director dismisses it. Failures stack rather than replace, so three bad courts
+// read as three lines. Styles are inline so no shell CSS or markup has to exist first,
+// and the whole thing is guarded: if the DOM refuses, fall back to alert() rather than
+// let the one message that matters disappear.
+function _scoreFailHost(){
+  let h = document.getElementById('score-fail-host');
+  if(h) return h;
+  h = document.createElement('div');
+  h.id = 'score-fail-host';
+  h.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;display:flex;flex-direction:column;gap:1px;';
+  document.body.appendChild(h);
+  return h;
+}
+// Three tones, one row shape. fail is red and permanent. wait is amber and means the
+// write is queued but not confirmed. done is green and means a queued write landed.
+// The host, the stacking and the dismiss-only lifetime are unchanged.
+const _NOTICE_TONE = { fail:'#b3261e', wait:'#8a5300', done:'#1b5e20' };
+function _paintNotice(row, msg, tone){
+  const bg = _NOTICE_TONE[tone] || _NOTICE_TONE.fail;
+  row.style.cssText = 'background:'+bg+';color:#fff;font:600 14px/1.45 system-ui,-apple-system,sans-serif;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;box-shadow:0 2px 10px rgba(0,0,0,.35);';
+  row._btn.style.cssText = 'flex:0 0 auto;background:#fff;color:'+bg+';border:0;border-radius:6px;padding:7px 12px;font:700 13px system-ui,-apple-system,sans-serif;cursor:pointer;';
+  row._txt.textContent = msg;
+}
+// Returns the row so a queued notice can be rewritten in place once the write it is
+// about finally settles, instead of leaving a stale warning over a court that now
+// reads as scored.
+function scoreWriteFailed(msg, tone){
+  try{
+    const host = _scoreFailHost();
+    const row = document.createElement('div');
+    const txt = document.createElement('div');
+    txt.style.cssText = 'flex:1;';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Dismiss';
+    btn.onclick = function(){ row.remove(); if(host && !host.children.length) host.remove(); };
+    row.appendChild(txt);
+    row.appendChild(btn);
+    row._txt = txt;
+    row._btn = btn;
+    _paintNotice(row, msg, tone || 'fail');
+    host.appendChild(row);
+    return row;
+  }catch(e){
+    console.error('score failure notice could not render', e, msg);
+    try{ alert(msg); }catch(e2){}
+    return null;
+  }
+}
+// A queued write that lands turns its own notice green and clears it a few seconds
+// later. By then the court itself has repainted as scored, so the court is the durable
+// signal and a lingering banner is just clutter.
+function scoreNoticeResolved(row, msg){
+  try{
+    if(!row || !row.isConnected) return;
+    _paintNotice(row, msg, 'done');
+    setTimeout(function(){
+      const host = row.parentNode;
+      row.remove();
+      if(host && !host.children.length) host.remove();
+    }, 8000);
+  }catch(e){ console.error('notice resolve failed', e); }
+}
+// A queued write that finally fails becomes an ordinary permanent failure notice. If the
+// director already dismissed the amber one, post a fresh notice rather than repaint a
+// detached node into nowhere.
+function scoreNoticeFailed(row, msg){
+  try{
+    if(row && row.isConnected){ _paintNotice(row, msg, 'fail'); return; }
+  }catch(e){}
+  scoreWriteFailed(msg);
+}
+
+// ─── BOUNDED WRITE OUTCOME ───
+// Firebase queues a write locally when the connection is down, and the promise then
+// simply stays pending. It has no timeout of its own. Awaiting it bare leaves the
+// director looking at a Save button that did nothing, which is how a second tap and a
+// duplicate result happen.
+//
+// This stops WAITING after WRITE_ACK_MS. It never starts a second write: the one promise
+// handed in is still the only write in flight, and it is still watched, so a queued write
+// that lands later rewrites its own notice in place.
+//
+// 8 seconds. Under about 5 it cries wolf on a slow but perfectly healthy park
+// connection. Past about 10 the director has already decided the app is broken and
+// tapped again, which is the thing being prevented.
+const WRITE_ACK_MS = 8000;
+
+// One scoring write at a time per court. A second tap while the first is still in flight
+// mints a fresh result id and stores the game twice, so the key is held until the write
+// actually settles, queued or not.
+const _writesInFlight = Object.create(null);
+function beginScoreWrite(key){
+  if(_writesInFlight[key]) return false;
+  _writesInFlight[key] = true;
+  return true;
+}
+// Resolves 'ok', 'failed' or 'pending'.
+//
+// opts.subject   what this write is about, reused in all three messages
+// opts.failTail  what did not happen, for a confirmed failure
+// opts.pendTail  what is true right now, for a queued write. A save is still on screen,
+//                a delete is still showing as recorded, so this cannot be shared text.
+// opts.landed    what is true once a queued write lands
+// opts.onLanded  runs only on the pending path, only if the write lands, and only once
+async function settleScoreWrite(promise, opts){
+  const key = opts.key;
+  let timer = null;
+  const waited = new Promise(function(res){ timer = setTimeout(function(){ res('pending'); }, WRITE_ACK_MS); });
+  const first = await Promise.race([promise, waited]);
+  clearTimeout(timer);
+  if(first === true){ delete _writesInFlight[key]; return 'ok'; }
+  if(first === false){
+    delete _writesInFlight[key];
+    scoreWriteFailed(opts.subject + ' ' + opts.failTail);
+    return 'failed';
+  }
+  // A timeout is not a failure. The write is queued locally and may still land, so the
+  // wording has to stop short of saying it was lost.
+  const row = scoreWriteFailed(opts.subject + ' is QUEUED and NOT confirmed yet. Your '
+    + 'connection is slow or down. ' + opts.pendTail + ' Do NOT tap again. This notice '
+    + 'updates itself the moment the write lands.', 'wait');
+  const done = function(ok){
+    delete _writesInFlight[key];
+    if(ok){
+      scoreNoticeResolved(row, opts.subject + ' ' + opts.landed);
+      if(typeof opts.onLanded === 'function'){
+        try{ opts.onLanded(); }catch(e){ console.error('late write follow-up failed', e); }
+      }
+    }else{
+      scoreNoticeFailed(row, opts.subject + ' ' + opts.failTail);
+    }
+  };
+  promise.then(done, function(err){
+    console.error('queued write rejected', err);
+    done(false);
+  });
+  return 'pending';
+}
 // Firebase write failure reporting. set() and remove() return a promise that rejects on
 // a rules denial or a lost connection. Discarding it made a failed write look exactly
 // like a successful one, because the call sites toast success on the next line either
@@ -3282,7 +3429,7 @@ function readSetInputs(){
   return sets;
 }
 
-function saveScore(mid, weekNum){
+async function saveScore(mid, weekNum){
   if(!requireAdmin('saveScore')) return;
   const sched = D[DIV].schedule || {};
   const week = sched[String(weekNum)];
@@ -3311,18 +3458,37 @@ function saveScore(mid, weekNum){
     isForfeit: false,
     recordedAt: Date.now()
   };
-  fbSet(DIV+'/results/'+mid, result);
+  // The matchup id is stable per court, so a second tap on the same matchup is refused
+  // rather than stored twice.
+  const wKey = '4v4:'+DIV+':'+mid;
+  if(!beginScoreWrite(wKey)){ toast('Still saving that match. Give it a moment.'); return; }
+  const setsTxt = setsRaw.map(s => s.a+'-'+s.b).join(', ');
+  const subject = 'Week '+weekNum+', Round '+m.round+', Court '+m.court+': the score '+setsTxt;
   // Optimistic local update + synchronous re-render so the save shows on the FIRST tap,
   // instead of waiting for the async Firebase .on('value') echo (the "save twice" feel).
-  // The echo later re-applies the same data idempotently.
-  if(D[DIV] && D[DIV].results) D[DIV].results[mid] = result;
-  clearDraft(mid);
-  setSeOpenId(null);
-  renderScoreEntry();
+  // The echo later re-applies the same data idempotently. Gated on the write landing:
+  // painting the court as scored when it is not is worse than the extra roundtrip. This
+  // is also the late follow-up, so a queued write that lands closes the form for real.
+  const after = function(){
+    if(D[DIV] && D[DIV].results) D[DIV].results[mid] = result;
+    clearDraft(mid);
+    if(_seOpenId === mid) setSeOpenId(null);
+    renderScoreEntry();
+  };
+  const outcome = await settleScoreWrite(fbSet(DIV+'/results/'+mid, result),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'did NOT save. It is still in the form. Check your connection, then tap Save again.',
+      pendTail:'It is still in the form and nothing has been lost.',
+      landed:'has now saved. Nothing to re-enter.' });
+  // Nothing is cleared and nothing is painted as scored unless the write is confirmed.
+  // The draft is still in localStorage and the form is still open on this matchup, so
+  // the sets the director typed are exactly where they left them.
+  if(outcome !== 'ok') return;
+  after();
   toast('Score saved');
 }
 
-function recordForfeit(mid, winnerId, weekNum){
+async function recordForfeit(mid, winnerId, weekNum){
   if(!requireAdmin('recordForfeit')) return;
   const sched = D[DIV].schedule || {};
   const week = sched[String(weekNum)];
@@ -3340,20 +3506,47 @@ function recordForfeit(mid, winnerId, weekNum){
     isForfeit: true,
     recordedAt: Date.now()
   };
-  fbSet(DIV+'/results/'+mid, result);
-  clearDraft(mid);
-  setSeOpenId(null);
+  // Same matchup key as saveScore, so a forfeit and a score cannot both go in on one match.
+  const wKey = '4v4:'+DIV+':'+mid;
+  if(!beginScoreWrite(wKey)){ toast('Still saving that match. Give it a moment.'); return; }
+  const subject = 'Week '+weekNum+', Round '+m.round+', Court '+m.court+': the forfeit for '+wName;
+  const after = function(){
+    clearDraft(mid);
+    if(_seOpenId === mid) setSeOpenId(null);
+    renderScoreEntry();
+  };
+  const outcome = await settleScoreWrite(fbSet(DIV+'/results/'+mid, result),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'did NOT save. Check your connection, then record it again.',
+      pendTail:'Nothing has been lost.',
+      landed:'has now saved.' });
+  if(outcome !== 'ok') return;
+  after();
   toast('Forfeit recorded');
 }
 
-function deleteResult(mid){
+async function deleteResult(mid){
   if(!requireAdmin('deleteResult')) return;
   const r = (D[DIV].results||{})[mid];
   if(!r) return;
   if(!confirm('Delete this recorded result? This cannot be undone.')) return;
-  fbDel(DIV+'/results/'+mid);
-  clearDraft(mid);
-  if(_seOpenId === mid) setSeOpenId(null);
+  const wKey = '4v4:'+DIV+':'+mid;
+  if(!beginScoreWrite(wKey)){ toast('Still working on that match. Give it a moment.'); return; }
+  const wk = (r.weekNumber != null) ? ('Week '+r.weekNumber+': ') : '';
+  const subject = wk+'the result for '+teamLabel(r.teamAId)+' against '+teamLabel(r.teamBId);
+  const after = function(){
+    clearDraft(mid);
+    if(_seOpenId === mid) setSeOpenId(null);
+    renderScoreEntry();
+  };
+  const outcome = await settleScoreWrite(fbDel(DIV+'/results/'+mid),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'was NOT deleted. It is still recorded and still counts in the standings. '
+        +'Check your connection, then tap Delete again.',
+      pendTail:'It is still showing as recorded until the delete lands.',
+      landed:'has now been deleted.' });
+  if(outcome !== 'ok') return;
+  after();
   toast('Result deleted');
 }
 

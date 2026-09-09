@@ -52,6 +52,153 @@ function pm(v){return(v>0?'+':'')+v;}
 function pmc(v){return v>0?'pos':v<0?'neg':'neu';}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400);}
 
+// ─── STICKY SCORE FAILURE NOTICE ───
+// A failed score is the one write a director cannot recover by redoing, because the
+// typed value is normally gone by the time they notice. toast() is the wrong carrier
+// for it: every toast shares one element and one 2400ms timer, so the next court's
+// "saved" message overwrites this one within two seconds.
+//
+// This renders into its own fixed element that no toast can touch, and it stays until
+// the director dismisses it. Failures stack rather than replace, so three bad courts
+// read as three lines. Styles are inline so no shell CSS or markup has to exist first,
+// and the whole thing is guarded: if the DOM refuses, fall back to alert() rather than
+// let the one message that matters disappear.
+function _scoreFailHost(){
+  let h = document.getElementById('score-fail-host');
+  if(h) return h;
+  h = document.createElement('div');
+  h.id = 'score-fail-host';
+  h.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;display:flex;flex-direction:column;gap:1px;';
+  document.body.appendChild(h);
+  return h;
+}
+// Three tones, one row shape. fail is red and permanent. wait is amber and means the
+// write is queued but not confirmed. done is green and means a queued write landed.
+// The host, the stacking and the dismiss-only lifetime are unchanged.
+const _NOTICE_TONE = { fail:'#b3261e', wait:'#8a5300', done:'#1b5e20' };
+function _paintNotice(row, msg, tone){
+  const bg = _NOTICE_TONE[tone] || _NOTICE_TONE.fail;
+  row.style.cssText = 'background:'+bg+';color:#fff;font:600 14px/1.45 system-ui,-apple-system,sans-serif;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;box-shadow:0 2px 10px rgba(0,0,0,.35);';
+  row._btn.style.cssText = 'flex:0 0 auto;background:#fff;color:'+bg+';border:0;border-radius:6px;padding:7px 12px;font:700 13px system-ui,-apple-system,sans-serif;cursor:pointer;';
+  row._txt.textContent = msg;
+}
+// Returns the row so a queued notice can be rewritten in place once the write it is
+// about finally settles, instead of leaving a stale warning over a court that now
+// reads as scored.
+function scoreWriteFailed(msg, tone){
+  try{
+    const host = _scoreFailHost();
+    const row = document.createElement('div');
+    const txt = document.createElement('div');
+    txt.style.cssText = 'flex:1;';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Dismiss';
+    btn.onclick = function(){ row.remove(); if(host && !host.children.length) host.remove(); };
+    row.appendChild(txt);
+    row.appendChild(btn);
+    row._txt = txt;
+    row._btn = btn;
+    _paintNotice(row, msg, tone || 'fail');
+    host.appendChild(row);
+    return row;
+  }catch(e){
+    console.error('score failure notice could not render', e, msg);
+    try{ alert(msg); }catch(e2){}
+    return null;
+  }
+}
+// A queued write that lands turns its own notice green and clears it a few seconds
+// later. By then the court itself has repainted as scored, so the court is the durable
+// signal and a lingering banner is just clutter.
+function scoreNoticeResolved(row, msg){
+  try{
+    if(!row || !row.isConnected) return;
+    _paintNotice(row, msg, 'done');
+    setTimeout(function(){
+      const host = row.parentNode;
+      row.remove();
+      if(host && !host.children.length) host.remove();
+    }, 8000);
+  }catch(e){ console.error('notice resolve failed', e); }
+}
+// A queued write that finally fails becomes an ordinary permanent failure notice. If the
+// director already dismissed the amber one, post a fresh notice rather than repaint a
+// detached node into nowhere.
+function scoreNoticeFailed(row, msg){
+  try{
+    if(row && row.isConnected){ _paintNotice(row, msg, 'fail'); return; }
+  }catch(e){}
+  scoreWriteFailed(msg);
+}
+
+// ─── BOUNDED WRITE OUTCOME ───
+// Firebase queues a write locally when the connection is down, and the promise then
+// simply stays pending. It has no timeout of its own. Awaiting it bare leaves the
+// director looking at a Save button that did nothing, which is how a second tap and a
+// duplicate result happen.
+//
+// This stops WAITING after WRITE_ACK_MS. It never starts a second write: the one promise
+// handed in is still the only write in flight, and it is still watched, so a queued write
+// that lands later rewrites its own notice in place.
+//
+// 8 seconds. Under about 5 it cries wolf on a slow but perfectly healthy park
+// connection. Past about 10 the director has already decided the app is broken and
+// tapped again, which is the thing being prevented.
+const WRITE_ACK_MS = 8000;
+
+// One scoring write at a time per court. A second tap while the first is still in flight
+// mints a fresh result id and stores the game twice, so the key is held until the write
+// actually settles, queued or not.
+const _writesInFlight = Object.create(null);
+function beginScoreWrite(key){
+  if(_writesInFlight[key]) return false;
+  _writesInFlight[key] = true;
+  return true;
+}
+// Resolves 'ok', 'failed' or 'pending'.
+//
+// opts.subject   what this write is about, reused in all three messages
+// opts.failTail  what did not happen, for a confirmed failure
+// opts.pendTail  what is true right now, for a queued write. A save is still on screen,
+//                a delete is still showing as recorded, so this cannot be shared text.
+// opts.landed    what is true once a queued write lands
+// opts.onLanded  runs only on the pending path, only if the write lands, and only once
+async function settleScoreWrite(promise, opts){
+  const key = opts.key;
+  let timer = null;
+  const waited = new Promise(function(res){ timer = setTimeout(function(){ res('pending'); }, WRITE_ACK_MS); });
+  const first = await Promise.race([promise, waited]);
+  clearTimeout(timer);
+  if(first === true){ delete _writesInFlight[key]; return 'ok'; }
+  if(first === false){
+    delete _writesInFlight[key];
+    scoreWriteFailed(opts.subject + ' ' + opts.failTail);
+    return 'failed';
+  }
+  // A timeout is not a failure. The write is queued locally and may still land, so the
+  // wording has to stop short of saying it was lost.
+  const row = scoreWriteFailed(opts.subject + ' is QUEUED and NOT confirmed yet. Your '
+    + 'connection is slow or down. ' + opts.pendTail + ' Do NOT tap again. This notice '
+    + 'updates itself the moment the write lands.', 'wait');
+  const done = function(ok){
+    delete _writesInFlight[key];
+    if(ok){
+      scoreNoticeResolved(row, opts.subject + ' ' + opts.landed);
+      if(typeof opts.onLanded === 'function'){
+        try{ opts.onLanded(); }catch(e){ console.error('late write follow-up failed', e); }
+      }
+    }else{
+      scoreNoticeFailed(row, opts.subject + ' ' + opts.failTail);
+    }
+  };
+  promise.then(done, function(err){
+    console.error('queued write rejected', err);
+    done(false);
+  });
+  return 'pending';
+}
+
 // ─── COURTS ───
 // Courts are an explicit list of physical court NUMBERS, not a count. Kings and
 // Queens run the same night on the same sand, so both sides numbering their courts
@@ -2290,7 +2437,11 @@ function reverseRatingsLeague(gameId, t1, t2, subSlots){
   }).catch(err => console.warn('rating reverse failed', err));
 }
 
-function saveScore(wid,round,court,t1s,t2s,idx){
+// Nothing here is allowed to run ahead of the write. The typed score lives only in the
+// inputs and in lscore, so clearing lscore or repainting the court before Firebase has
+// acknowledged the write is what destroys a score the director cannot get back.
+// Everything downstream of the write now waits for a true.
+async function saveScore(wid,round,court,t1s,t2s,idx){
   // The replay re-reads the score inputs, which the PIN modal does not disturb, so the
   // coach's typed values are the ones saved.
   if(!_scoreGate(function(){ saveScore(wid,round,court,t1s,t2s,idx); })) return;
@@ -2307,11 +2458,29 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   // Named subs (non-registered): store name string directly
   const namedSubs=[...t1,...t2].filter(pid=>ov[pid]&&ov[pid]!=='__SUB__').map(pid=>ov[pid]);
   const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
-  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()});
+  // The court, not the result id, is the key: a fresh id is minted on every tap, so
+  // keying on the id would let a second tap store the same game twice.
+  const wKey='kotb:'+SIDE+':'+wid+':'+round+':'+court;
+  if(!beginScoreWrite(wKey)){ toast('Still saving that court. Give it a moment.'); return; }
+  const subject='Round '+round+', Court '+court+': the '+s1+'-'+s2+' score';
   // First score on this week locks it. Side is pinned at the call so the lock cannot
-  // land on the other side if the header is tapped while the write is in the air.
-  _autoLockWeek(wid, SIDE);
-  applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
+  // land on the other side if the header is tapped while the write is in the air. The
+  // lock and the ratings are the two things that must still happen if the write is
+  // queued and lands late, so they are the late follow-up too.
+  const after=function(){
+    _autoLockWeek(wid, SIDE);
+    applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
+  };
+  const outcome=await settleScoreWrite(
+    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()}),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'did NOT save. It is still on screen. Check your connection, then tap Save Set again.',
+      pendTail:'It is still on screen and nothing has been lost.',
+      landed:'has now saved. Nothing to re-enter.' });
+  // Anything but a confirmed write leaves the typed score alone: no lscore clear and no
+  // repaint, so the inputs still hold it and a re-render restores it from lscore.
+  if(outcome!=='ok') return;
+  after();
   // Clear only the game just saved. Other rounds may have entry in progress.
   delete lscore[scoreKey(idx,SIDE,wid,round)];
   toast((s1>s2?'Win':'Loss')+' · '+s1+'–'+s2+' saved ✓');
@@ -2319,7 +2488,7 @@ function saveScore(wid,round,court,t1s,t2s,idx){
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sy,behavior:'instant'});},400);
 }
 
-function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
+async function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   if(!_scoreGate(function(){ saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx); })) return;
   const t1=t1s.split(',').filter(Boolean);
   const t2=t2s.split(',').filter(Boolean);
@@ -2329,10 +2498,23 @@ function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   const resolveIds=team=>team.map(pid=>overrides[pid]?overrides[pid]:pid);
   const st1=resolveIds(t1),st2=resolveIds(t2);
   const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
-  fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()});
+  // Same court key as saveScore, so a forfeit and a score cannot both go in on one court.
+  const wKey='kotb:'+SIDE+':'+wid+':'+round+':'+court;
+  if(!beginScoreWrite(wKey)){ toast('Still saving that court. Give it a moment.'); return; }
+  const subject='Round '+round+', Court '+court+': the forfeit';
   // A forfeit is a recorded result like any other, so it locks the week too.
-  _autoLockWeek(wid, SIDE);
-  applyRatingsLeague(id, st1, st2, s1, s2, null, true);
+  const after=function(){
+    _autoLockWeek(wid, SIDE);
+    applyRatingsLeague(id, st1, st2, s1, s2, null, true);
+  };
+  const outcome=await settleScoreWrite(
+    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()}),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'did NOT save. Check your connection, then record it again.',
+      pendTail:'Nothing has been lost.',
+      landed:'has now saved. Nothing to re-enter.' });
+  if(outcome!=='ok') return;
+  after();
   toast('Forfeit recorded · 15-10');
   const _sf=window.scrollY;
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sf,behavior:'instant'});},400);
@@ -2375,7 +2557,7 @@ function openEditResult(id){
   $('edit-result-modal').classList.add('on');
 }
 
-function saveEditResult(){
+async function saveEditResult(){
   const id=window._editResultId;if(!id)return;
   const r=((D[SIDE]||{}).results||{})[id];if(!r)return;
   const resolveSel=pre=>{
@@ -2390,20 +2572,52 @@ function saveEditResult(){
   const s2=parseInt($('er-s2')?.value)||0;
   if(!t1.length||!t2.length){toast('Each team needs at least one player');return;}
   if(s1===s2){toast('Scores cannot be tied');return;}
-  reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
+  // The result id is stable here, so it is a safe key.
+  const wKey='kotb:edit:'+id;
+  if(!beginScoreWrite(wKey)){ toast('Still saving that edit. Give it a moment.'); return; }
+  const subject='Round '+round+', Court '+court+': the edit';
+  // Ratings are only rewound once the replacement result is actually stored. Reversing
+  // first meant a failed write left the old result standing with its ratings removed.
+  // Closing the modal is guarded on it still showing this result, so a late close cannot
+  // shut a box the director has since reopened on a different game.
+  const after=function(){
+    reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
+    applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null, r.isForfeit===true);
+    if(window._editResultId===id) $('edit-result-modal').classList.remove('on');
+  };
   // Preserve the stored forfeit flag on edit; do not silently convert a forfeit to a rated game.
-  fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:r.isForfeit===true});
-  applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null, r.isForfeit===true);
-  $('edit-result-modal').classList.remove('on');
+  const outcome=await settleScoreWrite(
+    fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:r.isForfeit===true}),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'did NOT save. The old result is unchanged and your edits are still in the box. '
+        +'Check your connection, then tap Save again.',
+      pendTail:'The old result still stands and your edits are still in the box.',
+      landed:'has now saved.' });
+  // The modal stays open with the edited values in it, so nothing has to be retyped.
+  if(outcome!=='ok') return;
+  after();
   toast('Result updated ✓');
   setTimeout(()=>{renderRoundPills();renderLiveCourts();},300);
 }
 
-function delResult(id){
+async function delResult(id){
   if(!_scoreGate(function(){ delResult(id); })) return;
   const r=((D[SIDE]||{}).results||{})[id];
-  if(r) reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
-  fbDel(SIDE+'/results/'+id);
+  const wKey='kotb:del:'+id;
+  if(!beginScoreWrite(wKey)){ toast('Still clearing that result. Give it a moment.'); return; }
+  const where=r?('Round '+r.round+', Court '+r.court+': '):'';
+  const subject=where+'the result';
+  // Same ordering rule as the edit path: nothing is rewound until the delete lands.
+  const after=function(){ if(r) reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null); };
+  const outcome=await settleScoreWrite(
+    fbDel(SIDE+'/results/'+id),
+    { key:wKey, subject:subject, onLanded:after,
+      failTail:'was NOT cleared. It is still recorded and still counts in the standings. '
+        +'Check your connection, then tap Clear again.',
+      pendTail:'It is still showing as recorded until the delete lands.',
+      landed:'has now been cleared.' });
+  if(outcome!=='ok') return;
+  after();
   toast('Result cleared');
   const _sd=window.scrollY;
   setTimeout(()=>{renderRoundPills();renderLiveCourts();window.scrollTo({top:_sd,behavior:'instant'});},400);
