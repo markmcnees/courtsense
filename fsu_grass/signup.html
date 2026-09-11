@@ -266,6 +266,10 @@
     <div class="card" id="signup-card">
       <div class="card-body">
 
+        <!-- Door check-in banner. Hidden unless this page was opened from a scanned
+             tryout code and that session resolved to a real record. -->
+        <div id="tryout-banner" style="display:none;background:#f3e9eb;border:1px solid #782F40;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:14px;font-weight:600;color:#2d2d2d;line-height:1.45;"></div>
+
         <!-- Account -->
         <div class="section">
           <div class="section-head"><span class="section-num">01</span><span class="section-title">Your CourtSense account</span></div>
@@ -471,6 +475,39 @@ const SMS_CONSENT_VERSION = 'fsu-grass-sms-v1';    // stored alongside the conse
 
 const AUTH_WORKER  = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 const CLUB_APP_URL = '/fsu_grass/';                // where an existing club member logs in
+
+// Door check-in carried in from the club app. Someone who scans the QR at tryouts with no
+// account taps Apply, which appends ?tryout=<sid>; finishing this form then marks them present
+// in the same atomic write as their roster record, so a walk-up is never a lost head count.
+// No new node: attendance lives at the club root the app already writes.
+const TRYOUT_SID = (function(){
+  try { return new URLSearchParams(location.search).get('tryout') || null; } catch(e){ return null; }
+})();
+let tryoutSession = null;   // { sid, name } once the session id is confirmed real
+
+// The club app link, carrying the pending check-in so an existing member who lands here is
+// still checked in after they log in.
+function clubAppUrl(){
+  return TRYOUT_SID ? (CLUB_APP_URL + '?tryout=' + encodeURIComponent(TRYOUT_SID)) : CLUB_APP_URL;
+}
+// Resolve the session name once, so the confirmation can say which session they are in. An
+// unknown or stale id simply resolves to null and the page behaves exactly as it did before.
+async function loadTryoutSession(){
+  if(!TRYOUT_SID || !db) return;
+  try {
+    const snap = await db.ref(CLUB_ROOT + '/tryoutSessions/' + TRYOUT_SID).once('value');
+    const s = snap.val();
+    if(s) tryoutSession = { sid: TRYOUT_SID, name: s.name || 'tryouts' };
+  } catch(err){ console.error('tryout session lookup failed', err); }
+}
+// The attendance leaf for a club roster id, or null when there is nothing to check in to.
+function tryoutAttendanceWrite(clubId, now){
+  if(!tryoutSession) return null;
+  return {
+    path: CLUB_ROOT + '/tryoutAttendance/' + tryoutSession.sid + '/' + clubId,
+    rec: { present: true, at: now, method: 'qr' }
+  };
+}
 
 let db = null;
 let submitting = false;
@@ -689,6 +726,10 @@ function buildClubWrites(accountKey){
   updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
   updates[CLUB_PASSWORDS + '/' + clubId + '/emailPrefs'] = emailPrefs;
+  // Door check-in, when they got here from a scanned QR. Part of the same atomic write, so
+  // nobody is ever told they are checked in on a join that did not land.
+  const att = tryoutAttendanceWrite(clubId, now);
+  if(att) updates[att.path] = att.rec;
   return updates;
 }
 
@@ -705,15 +746,40 @@ async function writeClub(accountKey){
 }
 
 // Every path (new, existing claimed, unclaimed) lands the same prospect outcome,
-// so the confirmation is identical. Copy lives statically in the confirm card.
+// so the confirmation is identical. Copy lives statically in the confirm card, except at
+// the door: someone who came in from a scanned code is told they are checked in, because
+// by this point the attendance write has already landed with their roster record.
 function showConfirm(){
+  if(tryoutSession && $('confirm-lead')){
+    $('confirm-lead').textContent = 'You are checked in to ' + tryoutSession.name + '.';
+    const h = document.querySelector('#confirm-card h2');
+    if(h) h.textContent = 'You are checked in.';
+    // The club app tab that sent them here is still holding this session id. Same origin, so
+    // release it now that the check-in has landed; otherwise their next login would re-stamp it.
+    try { localStorage.removeItem('csPendingTryout_' + CLUB_ROOT); } catch(e){}
+  }
   $('signup-card').style.display = 'none';
   $('confirm-card').style.display = 'block';
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 
-function alreadyMember(){
-  if($('form-err')) $('form-err').innerHTML = 'Good news, you are already an FSU Grass Club member. Head to the <a href="' + CLUB_APP_URL + '">club app</a> to log in.';
+// Already a club member. At the door that still has to end in a check-in, so find their
+// existing roster record and mark them present rather than sending them away to log in.
+async function alreadyMember(accountKey){
+  if(tryoutSession && accountKey){
+    try {
+      const snap = await db.ref(CLUB_ROOT + '/players').once('value');
+      const all = snap.val() || {};
+      const clubId = Object.keys(all).find(id => all[id] && all[id].accountId === accountKey);
+      if(clubId){
+        const att = tryoutAttendanceWrite(clubId, Date.now());
+        await db.ref(att.path).set(att.rec);
+        showConfirm();
+        return;
+      }
+    } catch(err){ console.error('door check-in for existing member failed', err); }
+  }
+  if($('form-err')) $('form-err').innerHTML = 'Good news, you are already an FSU Grass Club member. Head to the <a href="' + clubAppUrl() + '">club app</a> to log in.';
 }
 
 // Club welcome for the two RETURNING-member branches (claiming an unclaimed account,
@@ -876,7 +942,7 @@ async function doJoin(){
       const acct = ver.player || {};
       const accountKey = acct.id || acctPlayerId;
       // Do not duplicate an existing membership.
-      if(acct.memberships && acct.memberships[SLUG]){ alreadyMember(); return; }
+      if(acct.memberships && acct.memberships[SLUG]){ await alreadyMember(accountKey); return; }
       if(await writeClub(accountKey)){
         notifyClubWelcome(accountKey, email.toLowerCase(), (first + ' ' + last).trim());
         showConfirm();
@@ -892,9 +958,19 @@ async function doJoin(){
   }
 }
 
+// At the door, say so at the top of the form, so somebody standing in line knows that
+// finishing this is the check-in and there is no second step to find.
+function showTryoutBanner(){
+  if(!tryoutSession) return;
+  const host = $('tryout-banner'); if(!host) return;
+  host.textContent = 'Finish this and you are checked in to ' + tryoutSession.name + '.';
+  host.style.display = 'block';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
   db = firebase.database();
+  loadTryoutSession().then(showTryoutBanner);
   // autoShowLogin:false so no login overlay covers the form. onLogin is a no-op:
   // createPlayer fires it internally and this page runs its own confirmation flow.
   CourtSenseAuth.init({
