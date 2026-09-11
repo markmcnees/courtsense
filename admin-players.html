@@ -274,6 +274,37 @@ function clearAdminKey(where){
 
 function contactEmail(key){ return (CONTACTS[key] && CONTACTS[key].email) || ''; }
 
+// Admin-mode /auth/contact call: writes the applicant's email and phone to the
+// deny-all private node. The worker is the only writer of private contact data, so
+// approval hands it over here rather than touching the public player record.
+// Returns { ok, malformed } and never throws; the caller reports, never rolls back.
+async function saveContactPrivate(playerId, email, phone){
+  const key = ensureAdminKey();
+  if(!key) return { ok:false, reason:'no_admin_key' };
+  try {
+    const resp = await fetch(AUTH_WORKER + '/auth/contact', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // Only send the keys we actually have. The route treats an absent key as
+      // "leave it alone" and a present empty one as "clear it", so omitting a blank
+      // phone here can never wipe a number the member set for themselves later.
+      body: JSON.stringify(Object.assign(
+        { rosterPath: ROOT, adminKey: key, accountId: playerId },
+        email ? { email: email } : {},
+        phone ? { phone: phone } : {}
+      ))
+    });
+    const res = await resp.json().catch(function(){ return null; });
+    if(resp.status === 403 && res && res.code === 'forbidden'){ clearAdminKey('contact'); return { ok:false, reason:'forbidden' }; }
+    if(res && res.ok === true) return { ok:true, malformed: res.malformed || [] };
+    // Status and code only. Never the address or the number.
+    console.error('contact save rejected', resp.status, (res && res.code) || '');
+    return { ok:false, reason:(res && res.code) || ('http_'+resp.status) };
+  } catch(e){
+    console.error('contact save failed to reach the worker');
+    return { ok:false, reason:'network' };
+  }
+}
+
 // Admin-gated /auth/notify call. Merges rosterPath + adminKey; NEVER sends "to"
 // (recipient is resolved server-side). Clears the key on a 403. Fire-and-forget.
 function adminNotify(payload){
@@ -834,8 +865,10 @@ async function doApprove(id){
   const updates = {};
   // Player profile
   updates[ROOT+'/'+k+'/name']                  = r.name;
-  updates[ROOT+'/'+k+'/email']                 = r.email || null;
-  updates[ROOT+'/'+k+'/phone']                 = r.phone || null;
+  // Email and phone used to be written here, on the world-readable player record.
+  // Both now go to the deny-all private node through /auth/contact in admin mode,
+  // immediately after this update lands and BEFORE the set-password invite, because
+  // the invite resolves the address through resolveOwnEmail (private first).
   updates[ROOT+'/'+k+'/notificationsEnabled']  = r.notificationsOptIn !== false;
   updates[ROOT+'/'+k+'/blocked']               = false;
   updates[ROOT+'/'+k+'/updatedAt']             = now;
@@ -864,6 +897,22 @@ async function doApprove(id){
     await db.ref().update(updates);
     logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' no password stored; sending set-password invite.');
     loadPending();
+    // Contact details to the private node. This runs BEFORE the invite because the
+    // invite resolves the recipient through resolveOwnEmail, which reads the private
+    // node first and no longer has a public email to fall back on. The approval above
+    // already landed, so a failure here is reported and never rolled back.
+    const contact = await saveContactPrivate(k, approveEmail, r.phone || '');
+    if(!contact.ok){
+      logLine('  contact save FAILED ('+(contact.reason||'unknown')+'); email and phone are not on file.');
+      toast('Approved, but the contact details did not save. Fix the admin key and use Reset Password to finish onboarding.');
+    } else {
+      if(contact.malformed && contact.malformed.length){
+        logLine('  contact saved; these fields did not normalize: '+contact.malformed.join(', '));
+        toast('Approved. Contact saved, but check the '+contact.malformed.join(' and ')+' format.');
+      } else {
+        logLine('  contact saved privately.');
+      }
+    }
     // Onboarding: the worker mints a set-password token and emails the player a
     // link. No password is generated, shown, or stored here. The approval already
     // landed above, so an invite-email failure must NOT undo it.

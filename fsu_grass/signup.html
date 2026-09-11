@@ -306,6 +306,7 @@
             <div class="field">
               <label for="cell">Cell phone</label>
               <input type="tel" id="cell" placeholder="(850) 555-0123" autocomplete="tel">
+              <span class="fld-err" id="err-cell"></span>
             </div>
             <div class="field">
               <label for="year">Year at FSU</label>
@@ -395,6 +396,7 @@
             <div class="field full">
               <label for="ecphone">Emergency contact phone</label>
               <input type="tel" id="ecphone" placeholder="(850) 555-0123">
+              <span class="fld-err" id="err-ecphone"></span>
             </div>
           </div>
         </div>
@@ -421,6 +423,11 @@
       <div class="submit-row">
         <button class="btn" type="button" id="join-btn">Join the Club</button>
         <div class="form-err" id="form-err"></div>
+        <div id="contact-retry" style="display:none;background:#f3e9eb;border:1px solid #782F40;border-radius:8px;padding:12px 14px;margin-top:12px;font-size:14px;line-height:1.5;color:#2d2d2d;text-align:left;">
+          <div id="contact-retry-msg" style="margin-bottom:10px;"></div>
+          <button class="btn" type="button" id="contact-retry-btn" style="margin-bottom:8px;">Try again</button>
+          <div><a href="#" id="contact-skip">Continue without saving my phone</a></div>
+        </div>
       </div>
       <div class="foot">
         Your CourtSense login travels with you across the club, leagues, and pickup.
@@ -552,7 +559,7 @@ function setFieldErr(id, msg){
   if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; }
 }
 function clearErrors(){
-  ['email','pw','first','last','gender'].forEach(f => setFieldErr(f, ''));
+  ['email','pw','first','last','gender','cell','ecphone'].forEach(f => setFieldErr(f, ''));
   const fe = $('form-err'); if(fe){ fe.textContent = ''; }
 }
 
@@ -624,6 +631,9 @@ function validateBasics(){
   if(!first){ setFieldErr('first','First name is required.'); ok = false; }
   if(!last){ setFieldErr('last','Last name is required.'); ok = false; }
   if(!gender){ setFieldErr('gender','Select an option.'); ok = false; }
+  // Both phone fields are optional, but a filled one has to be storable.
+  if(!validatePhoneField('cell','cell phone')) ok = false;
+  if(!validatePhoneField('ecphone','emergency contact phone')) ok = false;
   return ok;
 }
 
@@ -647,7 +657,7 @@ function buildClubWrites(accountKey){
   const clubId = genPlayerId();
   const now = Date.now();
   const first = val('first'), last = val('last');
-  const cell = val('cell'), shirt = val('shirt');
+  const shirt = val('shirt');
   const duesAgreed = $('dues').checked, waiverAgreed = $('waiver').checked, smsConsent = $('sms').checked;
   const tierChoice = (document.querySelector('input[name="tier"]:checked') || {}).value || null;
   const yearRaw = val('year');
@@ -695,9 +705,11 @@ function buildClubWrites(accountKey){
     accountId: accountKey, yearAtFsu: yearRaw || null,
     major: val('major') || null, truvolley: truvolley,
     volleyballLife: val('vlprofile') || null, instagram: val('instagram') || null,
-    tiktok: val('tiktok') || null, emergencyContactName: val('ecname') || null,
-    emergencyContactPhone: val('ecphone') || null, createdAt: now
+    tiktok: val('tiktok') || null, createdAt: now
   };
+  // Emergency contact used to live on this record, which is world readable. It now
+  // goes to the deny-all private account node through /auth/contact, after this
+  // write lands. Nothing else on this record changed.
 
   // emailPrefs so the worker can resolve this member to an email with no worker change.
   // Written as the emailPrefs CHILD of grass_club_passwords/{clubId}, never the password
@@ -718,7 +730,9 @@ function buildClubWrites(accountKey){
 
   const updates = {};
   updates[ROSTER_PATH + '/' + accountKey + '/memberships/' + SLUG] = membership;
-  updates[ROSTER_PATH + '/' + accountKey + '/phone'] = cell || null;
+  // The cell phone used to be written here, on the world-readable account record.
+  // It now goes to the private node through /auth/contact once this write lands.
+  // The smsConsent trio stays on the membership above as the non-PII signal.
   // Deep-path leaf write: sets only profile/gender, never clobbers profile
   // siblings (skillLevel). Runs on all three branches so an existing account
   // gains gender from this submission too.
@@ -824,8 +838,126 @@ function notifyClubWelcome(accountKey, email, displayName){
   } catch(e){ console.error('club welcome notify failed', e); }
 }
 
+// ── Private contact storage ──────────────────────────────────────────────────
+// Cell phone and emergency contact never touch a world-readable node. They go to
+// the deny-all private account node through /auth/contact, which is the only
+// writer of them. The smsConsent trio stays on the public membership record as the
+// non-PII signal, and is mirrored privately alongside the number that it covers.
+//
+// This normalizer MIRRORS the worker's normalizePhone in src/auth.ts. Keep the two
+// in step: this one only decides whether to warn before submitting, the worker's is
+// what actually decides what gets stored.
+function normalizePhoneLocal(input){
+  const raw = String(input == null ? '' : input).trim();
+  if(!raw) return { primary:null, raw:'', malformed:false };
+  const digits = raw.replace(/\D/g, '');
+  if(raw.charAt(0) === '+'){
+    if(digits.length >= 8 && digits.length <= 15) return { primary:'+' + digits, raw:raw, malformed:false };
+    return { primary:null, raw:raw, malformed:true };
+  }
+  if(digits.length === 10) return { primary:'+1' + digits, raw:raw, malformed:false };
+  if(digits.length === 11 && digits.charAt(0) === '1') return { primary:'+1' + digits.slice(1), raw:raw, malformed:false };
+  return { primary:null, raw:raw, malformed:true };
+}
+
+// Both phone fields are optional, so blank is always valid. A filled one has to
+// normalize, otherwise we would store a number nobody can text.
+function validatePhoneField(id, label){
+  const v = val(id);
+  const ok = !v || !normalizePhoneLocal(v).malformed;
+  setFieldErr(id, ok ? '' : 'That ' + label + ' does not look right. Use a 10 digit number, or a plus sign and the full number.');
+  return ok;
+}
+
+// Set once the club write has landed, so a retry re-sends ONLY the contact save and
+// can never re-run the signup and duplicate a roster record. Cleared on success.
+let joinLanded = null;   // { accountKey, email, pw }
+
+// Member mode: the worker re-verifies the same email and password the person just
+// entered, and writes only to the account that verification resolves to.
+async function saveContactPrivate(accountKey, email, pw){
+  const payload = {
+    rosterPath: ROSTER_PATH,
+    accountId: accountKey,
+    email: String(email || '').toLowerCase(),
+    password: pw,
+    phone: val('cell'),
+    emergencyName: val('ecname'),
+    emergencyPhone: val('ecphone'),
+    smsConsent: !!($('sms') && $('sms').checked),
+    smsConsentVersion: SMS_CONSENT_VERSION,
+    smsConsentSource: SLUG + '_signup'
+  };
+  try {
+    const r = await fetch(AUTH_WORKER + '/auth/contact', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json().catch(function(){ return null; });
+    if(j && j.ok === true) return { ok:true, malformed: j.malformed || [] };
+    // Status only. Never the payload, which carries a phone and an address.
+    console.error('contact save rejected', r.status, (j && j.code) || '');
+    return { ok:false };
+  } catch(err){
+    console.error('contact save failed to reach the worker');
+    return { ok:false };
+  }
+}
+
+function showContactRetry(){
+  const box = $('contact-retry'), msg = $('contact-retry-msg');
+  if(msg) msg.textContent = 'You are signed up' + (tryoutSession ? ' and checked in' : '')
+    + '. We could not save your phone and emergency contact. Try again, or continue and give them to an exec later.';
+  if(box){ box.style.display = 'block'; box.scrollIntoView({ block:'center', behavior:'smooth' }); }
+}
+function hideContactRetry(){
+  const box = $('contact-retry'); if(box) box.style.display = 'none';
+}
+
+// The join has already landed by the time this runs, door check-in included, so a
+// contact failure is reported on its own and never undoes anything.
+async function finishJoin(accountKey, email, pw){
+  joinLanded = { accountKey:accountKey, email:email, pw:pw };
+  const res = await saveContactPrivate(accountKey, email, pw);
+  if(res.ok){
+    joinLanded = null;
+    hideContactRetry();
+    showConfirm();
+    return;
+  }
+  showContactRetry();
+}
+
+async function retryContactSave(){
+  if(!joinLanded) return;
+  const btn = $('contact-retry-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Saving...'; }
+  const res = await saveContactPrivate(joinLanded.accountKey, joinLanded.email, joinLanded.pw);
+  if(btn){ btn.disabled = false; btn.textContent = 'Try again'; }
+  if(res.ok){
+    joinLanded = null;
+    hideContactRetry();
+    showConfirm();
+    return;
+  }
+  const msg = $('contact-retry-msg');
+  if(msg) msg.textContent = 'Still could not save your phone and emergency contact. Try again in a moment, or continue and give them to an exec.';
+}
+
+// Leaving without the contact details is allowed. The join and the check-in already
+// stand, so trapping somebody on this screen would cost more than the phone number.
+function skipContactSave(e){
+  if(e) e.preventDefault();
+  joinLanded = null;
+  hideContactRetry();
+  showConfirm();
+}
+
 async function doJoin(){
   if(submitting) return;
+  // The club write already landed and only the contact save is outstanding. Re-running
+  // the signup here would create a second club roster record, so retry just that.
+  if(joinLanded){ await retryContactSave(); return; }
   if(!validateBasics()){
     const firstErr = document.querySelector('.fld-err[style*="block"]');
     if(firstErr) firstErr.scrollIntoView({ block:'center', behavior:'smooth' });
@@ -885,7 +1017,8 @@ async function doJoin(){
         }
         return;
       }
-      if(await writeClub(res.playerKey)) showConfirm();
+      // createPlayer just set this password for this email, so member mode verifies.
+      if(await writeClub(res.playerKey)) await finishJoin(res.playerKey, email, pw);
       return;
     }
 
@@ -911,9 +1044,10 @@ async function doJoin(){
         return;
       }
       if(!reg || reg.ok !== true){ if($('form-err')) $('form-err').textContent = (reg && reg.error) || 'Could not set your password. Try again.'; return; }
+      // /auth/register just set this password on this account, so member mode verifies.
       if(await writeClub(acctPlayerId)){
         notifyClubWelcome(acctPlayerId, email.toLowerCase(), (first + ' ' + last).trim());
-        showConfirm();
+        await finishJoin(acctPlayerId, email, pw);
       }
       return;
     }
@@ -943,9 +1077,10 @@ async function doJoin(){
       const accountKey = acct.id || acctPlayerId;
       // Do not duplicate an existing membership.
       if(acct.memberships && acct.memberships[SLUG]){ await alreadyMember(accountKey); return; }
+      // /auth/verify already accepted this password above, so member mode verifies.
       if(await writeClub(accountKey)){
         notifyClubWelcome(accountKey, email.toLowerCase(), (first + ' ' + last).trim());
-        showConfirm();
+        await finishJoin(accountKey, email, pw);
       }
       return;
     }
@@ -981,6 +1116,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const b = $('join-btn'); if(b) b.addEventListener('click', doJoin);
   const em = $('email'); if(em) em.addEventListener('blur', onEmailBlur);
+  const rb = $('contact-retry-btn'); if(rb) rb.addEventListener('click', retryContactSave);
+  const sk = $('contact-skip'); if(sk) sk.addEventListener('click', skipContactSave);
+  const cl = $('cell'); if(cl) cl.addEventListener('blur', function(){ validatePhoneField('cell','cell phone'); });
+  const ec = $('ecphone'); if(ec) ec.addEventListener('blur', function(){ validatePhoneField('ecphone','emergency contact phone'); });
 });
 </script>
 </body>
