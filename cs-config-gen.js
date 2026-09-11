@@ -61,7 +61,9 @@
     lines.push("  abbrev:          "+q(d.abbrev||'')+",");
     lines.push("  displayName:     "+q(displayName)+",");
     lines.push("  title:           "+q((d.schoolName||'')+' Volleyball Tracker')+",");
-    lines.push("  coachPin:        "+q(d.coachPin)+",");
+    // coachPin is deliberately NOT emitted. Nothing reads it: the PIN pad posts to the
+    // worker, which checks a bcrypt hash in the deny-all coach pins node. Emitting it
+    // only published the answer in the shell source.
     lines.push("  defaultPw:       "+q(d.defaultPw||'Beach2026')+",");
     lines.push("  fbConfig:{apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'},");
     lines.push("  dbRoots:{matches:"+q(n.matches)+",profiles:"+q(n.profiles)+",passwords:"+q(n.passwords)+"},");

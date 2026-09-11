@@ -506,6 +506,18 @@
         '<button class="btn approve open-coach">Open as coach</button>'+
       '</div>'+
       '<div class="school-err" style="display:none;color:var(--err);font-size:12.5px;padding:0 18px 12px;"></div>'+
+      // Coach PIN rotation. Masked entry plus a confirm field, so a typo cannot lock a
+      // coach out of their own school. Both fields are cleared after every submit,
+      // success or refusal, so the value never sits in the page waiting to be read.
+      '<div class="pin-rotate" style="padding:0 18px 14px;">'+
+        '<div style="font-size:12.5px;font-weight:600;margin-bottom:6px;">Change coach PIN</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+
+          '<input class="f-newpin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" placeholder="New 4 digit PIN" style="width:150px;padding:8px 10px;border:1px solid var(--gray-light,#ccc);border-radius:6px;font-size:14px;">'+
+          '<input class="f-newpin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" placeholder="Confirm PIN" style="width:150px;padding:8px 10px;border:1px solid var(--gray-light,#ccc);border-radius:6px;font-size:14px;">'+
+          '<button class="btn rotate-pin" type="button">Change PIN</button>'+
+        '</div>'+
+        '<div class="pin-msg" style="display:none;font-size:12.5px;margin-top:8px;"></div>'+
+      '</div>'+
     '</div>';
   }
 
@@ -520,6 +532,8 @@
       var dbRoot=card.getAttribute('data-dbroot');
       var btn=card.querySelector('.open-coach');
       if(btn) btn.addEventListener('click',function(){ openAsCoach(slug, dbRoot, btn, card); });
+      var rbtn=card.querySelector('.rotate-pin');
+      if(rbtn) rbtn.addEventListener('click',function(){ rotatePin(dbRoot, rbtn, card); });
     });
   }
 
@@ -552,6 +566,62 @@
     }).catch(function(){
       btn.disabled=false; btn.textContent=orig;
       if(errEl){ errEl.textContent='Could not reach the worker. Try again.'; errEl.style.display='block'; }
+    });
+  }
+
+  // Coach PIN rotation. The worker owns every rule: length, guessable shapes, values
+  // still published in the config registry, and no-op rotations. This side only checks
+  // that the two fields agree, then reports whatever the worker says.
+  function rotatePin(dbRoot, btn, card){
+    var msgEl=card.querySelector('.pin-msg');
+    var a=card.querySelector('.f-newpin');
+    var b=card.querySelector('.f-newpin2');
+    function say(text, good){
+      if(!msgEl) return;
+      msgEl.textContent=text;
+      msgEl.style.color=good?'var(--ok,#1a7f37)':'var(--err)';
+      msgEl.style.display='block';
+    }
+    // Cleared on every exit path, so a PIN never lingers in the DOM.
+    function clearFields(){ if(a) a.value=''; if(b) b.value=''; }
+
+    var pin=(a&&a.value||'').trim();
+    var pin2=(b&&b.value||'').trim();
+    if(!dbRoot){ say('This school has no dbRoot on file.', false); clearFields(); return; }
+    if(pin!==pin2){ say('The two PINs do not match.', false); clearFields(); return; }
+    if(!/^\d{4}$/.test(pin)){ say('The PIN must be exactly 4 digits.', false); clearFields(); return; }
+
+    var key=ensureAdminKey();
+    if(!key){ clearFields(); return; }
+
+    var orig=btn.textContent;
+    btn.disabled=true; btn.textContent='Changing...';
+    fetch(AUTH_WORKER+'/auth/coach-rotate-pin',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key,dbRoot:dbRoot,pin:pin})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; });
+    }).then(function(o){
+      clearFields();
+      btn.disabled=false; btn.textContent=orig;
+      if(o.status===403 && o.res && o.res.code==='forbidden'){
+        clearAdminKey();
+        say('Admin key rejected. Click Refresh, then try again.', false);
+        return;
+      }
+      if(o.res && o.res.ok){
+        var ended=o.res.sessionsEnded||0;
+        var tail=o.res.sessionsCleared===false
+          ? ' Signed-in coaches were NOT signed out; check the worker log.'
+          : (ended===1 ? ' 1 signed-in coach was signed out.' : ' '+ended+' signed-in coaches were signed out.');
+        say('PIN changed.'+tail, true);
+        return;
+      }
+      say((o.res&&o.res.error)||('Could not change the PIN (HTTP '+o.status+')'), false);
+    }).catch(function(){
+      clearFields();
+      btn.disabled=false; btn.textContent=orig;
+      say('Could not reach the worker. Try again.', false);
     });
   }
 
