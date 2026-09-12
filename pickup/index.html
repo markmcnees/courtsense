@@ -4980,8 +4980,30 @@ function offerForNeed(divId){
   });
   renderInviteDetail();
 
-  fbSet('invites/' + activeInvite + '/offers/' + decoded + '/' + myKey, rec);
+  const _persist = fbSet('invites/' + activeInvite + '/offers/' + decoded + '/' + myKey, rec);
   toast('Offer sent for ' + trnDivLabel(n));
+
+  // Tell the poster by email, ids only. The worker resolves their address
+  // SERVER-SIDE from the post's hostId and renders every line from the record, so
+  // no address and no copy leaves this browser.
+  //
+  // Chained on the persist, not fired beside it, for the same reason the
+  // partner-accept-notify call in approveGuestRequest is: the worker READS the
+  // offer back at invites/{id}/offers/{divId}/{nameKey} before it will send. Fired
+  // in parallel it would often arrive first, find nothing, and skip with ok:true,
+  // which reports as a success and emails nobody.
+  //
+  // A failed write already toasted through _fbWriteFailed, so it resolves true here
+  // rather than stacking a second complaint about the email on top. The offer
+  // itself is never retracted either way.
+  const _inv = activeInvite;
+  warnIfNotEmailed(
+    _persist.then(function(ok){
+      if(ok !== true) return true;
+      return notifyWorker('/pickup/offer-notify', { inviteId: _inv, divId: decoded, nameKey: myKey });
+    }),
+    'Offer sent, but the poster was not emailed.'
+  );
 }
 
 // Only the offerer may withdraw their own offer.
@@ -5307,9 +5329,23 @@ function sendAsks(divId){
   askPickerFilter = '';
   renderInviteDetail();
 
-  Object.keys(recs).forEach(k => fbSet('invites/' + activeInvite + '/asks/' + dk + '/' + k, recs[k]));
-  const nn = Object.keys(recs).length;
+  // One leaf and one email per ask: asking three people is three writes and three
+  // notify calls, because each asked player gets their own message. Each call is
+  // chained on its OWN write for the reason spelled out in offerForNeed, the worker
+  // reads the ask back before sending, and a write that failed resolves true so the
+  // save complaint is not doubled up with an email complaint.
+  const _inv = activeInvite;
+  const _keys = Object.keys(recs);
+  const _notifs = _keys.map(function(k){
+    return fbSet('invites/' + _inv + '/asks/' + dk + '/' + k, recs[k]).then(function(ok){
+      if(ok !== true) return true;
+      return notifyWorker('/pickup/ask-notify', { inviteId: _inv, divId: dk, nameKey: k });
+    });
+  });
+  const nn = _keys.length;
   toast('Asked ' + nn + ' player' + (nn === 1 ? '' : 's'));
+  // Batch form: silent when every email went out, and names the shortfall when not.
+  warnIfAnyNotEmailed(_notifs, nn === 1 ? 'Asked, but the player was not emailed.' : 'Asked, but nobody was emailed.');
 }
 
 // Poster-only cancel of the whole post. Unchanged behaviour, kept here beside
