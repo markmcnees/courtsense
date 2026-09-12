@@ -8,7 +8,8 @@
  * Page config (set BEFORE the nav.js script tag, all optional):
  *   window.COURTSENSE_NAV = {
  *     variant: 'full' | 'home-only',  // default 'full'
- *     authControl: true | false       // default true; ignored by 'home-only'
+ *     authControl: true | false,      // default true; ignored by 'home-only'
+ *     tournaments: true | false       // default false; adds the Tournaments link
  *   }
  *
  * Mount priority:
@@ -36,6 +37,18 @@
     { key: 'profile', label: 'Profile', href: PROFILE }
   ];
 
+  // Opt-in extra, NOT part of the shared set. The tournament directory lives
+  // inside the pickup app rather than at a path of its own, so this link carries
+  // a query the pickup page reads on load. It is only useful on pickup surfaces,
+  // and on a pre-account page (signup, reset, activate) it is pure noise, so
+  // pages request it explicitly with COURTSENSE_NAV.tournaments = true.
+  var TOURNAMENTS_LINK = { key: 'tournaments', label: 'Tournaments', href: '/pickup/?view=tournaments' };
+
+  // Every link isCurrent may need to reason about, including the opt-in one.
+  // isCurrent has to know about the query-bearing sibling even on a page that
+  // does not render it, or a plain /pickup/ link could wrongly highlight.
+  var ALL_LINKS = LINKS.concat([TOURNAMENTS_LINK]);
+
   var STYLE = ''
     + '.cs-nav-wrap{display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap;color:inherit;}'
     + '.cs-nav-link{color:inherit;text-decoration:none;font-family:inherit;font-size:13px;'
@@ -60,14 +73,37 @@
       variant: c.variant === 'home-only' ? 'home-only' : 'full',
       // authControl defaults to true; explicit false suppresses the Log In/Out
       // control (e.g. pickup, which already provides its own Log Out button).
-      authControl: c.authControl !== false
+      authControl: c.authControl !== false,
+      // tournaments defaults to FALSE: opt in, never opt out. Honoured by both
+      // variants, because pickup/join is home-only and still wants the link.
+      tournaments: c.tournaments === true
     };
   }
 
   function isCurrent(href){
     try {
       var path = location.pathname;
+      var q = location.search || '';
+      var qs = href.indexOf('?');
+      // A link that carries a query is current only when that query is actually
+      // present. Without this, two links sharing a pathname (/pickup/ and
+      // /pickup/?view=tournaments) would both resolve as current.
+      if(qs !== -1){
+        var base = href.slice(0, qs);
+        var want = href.slice(qs + 1);
+        return path.indexOf(base) === 0 && q.indexOf(want) !== -1;
+      }
       if(href === '/community/') return path === '/community/' || path === '/community';
+      // A plain link loses to its own query-bearing sibling: on
+      // /pickup/?view=tournaments the current tab is Tournaments, not Pickup.
+      if(path.indexOf(href) === 0 && q){
+        for(var i = 0; i < ALL_LINKS.length; i++){
+          var o = ALL_LINKS[i].href;
+          var oq = o.indexOf('?');
+          if(oq === -1 || o.slice(0, oq) !== href) continue;
+          if(q.indexOf(o.slice(oq + 1)) !== -1) return false;
+        }
+      }
       return path.indexOf(href) === 0;
     } catch(e){ return false; }
   }
@@ -139,16 +175,30 @@
     var wrap = document.createElement('nav');
     wrap.className = 'cs-nav-wrap';
 
+    // The rendered set: the shared links for this variant, plus Tournaments when
+    // the page asked for it. Built here rather than baked into LINKS so the
+    // shared set stays the same on every page.
+    var links;
     if(c.variant === 'home-only'){
       // Minimal: a single Home link, no Pickup/Profile, no auth control.
-      var home = LINKS[0];
-      var a0 = document.createElement('a');
-      a0.className = 'cs-nav-link' + (isCurrent(home.href) ? ' cs-nav-current' : '');
-      a0.href = home.href;
-      a0.textContent = home.label;
-      wrap.appendChild(a0);
+      links = [LINKS[0]];
+      if(c.tournaments) links.push(TOURNAMENTS_LINK);
     } else {
-      LINKS.forEach(function(l){
+      links = LINKS.slice();
+      // Sits after Pickup, before Profile: it is a pickup surface, not an account one.
+      if(c.tournaments) links.splice(2, 0, TOURNAMENTS_LINK);
+    }
+
+    if(c.variant === 'home-only'){
+      links.forEach(function(l){
+        var a0 = document.createElement('a');
+        a0.className = 'cs-nav-link' + (isCurrent(l.href) ? ' cs-nav-current' : '');
+        a0.href = l.href;
+        a0.textContent = l.label;
+        wrap.appendChild(a0);
+      });
+    } else {
+      links.forEach(function(l){
         var a = document.createElement('a');
         a.className = 'cs-nav-link' + (isCurrent(l.href) ? ' cs-nav-current' : '');
         a.href = l.href;

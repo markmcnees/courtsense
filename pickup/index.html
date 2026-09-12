@@ -30,7 +30,7 @@
 <script src="/auth.js?v=8d7f50ab"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
-<script>window.COURTSENSE_NAV = { variant: 'full', authControl: false };</script>
+<script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
 <script src="/nav.js?v=cd15bf19"></script>
 <style>
 :root{
@@ -869,6 +869,20 @@ const PARTNER_BANDS = ['B', 'BB', 'A', 'AA', 'Open'];
 const TRN_CATEGORIES = ['mens','womens','coed','girls-18u','girls-16u','girls-14u','girls-12u'];
 const TRN_LEVELS = ['open','aaa','aa','a','bb','b'];
 const TRN_FORMATS = ['2v2','3v3','4v4'];
+// Whether a division can actually be entered. A tournament page often advertises
+// a division the organizer never opens registration for; a player who joins a pool
+// for one of those has no way to actually play. Stored as a slug on each division.
+const TRN_REG_STATUSES = ['open','advertised'];
+const TRN_REG_LABEL = { 'open':'Registration open', 'advertised':'Advertised only' };
+const TRN_REG_SHORT = { 'open':'OPEN', 'advertised':'NO REG' };
+function trnRegLabel(r){ return TRN_REG_LABEL[r] || TRN_REG_LABEL.open; }
+function trnRegShort(r){ return TRN_REG_SHORT[r] || TRN_REG_SHORT.open; }
+// Absent, unknown or malformed all read as 'open', so a record written before
+// this field existed keeps its plain meaning.
+function trnRegOf(d){
+  const r = d && d.regStatus;
+  return TRN_REG_STATUSES.indexOf(r) === -1 ? 'open' : r;
+}
 const TRN_AGE_PREFIX = 'girls-';
 const TRN_CAT_LABEL = {
   'mens':"Men's", 'womens':"Women's", 'coed':'Coed',
@@ -899,9 +913,13 @@ function divIdFor(dayIdx, category, level){
 // Organizer presets, expressed as DAY OFFSETS so the same preset lands correctly
 // on any weekend. Each entry is a list of [category, level] per day.
 const TRN_PRESETS = {
+  // Day 2 includes BB: the SSOVA Saturday schedule reads "Men's/Women's AA-BB",
+  // so BB is played even though their Divisions block only opens registration for
+  // Open, AA and A. Advertised-but-unregistrable divisions are exactly what
+  // regStatus exists to mark.
   ssova: { label: 'SSOVA', days: [
     [['mens','a'], ['womens','a']],
-    [['mens','open'], ['womens','open'], ['mens','aa'], ['womens','aa']],
+    [['mens','open'], ['womens','open'], ['mens','aa'], ['womens','aa'], ['mens','bb'], ['womens','bb']],
     [['coed','aa'], ['coed','a'], ['coed','bb']]
   ]},
   firstcoast: { label: 'First Coast', days: [
@@ -940,6 +958,9 @@ let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invit
 // groupEditMembers Set pattern the other multi-selects use.
 let activeTournament = null;
 let trnSelectedDivs = new Set();
+// Selection keys whose division is advertised only. Absence means 'open', so a
+// freshly checked cell defaults to open without needing an entry here.
+let trnAdvertisedDivs = new Set();
 let trnDays = [];
 let trnSurfaceFilter = 'all';
 let trnFormatFilter = 'all';
@@ -3814,6 +3835,7 @@ function startNewTournament(){
     pre.value = "blank";
   }
   trnSelectedDivs = new Set();
+  trnAdvertisedDivs = new Set();
   trnDays = [];
   trnRenderGrid();
   showView("tournament-setup");
@@ -3830,15 +3852,36 @@ function trnOnDatesChanged(){
   let dropped = 0;
   [...trnSelectedDivs].forEach(key => {
     const day = trnDivDayOf(key);
-    if(!day || !live.has(day)){ trnSelectedDivs.delete(key); dropped++; }
+    if(!day || !live.has(day)){ trnSelectedDivs.delete(key); trnAdvertisedDivs.delete(key); dropped++; }
   });
   if(dropped) toast("Dropped " + dropped + " division" + (dropped===1?"":"s") + " on days no longer in range");
   trnRenderGrid();
 }
 
+function trnDecodeKey(key){
+  return key.replace(/&#39;/g, "\u0027").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, String.fromCharCode(34));
+}
+
 function trnToggleDiv(key, isChecked){
-  const decoded = key.replace(/&#39;/g, "\u0027").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, String.fromCharCode(34));
-  if(isChecked) trnSelectedDivs.add(decoded); else trnSelectedDivs.delete(decoded);
+  const decoded = trnDecodeKey(key);
+  if(isChecked){
+    trnSelectedDivs.add(decoded);
+  } else {
+    trnSelectedDivs.delete(decoded);
+    // Unchecking clears the flag as well, so re-checking starts from the
+    // default rather than silently restoring a stale advertised-only mark.
+    trnAdvertisedDivs.delete(decoded);
+  }
+  trnRenderGrid();
+}
+
+// Secondary control on an already-selected cell. Open is the default, so this
+// only ever adds or removes membership in the advertised set.
+function trnToggleReg(key){
+  const decoded = trnDecodeKey(key);
+  if(!trnSelectedDivs.has(decoded)) return;
+  if(trnAdvertisedDivs.has(decoded)) trnAdvertisedDivs.delete(decoded);
+  else trnAdvertisedDivs.add(decoded);
   trnRenderGrid();
 }
 
@@ -3847,9 +3890,10 @@ function trnToggleDiv(key, isChecked){
 function trnApplyPreset(key){
   const preset = TRN_PRESETS[key];
   if(!preset) return;
-  if(key === "blank"){ trnSelectedDivs = new Set(); trnRenderGrid(); return; }
+  if(key === "blank"){ trnSelectedDivs = new Set(); trnAdvertisedDivs = new Set(); trnRenderGrid(); return; }
   if(!trnDays.length){ toast("Pick the dates first"); if($("trn-preset")) $("trn-preset").value = "blank"; return; }
   trnSelectedDivs = new Set();
+  trnAdvertisedDivs = new Set();
   let skipped = 0;
   preset.days.forEach((dayDivs, idx) => {
     const day = trnDays[idx];
@@ -3875,10 +3919,23 @@ function trnRenderGrid(){
     const rows = cells.map(c => {
       const key = c.key;
       const checked = trnSelectedDivs.has(key);
+      const advertised = checked && trnAdvertisedDivs.has(key);
       const safe = escapeHTML(key).replace(/'/g, "&#39;");
+      // The registration control only appears once a cell is selected: an
+      // unchecked division has no posture to state. Open is the default and
+      // renders muted; advertised-only renders as a warning so it reads as the
+      // exception it is.
+      const regBtn = checked
+        ? '<button type="button" onclick="trnToggleReg(\'' + safe + '\')" title="' + (advertised ? "Advertised only: no registration path" : "Registration open") + '" style="flex-shrink:0;border-radius:6px;cursor:pointer;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:2px 8px;'
+            + (advertised
+                ? "background:#fef3c7;color:#92400e;border:1px solid #fcd34d;"
+                : "background:transparent;color:var(--gray);border:1px solid var(--sand-border);")
+            + '">' + trnRegShort(advertised ? "advertised" : "open") + '</button>'
+        : "";
       return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
         + '<input type="checkbox" ' + (checked?"checked":"") + ' onchange="trnToggleDiv(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
         + '<span style="flex:1;font-size:13px;font-weight:' + (checked?"700":"500") + ';">' + escapeHTML(trnDivLabel(c)) + '</span>'
+        + regBtn
         + '</label>';
     }).join("");
     const n = cells.filter(c => trnSelectedDivs.has(c.key)).length;
@@ -3921,7 +3978,12 @@ function buildTournamentRecord(){
     const level = trnIsAgeCategory(p.category) ? null : p.level;
     if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
     const divId = divIdFor(idx, p.category, level);
-    divisions[divId] = { id: divId, day: p.day, category: p.category, level: level };
+    // Every division carries regStatus explicitly rather than relying on absence
+    // to mean open, so a reader never has to know the default. Validated against
+    // TRN_REG_STATUSES here, the one place it is written.
+    const reg = trnAdvertisedDivs.has(key) ? "advertised" : "open";
+    const regStatus = TRN_REG_STATUSES.indexOf(reg) === -1 ? "open" : reg;
+    divisions[divId] = { id: divId, day: p.day, category: p.category, level: level, regStatus: regStatus };
   });
 
   const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
@@ -4125,14 +4187,30 @@ function renderTournamentDetail(){
   if(!divs.length){
     h += '<p style="color:var(--gray);font-size:13px;padding:6px 0;">No divisions listed.</p>';
   } else {
+    // An advertised-only division is a dead end for a player: it appears on the
+    // tournament page but has no registration path. It gets its own treatment so
+    // nobody plans around a division they cannot actually enter.
+    const advChip = x => '<span style="background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + x + ' <span style="font-size:9px;opacity:.85;">NO REG</span></span>';
     h += days.map(day => {
       const list = (byDay[day] || []);
       if(!list.length) return "";
       return '<div style="margin-bottom:10px;">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + '</div>'
-        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + list.map(d => chip(escapeHTML(trnDivLabel(d)).toUpperCase())).join("") + '</div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+        +   list.map(d => {
+              const label = escapeHTML(trnDivLabel(d)).toUpperCase();
+              return trnRegOf(d) === "advertised" ? advChip(label) : chip(label);
+            }).join("")
+        + '</div>'
         + '</div>';
     }).join("");
+    // Legend, shown only when there is actually a mixed set to explain.
+    const nAdv = divs.filter(d => trnRegOf(d) === "advertised").length;
+    if(nAdv){
+      h += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--sand-border);font-size:12px;color:var(--gray);line-height:1.5;">'
+        + '<span style="color:#92400e;font-weight:700;">NO REG</span> means the tournament lists this division but has not opened registration for it. Confirm with the organizer before planning around it.'
+        + '</div>';
+    }
   }
   h += '</div>';
   cont.innerHTML = h;
@@ -6643,6 +6721,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const _deepLinkParams = new URLSearchParams(location.search);
   const _deepLinkGame = _deepLinkParams.get('game') || _deepLinkParams.get('invite');
   if(_deepLinkGame) openDeepLinkGame(_deepLinkGame);
+
+  // ?view=tournaments is how the site nav reaches the tournament directory. The
+  // directory is a section of the list view, not a pane of its own, so this
+  // scrolls to it rather than switching views. Deferred one tick so the first
+  // render has painted the section before we try to find it.
+  if(_deepLinkParams.get('view') === 'tournaments'){
+    setTimeout(function(){
+      try {
+        const el = document.getElementById('tournament-list');
+        if(el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch(e){ /* best effort; the section is reachable by scrolling anyway */ }
+    }, 400);
+  }
 
   // CourtSense auth gate (D.40). Players need a passwordHash on their
   // tally_kotb_pickup/players/{key} record (set by admin-players Approve
