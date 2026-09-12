@@ -540,6 +540,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <select class="inp" id="trn-preset" onchange="trnApplyPreset(this.value)"></select>
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">A preset fills the grid. Everything stays editable after.</div>
       </div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Tick every division the tournament runs. If one is listed but registration is not actually open, tap <strong>Mark no reg</strong> on that row so players know not to plan around it.</div>
       <div id="trn-grid"></div>
     </div>
     <button class="btn btn-p btn-w" id="trn-save-btn" onclick="saveTournament()">Add Tournament</button>
@@ -4044,16 +4045,22 @@ function trnToggleReg(key){
 function trnApplyPreset(key){
   const preset = TRN_PRESETS[key];
   if(!preset) return;
+  // Blank means blank: nothing selected, so nothing can carry a posture either.
   if(key === "blank"){ trnSelectedDivs = new Set(); trnAdvertisedDivs = new Set(); trnRenderGrid(); return; }
   if(!trnDays.length){ toast("Pick the dates first"); if($("trn-preset")) $("trn-preset").value = "blank"; return; }
+  // A preset states the SELECTION, not the registration posture. Wiping the
+  // advertised set here silently threw away every no-registration mark the
+  // organizer had already made, which is exactly how five of them were lost.
+  // Flags now survive for any key the preset keeps, and are dropped only for
+  // keys it deselects, matching what unticking a cell by hand already does.
   trnSelectedDivs = new Set();
-  trnAdvertisedDivs = new Set();
   let skipped = 0;
   preset.days.forEach((dayDivs, idx) => {
     const day = trnDays[idx];
     if(!day){ skipped += dayDivs.length; return; }
     dayDivs.forEach(pair => trnSelectedDivs.add(trnSelKey(day, pair[0], pair[1])));
   });
+  [...trnAdvertisedDivs].forEach(k => { if(!trnSelectedDivs.has(k)) trnAdvertisedDivs.delete(k); });
   trnRenderGrid();
   if(skipped) toast("Filled what fits. " + skipped + " division" + (skipped===1?"":"s") + " skipped, the range is shorter than this preset.");
 }
@@ -4075,22 +4082,29 @@ function trnRenderGrid(){
       const checked = trnSelectedDivs.has(key);
       const advertised = checked && trnAdvertisedDivs.has(key);
       const safe = escapeHTML(key).replace(/'/g, "&#39;");
-      // The registration control only appears once a cell is selected: an
-      // unchecked division has no posture to state. Open is the default and
-      // renders muted; advertised-only renders as a warning so it reads as the
-      // exception it is.
+      // The posture control is a SIBLING of the label, never a child of it. As a
+      // child, a tap that missed the small chip hit the label instead, which
+      // unticked the division and cleared its flag: a near miss silently undid
+      // the intent. Outside the label, a miss now does nothing.
+      //
+      // The hit area is 44px tall (the published minimum) while the visible chip
+      // stays small, so the row keeps its density without being a dart-throw.
       const regBtn = checked
-        ? '<button type="button" onclick="trnToggleReg(\'' + safe + '\')" title="' + (advertised ? "Advertised only: no registration path" : "Registration open") + '" style="flex-shrink:0;border-radius:6px;cursor:pointer;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:2px 8px;'
-            + (advertised
-                ? "background:#fef3c7;color:#92400e;border:1px solid #fcd34d;"
-                : "background:transparent;color:var(--gray);border:1px solid var(--sand-border);")
-            + '">' + trnRegShort(advertised ? "advertised" : "open") + '</button>'
+        ? '<button type="button" onclick="trnToggleReg(\'' + safe + '\')" aria-pressed="' + (advertised ? "true" : "false") + '" title="' + (advertised ? "Registration is not open for this division. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.") + '" style="flex-shrink:0;display:flex;align-items:center;min-height:44px;padding:0 10px;background:none;border:none;cursor:pointer;">'
+        +   '<span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:6px;white-space:nowrap;'
+        +     (advertised
+                ? "background:#fef3c7;color:#92400e;border:1px solid #d97706;"
+                : "background:#fff;color:var(--gray);border:1px solid var(--sand-border);")
+        +   '">' + (advertised ? "NO REG \u2713" : "MARK NO REG") + '</span>'
+        + '</button>'
         : "";
-      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
-        + '<input type="checkbox" ' + (checked?"checked":"") + ' onchange="trnToggleDiv(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?"700":"500") + ';">' + escapeHTML(trnDivLabel(c)) + '</span>'
+      return '<div style="display:flex;align-items:center;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
+        + '<label style="flex:1;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 8px;cursor:pointer;">'
+        +   '<input type="checkbox" ' + (checked?"checked":"") + ' onchange="trnToggleDiv(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        +   '<span style="flex:1;font-size:13px;font-weight:' + (checked?"700":"500") + ';">' + escapeHTML(trnDivLabel(c)) + '</span>'
+        + '</label>'
         + regBtn
-        + '</label>';
+        + '</div>';
     }).join("");
     const n = cells.filter(c => trnSelectedDivs.has(c.key)).length;
     return '<div style="margin-bottom:12px;">'
@@ -4247,6 +4261,29 @@ function openTournamentDetail(id){
   showView("tournament-detail");
 }
 
+// Flip ONE division's regStatus. Deliberately the only edit path on a
+// tournament: it writes a single leaf, so it cannot renumber a divId, drop a
+// division, or orphan a reference a partner post holds. Renaming, date changes
+// and add/remove divisions all can, and need their own design.
+function trnSetDivReg(divId){
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){
+    toast("Log in to change a division"); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return;
+  }
+  const t = (D.tournaments || {})[activeTournament]; if(!t) return;
+  const decoded = trnDecodeKey(divId);
+  const d = (t.divisions || {})[decoded];
+  if(!d){ toast("Division not found"); return; }
+  const next = trnRegOf(d) === "advertised" ? "open" : "advertised";
+  if(TRN_REG_STATUSES.indexOf(next) === -1) return;
+
+  // Optimistic local, re-render, then persist. Same order approveGuestRequest uses.
+  d.regStatus = next;
+  renderTournamentDetail();
+
+  fbSet("tournaments/" + t.id + "/divisions/" + decoded + "/regStatus", next);
+  toast(next === "advertised" ? "Marked no registration" : "Marked registration open");
+}
+
 function setTrnFilter(kind, v){
   if(kind === "surface") trnSurfaceFilter = v;
   else if(kind === "format") trnFormatFilter = v;
@@ -4363,20 +4400,35 @@ function renderTournamentDetail(){
     // An advertised-only division is a dead end for a player: it appears on the
     // tournament page but has no registration path. It gets its own treatment so
     // nobody plans around a division they cannot actually enter.
-    const advChip = x => '<span style="background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + x + ' <span style="font-size:9px;opacity:.85;">NO REG</span></span>';
+    //
+    // Each chip is also the control for its own posture. The directory is shared,
+    // so a wrong listing is fixable by whoever notices rather than only by whoever
+    // created it: the gate is a login, nothing more. A 44px hit area, because this
+    // is a real control and the chip alone is far under the minimum target.
+    const canEdit = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
+    const divChip = d => {
+      const label = escapeHTML(trnDivLabel(d)).toUpperCase();
+      const adv = trnRegOf(d) === "advertised";
+      const inner = adv
+        ? '<span style="background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">NO REG</span></span>'
+        : '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + '</span>';
+      if(!canEdit) return inner;
+      const safe = escapeHTML(d.id).replace(/'/g, "&#39;");
+      return '<button type="button" onclick="trnSetDivReg(\'' + safe + '\')" title="' + (adv ? "Registration is not open. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.") + '" style="display:flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;">' + inner + '</button>';
+    };
     h += days.map(day => {
       const list = (byDay[day] || []);
       if(!list.length) return "";
       return '<div style="margin-bottom:10px;">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + '</div>'
-        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
-        +   list.map(d => {
-              const label = escapeHTML(trnDivLabel(d)).toUpperCase();
-              return trnRegOf(d) === "advertised" ? advChip(label) : chip(label);
-            }).join("")
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+        +   list.map(divChip).join("")
         + '</div>'
         + '</div>';
     }).join("");
+    if(canEdit){
+      h += '<div style="font-size:12px;color:var(--gray);margin-top:4px;line-height:1.5;">Tap a division to flip whether its registration is open. Anyone can correct a listing.</div>';
+    }
     // Legend, shown only when there is actually a mixed set to explain.
     const nAdv = divs.filter(d => trnRegOf(d) === "advertised").length;
     if(nAdv){
