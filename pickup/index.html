@@ -871,6 +871,40 @@ function trnDivLabel(d){
 }
 function trnFormatLabel(f){ return String(f||'').toUpperCase(); }
 
+// ── LADDER ORDER ────────────────────────────────────────
+// Divisions are NEVER sorted alphabetically. Alphabetical puts A ahead of B and
+// AAA ahead of AA, which reads as nonsense to anyone who plays: the ladder runs
+// B, BB, A, AA, AAA, Open, weakest to strongest.
+//
+// TRN_LEVELS is stored strongest-first and stays that way, because it is also the
+// validation list at savePartnerPost and reordering a stored constant to serve a
+// display is how the two drift apart. Reverse it once here instead, so the ladder
+// still lives in exactly one array.
+const TRN_LEVELS_ASC = TRN_LEVELS.slice().reverse();
+
+// Rank helpers. An unknown value sinks to the end rather than throwing off the
+// whole list, so a legacy record with a level this build never heard of lands
+// last and stays visible.
+function trnLevelRank(lvl){ const i = TRN_LEVELS_ASC.indexOf(String(lvl||'').toLowerCase()); return i === -1 ? TRN_LEVELS_ASC.length : i; }
+function trnCatRank(cat){ const i = TRN_CATEGORIES.indexOf(String(cat||'').toLowerCase()); return i === -1 ? TRN_CATEGORIES.length : i; }
+
+// THE division comparator. Every list of divisions anywhere in this app sorts with
+// this and nothing else: day first, then category in TRN_CATEGORIES order (mens,
+// womens, coed, then the girls age groups oldest to youngest), then the level
+// ladder. Age categories carry no level, so they all share one level rank and
+// order purely by category, which is already 18U, 16U, 14U, 12U.
+//
+// Takes anything with day / category / level: a tournament division, a post need,
+// or a pool entry need. They are the same shape on purpose.
+function trnDivCompare(a, b){
+  a = a || {}; b = b || {};
+  return String(a.day || '').localeCompare(String(b.day || ''))
+    || (trnCatRank(a.category) - trnCatRank(b.category))
+    || (trnLevelRank(a.level) - trnLevelRank(b.level));
+}
+// Copy-and-sort, so a caller never reorders a caller-owned array in place.
+function trnSortDivs(list){ return (list || []).slice().sort(trnDivCompare); }
+
 // Coed divisions are not rated; men's and women's are. A rating badge shown in a
 // coed context therefore carries no signal, and an AA man playing coed BB is
 // ordinary rather than a mismatch. One quiet line wherever coed appears, never a
@@ -3696,7 +3730,8 @@ function ppRenderNeeds(){
   const days = (Array.isArray(t.days) && t.days.length ? t.days : Object.keys(byDay).sort());
   let anyCoed = false;
   let h = days.map(day => {
-    const list = byDay[day] || [];
+    // Ladder order, not the arbitrary key order the divisions map came back in.
+    const list = trnSortDivs(byDay[day]);
     if(!list.length) return '';
     const rows = list.map(d => {
       if(d.category === 'coed') anyCoed = true;
@@ -3967,13 +4002,18 @@ function trnRangeLabel(t){
 // Every selectable cell for one day: adult categories crossed with levels, then
 // the age groups, which carry no level. The id and the selection key now carry
 // the same calendar day, so a selection and the division it becomes always agree.
+//
+// Cells come out in LADDER order, weakest level first, because this grid is where
+// an organizer learns what order the app considers canonical. It used to walk
+// TRN_LEVELS as stored, which led with Open and read backwards against every other
+// division list in the app.
 function trnCellsForDay(dateISO){
   const cells = [];
   TRN_CATEGORIES.forEach(cat => {
     if(trnIsAgeCategory(cat)){
       cells.push({ id: divIdFor(dateISO, cat, null), key: trnSelKey(dateISO, cat, null), day: dateISO, category: cat, level: null });
     } else {
-      TRN_LEVELS.forEach(lvl => {
+      TRN_LEVELS_ASC.forEach(lvl => {
         cells.push({ id: divIdFor(dateISO, cat, lvl), key: trnSelKey(dateISO, cat, lvl), day: dateISO, category: cat, level: lvl });
       });
     }
@@ -4436,7 +4476,8 @@ function renderTournamentDetail(){
       return '<button type="button" onclick="trnSetDivReg(\'' + safe + '\')" title="' + (adv ? "Registration is not open. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.") + '" style="display:flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;">' + inner + '</button>';
     };
     h += days.map(day => {
-      const list = (byDay[day] || []);
+      // Ladder order, not the arbitrary key order the divisions map came back in.
+      const list = trnSortDivs(byDay[day]);
       if(!list.length) return "";
       return '<div style="margin-bottom:10px;">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + '</div>'
@@ -4470,9 +4511,7 @@ function renderTournamentDetail(){
 // an entry always states the divisions it actually signed up for rather than a
 // band range that had to be interpreted.
 function poolEntryNeedLabels(e){
-  return Object.values((e && e.needs) || {})
-    .filter(Boolean)
-    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)))
+  return trnSortDivs(Object.values((e && e.needs) || {}).filter(Boolean))
     .map(n => trnDivLabel(n));
 }
 
@@ -4498,18 +4537,14 @@ function partnerPoolBlockReason(i){
   return null;
 }
 
-// Needs still looking for somebody, ascending by day then label.
+// Needs still looking for somebody, by day then the level ladder.
 function partnerOpenNeeds(i){
-  return Object.values((i && i.needs) || {})
-    .filter(n => n && needStatusOf(n) === 'open')
-    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)));
+  return trnSortDivs(Object.values((i && i.needs) || {}).filter(n => n && needStatusOf(n) === 'open'));
 }
 
 // Every need, open or filled, in the same order.
 function partnerAllNeeds(i){
-  return Object.values((i && i.needs) || {})
-    .filter(Boolean)
-    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)));
+  return trnSortDivs(Object.values((i && i.needs) || {}).filter(Boolean));
 }
 
 // A post used to carry ONE division, so one gender check settled the whole post.
@@ -4799,8 +4834,7 @@ function renderPartnerDetail(i){
             // names can have been filled since. Re-check each chip against the
             // post's current status rather than showing a stale availability.
             + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
-            +   Object.values(e.needs || {}).filter(Boolean)
-                  .sort((x,y) => String(x.day).localeCompare(String(y.day)) || trnDivLabel(x).localeCompare(trnDivLabel(y)))
+            +   trnSortDivs(Object.values(e.needs || {}).filter(Boolean))
                   .map(pn => {
                     const live = (i.needs || {})[pn.divId];
                     const gone = !live;
