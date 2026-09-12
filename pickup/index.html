@@ -2926,6 +2926,12 @@ let ppReturnAfterTournament = false;
 // offering to cover.
 let poolNeedsSelected = new Set();
 
+// Ask picker, open for at most one division at a time. Holds nameKeys, the same
+// idiom the notify picker and renderGroupMembers use.
+let askPickerDiv = null;
+let askPickerSelected = new Set();
+let askPickerFilter = '';
+
 // A1 pickup data-model fields. Held in module state between form-open and save,
 // mirroring inviteIncSelected/inviteExcSelected. No A1 UI populates these yet
 // (the form lands in A2); buildInviteRecord reads them so edits round-trip and
@@ -2951,6 +2957,9 @@ function backToList(){
   // later showView('tournament-detail') paint the previously opened event.
   activeTournament = null;
   poolNeedsSelected = new Set();
+  askPickerDiv = null;
+  askPickerSelected = new Set();
+  askPickerFilter = '';
   // Backing out of the tournament form abandons any in-flow return as well.
   ppReturnAfterTournament = false;
   showView('list');
@@ -3522,18 +3531,28 @@ function renderPartnerList(){
     return;
   }
   h += shown.map(p => {
-    const rsvps = p.rsvps || {};
-    const partnered = Object.values(rsvps).some(r => r && r.status === 'confirmed');
-    const myRsvp = rsvps[myKey];
+    // Every badge is now per-need. A post can be partly settled, so "partner
+    // found" is no longer a property of the post: it is a count of its needs.
     const iAmHost = isLoggedInHost(p);
-    const pendingN = Object.values(p.guestRequests||{}).filter(r => r && r.status === 'pending').length;
-    const myPending = !iAmHost && Object.values(p.guestRequests||{}).some(r => r && r.status === 'pending'
-      && ((r.accountId && r.accountId === currentAccountId()) || Identity.nameKey(r.name || '') === myKey));
+    const allN = partnerAllNeeds(p);
+    const openN = partnerOpenNeeds(p);
+    const filledN = allN.length - openN.length;
+    const offersN = partnerOfferCount(p);
+    const myOfferN = !iAmHost && myKey
+      ? Object.values(p.offers || {}).filter(m => m && m[myKey]).length : 0;
+    const myAskN = !iAmHost && myKey
+      ? Object.values(p.asks || {}).filter(m => m && m[myKey]).length : 0;
+    const myFilledN = myKey
+      ? allN.filter(n => needStatusOf(n) === 'filled'
+          && (n.partnerAccountId ? n.partnerAccountId === currentAccountId() : Identity.nameKey(n.partnerName || '') === myKey)).length : 0;
+    const pill = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">' + txt + '</span>';
     let badge = '';
-    if(myRsvp && myRsvp.status === 'confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE PARTNERED</span>';
-    else if(partnered) badge = '<span style="background:var(--gray-lighter);color:var(--gray);font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">PARTNER FOUND</span>';
-    else if(myPending) badge = '<span style="background:#fef3c7;color:#92400e;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">RESPONSE SENT</span>';
-    else if(iAmHost && pendingN) badge = '<span style="background:#fef3c7;color:#92400e;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">' + pendingN + ' RESPONSE' + (pendingN===1?'':'S') + '</span>';
+    if(myAskN) badge = pill('#fef3c7', '#92400e', 'YOU WERE ASKED');
+    else if(myFilledN) badge = pill('#d1fae5', '#065f46', myFilledN > 1 ? "YOU'RE IN " + myFilledN : "YOU'RE PARTNERED");
+    else if(myOfferN) badge = pill('#fef3c7', '#92400e', myOfferN > 1 ? myOfferN + ' OFFERS SENT' : 'OFFER SENT');
+    else if(iAmHost && offersN) badge = pill('#fef3c7', '#92400e', offersN + ' OFFER' + (offersN===1?'':'S'));
+    else if(allN.length && !openN.length) badge = pill('var(--gray-lighter)', 'var(--gray)', 'ALL FILLED');
+    else if(filledN) badge = pill('var(--gray-lighter)', 'var(--gray)', filledN + ' OF ' + allN.length + ' FILLED');
     return '<div class="evcard" onclick="openInviteDetail(\'' + escapeHTML(p.id).replace(/'/g,"\\'") + '\')">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
       +   '<div style="flex:1;">'
@@ -4582,13 +4601,8 @@ function renderPartnerDetail(i){
   const myKey = gameplayKey();
   const isAuthed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
   const isHost = isLoggedInHost(i);
-  const rsvps = i.rsvps || {};
-  const partnerEntry = Object.entries(rsvps).find(([k,r]) => r && r.status === 'confirmed') || null;
-  const myRsvp = myKey ? rsvps[myKey] : null;
-  const pending = Object.entries(i.guestRequests || {}).filter(([id,r]) => r && r.status === 'pending')
-    .sort((a,b) => (a[1].requestedAt||0) - (b[1].requestedAt||0));
-  const myReq = pending.find(([id,r]) => (r.accountId && r.accountId === currentAccountId())
-    || (myKey && Identity.nameKey(r.name || '') === myKey)) || null;
+  // The post-level partner is gone. A post carries several needs and each is
+  // settled on its own, so everything below is per need.
   const isPast = partnerIsPast(i);
   const isCancelled = i.status === 'cancelled';
   // Pool entries, oldest first. Keyed by nameKey like rsvps, so a viewer's own
@@ -4600,90 +4614,135 @@ function renderPartnerDetail(i){
   const url = safeEventUrl(i.eventUrl);
   const dateStr = i.date ? new Date(i.date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric', year:'numeric'}) : '';
   const chip = t => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + t + '</span>';
+  const esc = v => escapeHTML(String(v)).replace(/'/g, "&#39;");
+  const allNeeds = partnerAllNeeds(i);
+
+  // One block per need: its status, who settled it, and whichever controls this
+  // viewer is entitled to. The poster and everybody else read the same list and
+  // differ only in the controls, so the state of the post is never hidden.
+  function needBlock(n){
+    const filled = needStatusOf(n) === 'filled';
+    const dk = esc(n.divId);
+    const past = needIsPast(n);
+    const offers = partnerOffersFor(i, n.divId);
+    const asks = partnerAsksFor(i, n.divId);
+    const mineOffer = myOfferOn(i, n.divId, myKey);
+    const mineAsk = myAskOn(i, n.divId, myKey);
+
+    let head = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      + '<span style="flex:1;font-weight:700;font-size:14px;">' + escapeHTML(trnDivLabel(n)) + '</span>'
+      + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
+      + (filled
+          ? '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">FILLED</span>'
+          : past
+            ? '<span style="background:var(--gray-lighter);color:var(--gray);font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">PLAYED</span>'
+            : '<span style="background:#fef3c7;color:#92400e;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">LOOKING</span>')
+      + '</div>';
+
+    let body = '';
+    if(filled){
+      body += '<div style="font-size:13px;color:#065f46;margin-top:4px;">Partner: ' + escapeHTML(n.partnerName || 'someone') + clubBadge(n.partnerAccountId, n.partnerName) + '</div>';
+      if(isHost && !isCancelled && !past){
+        body += '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="unfillNeed(\'' + dk + '\')">Reopen this division</button>';
+      }
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
+    }
+
+    if(isHost){
+      // Poster: pending offers with accept and decline, pending asks with their
+      // state, and an ask control while the need is still open.
+      if(offers.length){
+        body += '<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Offers (' + offers.length + ')</div>'
+          + offers.map(([k, r]) =>
+              '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;">'
+              + '<span style="flex:1;font-size:13px;font-weight:600;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + clubBadge(r.accountId, r.name) + '</span>'
+              + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="acceptOffer(\'' + dk + '\',\'' + esc(k) + '\')">Accept</button>'
+              + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineOffer(\'' + dk + '\',\'' + esc(k) + '\')">Pass</button>'
+              + '</div>').join('');
+      }
+      if(asks.length){
+        body += '<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Asked (' + asks.length + ')</div>'
+          + asks.map(([k, r]) =>
+              '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;">'
+              + '<span style="flex:1;font-size:13px;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + ' <span style="font-size:11px;color:var(--gray);">waiting</span></span>'
+              + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="cancelAsk(\'' + dk + '\',\'' + esc(k) + '\')">Cancel</button>'
+              + '</div>').join('');
+      }
+      if(!offers.length && !asks.length){
+        body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">No offers yet.</div>';
+      }
+      if(!isCancelled && !past){
+        body += (askPickerDiv === n.divId)
+          ? renderAskPicker(i, n)
+          : '<button class="btn btn-g btn-sm" style="margin-top:8px;padding:4px 12px;min-height:0;" onclick="openAskPicker(\'' + dk + '\')">Ask someone</button>';
+      }
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
+    }
+
+    // Viewer. Being asked comes first: it is addressed to them and wants an answer.
+    if(mineAsk){
+      body += '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-top:6px;font-size:13px;font-weight:700;">' + escapeHTML(i.hostName || 'The poster') + ' asked you to play this one.</div>'
+        + '<div style="display:flex;gap:8px;margin-top:6px;">'
+        + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="acceptAsk(\'' + dk + '\')">Accept</button>'
+        + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineAsk(\'' + dk + '\')">Decline</button>'
+        + '</div>';
+    } else if(mineOffer){
+      body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
+        + '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="withdrawOffer(\'' + dk + '\')">Withdraw offer</button>';
+    } else if(past){
+      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This division has been played.</div>';
+    } else if(!divisionAllowsViewer(n.category)){
+      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This division is ' + escapeHTML(divisionLabel(n.category)) + '.</div>';
+    } else if(!isCancelled){
+      body += '<button class="btn btn-p btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="offerForNeed(\'' + dk + '\')">I\u0027ll play this one</button>';
+    }
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
+  }
 
   let actionHTML = '';
   if(isCancelled){
     actionHTML = '<div style="background:#fee2e2;color:#7f1d1d;border-radius:10px;padding:12px;text-align:center;font-weight:700;">Post cancelled.</div>';
   } else if(isPast){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This tournament has passed.</div>';
-  } else if(isHost){
-    // Poster panel: current partner (if accepted) plus pending responses with
-    // accept/pass, both riding the existing guest-request machinery.
-    let hh = '';
-    if(partnerEntry){
-      hh += '<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;margin-bottom:10px;font-weight:700;">Your partner: ' + escapeHTML(partnerEntry[1].name) + clubBadge(partnerEntry[1].accountId, partnerEntry[1].name) + '</div>'
-        + '<button class="btn btn-d btn-w" style="margin-bottom:10px;" onclick="removePartner(\'' + escapeHTML(partnerEntry[0]).replace(/'/g,"\\'") + '\')">Remove Partner</button>';
-    }
-    if(pending.length){
-      // Accept only shows while the post is still open: with slots fixed at 1,
-      // a second accept would land someone on an invisible waitlist. Remove the
-      // partner first to accept somebody else.
-      hh += '<div style="font-weight:700;margin-bottom:6px;">Responses (' + pending.length + ')</div>'
-        + (partnerEntry ? '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">You already have a partner. Remove them first to accept someone else.</div>' : '')
-        + pending.map(([reqId, r]) => {
-            const safeId = escapeHTML(reqId).replace(/'/g,"\\'");
-            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
-              + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + clubBadge(r.accountId, r.name) + '</span>'
-              + (partnerEntry ? '' : '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="approveGuestRequest(\'' + safeId + '\')">Accept</button>')
-              + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineGuestRequest(\'' + safeId + '\')">Pass</button>'
-              + '</div>';
-          }).join('');
-    } else if(!partnerEntry){
-      hh += '<div style="font-size:13px;color:var(--gray);">No responses yet. Share the post to get it in front of more players.</div>';
-    }
-    actionHTML = hh;
   } else if(!isAuthed){
     actionHTML = '<div style="font-weight:700;margin-bottom:6px;">Want to partner up?</div>'
-      + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to respond to this post.</div>'
+      + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to offer for a division.</div>'
       + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
-  } else if(myRsvp && myRsvp.status === 'confirmed'){
-    actionHTML = '<div style="background:#d1fae5;color:#065f46;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">You\'re partnered with ' + escapeHTML(i.hostName || 'the poster') + ' for this one.</div>'
-      + '<button class="btn btn-d btn-w" onclick="dropOutInvite()">Back Out</button>';
-  } else if(myRsvp && myRsvp.status === 'waitlist'){
-    // Defensive: only reachable through an accept race; slots stay at 1 and
-    // Accept hides once partnered, so this state should be rare. declineRsvp's
-    // promotion makes them the partner automatically if the spot reopens.
-    actionHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">The poster already has a partner. You\'re their backup and get the spot automatically if it reopens.</div>'
-      + '<button class="btn btn-d btn-w" onclick="dropOutInvite()">Back Out</button>';
-  } else if(myReq){
-    actionHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:10px;text-align:center;margin-bottom:10px;font-weight:700;">Response sent. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
-      + '<button class="btn btn-g btn-w" onclick="withdrawPartnerResponse(\'' + escapeHTML(myReq[0]).replace(/'/g,"\\'") + '\')">Withdraw Response</button>';
-  } else if(partnerEntry){
-    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">Partner found.</div>';
-  } else if(!partnerHasViewableNeed(i)){
+  } else if(!isHost && !partnerHasViewableNeed(i)){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">None of this post\u0027s divisions are open to you.</div>';
-  } else if(!(myKey && isChatEligible(i, myKey))){
+  } else if(!isHost && !(myKey && isChatEligible(i, myKey))){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is limited to ' + escapeHTML(partnerVisLabel(i.eligibility)) + ' members.</div>';
   } else {
-    // Pool controls sit under the ask button: declaring you are looking is a
-    // separate, weaker statement than asking this poster directly, and a player
-    // can do both. Display only in this build.
-    // Offer per division, not per band: the division already states the level, so
-    // a band range would be restating it less precisely. Only open needs are
-    // offerable; a filled one cannot be refilled without the pair dropping first.
-    const openNeeds = partnerOpenNeeds(i);
-    const needRows = openNeeds.map(n => {
-      const safe = escapeHTML(n.divId).replace(/'/g, '&#39;');
-      const checked = poolNeedsSelected.has(n.divId);
-      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
-        + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
-        + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
-        + '</label>';
-    }).join('');
-    const poolBlock = myPool
-      ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(myPool).join(', ') || 'this post') + '.</div>'
-        + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
-      : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Still looking?</div>'
-        + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Say which of these divisions you could play, so other players can see you are available.</div>'
-        + (needRows
-            ? '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
-            : '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Every division on this post is filled.</div>')
-        + (openNeeds.some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '')
-        + (needRows ? '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>' : '');
-    actionHTML = '<button class="btn btn-p btn-w" onclick="respondToPartnerPost()">I\'ll Partner With You</button>'
-      + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">' + escapeHTML(i.hostName || 'The poster') + ' gets notified and picks their partner.</div>'
-      + '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
+    actionHTML = '<div style="font-weight:700;margin-bottom:2px;">Divisions</div>'
+      + '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">Each one is settled on its own. Filling one leaves the rest looking.</div>'
+      + (allNeeds.length ? allNeeds.map(needBlock).join('') : '<div style="font-size:13px;color:var(--gray);">No divisions on this post.</div>')
+      + (allNeeds.some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '');
+
+    // The pool is a weaker, standing statement than an offer: it says which
+    // divisions you could play without addressing this poster. A player can do
+    // both, so it keeps its own block below the per-need controls.
+    if(!isHost){
+      const openNeeds = partnerOpenNeeds(i).filter(n => !needIsPast(n));
+      const needRows = openNeeds.map(n => {
+        const safe = esc(n.divId);
+        const checked = poolNeedsSelected.has(n.divId);
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+          + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+          + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
+          + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
+          + '</label>';
+      }).join('');
+      const poolBlock = myPool
+        ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(myPool).join(', ') || 'this post') + '.</div>'
+          + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
+        : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Not ready to offer?</div>'
+          + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Add yourself to the pool instead, so the poster and other players can see you are available.</div>'
+          + (needRows
+              ? '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
+              : '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Every division on this post is settled.</div>')
+          + (needRows ? '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>' : '');
+      actionHTML += '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
+    }
   }
 
   let h = '<div class="card">'
@@ -4721,8 +4780,21 @@ function renderPartnerDetail(i){
         ? pool.map(([k, e]) =>
             '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
             + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name) + '</span>'
+            // A pool entry copies the post's needs at JOIN time, so a division it
+            // names can have been filled since. Re-check each chip against the
+            // post's current status rather than showing a stale availability.
             + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
-            +   poolEntryNeedLabels(e).map(l => chip(escapeHTML(l).toUpperCase())).join('')
+            +   Object.values(e.needs || {}).filter(Boolean)
+                  .sort((x,y) => String(x.day).localeCompare(String(y.day)) || trnDivLabel(x).localeCompare(trnDivLabel(y)))
+                  .map(pn => {
+                    const live = (i.needs || {})[pn.divId];
+                    const gone = !live;
+                    const filled = !gone && needStatusOf(live) === 'filled';
+                    const label = escapeHTML(trnDivLabel(pn)).toUpperCase();
+                    if(gone) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;text-decoration:line-through;">' + label + '</span>';
+                    if(filled) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>';
+                    return chip(label);
+                  }).join('')
             + '</span>'
             + '</div>').join('')
         : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet.</p>')
@@ -4762,79 +4834,393 @@ function renderPartnerDetail(i){
   renderGameChatMessages();
 }
 
-// RESPOND: a response is a pending guestRequests entry (the same node and shape
-// the guest door writes) plus the same request-notify email to the poster,
-// resolved server-side from hostId. No responder email is stored: the invites
-// node is world-readable, and the poster notification does not need it.
-function respondToPartnerPost(){
-  const i = (D.invites||{})[activeInvite]; if(!i || i.postType !== 'partner') return;
-  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to respond'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
-  if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
-  if(partnerIsPast(i)){ toast('This tournament has passed'); return; }
-  if(isLoggedInHost(i)){ toast('This is your post'); return; }
-  if(!partnerHasViewableNeed(i)){ toast('None of this post\u0027s divisions are open to you'); return; }
+// The whole-post response flow is GONE. It wrote a guestRequests entry meaning
+// "I will partner with you" about the post as a whole, and its own gate rejected
+// any response once a single confirmed RSVP existed, so the first fill locked out
+// every remaining need. A post now carries several needs, so wanting one of them
+// is the only statement that makes sense. See offers and asks below.
+//
+// requestSpot / approveGuestRequest / declineGuestRequest are NOT touched: those
+// serve the pickup-game guest door, which is genuinely whole-event and still
+// works exactly as before.
+// ── PER-NEED OFFERS AND ASKS ──────────────────────────────────────────────
+// Two nodes, deliberately separate, both keyed by division then by the player:
+//   invites/{id}/offers/{divId}/{nameKey}  a viewer volunteering for that need
+//   invites/{id}/asks/{divId}/{nameKey}    the poster reaching out for that need
+//
+// Same lifecycle, opposite direction, opposite gates. Merging them would push a
+// direction check into every gate and every render, so they stay apart.
+//
+// Existence means pending, following the guestRequests precedent where pending
+// is the only stored state. Accept and decline delete the record; ignoring is
+// the resting state and needs no control and no write.
+
+function partnerOffersFor(i, divId){
+  return Object.entries(((i && i.offers) || {})[divId] || {})
+    .filter(([k, r]) => r && r.name)
+    .sort((x, y) => (x[1].offeredAt || 0) - (y[1].offeredAt || 0));
+}
+function partnerAsksFor(i, divId){
+  return Object.entries(((i && i.asks) || {})[divId] || {})
+    .filter(([k, r]) => r && r.name)
+    .sort((x, y) => (x[1].askedAt || 0) - (y[1].askedAt || 0));
+}
+// Total pending across every need, for the list badge.
+function partnerOfferCount(i){
+  return Object.values((i && i.offers) || {}).reduce((n, m) => n + Object.keys(m || {}).length, 0);
+}
+function myOfferOn(i, divId, myKey){
+  return myKey ? ((((i && i.offers) || {})[divId] || {})[myKey] || null) : null;
+}
+function myAskOn(i, divId, myKey){
+  return myKey ? ((((i && i.asks) || {})[divId] || {})[myKey] || null) : null;
+}
+// A need has its own day, so a three-day post keeps Sunday live after Saturday
+// has come and gone. The post-level past-check is the LAST day; this is per need.
+function needIsPast(n){ return !!(n && n.day) && n.day < td(); }
+
+// Everything the old whole-post gate checked, minus the two that broke, plus the
+// per-need ones. Notably absent: any check on OTHER needs. A filled need
+// elsewhere on the post must never block an offer on an open one.
+// Returns null when allowed, else the toast string.
+function needOfferBlockReason(i, n){
+  if(!i || i.postType !== 'partner') return 'Not a partner post';
+  if(!n) return 'Division not found';
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to offer';
+  if(i.status === 'cancelled') return 'Post cancelled';
+  if(needIsPast(n)) return 'That division has already been played';
+  if(isLoggedInHost(i)) return 'This is your post';
+  if(!divisionAllowsViewer(n.category)) return 'That division is ' + divisionLabel(n.category) + ', not open to you';
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-  if(!me || !myKey){ toast('Pick your name first'); return; }
-  // Same circle gate as optInInvite, so club-only posts stay club-only.
-  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey)){ toast('This post is not open to you'); return; }
-  const rsvpsNow = i.rsvps || {};
-  if(Object.values(rsvpsNow).some(r => r && r.status === 'confirmed')){ toast('Partner already found'); return; }
-  const mine = rsvpsNow[myKey];
-  if(mine && mine.status !== 'declined'){ toast('You are already on this post'); return; }
-  const already = Object.values(i.guestRequests||{}).some(r => r && r.status === 'pending'
-    && ((r.accountId && r.accountId === currentAccountId()) || Identity.nameKey(r.name || '') === myKey));
-  if(already){ toast('Response already sent'); return; }
-
-  const reqId = gi('preq');
-  const record = { name: me.name, email: null, requestedAt: Date.now(), status: 'pending', accountId: currentAccountId(), partner: true };
-
-  // Optimistic local + mirror (same pattern as requestSpot).
-  if(!D.invites[activeInvite].guestRequests) D.invites[activeInvite].guestRequests = {};
-  D.invites[activeInvite].guestRequests[reqId] = record;
-  pendInviteOverride(activeInvite, inv => {
-    if(!inv.guestRequests) inv.guestRequests = {};
-    inv.guestRequests[reqId] = record;
-  });
-  fbSet('invites/' + activeInvite + '/guestRequests/' + reqId, record);
-
-  // Poster notification: the exact request-notify the guest door uses; the
-  // worker resolves the poster's email server-side from the invite's hostId.
-  const _reqNotify = notifyWorker('/pickup/request-notify',
-    { inviteId: activeInvite, guestName: me.name, guestEmail: '' });
-
-  renderInviteDetail();
-  // The response is recorded either way. Only the host's email can fail.
-  toast('Response sent ✓');
-  warnIfNotEmailed(_reqNotify, 'Response saved, but the host was not emailed.');
+  if(!me || !myKey) return 'Pick your name first';
+  if(!activeEligibleNames(i, Date.now()).some(x => Identity.nameKey(x) === myKey)) return 'This post is not open to you';
+  if(needStatusOf(n) !== 'open') return 'That division is already filled';
+  return null;
 }
 
-// Withdraw your own pending response. Own-response guarded; mirrors
-// declineGuestRequest's delete without the host gate or confirm.
-function withdrawPartnerResponse(reqId){
+// OFFER: a viewer volunteers for ONE need. Several offers on several divisions
+// are fine; one per division per person, which the nameKey key enforces.
+function offerForNeed(divId){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const req = (i.guestRequests||{})[reqId]; if(!req || req.status !== 'pending') return;
-  const myKey = gameplayKey();
-  const mine = (req.accountId && req.accountId === currentAccountId())
-    || (myKey && Identity.nameKey(req.name || '') === myKey);
-  if(!mine){ toast('Not your response'); return; }
-  if(D.invites[activeInvite].guestRequests) delete D.invites[activeInvite].guestRequests[reqId];
-  pendInviteOverride(activeInvite, inv => { if(inv.guestRequests) delete inv.guestRequests[reqId]; });
+  const decoded = trnDecodeKey(divId);
+  const n = (i.needs || {})[decoded];
+  const reason = needOfferBlockReason(i, n);
+  if(reason){ toast(reason); return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(myOfferOn(i, decoded, myKey)){ toast('You already offered for that one'); return; }
+
+  const rec = { name: me.name, accountId: currentAccountId(), divId: decoded, offeredAt: Date.now() };
+
+  // Optimistic local + mirror, then persist. Same order approveGuestRequest uses.
+  if(!D.invites[activeInvite].offers) D.invites[activeInvite].offers = {};
+  if(!D.invites[activeInvite].offers[decoded]) D.invites[activeInvite].offers[decoded] = {};
+  D.invites[activeInvite].offers[decoded][myKey] = rec;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.offers) inv.offers = {};
+    if(!inv.offers[decoded]) inv.offers[decoded] = {};
+    inv.offers[decoded][myKey] = rec;
+  });
   renderInviteDetail();
-  fbDel('invites/' + activeInvite + '/guestRequests/' + reqId);
-  toast('Response withdrawn');
+
+  fbSet('invites/' + activeInvite + '/offers/' + decoded + '/' + myKey, rec);
+  toast('Offer sent for ' + trnDivLabel(n));
 }
 
-// Poster-only: remove the accepted partner (reopens the post). declineRsvp does
-// the actual write and renumbering, same as a game host removing a player.
-function removePartner(targetKey){
+// Only the offerer may withdraw their own offer.
+function withdrawOffer(divId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const decoded = trnDecodeKey(divId);
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!myKey) return;
+  if(!myOfferOn(i, decoded, myKey)){ toast('No offer to withdraw'); return; }
+
+  if(D.invites[activeInvite].offers && D.invites[activeInvite].offers[decoded]) delete D.invites[activeInvite].offers[decoded][myKey];
+  pendInviteOverride(activeInvite, inv => { if(inv.offers && inv.offers[decoded]) delete inv.offers[decoded][myKey]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/offers/' + decoded + '/' + myKey);
+  toast('Offer withdrawn');
+}
+
+// FILL: the one place a need becomes filled, whichever direction it came from.
+// The partner is recorded ON THE NEED. The rsvps map and the slot math are
+// deliberately not used: a post has one rsvps map and slots 1, so it cannot
+// carry two filled needs, and calling the slot math would quietly waitlist the
+// second one. First accept wins: every other offer and ask on THIS division is
+// deleted, and every other need is left exactly as it was.
+function fillNeed(divId, name, accountId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return false;
+  const n = (i.needs || {})[divId]; if(!n) return false;
+  if(needStatusOf(n) !== 'open'){ toast('That division is already filled'); return false; }
+  const merged = Object.assign({}, n, { status: 'filled', partnerName: name, partnerAccountId: accountId || null });
+
+  D.invites[activeInvite].needs[divId] = merged;
+  if(D.invites[activeInvite].offers) delete D.invites[activeInvite].offers[divId];
+  if(D.invites[activeInvite].asks) delete D.invites[activeInvite].asks[divId];
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.needs) inv.needs = {};
+    inv.needs[divId] = merged;
+    if(inv.offers) delete inv.offers[divId];
+    if(inv.asks) delete inv.asks[divId];
+  });
+  renderInviteDetail();
+
+  fbSet('invites/' + activeInvite + '/needs/' + divId, merged);
+  fbDel('invites/' + activeInvite + '/offers/' + divId);
+  fbDel('invites/' + activeInvite + '/asks/' + divId);
+  return true;
+}
+
+// Poster accepts an offer.
+function acceptOffer(divId, nameKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can accept'); return; }
+  if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
+  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  const rec = (((i.offers || {})[dk]) || {})[nk];
+  if(!rec){ toast('That offer is gone'); return; }
+  if(fillNeed(dk, rec.name, rec.accountId)) toast(rec.name + ' is your partner for ' + trnDivLabel((i.needs||{})[dk] || {}));
+}
+
+// Poster declines one offer. Deletes it; the need stays open for others.
+function declineOffer(divId, nameKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can decline'); return; }
+  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  if(!(((i.offers || {})[dk]) || {})[nk]) return;
+
+  if(D.invites[activeInvite].offers && D.invites[activeInvite].offers[dk]) delete D.invites[activeInvite].offers[dk][nk];
+  pendInviteOverride(activeInvite, inv => { if(inv.offers && inv.offers[dk]) delete inv.offers[dk][nk]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/offers/' + dk + '/' + nk);
+  toast('Offer passed');
+}
+
+// ASK: the poster reaches out. Only the poster creates or cancels one.
+function cancelAsk(divId, nameKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can cancel an ask'); return; }
+  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  if(!(((i.asks || {})[dk]) || {})[nk]) return;
+
+  if(D.invites[activeInvite].asks && D.invites[activeInvite].asks[dk]) delete D.invites[activeInvite].asks[dk][nk];
+  pendInviteOverride(activeInvite, inv => { if(inv.asks && inv.asks[dk]) delete inv.asks[dk][nk]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/asks/' + dk + '/' + nk);
+  toast('Ask cancelled');
+}
+
+// Target accepts an ask aimed at them. Same fill, opposite direction.
+function acceptAsk(divId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const dk = trnDecodeKey(divId);
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  const mine = myAskOn(i, dk, myKey);
+  if(!mine){ toast('No ask to accept'); return; }
+  const n = (i.needs || {})[dk];
+  // The target still has to clear the same bar an offerer does, minus the
+  // already-offered check: being asked does not bypass the circle or the division.
+  const reason = needOfferBlockReason(i, n);
+  if(reason){ toast(reason); return; }
+  if(fillNeed(dk, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered for ' + trnDivLabel(n));
+}
+
+// Target declines. Deletes the ask; the need stays open.
+function declineAsk(divId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  const dk = trnDecodeKey(divId);
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!myAskOn(i, dk, myKey)){ toast('No ask to decline'); return; }
+
+  if(D.invites[activeInvite].asks && D.invites[activeInvite].asks[dk]) delete D.invites[activeInvite].asks[dk][myKey];
+  pendInviteOverride(activeInvite, inv => { if(inv.asks && inv.asks[dk]) delete inv.asks[dk][myKey]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/asks/' + dk + '/' + myKey);
+  toast('Declined');
+}
+
+// Poster-only: unfill a need that was settled. Clears the partner fields and
+// reopens it. Guarded three ways: poster only, the need must exist, and it must
+// actually BE filled, so this can never blank an open need's fields or be
+// triggered by a stale render. Offers and asks on that division were deleted at
+// fill time and do not come back; the need simply returns to looking.
+function unfillNeed(divId){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can do that'); return; }
-  const r = (i.rsvps||{})[targetKey]; if(!r) return;
-  if(!confirm('Remove ' + (r.name || 'this partner') + '? The post reopens for responses.')) return;
-  declineRsvp(targetKey);
-  toast('Removed');
+  const dk = trnDecodeKey(divId);
+  const n = (i.needs || {})[dk];
+  if(!n){ toast('Division not found'); return; }
+  if(needStatusOf(n) !== 'filled'){ toast('That division is not filled'); return; }
+  if(!confirm('Reopen ' + trnDivLabel(n) + '? ' + (n.partnerName ? n.partnerName + ' comes off it.' : ''))) return;
+  const merged = Object.assign({}, n, { status: 'open', partnerName: null, partnerAccountId: null });
+
+  D.invites[activeInvite].needs[dk] = merged;
+  pendInviteOverride(activeInvite, inv => { if(!inv.needs) inv.needs = {}; inv.needs[dk] = merged; });
+  renderInviteDetail();
+
+  fbSet('invites/' + activeInvite + '/needs/' + dk, merged);
+  toast('Reopened');
 }
+
+// ── ASK PICKER ────────────────────────────────────────────────────────────
+// Who the poster can reach out to for one division. Pool entries that named
+// THIS division come first, because those players have already said they would
+// play it; the rest of the eligible circle follows. Same checkbox-over-a-Set
+// idiom the notify picker uses, not a new one.
+function openAskPicker(divId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can ask'); return; }
+  askPickerDiv = trnDecodeKey(divId);
+  askPickerSelected = new Set();
+  askPickerFilter = '';
+  renderInviteDetail();
+}
+function closeAskPicker(){
+  askPickerDiv = null;
+  askPickerSelected = new Set();
+  askPickerFilter = '';
+  renderInviteDetail();
+}
+function askPickerToggle(nameKey, isChecked){
+  const decoded = trnDecodeKey(nameKey);
+  if(isChecked) askPickerSelected.add(decoded); else askPickerSelected.delete(decoded);
+  renderInviteDetail();
+}
+function askPickerSetFilter(v){
+  askPickerFilter = String(v || '').toLowerCase().trim();
+  renderInviteDetail();
+}
+
+// Candidates for one need: pool-first, then the rest of the circle. Anyone
+// already asked or already offering is dropped, since there is nothing to ask.
+function askCandidates(i, n){
+  const asked = ((i.asks || {})[n.divId]) || {};
+  const offered = ((i.offers || {})[n.divId]) || {};
+  const seen = new Set();
+  const out = [];
+  const add = (name, accountId, fromPool) => {
+    const k = Identity.nameKey(name);
+    if(!k || seen.has(k)) return;
+    if(asked[k] || offered[k]) return;
+    if(i.hostId && accountId && accountId === i.hostId) return;
+    if(!divisionAllowsViewer2(n.category, accountId, name)) return;
+    seen.add(k);
+    out.push({ key: k, name: name, accountId: accountId || null, fromPool: !!fromPool });
+  };
+  // Pool first: these players already named this division.
+  Object.values(i.pool || {}).forEach(e => {
+    if(!e || !e.name) return;
+    if(!((e.needs || {})[n.divId])) return;
+    add(e.name, e.accountId, true);
+  });
+  // Then the circle this post is visible to.
+  activeEligibleNames(i, Date.now()).forEach(nm => add(nm, resolveAccountId(nm), false));
+  return out;
+}
+
+// Division eligibility for a CANDIDATE rather than the viewer. divisionAllowsViewer
+// reads the logged-in account; asking someone else needs their gender, which lives
+// on the public profiles cache. Unknown gender is permitted: the ask is an
+// invitation, and the target can always decline.
+function divisionAllowsViewer2(div, accountId, name){
+  if(div !== 'mens' && div !== 'womens') return true;
+  const cache = window._profilesCache || {};
+  let p = (accountId && cache[accountId]) || null;
+  if(!p && name){
+    const k = Identity.nameKey(name);
+    for(const id in cache){ const c = cache[id]; if(c && Identity.nameKey(nameStr(c) || '') === k){ p = c; break; } }
+  }
+  const g = p && p.profile && p.profile.gender;
+  if(g !== 'M' && g !== 'F') return true;
+  return div === 'mens' ? g !== 'F' : g !== 'M';
+}
+
+function renderAskPicker(i, n){
+  const cands = askCandidates(i, n);
+  const q = askPickerFilter;
+  const shown = cands.filter(c => !q || c.name.toLowerCase().indexOf(q) !== -1);
+  const dk = escapeHTML(n.divId).replace(/'/g, '&#39;');
+  let rows;
+  if(!cands.length){
+    rows = '<p style="color:var(--gray);font-size:12px;padding:8px;">Nobody left to ask for this one.</p>';
+  } else if(!shown.length){
+    rows = '<p style="color:var(--gray);font-size:12px;padding:8px;">No matches.</p>';
+  } else {
+    rows = shown.map(c => {
+      const safe = escapeHTML(c.key).replace(/'/g, '&#39;');
+      const checked = askPickerSelected.has(c.key);
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+        + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="askPickerToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(c.name) + ratingBadge(c.name, c.accountId) + '</span>'
+        + (c.fromPool ? '<span style="font-size:9px;font-family:\'Bebas Neue\';letter-spacing:1px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">IN POOL</span>' : '')
+        + '</label>';
+    }).join('');
+  }
+  return '<div style="margin-top:8px;border:1px solid var(--sand-border);border-radius:8px;padding:8px;">'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Ask someone to play ' + escapeHTML(trnDivLabel(n)) + '</div>'
+    + '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Players already in the pool for this division are listed first.</div>'
+    + '<input class="inp" placeholder="Filter by name" value="' + escapeHTML(askPickerFilter) + '" oninput="askPickerSetFilter(this.value)" style="margin-bottom:6px;font-size:13px;padding:8px;">'
+    + '<div style="max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:6px;">' + rows + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:8px;">'
+    + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="sendAsks(\'' + dk + '\')">Send ask (' + askPickerSelected.size + ')</button>'
+    + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="closeAskPicker()">Cancel</button>'
+    + '</div>'
+    + '</div>';
+}
+
+// Write one ask per selected player. Poster-only, need must still be open.
+function sendAsks(divId){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can ask'); return; }
+  const dk = trnDecodeKey(divId);
+  const n = (i.needs || {})[dk];
+  if(!n){ toast('Division not found'); return; }
+  if(needStatusOf(n) !== 'open'){ toast('That division is already filled'); return; }
+  if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
+  if(needIsPast(n)){ toast('That division has already been played'); return; }
+  if(!askPickerSelected.size){ toast('Pick at least one player'); return; }
+
+  const cands = askCandidates(i, n);
+  const byKey = {};
+  cands.forEach(c => { byKey[c.key] = c; });
+  const askedBy = (CourtSenseAuth.currentPlayer() || {}).id || null;
+  const recs = {};
+  askPickerSelected.forEach(k => {
+    const c = byKey[k];
+    if(!c) return;
+    recs[k] = { name: c.name, accountId: c.accountId, divId: dk, askedAt: Date.now(), askedBy: askedBy };
+  });
+  if(!Object.keys(recs).length){ toast('Those players are no longer askable'); return; }
+
+  // Optimistic local + mirror, then persist, one leaf per ask.
+  if(!D.invites[activeInvite].asks) D.invites[activeInvite].asks = {};
+  if(!D.invites[activeInvite].asks[dk]) D.invites[activeInvite].asks[dk] = {};
+  Object.keys(recs).forEach(k => { D.invites[activeInvite].asks[dk][k] = recs[k]; });
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.asks) inv.asks = {};
+    if(!inv.asks[dk]) inv.asks[dk] = {};
+    Object.keys(recs).forEach(k => { inv.asks[dk][k] = recs[k]; });
+  });
+  askPickerDiv = null;
+  askPickerSelected = new Set();
+  askPickerFilter = '';
+  renderInviteDetail();
+
+  Object.keys(recs).forEach(k => fbSet('invites/' + activeInvite + '/asks/' + dk + '/' + k, recs[k]));
+  const nn = Object.keys(recs).length;
+  toast('Asked ' + nn + ' player' + (nn === 1 ? '' : 's'));
+}
+
+// Poster-only cancel of the whole post. Unchanged behaviour, kept here beside
+// the other poster controls.
 
 // Poster-only cancel. Mirrors cancelInvite (same status write) with partner
 // wording so the confirm never says "pickup".
@@ -5750,9 +6136,12 @@ async function saveInvite(){
 function openInviteDetail(id){
   if(!(D.invites||{})[id]){ toast('Pickup not found'); return; }
   activeInvite = id;
-  // Pool offers are scoped to one post, so opening a different post must not
-  // inherit the divisions ticked on the last one.
+  // Pool offers and the ask picker are scoped to one post, so opening a different
+  // post must not inherit either the divisions ticked or a half-open picker.
   poolNeedsSelected = new Set();
+  askPickerDiv = null;
+  askPickerSelected = new Set();
+  askPickerFilter = '';
   ensureProfilesLoaded().then(()=>showView('invite-detail'));
 }
 
