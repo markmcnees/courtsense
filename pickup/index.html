@@ -4538,10 +4538,32 @@ function partnerNeedSummary(i){
     + (open.length && filled ? ' (' + filled + ' filled)' : '');
 }
 
+// Same defect as the ask picker had: ticking a division here is a local
+// selection, not a change to the post, and rebuilding the whole detail view for
+// it scrolls the page away from the control being used. Repaint the pool row
+// list only. Joining and leaving the pool still repaint everything, because those
+// really do change the post.
 function poolToggleNeed(divId, isChecked){
   const decoded = trnDecodeKey(divId);
   if(isChecked) poolNeedsSelected.add(decoded); else poolNeedsSelected.delete(decoded);
-  renderInviteDetail();
+  const list = $('pool-need-list');
+  const i = (D.invites||{})[activeInvite];
+  if(list && i) list.innerHTML = poolNeedRows(i);
+  else renderInviteDetail();
+}
+
+// The pool's own division rows, split out for the same reason the ask picker's
+// rows are: one source for the first paint and every repaint.
+function poolNeedRows(i){
+  return partnerOpenNeeds(i).filter(n => !needIsPast(n)).map(n => {
+    const safe = escapeHTML(n.divId).replace(/'/g, '&#39;');
+    const checked = poolNeedsSelected.has(n.divId);
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+      + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
+      + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
+      + '</label>';
+  }).join('');
 }
 
 function joinPartnerPool(){
@@ -4723,22 +4745,15 @@ function renderPartnerDetail(i){
     // both, so it keeps its own block below the per-need controls.
     if(!isHost){
       const openNeeds = partnerOpenNeeds(i).filter(n => !needIsPast(n));
-      const needRows = openNeeds.map(n => {
-        const safe = esc(n.divId);
-        const checked = poolNeedsSelected.has(n.divId);
-        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
-          + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-          + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
-          + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
-          + '</label>';
-      }).join('');
+      // Built by poolNeedRows so a tick can repaint just this list.
+      const needRows = poolNeedRows(i);
       const poolBlock = myPool
         ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(myPool).join(', ') || 'this post') + '.</div>'
           + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
         : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Not ready to offer?</div>'
           + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Add yourself to the pool instead, so the poster and other players can see you are available.</div>'
           + (needRows
-              ? '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
+              ? '<div id="pool-need-list" style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
               : '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Every division on this post is settled.</div>')
           + (needRows ? '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>' : '');
       actionHTML += '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
@@ -5089,14 +5104,35 @@ function closeAskPicker(){
   askPickerFilter = '';
   renderInviteDetail();
 }
+// Typing in the filter and ticking a name are both LOCAL to the picker: they
+// change what the candidate list shows, not what the post is. Calling
+// renderInviteDetail() for either rebuilt the entire detail view, which destroys
+// and recreates the filter input, so every keystroke lost focus and the caret and
+// threw the page back to the top. Repaint only the list, exactly as the notify
+// picker on the create form already does with ppRenderNotifyList.
+//
+// Opening, closing and SENDING still repaint the whole view, because those are
+// genuine changes to the post rather than to the picker.
 function askPickerToggle(nameKey, isChecked){
   const decoded = trnDecodeKey(nameKey);
   if(isChecked) askPickerSelected.add(decoded); else askPickerSelected.delete(decoded);
-  renderInviteDetail();
+  askPickerRepaint();
 }
 function askPickerSetFilter(v){
   askPickerFilter = String(v || '').toLowerCase().trim();
-  renderInviteDetail();
+  askPickerRepaint();
+}
+
+// Repaint the two things a keystroke or a tick can change: the candidate rows and
+// the Send count. The filter input itself is never rewritten, so it keeps focus,
+// its caret position and the page scroll.
+function askPickerRepaint(){
+  const i = (D.invites||{})[activeInvite]; if(!i || !askPickerDiv) return;
+  const n = (i.needs || {})[askPickerDiv]; if(!n) return;
+  const list = $('ask-picker-list');
+  if(list) list.innerHTML = askPickerRows(i, n);
+  const cnt = $('ask-picker-count');
+  if(cnt) cnt.textContent = String(askPickerSelected.size);
 }
 
 // Candidates for one need: pool-first, then the rest of the circle. Anyone
@@ -5143,34 +5179,36 @@ function divisionAllowsViewer2(div, accountId, name){
   return div === 'mens' ? g !== 'F' : g !== 'M';
 }
 
-function renderAskPicker(i, n){
+// Just the candidate rows. Split out of renderAskPicker so the first paint and
+// every later repaint build the same markup from one place.
+function askPickerRows(i, n){
   const cands = askCandidates(i, n);
   const q = askPickerFilter;
   const shown = cands.filter(c => !q || c.name.toLowerCase().indexOf(q) !== -1);
+  if(!cands.length) return '<p style="color:var(--gray);font-size:12px;padding:8px;">Nobody left to ask for this one.</p>';
+  if(!shown.length) return '<p style="color:var(--gray);font-size:12px;padding:8px;">No matches.</p>';
+  return shown.map(c => {
+    const safe = escapeHTML(c.key).replace(/'/g, '&#39;');
+    const checked = askPickerSelected.has(c.key);
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+      + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="askPickerToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(c.name) + ratingBadge(c.name, c.accountId) + '</span>'
+      + (c.fromPool ? '<span style="font-size:9px;font-family:\'Bebas Neue\';letter-spacing:1px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">IN POOL</span>' : '')
+      + '</label>';
+  }).join('');
+}
+
+// The picker shell. The filter input and the list container carry ids so a
+// keystroke can repaint the rows without touching the input that produced it.
+function renderAskPicker(i, n){
   const dk = escapeHTML(n.divId).replace(/'/g, '&#39;');
-  let rows;
-  if(!cands.length){
-    rows = '<p style="color:var(--gray);font-size:12px;padding:8px;">Nobody left to ask for this one.</p>';
-  } else if(!shown.length){
-    rows = '<p style="color:var(--gray);font-size:12px;padding:8px;">No matches.</p>';
-  } else {
-    rows = shown.map(c => {
-      const safe = escapeHTML(c.key).replace(/'/g, '&#39;');
-      const checked = askPickerSelected.has(c.key);
-      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
-        + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="askPickerToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(c.name) + ratingBadge(c.name, c.accountId) + '</span>'
-        + (c.fromPool ? '<span style="font-size:9px;font-family:\'Bebas Neue\';letter-spacing:1px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">IN POOL</span>' : '')
-        + '</label>';
-    }).join('');
-  }
   return '<div style="margin-top:8px;border:1px solid var(--sand-border);border-radius:8px;padding:8px;">'
     + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Ask someone to play ' + escapeHTML(trnDivLabel(n)) + '</div>'
     + '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Players already in the pool for this division are listed first.</div>'
-    + '<input class="inp" placeholder="Filter by name" value="' + escapeHTML(askPickerFilter) + '" oninput="askPickerSetFilter(this.value)" style="margin-bottom:6px;font-size:13px;padding:8px;">'
-    + '<div style="max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:6px;">' + rows + '</div>'
+    + '<input class="inp" id="ask-picker-filter" placeholder="Filter by name" value="' + escapeHTML(askPickerFilter) + '" oninput="askPickerSetFilter(this.value)" style="margin-bottom:6px;font-size:13px;padding:8px;">'
+    + '<div id="ask-picker-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:6px;">' + askPickerRows(i, n) + '</div>'
     + '<div style="display:flex;gap:8px;margin-top:8px;">'
-    + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="sendAsks(\'' + dk + '\')">Send ask (' + askPickerSelected.size + ')</button>'
+    + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="sendAsks(\'' + dk + '\')">Send ask (<span id="ask-picker-count">' + askPickerSelected.size + '</span>)</button>'
     + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="closeAskPicker()">Cancel</button>'
     + '</div>'
     + '</div>';
