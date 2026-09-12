@@ -239,14 +239,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
       </div>
     </div>
-    <!-- Tournament partner finder: its own card, deliberately separate from the
-         game creator. A post is not a game CourtSense runs; it is a player
-         looking for a partner for an outside tournament. -->
+    <!-- Tournaments: one card, one entry point. A partner post is now a post
+         ABOUT a tournament in the directory, so both used to be separate cards
+         asking for the same facts. Picking the tournament first is the honest
+         order, and adding one is a step inside that flow rather than a rival to it. -->
     <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Tournament partner finder</div>
+      <div class="ctitle"><span class="bar"></span>Tournaments</div>
       <div>
         <button class="btn btn-g btn-w" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a tournament you want to play and find a partner.</div>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. Add the tournament if it is not listed yet.</div>
       </div>
     </div>
     <div class="card" style="padding:14px;">
@@ -258,16 +259,6 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div>
         <button class="btn btn-g btn-w" onclick="shareJoinLink()">🔗 Invite a friend to CourtSense</button>
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
-      </div>
-    </div>
-    <!-- Tournament directory: a real outside tournament anyone can add, separate
-         from a partner post (one player looking) and from a CourtSense pickup
-         tournament (an event we run). -->
-    <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Tournament directory</div>
-      <div>
-        <button class="btn btn-g btn-w" onclick="startNewTournament()">🏆 Add a Tournament</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">List an upcoming tournament and its divisions.</div>
       </div>
     </div>
     <div id="invite-list"></div>
@@ -468,42 +459,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div class="ctitle"><span class="bar"></span>Find a Tournament Partner</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">Post a tournament you want to play in. Players respond, you pick your partner. CourtSense does not run the tournament.</div>
       <div class="fg">
-        <label class="lbl">Tournament Name</label>
-        <input class="inp" id="pp-name" placeholder="e.g. Gulf Coast Open">
+        <label class="lbl">Which tournament?</label>
+        <div id="pp-trn-pick"></div>
       </div>
-      <div class="fg">
-        <label class="lbl">Tournament Date</label>
-        <input class="inp" id="pp-date" type="date">
-      </div>
-      <div class="fg">
-        <label class="lbl">Registration or Info Link (optional)</label>
-        <input class="inp" id="pp-url" type="url" placeholder="https://...">
-      </div>
-      <div class="row2">
-        <div>
-          <label class="lbl">Surface</label>
-          <select class="inp" id="pp-surface" onchange="ppRebuildLocations()">
-            <option value="sand">Sand</option>
-            <option value="grass">Grass</option>
-          </select>
-        </div>
-        <div>
-          <label class="lbl">Division</label>
-          <select class="inp" id="pp-division">
-            <option value="mens">Men's</option>
-            <option value="womens">Women's</option>
-            <option value="coed">Coed</option>
-          </select>
-        </div>
-      </div>
-      <div class="fg">
-        <label class="lbl">Location</label>
-        <select class="inp" id="pp-loc" onchange="ppOnLocPreset()"></select>
-        <input class="inp" id="pp-loc-other" placeholder="Enter location" style="display:none;margin-top:8px;">
+      <div class="fg" id="pp-needs-wrap">
+        <label class="lbl">Which divisions do you need a partner for? <span id="pp-needs-count" style="font-weight:500;color:var(--gray);"></span></label>
+        <div id="pp-needs-grid"></div>
       </div>
       <div class="fg">
         <label class="lbl">Note (optional)</label>
-        <textarea class="inp" id="pp-note" rows="3" placeholder="Level you're looking for, format, anything else"></textarea>
+        <textarea class="inp" id="pp-note" rows="3" placeholder="Have a car, can split gas. Looking for someone who can block. First AA tournament."></textarea>
       </div>
       <div class="fg">
         <label class="lbl">Who can see this post?</label>
@@ -856,10 +821,14 @@ const PARTNER_SAND_LOCATIONS = [
   "FSU Lakefront Park & Retreat Center (The Rez)"
 ];
 const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
-// Skill bands a partner post's pool speaks in. Stored as the STRING on each pool
-// entry, never an index, so reordering or inserting a band never rewrites history.
-// Order is low to high; comparison is by position in this array.
-const PARTNER_BANDS = ['B', 'BB', 'A', 'AA', 'Open'];
+// Per-need status on a partner post. A need is one division the poster wants a
+// partner for. There is no waitlist and no position: a division is either still
+// looking or it is settled, and filling one leaves every other need untouched.
+const NEED_STATUSES = ['open','filled'];
+function needStatusOf(n){
+  const v = n && n.status;
+  return NEED_STATUSES.indexOf(v) === -1 ? 'open' : v;
+}
 
 // ── TOURNAMENT VOCABULARY ─────────────────────────────────────────────────
 // Slugs are what gets stored, always. Labels are display only and may be
@@ -900,13 +869,41 @@ function trnDivLabel(d){
 }
 function trnFormatLabel(f){ return String(f||'').toUpperCase(); }
 
-// Division id: 1-based day INDEX within the event, category, level, hyphenated.
-// Keying on position rather than weekday makes a repeat within one tournament
-// impossible: (dayIndex, category, level) is unique by construction, so an event
-// spanning two Saturdays no longer collides. Age-group categories omit the level
-// segment ('d2-girls-16u', not 'd2-girls-16u-a').
-function divIdFor(dayIdx, category, level){
-  const d = 'd' + dayIdx;
+// Coed divisions are not rated; men's and women's are. A rating badge shown in a
+// coed context therefore carries no signal, and an AA man playing coed BB is
+// ordinary rather than a mismatch. One quiet line wherever coed appears, never a
+// per-row annotation, and the badges themselves stay exactly where they were.
+const COED_UNRATED_NOTE = '<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">Coed divisions are not rated. Ratings shown come from men\u0027s and women\u0027s play, so they are not a guide to coed level.</div>';
+
+// Days a post actually covers, ascending, read off its needs. A post with no
+// needs (or a legacy post that predates them) falls back to its own stored date.
+function partnerNeedDays(i){
+  const ds = Object.values((i && i.needs) || {})
+    .map(n => n && n.day)
+    .filter(Boolean)
+    .sort();
+  return ds.length ? ds : ((i && i.date) ? [i.date] : []);
+}
+
+// First and last day a post covers. The LAST day is what every past-check uses:
+// a post covering Saturday and Sunday must stay live through Sunday, not expire
+// on Saturday morning because its first division has started.
+function partnerFirstDay(i){ const d = partnerNeedDays(i); return d.length ? d[0] : ''; }
+function partnerLastDay(i){ const d = partnerNeedDays(i); return d.length ? d[d.length - 1] : ''; }
+function partnerIsPast(i){ const last = partnerLastDay(i); return !!last && last < td(); }
+
+// Division id: the division's real DATE, category, level, hyphenated.
+// '2026-09-19-mens-a', '2026-09-20-girls-16u'.
+//
+// Date-based rather than positional on purpose. Partner posts reference divIds,
+// and an edit path that rebuilds the divisions map would silently repoint a
+// positional id ('d2-mens-a') at a different division the moment a day is added
+// or removed at the front. A date renumbers nothing: the id for Saturday's men's
+// A is the same id no matter what else the event gains or loses. Uniqueness is
+// still structural, since (date, category, level) cannot repeat within one event.
+// Age-group categories omit the level segment.
+function divIdFor(dateISO, category, level){
+  const d = String(dateISO || '');
   return trnIsAgeCategory(category) ? (d + '-' + category) : (d + '-' + category + '-' + level);
 }
 
@@ -2916,6 +2913,17 @@ let inviteExcSelected = new Set();
 let partnerIncSelected = new Set();
 let partnerNotifyFilter = '';
 
+// The post in progress: which tournament it is for, and which of that
+// tournament's divisions the poster needs a partner in. ppNeeds holds divIds.
+let ppTournamentId = null;
+let ppNeeds = new Set();
+// Set while the tournament create form was opened FROM the partner flow, so
+// saving a tournament returns to the post in progress instead of the directory.
+let ppReturnAfterTournament = false;
+// Pool join state, scoped to the post being viewed: which needs the viewer is
+// offering to cover.
+let poolNeedsSelected = new Set();
+
 // A1 pickup data-model fields. Held in module state between form-open and save,
 // mirroring inviteIncSelected/inviteExcSelected. No A1 UI populates these yet
 // (the form lands in A2); buildInviteRecord reads them so edits round-trip and
@@ -2940,6 +2948,7 @@ function backToList(){
   // Clear the tournament selection too, so a stale activeTournament cannot make a
   // later showView('tournament-detail') paint the previously opened event.
   activeTournament = null;
+  poolNeedsSelected = new Set();
   showView('list');
 }
 
@@ -3463,7 +3472,7 @@ function renderPartnerList(){
   const cont = $('partner-list'); if(!cont) return;
   const myKey = gameplayKey();
   const posts = Object.values(D.invites||{}).filter(p =>
-    p && p.id && p.postType === 'partner' && p.status !== 'cancelled' && (!p.date || p.date >= td()));
+    p && p.id && p.postType === 'partner' && p.status !== 'cancelled' && !partnerIsPast(p));
   if(!myKey){
     // Logged-out: the games section above already shows the login CTA once.
     cont.innerHTML = posts.length
@@ -3477,7 +3486,7 @@ function renderPartnerList(){
     ensureProfilesLoaded().then(()=>{ if(view==='list') renderPartnerList(); }).catch(()=>{});
   }
   const visible = posts
-    .filter(p => isChatEligible(p, myKey) && (isLoggedInHost(p) || divisionAllowsViewer(p.division)))
+    .filter(p => isChatEligible(p, myKey) && (isLoggedInHost(p) || partnerHasViewableNeed(p)))
     .sort((a,b) => String(a.date).localeCompare(String(b.date)));
 
   let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournament partners (' + visible.length + ')</div>';
@@ -3502,7 +3511,7 @@ function renderPartnerList(){
 
   const shown = visible.filter(p =>
     (partnerSurfaceFilter === 'all' || p.surface === partnerSurfaceFilter) &&
-    (partnerDivisionFilter === 'all' || p.division === partnerDivisionFilter));
+    (partnerDivisionFilter === 'all' || partnerAllNeeds(p).some(n => n.category === partnerDivisionFilter)));
   if(!shown.length){
     h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No posts match those filters.</div>';
     cont.innerHTML = h;
@@ -3525,7 +3534,8 @@ function renderPartnerList(){
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
       +   '<div style="flex:1;">'
       +     '<div class="evname">' + escapeHTML(p.name || 'Tournament') + '</div>'
-      +     '<div class="evmeta">' + fD(p.date) + ' · ' + (p.surface === 'grass' ? 'Grass' : 'Sand') + ' · ' + divisionLabel(p.division) + (p.location ? ' · ' + escapeHTML(p.location) : '') + '</div>'
+      +     '<div class="evmeta">' + escapeHTML(partnerDateLabel(p)) + ' · ' + (p.surface === 'grass' ? 'Grass' : 'Sand') + (p.location ? ' · ' + escapeHTML(p.location) : '') + '</div>'
+      +     '<div class="evmeta" style="margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + '</div>'
       +     '<div class="evmeta" style="margin-top:2px;">Posted by ' + escapeHTML(p.hostName || 'Anonymous') + clubBadge(p.hostId, p.hostName) + ' · ' + partnerVisLabel(p.eligibility) + '</div>'
       +   '</div>'
       +   badge
@@ -3536,37 +3546,154 @@ function renderPartnerList(){
 }
 
 // SETUP: new partner post form.
+// Null-safe lookup of the post-in-progress's tournament, following the
+// eligibility.groupId precedent: a single stored id, resolved through the cache,
+// never assumed to be there.
+function ppTournament(){ return (D.tournaments || {})[ppTournamentId] || null; }
+
+// The same lookup for a SAVED post. A post keeps denormalized copies of the
+// tournament's display fields, so a tournament that has gone missing degrades to
+// those rather than blanking the post.
+function partnerTournament(i){
+  return (i && i.tournamentId) ? ((D.tournaments || {})[i.tournamentId] || null) : null;
+}
+
 function startNewPartnerPost(){
   // Same create gate as startNewInvite: a real login only.
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to post'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
-  $('pp-name').value = ''; $('pp-date').value = ''; $('pp-url').value = ''; $('pp-note').value = '';
-  $('pp-surface').value = 'sand';
-  // Division prefill from the poster's own account gender (M starts on men's,
-  // F on women's, otherwise coed). Prefill only; any division can be picked.
-  const g = viewerGender();
-  $('pp-division').value = g === 'M' ? 'mens' : g === 'F' ? 'womens' : 'coed';
-  ppRebuildLocations();
+  if($('pp-note')) $('pp-note').value = '';
+  ppTournamentId = null;
+  ppNeeds = new Set();
+  ppReturnAfterTournament = false;
   ppRebuildVisibility();
   partnerIncSelected = new Set();
   partnerNotifyFilter = '';
   if($('pp-notify-search')) $('pp-notify-search').value = '';
   ppRebuildNotifyPicker();
+  ppRenderTournamentPick();
   showView('partner-setup');
 }
 
-// Surface drives the location presets: sand mirrors the pickup dropdown, grass
-// has its own short list. Both keep the free-text "Other" door.
-function ppRebuildLocations(){
-  const sel = $('pp-loc'); if(!sel) return;
-  const list = $('pp-surface') && $('pp-surface').value === 'grass' ? PARTNER_GRASS_LOCATIONS : PARTNER_SAND_LOCATIONS;
-  sel.innerHTML = list.map(l => '<option value="' + escapeHTML(l) + '">' + escapeHTML(l) + '</option>').join('')
-    + '<option value="__other__">Other</option>';
-  ppOnLocPreset();
+// Upcoming tournaments, the same window and sort the directory uses.
+function ppUpcomingTournaments(){
+  const today = td();
+  return Object.values(D.tournaments || {})
+    .filter(t => t && t.id && t.status !== 'cancelled' && (!t.endDate || t.endDate >= today))
+    .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
 }
-function ppOnLocPreset(){
-  const sel = $('pp-loc'); const other = $('pp-loc-other');
-  if(!sel || !other) return;
-  other.style.display = (sel.value === '__other__') ? '' : 'none';
+
+function ppPickTournament(id){
+  const t = (D.tournaments || {})[id];
+  if(!t){ toast('Tournament not found'); return; }
+  ppTournamentId = id;
+  ppNeeds = new Set();
+  ppRenderTournamentPick();
+}
+
+function ppClearTournament(){
+  ppTournamentId = null;
+  ppNeeds = new Set();
+  ppRenderTournamentPick();
+}
+
+// Add-a-tournament from inside the partner flow. Reuses the tournament create
+// form rather than duplicating it; the return flag is what brings the poster
+// back to the post they were writing.
+function ppAddTournamentInline(){
+  ppReturnAfterTournament = true;
+  startNewTournament();
+}
+
+// Step one of the form: pick a tournament, or add one. Once picked, the card
+// collapses to a summary so the divisions get the room.
+function ppRenderTournamentPick(){
+  const box = $('pp-trn-pick'); if(!box) return;
+  const t = ppTournament();
+  if(t){
+    box.innerHTML = '<div style="border:1px solid var(--sand-border);border-radius:10px;padding:10px;background:var(--sand);">'
+      + '<div style="font-weight:700;font-size:14px;">' + escapeHTML(t.name || 'Tournament') + '</div>'
+      + '<div style="font-size:12px;color:var(--gray);margin-top:2px;">' + escapeHTML([trnRangeLabel(t), t.location, trnFormatLabel(t.format)].filter(Boolean).join(' \u00b7 ')) + '</div>'
+      + '<button class="btn btn-g btn-sm" style="margin-top:8px;" onclick="ppClearTournament()">Pick a different tournament</button>'
+      + '</div>';
+    ppRenderNeeds();
+    return;
+  }
+  const list = ppUpcomingTournaments();
+  let h = '';
+  if(!list.length){
+    h += '<div style="font-size:13px;color:var(--gray);padding:6px 0;">No upcoming tournaments listed yet. Add the one you are playing.</div>';
+  } else {
+    h += list.map(t => {
+      const safe = escapeHTML(t.id).replace(/'/g, '&#39;');
+      const meta = [trnRangeLabel(t), t.location, trnFormatLabel(t.format)].filter(Boolean).join(' \u00b7 ');
+      return '<div class="evcard" style="margin-bottom:6px;" onclick="ppPickTournament(\'' + safe + '\')">'
+        + '<div class="evname">' + escapeHTML(t.name || 'Tournament') + '</div>'
+        + '<div class="evmeta">' + escapeHTML(meta) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+  h += '<button class="btn btn-g btn-w" style="margin-top:8px;" onclick="ppAddTournamentInline()">🏆 Add a tournament</button>';
+  box.innerHTML = h;
+  ppRenderNeeds();
+}
+
+function ppToggleNeed(divId, isChecked){
+  const decoded = trnDecodeKey(divId);
+  const t = ppTournament(); if(!t) return;
+  const d = (t.divisions || {})[decoded]; if(!d) return;
+  if(isChecked){
+    ppNeeds.add(decoded);
+    // Advertised-only means the tournament lists the division but has not opened
+    // registration. Worth a word at the moment of choosing, not a block: the
+    // organizer may still open it.
+    if(trnRegOf(d) === 'advertised') toast('Heads up: registration may not be open for ' + trnDivLabel(d));
+  } else {
+    ppNeeds.delete(decoded);
+  }
+  ppRenderNeeds();
+}
+
+// Step two: the picked tournament's divisions, grouped by day, as a multi-select.
+// Same Set idiom renderGroupMembers uses.
+function ppRenderNeeds(){
+  const grid = $('pp-needs-grid'); if(!grid) return;
+  const countEl = $('pp-needs-count');
+  const t = ppTournament();
+  if(countEl) countEl.textContent = t ? '(' + ppNeeds.size + ' selected)' : '';
+  if(!t){
+    grid.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Pick a tournament first.</p>';
+    return;
+  }
+  const divs = Object.values(t.divisions || {}).filter(Boolean);
+  if(!divs.length){
+    grid.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">That tournament has no divisions listed.</p>';
+    return;
+  }
+  const byDay = {};
+  divs.forEach(d => { (byDay[d.day] = byDay[d.day] || []).push(d); });
+  const days = (Array.isArray(t.days) && t.days.length ? t.days : Object.keys(byDay).sort());
+  let anyCoed = false;
+  let h = days.map(day => {
+    const list = byDay[day] || [];
+    if(!list.length) return '';
+    const rows = list.map(d => {
+      if(d.category === 'coed') anyCoed = true;
+      const checked = ppNeeds.has(d.id);
+      const safe = escapeHTML(d.id).replace(/'/g, '&#39;');
+      const adv = trnRegOf(d) === 'advertised';
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+        + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="ppToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(d)) + '</span>'
+        + (adv ? '<span style="flex-shrink:0;background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:2px 7px;border-radius:4px;">NO REG</span>' : '')
+        + '</label>';
+    }).join('');
+    return '<div style="margin-bottom:10px;">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + '</div>'
+      + '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;">' + rows + '</div>'
+      + '</div>';
+  }).join('');
+  if(anyCoed) h += COED_UNRATED_NOTE;
+  grid.innerHTML = h;
 }
 
 // Visibility defaults to the poster's club when they belong to one; widening to
@@ -3686,20 +3813,29 @@ function ppRenderNotifyList(){
 async function savePartnerPost(){
   // Defense-in-depth create gate, mirroring saveInvite.
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to post'); return; }
-  const name = ($('pp-name').value || '').trim();
-  const date = $('pp-date').value;
-  if(!name){ toast('Name the tournament'); return; }
-  if(!date){ toast('Pick the tournament date'); return; }
-  if(date < td()){ toast('That date has already passed'); return; }
-  let url = ($('pp-url').value || '').trim();
-  if(url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
-  if(url && !/^https?:\/\/\S+\.\S+/.test(url)){ toast('That link does not look right'); return; }
-  const surface = $('pp-surface').value === 'grass' ? 'grass' : 'sand';
-  const divRaw = $('pp-division').value;
-  const division = (divRaw === 'mens' || divRaw === 'womens' || divRaw === 'coed') ? divRaw : 'coed';
-  const locSel = $('pp-loc') ? $('pp-loc').value : '';
-  const location = (locSel === '__other__' ? (($('pp-loc-other') && $('pp-loc-other').value) || '') : locSel).trim();
-  if(!location){ toast('Pick a location'); return; }
+  const t = ppTournament();
+  if(!t){ toast('Pick a tournament first'); return; }
+  if(!ppNeeds.size){ toast('Pick at least one division'); return; }
+
+  // Needs: one entry per division the poster wants a partner in. Every need starts
+  // open; filling one later leaves the rest alone.
+  const needs = {};
+  [...ppNeeds].forEach(divId => {
+    const d = (t.divisions || {})[divId];
+    if(!d) return;
+    needs[divId] = { divId: divId, day: d.day, category: d.category, level: d.level === undefined ? null : d.level, status: 'open' };
+  });
+  if(!Object.keys(needs).length){ toast('Those divisions are no longer on the tournament'); return; }
+
+  // Dates are DERIVED from the needs, never typed. First day for display, last
+  // day for every deadline and past-check, so a multi-day post stays live through
+  // the final division it covers.
+  const needDays = Object.values(needs).map(n => n.day).filter(Boolean).sort();
+  const date = needDays[0] || t.startDate || '';
+  const lastDay = needDays[needDays.length - 1] || date;
+  if(!date){ toast('That tournament has no usable dates'); return; }
+  if(lastDay < td()){ toast('That tournament has already passed'); return; }
+
   const note = ($('pp-note').value || '').trim();
   const club = viewerClubOrg();
   // Notify circle -> notifyList, a top-level key of its own. It is deliberately
@@ -3729,16 +3865,27 @@ async function savePartnerPost(){
   const rec = {
     id: id,
     postType: 'partner',       // discriminator; absent = pickup game
-    name: name, date: date,
+    // The reference. Everything below it that repeats tournament facts is a COPY,
+    // not a second source: the Cloudflare worker reads invite.name, invite.date and
+    // invite.location straight off this record and cannot follow a reference, so
+    // dropping them would silently gut the notification emails.
+    tournamentId: t.id,
+    needs: needs,
+    name: t.name || 'Tournament',
+    date: date,                // first day covered, for display
+    lastDay: lastDay,          // last day covered, for deadlines and past-checks
     startTime: '00:00',        // lets shared date math work; the partner UI never shows a time
-    eventUrl: url || null,
-    surface: surface, division: division, location: location,
+    eventUrl: t.eventUrl || null,
+    surface: t.surface || 'sand',
+    location: t.location || '',
     description: note,
-    slots: 1, minSlots: 1,     // one partner sought; reuses the confirmed-slot math
-    rsvpDeadline: new Date(date + 'T23:59:00').getTime(),  // responses stay open through tournament day
-    // Midnight local on the tournament day, matching the '00:00' startTime above.
-    // Same omit-rather-than-write-NaN rule as every other path.
-    ...(computeStartMs(date, '00:00') !== null ? { startMs: computeStartMs(date, '00:00') } : {}),
+    slots: 1, minSlots: 1,     // written explicitly: the (i.slots||6) fallback would silently make it six
+    // Deadline rides the LAST day, so a Saturday-and-Sunday post is still open on
+    // Saturday night.
+    rsvpDeadline: new Date(lastDay + 'T23:59:00').getTime(),
+    // Midnight local on the last day covered. Same omit-rather-than-write-NaN rule
+    // as every other path.
+    ...(computeStartMs(lastDay, '00:00') !== null ? { startMs: computeStartMs(lastDay, '00:00') } : {}),
     eligibility: eligibility,
     // Notify recipients for this post, account ids. Read by the notify step, never
     // by computeEligible. Firebase drops an empty array, so an unpicked post simply
@@ -3796,16 +3943,16 @@ function trnRangeLabel(t){
 }
 
 // Every selectable cell for one day: adult categories crossed with levels, then
-// the age groups, which carry no level. dayIdx is 1-based and only sets the id;
-// the day field stays the real calendar date.
-function trnCellsForDay(dateISO, dayIdx){
+// the age groups, which carry no level. The id and the selection key now carry
+// the same calendar day, so a selection and the division it becomes always agree.
+function trnCellsForDay(dateISO){
   const cells = [];
   TRN_CATEGORIES.forEach(cat => {
     if(trnIsAgeCategory(cat)){
-      cells.push({ id: divIdFor(dayIdx, cat, null), key: trnSelKey(dateISO, cat, null), day: dateISO, category: cat, level: null });
+      cells.push({ id: divIdFor(dateISO, cat, null), key: trnSelKey(dateISO, cat, null), day: dateISO, category: cat, level: null });
     } else {
       TRN_LEVELS.forEach(lvl => {
-        cells.push({ id: divIdFor(dayIdx, cat, lvl), key: trnSelKey(dateISO, cat, lvl), day: dateISO, category: cat, level: lvl });
+        cells.push({ id: divIdFor(dateISO, cat, lvl), key: trnSelKey(dateISO, cat, lvl), day: dateISO, category: cat, level: lvl });
       });
     }
   });
@@ -3914,8 +4061,8 @@ function trnRenderGrid(){
     grid.innerHTML = "<p style=\"color:var(--gray);font-size:13px;padding:10px 2px;\">Pick a start and end date to choose divisions.</p>";
     return;
   }
-  grid.innerHTML = trnDays.map((day, idx) => {
-    const cells = trnCellsForDay(day, idx + 1);
+  grid.innerHTML = trnDays.map(day => {
+    const cells = trnCellsForDay(day);
     const rows = cells.map(c => {
       const key = c.key;
       const checked = trnSelectedDivs.has(key);
@@ -3965,19 +4112,16 @@ function buildTournamentRecord(){
   const days = trnDayList(startDate, endDate);
 
   // Only selections whose day survives the current range become divisions. The id
-  // is minted HERE from the day's final position, so a range edit renumbers every
-  // division cleanly instead of stranding an id built against the old range.
-  const dayIndex = {};
-  days.forEach((d, i) => { dayIndex[d] = i + 1; });
+  // comes from the day itself, so it is stable across any later edit to the range.
+  const live = new Set(days);
   const divisions = {};
   [...trnSelectedDivs].forEach(key => {
     const p = trnSelParts(key);
-    const idx = dayIndex[p.day];
-    if(!idx) return;
+    if(!p.day || !live.has(p.day)) return;
     if(TRN_CATEGORIES.indexOf(p.category) === -1) return;
     const level = trnIsAgeCategory(p.category) ? null : p.level;
     if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
-    const divId = divIdFor(idx, p.category, level);
+    const divId = divIdFor(p.day, p.category, level);
     // Every division carries regStatus explicitly rather than relying on absence
     // to mean open, so a reader never has to know the default. Validated against
     // TRN_REG_STATUSES here, the one place it is written.
@@ -4071,8 +4215,20 @@ async function saveTournament(){
   // Optimistic local, re-render, then persist. Same order approveGuestRequest uses.
   if(!D.tournaments) D.tournaments = {};
   D.tournaments[rec.id] = rec;
-  activeTournament = rec.id;
-  showView("tournament-detail");
+
+  // Added from inside the partner flow: hand the poster straight back to the post
+  // they were writing, with the new tournament already selected. Otherwise this is
+  // the plain directory add and the detail view is the right landing.
+  if(ppReturnAfterTournament){
+    ppReturnAfterTournament = false;
+    ppTournamentId = rec.id;
+    ppNeeds = new Set();
+    ppRenderTournamentPick();
+    showView('partner-setup');
+  } else {
+    activeTournament = rec.id;
+    showView("tournament-detail");
+  }
 
   const ok = await fbSet("tournaments/" + rec.id, rec);
   if(ok) toast(soft.length ? "Added. Heads up: " + soft.join(", ") + "." : "Tournament added");
@@ -4222,18 +4378,14 @@ function renderTournamentDetail(){
 // sends nothing, asks nothing and pairs nobody. It lives at
 // invites/{id}/pool/{nameKey}, a node of its own, so it never touches the rsvps
 // or guestRequests machinery that drives the actual partner decision.
-function partnerBandOk(min, max){
-  const a = PARTNER_BANDS.indexOf(min), b = PARTNER_BANDS.indexOf(max);
-  return a !== -1 && b !== -1 && a <= b;
-}
-
-// Band range for display. A single-band range reads as the one band, not "B to B".
-function partnerBandLabel(e){
-  if(!e) return '';
-  const lo = e.bandMin, hi = e.bandMax;
-  if(!lo && !hi) return '';
-  if(lo === hi) return escapeHTML(lo || hi);
-  return escapeHTML(lo || '?') + ' to ' + escapeHTML(hi || '?');
+// What a pool entry is offering, as chips. Reads the entry's own needs map, so
+// an entry always states the divisions it actually signed up for rather than a
+// band range that had to be interpreted.
+function poolEntryNeedLabels(e){
+  return Object.values((e && e.needs) || {})
+    .filter(Boolean)
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)))
+    .map(n => trnDivLabel(n));
 }
 
 // Everything respondToPartnerPost gates on EXCEPT the response-specific checks.
@@ -4244,15 +4396,64 @@ function partnerPoolBlockReason(i){
   if(!i || i.postType !== 'partner') return 'Not a partner post';
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to join the pool';
   if(i.status === 'cancelled') return 'Post cancelled';
-  if(i.date && i.date < td()) return 'This tournament has passed';
+  if(partnerIsPast(i)) return 'This tournament has passed';
   if(isLoggedInHost(i)) return 'This is your post';
-  if(!divisionAllowsViewer(i.division)) return 'This post is for the ' + divisionLabel(i.division) + ' division';
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!me || !myKey) return 'Pick your name first';
   if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey)) return 'This post is not open to you';
-  if(Object.values(i.rsvps || {}).some(r => r && r.status === 'confirmed')) return 'Partner already found';
+  // No confirmed-partner check any more, and no single-division gate. A post now
+  // carries several needs: one of them being settled must not lock everybody out
+  // of the others, and the viewer's own division eligibility is decided per need
+  // in the picker rather than once for the whole post.
+  if(!partnerOpenNeeds(i).length) return 'Every division on this post is filled';
   return null;
+}
+
+// Needs still looking for somebody, ascending by day then label.
+function partnerOpenNeeds(i){
+  return Object.values((i && i.needs) || {})
+    .filter(n => n && needStatusOf(n) === 'open')
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)));
+}
+
+// Every need, open or filled, in the same order.
+function partnerAllNeeds(i){
+  return Object.values((i && i.needs) || {})
+    .filter(Boolean)
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)) || trnDivLabel(a).localeCompare(trnDivLabel(b)));
+}
+
+// A post used to carry ONE division, so one gender check settled the whole post.
+// It now carries several, so the question becomes whether ANY of them is open to
+// the viewer. A legacy post with no needs falls back to its stored division.
+function partnerHasViewableNeed(i){
+  const needs = partnerAllNeeds(i);
+  if(!needs.length) return divisionAllowsViewer(i && i.division);
+  return needs.some(n => divisionAllowsViewer(n.category));
+}
+
+// Date line for a card: one day reads as one date, several as a range.
+function partnerDateLabel(i){
+  const first = partnerFirstDay(i), last = partnerLastDay(i);
+  if(!first) return '';
+  return (!last || last === first) ? fD(first) : fD(first) + ' to ' + fD(last);
+}
+
+// Short summary of what a post is looking for, for the list card.
+function partnerNeedSummary(i){
+  const open = partnerOpenNeeds(i), all = partnerAllNeeds(i);
+  if(!all.length) return i && i.division ? divisionLabel(i.division) : '';
+  const labels = (open.length ? open : all).map(n => trnDivLabel(n)).join(', ');
+  const filled = all.length - open.length;
+  return (open.length ? 'Needs: ' + labels : 'All filled: ' + labels)
+    + (open.length && filled ? ' (' + filled + ' filled)' : '');
+}
+
+function poolToggleNeed(divId, isChecked){
+  const decoded = trnDecodeKey(divId);
+  if(isChecked) poolNeedsSelected.add(decoded); else poolNeedsSelected.delete(decoded);
+  renderInviteDetail();
 }
 
 function joinPartnerPool(){
@@ -4261,12 +4462,20 @@ function joinPartnerPool(){
   if(reason){ toast(reason); return; }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-  const minEl = $('pool-band-min'), maxEl = $('pool-band-max');
-  const bandMin = (minEl && minEl.value) || PARTNER_BANDS[0];
-  const bandMax = (maxEl && maxEl.value) || PARTNER_BANDS[PARTNER_BANDS.length-1];
-  if(!partnerBandOk(bandMin, bandMax)){ toast('Lowest band cannot be above highest'); return; }
 
-  const entry = { name: me.name, accountId: currentAccountId(), bandMin: bandMin, bandMax: bandMax, joinedAt: Date.now() };
+  // Only still-open needs can be offered for. A division already settled is not
+  // refillable without the pair dropping first, so offering for it would be a lie.
+  const openIds = new Set(partnerOpenNeeds(i).map(n => n.divId));
+  const needs = {};
+  poolNeedsSelected.forEach(divId => {
+    if(!openIds.has(divId)) return;
+    const n = (i.needs || {})[divId];
+    if(!n) return;
+    needs[divId] = { divId: divId, day: n.day, category: n.category, level: n.level === undefined ? null : n.level };
+  });
+  if(!Object.keys(needs).length){ toast('Pick at least one division'); return; }
+
+  const entry = { name: me.name, accountId: currentAccountId(), needs: needs, joinedAt: Date.now() };
 
   // Optimistic local + mirror, then persist. Same order approveGuestRequest uses.
   if(!D.invites[activeInvite].pool) D.invites[activeInvite].pool = {};
@@ -4311,7 +4520,7 @@ function renderPartnerDetail(i){
     .sort((a,b) => (a[1].requestedAt||0) - (b[1].requestedAt||0));
   const myReq = pending.find(([id,r]) => (r.accountId && r.accountId === currentAccountId())
     || (myKey && Identity.nameKey(r.name || '') === myKey)) || null;
-  const isPast = i.date && i.date < td();
+  const isPast = partnerIsPast(i);
   const isCancelled = i.status === 'cancelled';
   // Pool entries, oldest first. Keyed by nameKey like rsvps, so a viewer's own
   // entry is a direct lookup rather than a scan.
@@ -4372,27 +4581,37 @@ function renderPartnerDetail(i){
       + '<button class="btn btn-g btn-w" onclick="withdrawPartnerResponse(\'' + escapeHTML(myReq[0]).replace(/'/g,"\\'") + '\')">Withdraw Response</button>';
   } else if(partnerEntry){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">Partner found.</div>';
-  } else if(!divisionAllowsViewer(i.division)){
-    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is for the ' + divisionLabel(i.division) + ' division.</div>';
+  } else if(!partnerHasViewableNeed(i)){
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">None of this post\u0027s divisions are open to you.</div>';
   } else if(!(myKey && isChatEligible(i, myKey))){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is limited to ' + escapeHTML(partnerVisLabel(i.eligibility)) + ' members.</div>';
   } else {
     // Pool controls sit under the ask button: declaring you are looking is a
     // separate, weaker statement than asking this poster directly, and a player
     // can do both. Display only in this build.
-    const bandSel = (id, sel) => '<select class="inp" id="' + id + '" style="font-size:13px;padding:8px;">'
-      + PARTNER_BANDS.map(b => '<option value="' + b + '"' + (b === sel ? ' selected' : '') + '>' + b + '</option>').join('')
-      + '</select>';
+    // Offer per division, not per band: the division already states the level, so
+    // a band range would be restating it less precisely. Only open needs are
+    // offerable; a filled one cannot be refilled without the pair dropping first.
+    const openNeeds = partnerOpenNeeds(i);
+    const needRows = openNeeds.map(n => {
+      const safe = escapeHTML(n.divId).replace(/'/g, '&#39;');
+      const checked = poolNeedsSelected.has(n.divId);
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+        + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
+        + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
+        + '</label>';
+    }).join('');
     const poolBlock = myPool
-      ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + partnerBandLabel(myPool) + '.</div>'
+      ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(myPool).join(', ') || 'this post') + '.</div>'
         + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
       : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Still looking?</div>'
-        + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Add yourself to the pool so other players can see you want a partner for this one.</div>'
-        + '<div class="row2" style="margin-bottom:8px;">'
-        +   '<div><label class="lbl">Lowest band</label>' + bandSel('pool-band-min', PARTNER_BANDS[0]) + '</div>'
-        +   '<div><label class="lbl">Highest band</label>' + bandSel('pool-band-max', PARTNER_BANDS[PARTNER_BANDS.length-1]) + '</div>'
-        + '</div>'
-        + '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>';
+        + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Say which of these divisions you could play, so other players can see you are available.</div>'
+        + (needRows
+            ? '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
+            : '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Every division on this post is filled.</div>')
+        + (openNeeds.some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '')
+        + (needRows ? '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>' : '');
     actionHTML = '<button class="btn btn-p btn-w" onclick="respondToPartnerPost()">I\'ll Partner With You</button>'
       + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">' + escapeHTML(i.hostName || 'The poster') + ' gets notified and picks their partner.</div>'
       + '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
@@ -4407,7 +4626,15 @@ function renderPartnerDetail(i){
     +   '</div>'
     +   (isCancelled ? '<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>' : '')
     + '</div>'
-    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' + chip(i.surface === 'grass' ? 'GRASS' : 'SAND') + chip(divisionLabel(i.division).toUpperCase()) + chip('PARTNER WANTED') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' + chip(i.surface === 'grass' ? 'GRASS' : 'SAND') + chip('PARTNER WANTED') + '</div>'
+    // The needs are the post. Filled ones stay visible so the picture is honest:
+    // a post with one division settled and two open reads that way.
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">'
+    +   partnerAllNeeds(i).map(n => needStatusOf(n) === 'filled'
+          ? '<span style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + escapeHTML(trnDivLabel(n)).toUpperCase() + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>'
+          : chip(escapeHTML(trnDivLabel(n)).toUpperCase())).join('')
+    + '</div>'
+    + (partnerAllNeeds(i).some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '')
     + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Tournament registration and info ↗</a></div>' : '')
     + (i.description ? '<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:6px;padding:10px 12px;background:var(--sand);border-radius:8px;">' + escapeHTML(i.description) + '</div>' : '')
     + '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Posted by ' + escapeHTML(i.hostName || 'Anonymous') + clubBadge(i.hostId, i.hostName) + ' · Visible to ' + escapeHTML(partnerVisLabel(i.eligibility)) + '</div>'
@@ -4425,7 +4652,9 @@ function renderPartnerDetail(i){
         ? pool.map(([k, e]) =>
             '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
             + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name) + '</span>'
-            + chip(partnerBandLabel(e))
+            + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
+            +   poolEntryNeedLabels(e).map(l => chip(escapeHTML(l).toUpperCase())).join('')
+            + '</span>'
             + '</div>').join('')
         : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet.</p>')
     + '</div>';
@@ -4472,9 +4701,9 @@ function respondToPartnerPost(){
   const i = (D.invites||{})[activeInvite]; if(!i || i.postType !== 'partner') return;
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to respond'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
-  if(i.date && i.date < td()){ toast('This tournament has passed'); return; }
+  if(partnerIsPast(i)){ toast('This tournament has passed'); return; }
   if(isLoggedInHost(i)){ toast('This is your post'); return; }
-  if(!divisionAllowsViewer(i.division)){ toast('This post is for the ' + divisionLabel(i.division) + ' division'); return; }
+  if(!partnerHasViewableNeed(i)){ toast('None of this post\u0027s divisions are open to you'); return; }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!me || !myKey){ toast('Pick your name first'); return; }
@@ -5452,6 +5681,9 @@ async function saveInvite(){
 function openInviteDetail(id){
   if(!(D.invites||{})[id]){ toast('Pickup not found'); return; }
   activeInvite = id;
+  // Pool offers are scoped to one post, so opening a different post must not
+  // inherit the divisions ticked on the last one.
+  poolNeedsSelected = new Set();
   ensureProfilesLoaded().then(()=>showView('invite-detail'));
 }
 
