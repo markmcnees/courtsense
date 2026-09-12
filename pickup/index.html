@@ -2916,6 +2916,9 @@ function backToList(){
   activeInvite = null;
   inviteEditId = null;
   setupState = null;
+  // Clear the tournament selection too, so a stale activeTournament cannot make a
+  // later showView('tournament-detail') paint the previously opened event.
+  activeTournament = null;
   showView('list');
 }
 
