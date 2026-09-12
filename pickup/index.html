@@ -260,8 +260,19 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
       </div>
     </div>
+    <!-- Tournament directory: a real outside tournament anyone can add, separate
+         from a partner post (one player looking) and from a CourtSense pickup
+         tournament (an event we run). -->
+    <div class="card" style="padding:14px;">
+      <div class="ctitle"><span class="bar"></span>Tournament directory</div>
+      <div>
+        <button class="btn btn-g btn-w" onclick="startNewTournament()">🏆 Add a Tournament</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">List an upcoming tournament and its divisions.</div>
+      </div>
+    </div>
     <div id="invite-list"></div>
     <div id="partner-list"></div>
+    <div id="tournament-list"></div>
     <div id="event-list"></div>
   </div>
 
@@ -507,6 +518,71 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
     <button class="btn btn-p btn-w" id="pp-save-btn" onclick="savePartnerPost()">Post It</button>
+  </div>
+
+  <!-- TOURNAMENT SETUP VIEW -->
+  <div class="pane" id="view-tournament-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Add a Tournament</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">List a tournament so players can find it and each other. CourtSense does not run it and does not handle registration.</div>
+      <div class="fg">
+        <label class="lbl">Tournament Name</label>
+        <input class="inp" id="trn-name" placeholder="e.g. Gulf Coast Open">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Start Date</label>
+          <input class="inp" id="trn-start" type="date" onchange="trnOnDatesChanged()">
+        </div>
+        <div>
+          <label class="lbl">End Date</label>
+          <input class="inp" id="trn-end" type="date" onchange="trnOnDatesChanged()">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Location</label>
+        <input class="inp" id="trn-loc" placeholder="e.g. Jacksonville Beach">
+        <input class="inp" id="trn-addr" placeholder="Street address (optional)" style="margin-top:8px;">
+      </div>
+      <div class="fg">
+        <label class="lbl">Registration or Info Link (optional)</label>
+        <input class="inp" id="trn-url" type="url" placeholder="https://...">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Surface</label>
+          <select class="inp" id="trn-surface">
+            <option value="sand">Sand</option>
+            <option value="grass">Grass</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Format</label>
+          <select class="inp" id="trn-format"></select>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Organizer (optional)</label>
+        <input class="inp" id="trn-organizer" placeholder="e.g. SSOVA">
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Divisions <span id="trn-div-count" style="color:var(--gray);font-size:12px;font-weight:400;letter-spacing:0;margin-left:6px;">0 selected</span></div>
+      <div class="fg">
+        <label class="lbl">Start from a preset</label>
+        <select class="inp" id="trn-preset" onchange="trnApplyPreset(this.value)"></select>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">A preset fills the grid. Everything stays editable after.</div>
+      </div>
+      <div id="trn-grid"></div>
+    </div>
+    <button class="btn btn-p btn-w" id="trn-save-btn" onclick="saveTournament()">Add Tournament</button>
+  </div>
+
+  <!-- TOURNAMENT DETAIL VIEW -->
+  <div class="pane" id="view-tournament-detail">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div id="trn-detail-body"></div>
   </div>
 
   <!-- INVITE DETAIL VIEW -->
@@ -784,6 +860,58 @@ const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
 // entry, never an index, so reordering or inserting a band never rewrites history.
 // Order is low to high; comparison is by position in this array.
 const PARTNER_BANDS = ['B', 'BB', 'A', 'AA', 'Open'];
+
+// ── TOURNAMENT VOCABULARY ─────────────────────────────────────────────────
+// Slugs are what gets stored, always. Labels are display only and may be
+// reworded without touching a single saved record.
+// Adult categories carry a skill level; age-group categories do not, because
+// 16U IS the division. divIdFor encodes that difference.
+const TRN_CATEGORIES = ['mens','womens','coed','girls-18u','girls-16u','girls-14u','girls-12u'];
+const TRN_LEVELS = ['open','aaa','aa','a','bb','b'];
+const TRN_FORMATS = ['2v2','3v3','4v4'];
+const TRN_AGE_PREFIX = 'girls-';
+const TRN_CAT_LABEL = {
+  'mens':"Men's", 'womens':"Women's", 'coed':'Coed',
+  'girls-18u':'Girls 18U', 'girls-16u':'Girls 16U', 'girls-14u':'Girls 14U', 'girls-12u':'Girls 12U'
+};
+const TRN_LEVEL_LABEL = { 'open':'Open', 'aaa':'AAA', 'aa':'AA', 'a':'A', 'bb':'BB', 'b':'B' };
+function trnIsAgeCategory(cat){ return String(cat||'').indexOf(TRN_AGE_PREFIX) === 0; }
+function trnCatLabel(cat){ return TRN_CAT_LABEL[cat] || String(cat||''); }
+function trnLevelLabel(lvl){ return TRN_LEVEL_LABEL[lvl] || String(lvl||''); }
+function trnDivLabel(d){
+  if(!d) return '';
+  return trnIsAgeCategory(d.category)
+    ? trnCatLabel(d.category)
+    : trnCatLabel(d.category) + ' ' + trnLevelLabel(d.level);
+}
+function trnFormatLabel(f){ return String(f||'').toUpperCase(); }
+
+// Division id: 1-based day INDEX within the event, category, level, hyphenated.
+// Keying on position rather than weekday makes a repeat within one tournament
+// impossible: (dayIndex, category, level) is unique by construction, so an event
+// spanning two Saturdays no longer collides. Age-group categories omit the level
+// segment ('d2-girls-16u', not 'd2-girls-16u-a').
+function divIdFor(dayIdx, category, level){
+  const d = 'd' + dayIdx;
+  return trnIsAgeCategory(category) ? (d + '-' + category) : (d + '-' + category + '-' + level);
+}
+
+// Organizer presets, expressed as DAY OFFSETS so the same preset lands correctly
+// on any weekend. Each entry is a list of [category, level] per day.
+const TRN_PRESETS = {
+  ssova: { label: 'SSOVA', days: [
+    [['mens','a'], ['womens','a']],
+    [['mens','open'], ['womens','open'], ['mens','aa'], ['womens','aa']],
+    [['coed','aa'], ['coed','a'], ['coed','bb']]
+  ]},
+  firstcoast: { label: 'First Coast', days: [
+    [['mens','open'], ['mens','aa'], ['mens','a'], ['mens','bb'],
+     ['womens','open'], ['womens','aa'], ['womens','a'], ['womens','bb']],
+    [['coed','aaa'], ['coed','aa'], ['coed','a'], ['coed','bb'],
+     ['girls-18u',null], ['girls-16u',null], ['girls-14u',null], ['girls-12u',null]]
+  ]},
+  blank: { label: 'Blank', days: [] }
+};
 // Hard cap on the partner-post notify circle, stored as notifyList on the post.
 // The worker slices the players array to 10 in handleInviteNotify, so the client
 // must never let a poster select more than the server will actually send to.
@@ -806,7 +934,18 @@ let activeEvent = null;
 let tab = 'score';
 let liveRound = 1;
 const lscore = {};
-let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invites:{} };
+let D = { events:{}, archive:{}, player_history:{}, ratings:{}, groups:{}, invites:{}, tournaments:{} };
+
+// Tournament module state. trnSelectedDivs holds divIds (strings), mirroring the
+// groupEditMembers Set pattern the other multi-selects use.
+let activeTournament = null;
+let trnSelectedDivs = new Set();
+let trnDays = [];
+let trnSurfaceFilter = 'all';
+let trnFormatFilter = 'all';
+// Set when the tournaments listener errors, so the list can say 'could not load'
+// instead of showing the same empty state a genuinely empty directory shows.
+let trnLoadFailed = false;
 let leagueKings  = {};
 let leagueQueens = {};
 let clubRoster   = {};
@@ -1169,6 +1308,20 @@ function initFB(){
     }, e=>{console.error(e);setSS(false);});
     db.ref(DB_ROOT+'/ratings').on('value', s=>{ D.ratings = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
     db.ref(DB_ROOT+'/groups').on('value', s=>{ D.groups = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
+    // Tournaments is deliberately NOT wired to setSS. The sync dot reports whether
+    // the app is talking to Firebase at all; one node the rules deny is a feature
+    // that is unavailable, not an offline app. A denial here leaves every other
+    // listener's state untouched and surfaces in the tournament list instead.
+    db.ref(DB_ROOT+'/tournaments').on('value', s=>{
+      D.tournaments = s.val()||{};
+      trnLoadFailed = false;
+      refreshAll();
+    }, e=>{
+      console.warn('tournaments read failed', e);
+      D.tournaments = {};
+      trnLoadFailed = true;
+      refreshAll();
+    });
     db.ref(DB_ROOT+'/archive').on('value', s=>{ D.archive = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
     db.ref(DB_ROOT+'/player_history').on('value', s=>{ D.player_history = s.val()||{}; refreshAll(); }, e=>{console.error(e);setSS(false);});
     db.ref(LEAGUE_KINGS_PATH).on('value',  s=>{ leagueKings  = s.val()||{}; refreshAll(); }, e=>console.warn('kings read failed',e));
@@ -1218,6 +1371,8 @@ function showView(v){
   $('view-event').classList.toggle('on', v==='event');
   $('view-invite-setup').classList.toggle('on',  v==='invite-setup');
   $('view-partner-setup').classList.toggle('on', v==='partner-setup');
+  $('view-tournament-setup').classList.toggle('on', v==='tournament-setup');
+  $('view-tournament-detail').classList.toggle('on', v==='tournament-detail');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
@@ -1226,7 +1381,7 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
-  if(view==='invite-setup' || view==='partner-setup' || view==='invite-detail'){ backToList(); return; }
+  if(view==='invite-setup' || view==='partner-setup' || view==='invite-detail' || view==='tournament-setup' || view==='tournament-detail'){ backToList(); return; }
 }
 function openProfile(){
   if(!window.Identity){ toast('Profile module not loaded yet, refresh the page'); return; }
@@ -1270,11 +1425,13 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderInviteList(); renderEventList(); }
+  if(view==='list'){ renderInviteList(); renderTournamentList(); renderEventList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
   else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
   else if(view==='invite-detail'){ renderInviteDetail(); }
+  else if(view==='tournament-setup'){ trnRenderGrid(); }
+  else if(view==='tournament-detail'){ renderTournamentDetail(); }
   // Door 2 resume: after a register-and-return, auto-fire the stashed join once the
   // game + roster data are ready. Guarded internally so it runs at most once.
   tryResumeJoin();
@@ -3577,6 +3734,405 @@ async function savePartnerPost(){
   activeInvite = id;
   toast('Posted ✓');
   showView('invite-detail');
+}
+
+// ── TOURNAMENT DIRECTORY ──────────────────────────────────────────────────
+// A real outside tournament, listed so players can find it and, later, find each
+// other inside a specific division. Distinct from a partner post (one player
+// looking) and from a pickup tournament at events/{id} (an event CourtSense runs).
+// Lives at tally_kotb_pickup/tournaments/{id}. Directory and display only in this
+// build: no joining, no pool, no needs.
+
+// Every day the event runs, ascending. Steps on the noon anchor so a DST boundary
+// inside the range can never roll a day forward or back.
+function trnDayList(startISO, endISO){
+  if(!startISO || !endISO) return [];
+  const end = new Date(endISO + "T12:00:00");
+  let cur = new Date(startISO + "T12:00:00");
+  if(isNaN(cur.getTime()) || isNaN(end.getTime()) || cur > end) return [];
+  const out = [];
+  let guard = 0;
+  while(cur <= end && guard++ < 60){
+    out.push(cur.getFullYear() + "-" + String(cur.getMonth()+1).padStart(2,"0") + "-" + String(cur.getDate()).padStart(2,"0"));
+    cur = new Date(cur.getTime() + 24*60*60*1000);
+    cur.setHours(12,0,0,0);
+  }
+  return out;
+}
+
+// Day heading, for example "Sunday, Aug 3". Display only; the stored key stays ISO.
+function trnDayLabel(dateISO){
+  return new Date(dateISO + "T12:00:00").toLocaleDateString("en-US", {weekday:"long", month:"short", day:"numeric"});
+}
+
+// Date range for a card or header. A single-day event reads as one date.
+function trnRangeLabel(t){
+  if(!t || !t.startDate) return "";
+  return (!t.endDate || t.endDate === t.startDate) ? fD(t.startDate) : fD(t.startDate) + " to " + fD(t.endDate);
+}
+
+// Every selectable cell for one day: adult categories crossed with levels, then
+// the age groups, which carry no level. dayIdx is 1-based and only sets the id;
+// the day field stays the real calendar date.
+function trnCellsForDay(dateISO, dayIdx){
+  const cells = [];
+  TRN_CATEGORIES.forEach(cat => {
+    if(trnIsAgeCategory(cat)){
+      cells.push({ id: divIdFor(dayIdx, cat, null), key: trnSelKey(dateISO, cat, null), day: dateISO, category: cat, level: null });
+    } else {
+      TRN_LEVELS.forEach(lvl => {
+        cells.push({ id: divIdFor(dayIdx, cat, lvl), key: trnSelKey(dateISO, cat, lvl), day: dateISO, category: cat, level: lvl });
+      });
+    }
+  });
+  return cells;
+}
+
+// The SELECTION key is deliberately index-free: "dayISO|category|level". A divId
+// encodes the day POSITION, so widening the range at the front would renumber
+// every id and orphan a selection keyed by one. Keyed by the calendar day instead,
+// a selection survives a range change and simply picks up its new id at save time.
+function trnSelKey(day, category, level){ return day + "|" + category + "|" + (level || ""); }
+function trnDivDayOf(key){ const i = String(key).indexOf("|"); return i === -1 ? null : String(key).slice(0, i); }
+function trnSelParts(key){
+  const p = String(key).split("|");
+  return { day: p[0] || "", category: p[1] || "", level: p[2] || null };
+}
+
+function startNewTournament(){
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  ["trn-name","trn-start","trn-end","trn-loc","trn-addr","trn-url","trn-organizer"].forEach(id => { if($(id)) $(id).value = ""; });
+  if($("trn-surface")) $("trn-surface").value = "sand";
+  const fmt = $("trn-format");
+  if(fmt) fmt.innerHTML = TRN_FORMATS.map(f => "<option value=" + JSON.stringify(f) + ">" + trnFormatLabel(f) + "</option>").join("");
+  const pre = $("trn-preset");
+  if(pre){
+    pre.innerHTML = Object.keys(TRN_PRESETS).map(k => "<option value=" + JSON.stringify(k) + ">" + escapeHTML(TRN_PRESETS[k].label) + "</option>").join("");
+    pre.value = "blank";
+  }
+  trnSelectedDivs = new Set();
+  trnDays = [];
+  trnRenderGrid();
+  showView("tournament-setup");
+}
+
+// Date range changed: rebuild the day list and drop any selection whose day is
+// gone. Silently dropping a division the organizer picked would be quiet data
+// loss, so it is always announced.
+function trnOnDatesChanged(){
+  const start = $("trn-start") ? $("trn-start").value : "";
+  const end = $("trn-end") ? $("trn-end").value : "";
+  trnDays = trnDayList(start, end || start);
+  const live = new Set(trnDays);
+  let dropped = 0;
+  [...trnSelectedDivs].forEach(key => {
+    const day = trnDivDayOf(key);
+    if(!day || !live.has(day)){ trnSelectedDivs.delete(key); dropped++; }
+  });
+  if(dropped) toast("Dropped " + dropped + " division" + (dropped===1?"":"s") + " on days no longer in range");
+  trnRenderGrid();
+}
+
+function trnToggleDiv(key, isChecked){
+  const decoded = key.replace(/&#39;/g, "\u0027").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, String.fromCharCode(34));
+  if(isChecked) trnSelectedDivs.add(decoded); else trnSelectedDivs.delete(decoded);
+  trnRenderGrid();
+}
+
+// Presets fill by DAY OFFSET, so the same preset lands correctly on any weekend.
+// A preset longer than the chosen range fills what fits and says what it skipped.
+function trnApplyPreset(key){
+  const preset = TRN_PRESETS[key];
+  if(!preset) return;
+  if(key === "blank"){ trnSelectedDivs = new Set(); trnRenderGrid(); return; }
+  if(!trnDays.length){ toast("Pick the dates first"); if($("trn-preset")) $("trn-preset").value = "blank"; return; }
+  trnSelectedDivs = new Set();
+  let skipped = 0;
+  preset.days.forEach((dayDivs, idx) => {
+    const day = trnDays[idx];
+    if(!day){ skipped += dayDivs.length; return; }
+    dayDivs.forEach(pair => trnSelectedDivs.add(trnSelKey(day, pair[0], pair[1])));
+  });
+  trnRenderGrid();
+  if(skipped) toast("Filled what fits. " + skipped + " division" + (skipped===1?"":"s") + " skipped, the range is shorter than this preset.");
+}
+
+// One section per day, each a checkbox grid of category by level. Mirrors
+// renderGroupMembers: a Set of selections, a live count, rebuilt wholesale.
+function trnRenderGrid(){
+  const grid = $("trn-grid"); if(!grid) return;
+  const countEl = $("trn-div-count");
+  if(countEl) countEl.textContent = trnSelectedDivs.size + " selected";
+  if(!trnDays.length){
+    grid.innerHTML = "<p style=\"color:var(--gray);font-size:13px;padding:10px 2px;\">Pick a start and end date to choose divisions.</p>";
+    return;
+  }
+  grid.innerHTML = trnDays.map((day, idx) => {
+    const cells = trnCellsForDay(day, idx + 1);
+    const rows = cells.map(c => {
+      const key = c.key;
+      const checked = trnSelectedDivs.has(key);
+      const safe = escapeHTML(key).replace(/'/g, "&#39;");
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
+        + '<input type="checkbox" ' + (checked?"checked":"") + ' onchange="trnToggleDiv(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        + '<span style="flex:1;font-size:13px;font-weight:' + (checked?"700":"500") + ';">' + escapeHTML(trnDivLabel(c)) + '</span>'
+        + '</label>';
+    }).join("");
+    const n = cells.filter(c => trnSelectedDivs.has(c.key)).length;
+    return '<div style="margin-bottom:12px;">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + (n ? ' <span style="color:var(--gray);font-weight:400;">(' + n + ')</span>' : "") + '</div>'
+      + '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;">' + rows + '</div>'
+      + '</div>';
+  }).join("");
+}
+
+// Pure builder: reads the DOM and returns the record, validating nothing. Same
+// split buildInviteRecord/saveInvite uses, so validation runs off the built
+// object rather than off scattered field reads.
+function buildTournamentRecord(){
+  const name = (($("trn-name") && $("trn-name").value) || "").trim();
+  const startDate = ($("trn-start") && $("trn-start").value) || "";
+  const endRaw = ($("trn-end") && $("trn-end").value) || "";
+  const endDate = endRaw || startDate;
+  const location = (($("trn-loc") && $("trn-loc").value) || "").trim();
+  const locationAddress = (($("trn-addr") && $("trn-addr").value) || "").trim();
+  let eventUrl = (($("trn-url") && $("trn-url").value) || "").trim();
+  if(eventUrl && !/^https?:\/\//i.test(eventUrl)) eventUrl = "https://" + eventUrl;
+  const surface = (($("trn-surface") && $("trn-surface").value) === "grass") ? "grass" : "sand";
+  const fmtRaw = ($("trn-format") && $("trn-format").value) || "";
+  const format = TRN_FORMATS.indexOf(fmtRaw) !== -1 ? fmtRaw : TRN_FORMATS[0];
+  const organizer = (($("trn-organizer") && $("trn-organizer").value) || "").trim();
+  const days = trnDayList(startDate, endDate);
+
+  // Only selections whose day survives the current range become divisions. The id
+  // is minted HERE from the day's final position, so a range edit renumbers every
+  // division cleanly instead of stranding an id built against the old range.
+  const dayIndex = {};
+  days.forEach((d, i) => { dayIndex[d] = i + 1; });
+  const divisions = {};
+  [...trnSelectedDivs].forEach(key => {
+    const p = trnSelParts(key);
+    const idx = dayIndex[p.day];
+    if(!idx) return;
+    if(TRN_CATEGORIES.indexOf(p.category) === -1) return;
+    const level = trnIsAgeCategory(p.category) ? null : p.level;
+    if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
+    const divId = divIdFor(idx, p.category, level);
+    divisions[divId] = { id: divId, day: p.day, category: p.category, level: level };
+  });
+
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  return {
+    id: gi("trn"),
+    name: name,
+    startDate: startDate,
+    endDate: endDate,
+    days: days,
+    location: location,
+    locationAddress: locationAddress,
+    eventUrl: eventUrl || null,
+    surface: surface,
+    format: format,
+    divisions: divisions,
+    organizer: organizer,
+    createdBy: (auth && auth.id) || null,
+    createdByName: me ? me.name : ((auth && (auth.displayName || auth.name)) || "Anonymous"),
+    createdAt: Date.now(),
+    status: "open"
+  };
+}
+
+// Blocking validation, off the built record. Returns null when clear, else the
+// toast string. Mirrors validateWideningTiers returning a message rather than
+// scattering toasts through the builder.
+function trnValidate(rec){
+  if(!rec.name) return "Name the tournament";
+  if(!rec.startDate) return "Pick a start date";
+  if(!rec.endDate) return "Pick an end date";
+  if(rec.endDate < rec.startDate) return "End date cannot be before the start date";
+  if(!rec.days.length) return "That date range is not valid";
+  if(!rec.location) return "Add a location";
+  if(!rec.surface) return "Pick a surface";
+  if(!rec.format) return "Pick a format";
+  if(!Object.keys(rec.divisions).length) return "Pick at least one division";
+  return null;
+}
+
+// Name normaliser for the duplicate check: case, punctuation and whitespace all
+// collapse, so "Gulf Coast Open!" and "gulf coast open" are the same tournament.
+function trnNormName(n){ return String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+
+// Likely-duplicate lookup. Same event URL is a hard signal on its own; otherwise
+// same start date plus a name that normalises to a containment match. Returns the
+// existing record or null. Advisory only; the caller may still proceed.
+function trnFindDuplicate(rec){
+  const all = Object.values(D.tournaments || {}).filter(t => t && t.id);
+  if(rec.eventUrl){
+    const hit = all.find(t => t.eventUrl && String(t.eventUrl).toLowerCase() === String(rec.eventUrl).toLowerCase());
+    if(hit) return hit;
+  }
+  const mine = trnNormName(rec.name);
+  if(!mine) return null;
+  return all.find(t => {
+    if(t.startDate !== rec.startDate) return false;
+    const theirs = trnNormName(t.name);
+    if(!theirs) return false;
+    return theirs === mine || theirs.indexOf(mine) !== -1 || mine.indexOf(theirs) !== -1;
+  }) || null;
+}
+
+async function saveTournament(){
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); return; }
+  const rec = buildTournamentRecord();
+  const problem = trnValidate(rec);
+  if(problem){ toast(problem); return; }
+
+  // Duplicate check BEFORE the write, never blocking. Same posture as the court
+  // conflict warning in saveInvite: tell them what we found, let them decide.
+  const dupe = trnFindDuplicate(rec);
+  if(dupe){
+    const when = trnRangeLabel(dupe);
+    const openIt = confirm("This looks like a tournament already listed:\n\n" + (dupe.name || "Untitled") + "\n" + when + (dupe.location ? "\n" + dupe.location : "") + "\n\nOK to open that one instead. Cancel to add yours anyway.");
+    if(openIt){ openTournamentDetail(dupe.id); return; }
+  }
+
+  // Soft warnings, after the decision to write and never blocking it.
+  const soft = [];
+  if(!rec.eventUrl) soft.push("no registration link");
+  if(!rec.organizer) soft.push("no organizer");
+  if(rec.days.length > 4) soft.push(rec.days.length + " days is unusually long");
+
+  // Optimistic local, re-render, then persist. Same order approveGuestRequest uses.
+  if(!D.tournaments) D.tournaments = {};
+  D.tournaments[rec.id] = rec;
+  activeTournament = rec.id;
+  showView("tournament-detail");
+
+  const ok = await fbSet("tournaments/" + rec.id, rec);
+  if(ok) toast(soft.length ? "Added. Heads up: " + soft.join(", ") + "." : "Tournament added");
+}
+
+function openTournamentDetail(id){
+  if(!(D.tournaments || {})[id]){ toast("Tournament not found"); return; }
+  activeTournament = id;
+  showView("tournament-detail");
+}
+
+function setTrnFilter(kind, v){
+  if(kind === "surface") trnSurfaceFilter = v;
+  else if(kind === "format") trnFormatFilter = v;
+  renderTournamentList();
+}
+
+// BROWSE: every upcoming tournament, visible to every logged-in user. There is
+// deliberately no gender or division gate here: a directory listing is public
+// information, and filtering it by the viewer would hide events they could enter.
+function renderTournamentList(){
+  const cont = $("tournament-list"); if(!cont) return;
+  const myKey = gameplayKey();
+  const today = td();
+  const all = Object.values(D.tournaments || {}).filter(t =>
+    t && t.id && t.status !== "cancelled" && (!t.endDate || t.endDate >= today));
+  if(!myKey){
+    cont.innerHTML = all.length
+      ? '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments</div><div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in to see tournaments.</div>'
+      : "";
+    return;
+  }
+  // A denied read and an empty directory are different facts and must not look
+  // the same. The load failure wins the empty state so a rules problem is visible
+  // rather than reading as "nobody has added one yet".
+  if(trnLoadFailed){
+    cont.innerHTML = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments</div>'
+      + '<div class="evmeta" style="padding:8px 2px;color:#b91c1c;font-weight:600;">Could not load tournaments.</div>'
+      + '<div class="evmeta" style="padding:0 2px 8px;color:var(--gray);">The rest of the app is unaffected. Check the console for the read error.</div>';
+    return;
+  }
+  const visible = all.slice().sort((a,b) => String(a.startDate).localeCompare(String(b.startDate)));
+
+  let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments (' + visible.length + ')</div>';
+  if(!visible.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No tournaments listed yet. Know one coming up? Add it.</div>'
+      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="startNewTournament()">Add a tournament</button>';
+    cont.innerHTML = h;
+    return;
+  }
+  const pill = (kind, v, lbl, cur) =>
+    '<button onclick="setTrnFilter(\'' + kind + '\',\'' + v + '\')" style="flex:1;padding:6px 4px;border-radius:8px;border:1px solid var(--sand-border);background:' + (cur===v?"var(--primary)":"#fff") + ';color:' + (cur===v?"#fff":"var(--gray)") + ';font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;cursor:pointer;">' + lbl + '</button>';
+  h += '<div style="display:flex;gap:6px;margin-bottom:6px;">'
+    + pill("surface","all","All surfaces",trnSurfaceFilter)
+    + pill("surface","sand","Sand",trnSurfaceFilter)
+    + pill("surface","grass","Grass",trnSurfaceFilter)
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px;">'
+    + pill("format","all","All formats",trnFormatFilter)
+    + TRN_FORMATS.map(f => pill("format", f, trnFormatLabel(f), trnFormatFilter)).join("")
+    + '</div>';
+
+  const shown = visible.filter(t =>
+    (trnSurfaceFilter === "all" || t.surface === trnSurfaceFilter) &&
+    (trnFormatFilter === "all" || t.format === trnFormatFilter));
+  if(!shown.length){
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No tournaments match those filters.</div>';
+    cont.innerHTML = h;
+    return;
+  }
+  h += shown.map(t => {
+    const nDiv = Object.keys(t.divisions || {}).length;
+    const meta = [trnRangeLabel(t), t.surface === "grass" ? "Grass" : "Sand", trnFormatLabel(t.format)].filter(Boolean).join(" \u00b7 ");
+    const sub = [t.location, t.organizer].filter(Boolean).map(escapeHTML).join(" \u00b7 ");
+    return '<div class="evcard" onclick="openTournamentDetail(\'' + escapeHTML(t.id).replace(/'/g, "&#39;") + '\')">'
+      + '<div class="evname">' + escapeHTML(t.name || "Tournament") + '</div>'
+      + '<div class="evmeta">' + meta + '</div>'
+      + (sub ? '<div class="evmeta" style="margin-top:2px;">' + sub + '</div>' : "")
+      + '<div class="evmeta" style="margin-top:2px;">' + nDiv + ' division' + (nDiv===1?"":"s") + '</div>'
+      + '</div>';
+  }).join("");
+  cont.innerHTML = h;
+}
+
+// DETAIL: every stored field, divisions grouped by day. No join controls in this
+// build, so nothing here writes.
+function renderTournamentDetail(){
+  const cont = $("trn-detail-body"); if(!cont) return;
+  const t = (D.tournaments || {})[activeTournament];
+  if(!t){ cont.innerHTML = '<div class="card"><p style="color:var(--gray);font-size:13px;">Tournament not found.</p></div>'; return; }
+  const url = safeEventUrl(t.eventUrl);
+  const chip = x => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + x + '</span>';
+  const divs = Object.values(t.divisions || {});
+  const byDay = {};
+  divs.forEach(d => { if(!d) return; (byDay[d.day] = byDay[d.day] || []).push(d); });
+  const days = (Array.isArray(t.days) && t.days.length ? t.days : Object.keys(byDay).sort());
+
+  let h = '<div class="card">'
+    + '<div style="font-family:\'Bebas Neue\';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">' + escapeHTML(t.name || "Tournament") + '</div>'
+    + '<div style="font-size:13px;color:var(--gray);margin-top:4px;">' + escapeHTML(trnRangeLabel(t)) + '</div>'
+    + (t.location ? '<div style="font-size:13px;margin-top:4px;">\ud83d\udccd ' + escapeHTML(t.location) + '</div>' : "")
+    + (t.locationAddress ? '<div style="font-size:12px;color:var(--gray);margin-top:2px;">' + escapeHTML(t.locationAddress) + '</div>' : "")
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 8px;">'
+    +   chip(t.surface === "grass" ? "GRASS" : "SAND") + chip(trnFormatLabel(t.format)) + chip(divs.length + " DIVISION" + (divs.length===1?"":"S"))
+    + '</div>'
+    + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Registration and info \u2197</a></div>' : "")
+    + (t.organizer ? '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Organized by ' + escapeHTML(t.organizer) + '</div>' : "")
+    + '<div style="font-size:12px;color:var(--gray);margin-top:4px;">Listed by ' + escapeHTML(t.createdByName || "Anonymous") + '</div>'
+    + '</div>';
+
+  h += '<div class="card"><div class="ctitle"><span class="bar"></span>Divisions</div>';
+  if(!divs.length){
+    h += '<p style="color:var(--gray);font-size:13px;padding:6px 0;">No divisions listed.</p>';
+  } else {
+    h += days.map(day => {
+      const list = (byDay[day] || []);
+      if(!list.length) return "";
+      return '<div style="margin-bottom:10px;">'
+        + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + '</div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + list.map(d => chip(escapeHTML(trnDivLabel(d)).toUpperCase())).join("") + '</div>'
+        + '</div>';
+    }).join("");
+  }
+  h += '</div>';
+  cont.innerHTML = h;
 }
 
 // ── PARTNER POOL ──────────────────────────────────────────────────────────
