@@ -861,6 +861,35 @@ const TRN_CAT_LABEL = {
 };
 const TRN_LEVEL_LABEL = { 'open':'Open', 'aaa':'AAA', 'aa':'AA', 'a':'A', 'bb':'BB', 'b':'B' };
 function trnIsAgeCategory(cat){ return String(cat||'').indexOf(TRN_AGE_PREFIX) === 0; }
+
+// ── JUNIORS ARE OUT OF PARTNER MATCHING ──────────────────────────────
+// The girls age divisions are age-restricted and the players in them are minors.
+// CourtSense stores no birth year and no grad year on an account, so an age check
+// is not merely unimplemented, it is impossible with the data on hand. Matching an
+// adult to a minor is not something this app should attempt at all, so juniors are
+// excluded from every matching path: no need on a post, no offer, no ask, no pool.
+//
+// Listing is untouched. A juniors division stays fully selectable in the create
+// grid, visible and countable in the tournament detail view, and its registration
+// status stays editable. The directory describes the tournament; matching is a
+// separate feature and only that feature is closed.
+//
+// This is deliberately its OWN list rather than a reuse of TRN_AGE_PREFIX and
+// trnIsAgeCategory, which answer a different question: whether a division carries
+// a skill level, which is about ids and labels. Folding the two together would
+// mean a future ADULT age group, a 50+ division say, silently inherited the minors
+// rule and vanished from partner matching for no reason anybody could find.
+const TRN_JUNIOR_CATEGORIES = ['girls-18u','girls-16u','girls-14u','girls-12u'];
+function trnIsJuniorCategory(cat){ return TRN_JUNIOR_CATEGORIES.indexOf(String(cat||'').toLowerCase()) !== -1; }
+
+// The single predicate every matching path asks. Takes a tournament division, a
+// post need or a pool entry need; all three carry .category, on purpose.
+function trnIsMatchable(d){ return !!d && !trnIsJuniorCategory(d.category); }
+
+// One quiet line, shown once wherever a juniors division reaches a viewer through
+// any path. Deliberately not a chip per row: it explains a policy, it is not a
+// warning about the row it sits next to.
+const JUNIOR_NO_MATCH_NOTE = '<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">CourtSense does not do partner matching for junior divisions.</div>';
 function trnCatLabel(cat){ return TRN_CAT_LABEL[cat] || String(cat||''); }
 function trnLevelLabel(lvl){ return TRN_LEVEL_LABEL[lvl] || String(lvl||''); }
 function trnDivLabel(d){
@@ -3452,13 +3481,22 @@ function viewerGender(){
   return (g === 'M' || g === 'F') ? g : null;
 }
 function divisionAllowsViewer(div){
+  // Juniors first, and unconditionally: no gender, known or unknown, opens one.
+  // Before this, every category that was not mens or womens fell through to the
+  // return true below, so any adult could offer on Girls 14U.
+  if(trnIsJuniorCategory(div)) return false;
   const g = viewerGender();
   if(div === 'mens') return g !== 'F';
   if(div === 'womens') return g !== 'M';
   return true;
 }
+// Every message that names a division reads through here, so a category it does
+// not know must not come out as something it is not. It used to return "Coed" for
+// anything that was not mens or womens, which made a juniors division introduce
+// itself as Coed in the one place a player was being told why they cannot enter.
+// TRN_CAT_LABEL already has the right word for all seven categories.
 function divisionLabel(div){
-  return div === 'mens' ? "Men's" : div === 'womens' ? "Women's" : 'Coed';
+  return TRN_CAT_LABEL[div] || (div ? String(div) : 'Coed');
 }
 
 // The poster's club, read straight off the logged-in account record's
@@ -3720,9 +3758,18 @@ function ppRenderNeeds(){
     grid.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Pick a tournament first.</p>';
     return;
   }
-  const divs = Object.values(t.divisions || {}).filter(Boolean);
-  if(!divs.length){
+  const allDivs = Object.values(t.divisions || {}).filter(Boolean);
+  if(!allDivs.length){
     grid.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">That tournament has no divisions listed.</p>';
+    return;
+  }
+  // Juniors are listed on the tournament but cannot be a need on a post, so they
+  // never reach this picker. Counted, not silently dropped: a tournament that runs
+  // a juniors day should say why that day is missing from the choices.
+  const divs = allDivs.filter(trnIsMatchable);
+  const nJunior = allDivs.length - divs.length;
+  if(!divs.length){
+    grid.innerHTML = '<p style="color:var(--gray);font-size:13px;padding:6px 0;">That tournament has no divisions open to partner matching.</p>' + JUNIOR_NO_MATCH_NOTE;
     return;
   }
   const byDay = {};
@@ -3750,6 +3797,7 @@ function ppRenderNeeds(){
       + '</div>';
   }).join('');
   if(anyCoed) h += COED_UNRATED_NOTE;
+  if(nJunior) h += JUNIOR_NO_MATCH_NOTE;
   grid.innerHTML = h;
 }
 
@@ -3880,9 +3928,14 @@ async function savePartnerPost(){
   [...ppNeeds].forEach(divId => {
     const d = (t.divisions || {})[divId];
     if(!d) return;
+    // The picker never offers a juniors division, so reaching here means a stale
+    // selection from before a category changed, or a hand-built call. Either way it
+    // is dropped at the water line rather than trusted because the UI usually
+    // prevents it.
+    if(!trnIsMatchable(d)) return;
     needs[divId] = { divId: divId, day: d.day, category: d.category, level: d.level === undefined ? null : d.level, status: 'open' };
   });
-  if(!Object.keys(needs).length){ toast('Those divisions are no longer on the tournament'); return; }
+  if(!Object.keys(needs).length){ toast('Those divisions are no longer on the tournament, or are not open to partner matching'); return; }
 
   // Dates are DERIVED from the needs, never typed. First day for display, last
   // day for every deadline and past-check, so a multi-day post stays live through
@@ -4590,7 +4643,8 @@ function poolToggleNeed(divId, isChecked){
 // The pool's own division rows, split out for the same reason the ask picker's
 // rows are: one source for the first paint and every repaint.
 function poolNeedRows(i){
-  return partnerOpenNeeds(i).filter(n => !needIsPast(n)).map(n => {
+  // Juniors are not poolable, so they are not listed as something to tick.
+  return partnerOpenNeeds(i).filter(n => !needIsPast(n) && trnIsMatchable(n)).map(n => {
     const safe = escapeHTML(n.divId).replace(/'/g, '&#39;');
     const checked = poolNeedsSelected.has(n.divId);
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
@@ -4616,6 +4670,9 @@ function joinPartnerPool(){
     if(!openIds.has(divId)) return;
     const n = (i.needs || {})[divId];
     if(!n) return;
+    // Same water-line guard savePartnerPost uses: never write a juniors entry,
+    // whatever the selection claims.
+    if(!trnIsMatchable(n)) return;
     needs[divId] = { divId: divId, day: n.day, category: n.category, level: n.level === undefined ? null : n.level };
   });
   if(!Object.keys(needs).length){ toast('Pick at least one division'); return; }
@@ -4705,6 +4762,12 @@ function renderPartnerDetail(i){
       return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
     }
 
+    // Juniors carry no matching controls for anybody, the poster included. Checked
+    // before the isHost split so one branch covers both sides.
+    if(trnIsJuniorCategory(n.category)){
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + JUNIOR_NO_MATCH_NOTE + '</div>';
+    }
+
     if(isHost){
       // Poster: pending offers with accept and decline, pending asks with their
       // state, and an ask control while the need is still open.
@@ -4746,6 +4809,11 @@ function renderPartnerDetail(i){
     } else if(mineOffer){
       body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
         + '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="withdrawOffer(\'' + dk + '\')">Withdraw offer</button>';
+    } else if(trnIsJuniorCategory(n.category)){
+      // A legacy post can carry a juniors need. It renders as not matchable rather
+      // than being hidden, so the post still reads honestly, and it gets the policy
+      // line instead of the gender line divisionAllowsViewer would otherwise trigger.
+      body += JUNIOR_NO_MATCH_NOTE;
     } else if(past){
       body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This division has been played.</div>';
     } else if(!divisionAllowsViewer(n.category)){
@@ -4968,6 +5036,11 @@ function needOfferBlockReason(i, n){
   if(i.status === 'cancelled') return 'Post cancelled';
   if(needIsPast(n)) return 'That division has already been played';
   if(isLoggedInHost(i)) return 'This is your post';
+  // Ahead of the gender check so the reason is the real one. divisionAllowsViewer
+  // already refuses juniors, so without this the player would be told a juniors
+  // division is "not open to you", which reads as a gender ruling rather than the
+  // policy it is.
+  if(trnIsJuniorCategory(n.category)) return 'CourtSense does not do partner matching for junior divisions';
   if(!divisionAllowsViewer(n.category)) return 'That division is ' + divisionLabel(n.category) + ', not open to you';
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
@@ -5194,6 +5267,10 @@ function unfillNeed(divId){
 function openAskPicker(divId){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can ask'); return; }
+  // A legacy post can still carry a juniors need. The control is not rendered for
+  // one, but the guard is here too rather than relying on the render.
+  const nOpen = ((i.needs || {})[trnDecodeKey(divId)]) || null;
+  if(nOpen && trnIsJuniorCategory(nOpen.category)){ toast('CourtSense does not do partner matching for junior divisions'); return; }
   askPickerDiv = trnDecodeKey(divId);
   askPickerSelected = new Set();
   askPickerFilter = '';
@@ -5268,6 +5345,9 @@ function askCandidates(i, n){
 // on the public profiles cache. Unknown gender is permitted: the ask is an
 // invitation, and the target can always decline.
 function divisionAllowsViewer2(div, accountId, name){
+  // Same unconditional juniors refusal as divisionAllowsViewer, and for the same
+  // reason: this early return used to let every juniors category through.
+  if(trnIsJuniorCategory(div)) return false;
   if(div !== 'mens' && div !== 'womens') return true;
   const cache = window._profilesCache || {};
   let p = (accountId && cache[accountId]) || null;
@@ -5322,6 +5402,7 @@ function sendAsks(divId){
   const dk = trnDecodeKey(divId);
   const n = (i.needs || {})[dk];
   if(!n){ toast('Division not found'); return; }
+  if(trnIsJuniorCategory(n.category)){ toast('CourtSense does not do partner matching for junior divisions'); return; }
   if(needStatusOf(n) !== 'open'){ toast('That division is already filled'); return; }
   if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
   if(needIsPast(n)){ toast('That division has already been played'); return; }
