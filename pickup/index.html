@@ -239,15 +239,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
       </div>
     </div>
-    <!-- Tournaments: one card, one entry point. A partner post is now a post
-         ABOUT a tournament in the directory, so both used to be separate cards
-         asking for the same facts. Picking the tournament first is the honest
-         order, and adding one is a step inside that flow rather than a rival to it. -->
+    <!-- Tournaments: one card. Finding a partner starts by picking a tournament,
+         so the two used to ask for the same facts and are now one flow. Adding to
+         the directory still stands alone, on the directory itself, because
+         contributing a tournament is its own act and must not require pretending
+         to look for a partner. -->
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Tournaments</div>
       <div>
         <button class="btn btn-g btn-w" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. Add the tournament if it is not listed yet.</div>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. To just list a tournament, use Add a tournament below.</div>
       </div>
     </div>
     <div class="card" style="padding:14px;">
@@ -2949,6 +2950,8 @@ function backToList(){
   // later showView('tournament-detail') paint the previously opened event.
   activeTournament = null;
   poolNeedsSelected = new Set();
+  // Backing out of the tournament form abandons any in-flow return as well.
+  ppReturnAfterTournament = false;
   showView('list');
 }
 
@@ -3354,7 +3357,7 @@ function renderInviteList(){
     // exist at all or none they are eligible for. Reuses startNewInvite (the same call
     // the "Schedule a Pickup" button uses); startNewInvite has its own login gate.
     h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">Bummer, there currently aren\'t any games you\'re eligible to RSVP. Make your own game now and make it open or select eligibility.</div>'
-      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">Make your own game</button>';
+      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">📅 Schedule a Pickup</button>';
     cont.innerHTML = h;
     return;
   }
@@ -3596,12 +3599,11 @@ function ppClearTournament(){
   ppRenderTournamentPick();
 }
 
-// Add-a-tournament from inside the partner flow. Reuses the tournament create
-// form rather than duplicating it; the return flag is what brings the poster
-// back to the post they were writing.
+// Add-a-tournament from inside the partner flow. Calls the SAME create function
+// the directory calls, with the one argument that brings the poster back to the
+// post they were writing. No second copy of the tournament form exists.
 function ppAddTournamentInline(){
-  ppReturnAfterTournament = true;
-  startNewTournament();
+  startNewTournament(true);
 }
 
 // Step one of the form: pick a tournament, or add one. Once picked, the card
@@ -3970,8 +3972,13 @@ function trnSelParts(key){
   return { day: p[0] || "", category: p[1] || "", level: p[2] || null };
 }
 
-function startNewTournament(){
+// returnToPartner is set only by the in-flow caller. Passing it here rather than
+// letting the caller poke the flag beforehand means a direct entry from the
+// directory ALWAYS clears it: an abandoned partner flow can no longer leave a
+// stale flag that later teleports a directory add into a half-written post.
+function startNewTournament(returnToPartner){
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  ppReturnAfterTournament = !!returnToPartner;
   ["trn-name","trn-start","trn-end","trn-loc","trn-addr","trn-url","trn-organizer"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("trn-surface")) $("trn-surface").value = "sand";
   const fmt = $("trn-format");
@@ -4272,10 +4279,18 @@ function renderTournamentList(){
   }
   const visible = all.slice().sort((a,b) => String(a.startDate).localeCompare(String(b.startDate)));
 
+  // The directory is a shared resource, so adding to it has to stand on its own.
+  // This control is present whether the list is full, empty or filtered to
+  // nothing: contributing a tournament must never require starting a partner post
+  // you did not want. Same button the empty state always had, just no longer
+  // reachable only when the directory happens to be empty.
+  const addBtn = '<button class="btn btn-g btn-w" style="margin-top:10px;" onclick="startNewTournament()">🏆 Add a tournament</button>'
+    + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Anyone can list one. It shows up here for everybody.</div>';
+
   let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments (' + visible.length + ')</div>';
   if(!visible.length){
     h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No tournaments listed yet. Know one coming up? Add it.</div>'
-      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="startNewTournament()">Add a tournament</button>';
+      + addBtn;
     cont.innerHTML = h;
     return;
   }
@@ -4295,7 +4310,8 @@ function renderTournamentList(){
     (trnSurfaceFilter === "all" || t.surface === trnSurfaceFilter) &&
     (trnFormatFilter === "all" || t.format === trnFormatFilter));
   if(!shown.length){
-    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No tournaments match those filters.</div>';
+    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No tournaments match those filters.</div>'
+      + addBtn;
     cont.innerHTML = h;
     return;
   }
@@ -4310,6 +4326,7 @@ function renderTournamentList(){
       + '<div class="evmeta" style="margin-top:2px;">' + nDiv + ' division' + (nDiv===1?"":"s") + '</div>'
       + '</div>';
   }).join("");
+  h += addBtn;
   cont.innerHTML = h;
 }
 
