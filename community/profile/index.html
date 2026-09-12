@@ -304,6 +304,28 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </section>
 
     <section class="section">
+      <h3>About you</h3>
+      <p class="sub">Yours to set or change at any time. Nothing here is required.</p>
+      <div class="row two">
+        <div class="fg">
+          <label class="lbl" for="f-name">Display name</label>
+          <input class="inp" id="f-name" placeholder="How your name appears">
+          <div class="help">This is how you appear to other players. Spelling and capitalization are yours to fix; changing it to a different name is not something this page can do, because your rating and your game history are filed under the name you signed up with.</div>
+        </div>
+        <div class="fg">
+          <label class="lbl" for="f-gender">Gender</label>
+          <select class="inp" id="f-gender">
+            <option value="">— Leave unset —</option>
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+            <option value="unspecified">Prefer not to say</option>
+          </select>
+          <div class="help">Used to work out which divisions you can enter and who can partner you. Leave it unset or choose prefer not to say and nothing is assumed either way.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
       <h3>Skill &amp; location</h3>
       <p class="sub">Used for matching to events in your area and skill range.</p>
       <div class="row two">
@@ -311,6 +333,10 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <label class="lbl" for="f-skill">Skill level</label>
           <select class="inp" id="f-skill">
             <option value="">— Select —</option>
+            <!-- Recreational is in the platform vocabulary auth.js validates but was
+                 missing here, so a player who picked it at signup could not see their
+                 own answer and any save silently moved them off it. -->
+            <option value="Recreational">Recreational</option>
             <option value="BB">Beginner (BB)</option>
             <option value="A">Intermediate (A)</option>
             <option value="AA">Advanced (AA)</option>
@@ -600,6 +626,11 @@ function doSaveNotifications(){
 
 function fillFromProfile(profile){
   profile = profile || {};
+  // Only the three documented values are ever shown back. Anything else on the
+  // record reads as unset rather than being offered as a choice the app does not
+  // know, which keeps the vocabulary to exactly 'M' | 'F' | 'unspecified'.
+  const g = profile.gender;
+  $('f-gender').value      = (g === 'M' || g === 'F' || g === 'unspecified') ? g : '';
   $('f-avp').value         = profile.avpNumber || '';
   $('f-skill').value       = profile.skillLevel || '';
   $('f-zip').value         = profile.zipCode || '';
@@ -621,8 +652,19 @@ function nullIfBlank(v){
   return s.length ? s : null;
 }
 
+// The profile fields this page owns. Everything the rating engine, a coach or a
+// club writes (rating, rd, vol, gamesPlayed, ratingUpdatedAt, memberships,
+// verified, merged, activated, blocked, externalRatings, leaguePlayerId) lives
+// OUTSIDE profile and is not named here, so this form has no way to reach it.
+// truvolleyRankingNumber does live under profile but is written by the admin
+// seeding tool, not by a player, so it is deliberately absent too and is now
+// preserved by the merge in doSave.
 function readForm(){
   return {
+    // A blank select means "leave unset", which nullIfBlank turns into null and the
+    // update below removes. 'unspecified' is a real stored answer and is NOT the
+    // same thing as blank: it says the player was asked and declined.
+    gender:                 nullIfBlank($('f-gender').value),
     avpNumber:              nullIfBlank($('f-avp').value),
     skillLevel:             nullIfBlank($('f-skill').value),
     zipCode:                nullIfBlank($('f-zip').value),
@@ -670,6 +712,9 @@ function doSave(e){
     }
   }
 
+  // Gender is deliberately NOT in this list. It decides what a player may enter, so
+  // setting it is not the same kind of act as filling in a jump touch, and it must
+  // not be what dismisses the welcome panel.
   const stringFields = ['avpNumber','skillLevel','zipCode','height',
                         'dominantHand','reach','blockJumpTouch','approachJumpTouch',
                         'usualSide','preferredSide','usualDefense','preferredDefense'];
@@ -679,11 +724,46 @@ function doSave(e){
     $('welcome').style.display = 'none';
   }
 
+  // Name presentation, written alongside the profile. A player may correct how
+  // their own name is spelled or capitalized, but NOT change it to a different
+  // name, because nameKey(displayName) is the key their rating, their RSVPs, their
+  // pool entries and their offers and asks are all filed under. Renaming here would
+  // orphan every one of those silently, so a change that moves the nameKey is
+  // refused with the reason rather than half-applied.
+  const typedName = ($('f-name').value || '').trim();
+  $('f-name').classList.remove('invalid');
+  let nameUpdate = null;
+  if(typedName && typedName !== currentDisplayName){
+    if(nameKey(typedName) !== nameKey(currentDisplayName)){
+      errEl.textContent = 'You can fix how your name is spelled or capitalized, but changing it to a different name would orphan your rating and your game history. Get in touch and we will move them with it.';
+      $('f-name').classList.add('invalid');
+      $('f-name').focus();
+      return false;
+    }
+    nameUpdate = typedName;
+  }
+
   // The profile write no longer seeds a rating. A Volleyball Life link queues a
   // verification request on the player's own record; only an admin approval in
   // admin-players.html ever writes to the ratings node. The toast fires after
   // the write resolves so it is write-confirmed rather than optimistic.
-  db.ref(ROSTER_PATH+'/'+currentPid+'/profile').set(profile)
+  //
+  // update(), NOT set(). set() replaced the whole profile node with just the keys
+  // this form manages, so every save silently deleted anything it does not render:
+  // gender written at signup, and truvolleyRankingNumber written by the admin tool.
+  // Gender coverage is what this page is being extended to fix, so a save that
+  // quietly wiped it would defeat the point. update() leaves unnamed children
+  // alone, and a null still removes the one key it names, so clearing a field the
+  // form does own keeps working exactly as before.
+  db.ref(ROSTER_PATH+'/'+currentPid+'/profile').update(profile)
+    .then(() => {
+      // Name last, and only when it actually changed, so a profile save is never
+      // held up by it. Both spellings are written: displayName is current, name is
+      // the legacy field the login picker still reads.
+      if(nameUpdate === null) return null;
+      return db.ref(ROSTER_PATH+'/'+currentPid).update({ displayName: nameUpdate, name: nameUpdate })
+        .then(() => { currentDisplayName = nameUpdate; $('who-name').textContent = nameUpdate; });
+    })
     .then(() => {
       submitVolleyballLifeRequest(vb);
       toast('Profile saved');
@@ -1292,6 +1372,7 @@ async function onLogin(player){
 
   currentExternal = player.externalRatings || null;
   fillFromProfile(player.profile);
+  $('f-name').value = displayNameOf(player);
   const vbCur = (currentExternal && currentExternal.volleyballLife) || null;
   $('f-vblink').value = (vbCur && vbCur.url) || '';
   renderVbStatus();
