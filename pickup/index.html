@@ -4880,6 +4880,35 @@ function partnerAsksFor(i, divId){
     .filter(([k, r]) => r && r.name)
     .sort((x, y) => (x[1].askedAt || 0) - (y[1].askedAt || 0));
 }
+// Last-resort label from a divId alone: '2026-09-20-coed-bb' reads as 'Coed BB'.
+// Only reached when a record predates divLabel AND its need is gone from the post,
+// so it is a floor rather than a normal path. Returns '' when the id is unparseable,
+// which every caller treats as 'say nothing' rather than printing the raw id.
+function divIdToLabel(divId){
+  const str = String(divId || '');
+  if(!/^\d{4}-\d{2}-\d{2}-/.test(str)) return '';
+  const rest = str.slice(11);
+  if(!rest) return '';
+  if(trnIsAgeCategory(rest)) return trnDivLabel({ category: rest, level: null });
+  const cut = rest.lastIndexOf('-');
+  if(cut === -1) return trnDivLabel({ category: rest, level: null });
+  return trnDivLabel({ category: rest.slice(0, cut), level: rest.slice(cut + 1) });
+}
+
+// The division a record is about, in words. Three sources, best first:
+//   1. the record's own divLabel, denormalized at write time
+//   2. the post's needs map, which carries category and level
+//   3. the divId itself, parsed
+// A raw divId is never returned: it is a key, not something to show a person.
+function divLabelFor(rec, i){
+  const fromRec = rec && typeof rec.divLabel === 'string' ? rec.divLabel.trim() : '';
+  if(fromRec) return fromRec;
+  const divId = (rec && rec.divId) || '';
+  const n = ((i && i.needs) || {})[divId];
+  if(n) { const l = trnDivLabel(n); if(l) return l; }
+  return divIdToLabel(divId);
+}
+
 // Total pending across every need, for the list badge.
 function partnerOfferCount(i){
   return Object.values((i && i.offers) || {}).reduce((n, m) => n + Object.keys(m || {}).length, 0);
@@ -4926,7 +4955,19 @@ function offerForNeed(divId){
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(myOfferOn(i, decoded, myKey)){ toast('You already offered for that one'); return; }
 
-  const rec = { name: me.name, accountId: currentAccountId(), divId: decoded, offeredAt: Date.now() };
+  // divLabel and day are COPIES of what the need already says, denormalized the
+  // same way savePartnerPost copies the tournament's name, date and location onto
+  // the post: the Cloudflare worker reads this record directly to name the
+  // division in an email and cannot follow a reference to the tournament. Without
+  // them an email could only say 'a division'.
+  const rec = {
+    name: me.name,
+    accountId: currentAccountId(),
+    divId: decoded,
+    divLabel: trnDivLabel(n),
+    day: n.day || null,
+    offeredAt: Date.now()
+  };
 
   // Optimistic local + mirror, then persist. Same order approveGuestRequest uses.
   if(!D.invites[activeInvite].offers) D.invites[activeInvite].offers = {};
@@ -4997,7 +5038,10 @@ function acceptOffer(divId, nameKey){
   const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
   const rec = (((i.offers || {})[dk]) || {})[nk];
   if(!rec){ toast('That offer is gone'); return; }
-  if(fillNeed(dk, rec.name, rec.accountId)) toast(rec.name + ' is your partner for ' + trnDivLabel((i.needs||{})[dk] || {}));
+  // Resolve through the record first: trnDivLabel on a missing need returned an
+  // empty string, so this toast could read 'Alice is your partner for '.
+  const lbl = divLabelFor(rec, i);
+  if(fillNeed(dk, rec.name, rec.accountId)) toast(rec.name + ' is your partner' + (lbl ? ' for ' + lbl : ''));
 }
 
 // Poster declines one offer. Deletes it; the need stays open for others.
@@ -5043,7 +5087,8 @@ function acceptAsk(divId){
   // already-offered check: being asked does not bypass the circle or the division.
   const reason = needOfferBlockReason(i, n);
   if(reason){ toast(reason); return; }
-  if(fillNeed(dk, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered for ' + trnDivLabel(n));
+  const lbl = divLabelFor(mine, i) || trnDivLabel(n);
+  if(fillNeed(dk, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
 }
 
 // Target declines. Deletes the ask; the need stays open.
@@ -5234,7 +5279,17 @@ function sendAsks(divId){
   askPickerSelected.forEach(k => {
     const c = byKey[k];
     if(!c) return;
-    recs[k] = { name: c.name, accountId: c.accountId, divId: dk, askedAt: Date.now(), askedBy: askedBy };
+    // Same denormalization as the offer record, for the same reason: the worker
+    // names the division from this record, not from the tournament.
+    recs[k] = {
+      name: c.name,
+      accountId: c.accountId,
+      divId: dk,
+      divLabel: trnDivLabel(n),
+      day: n.day || null,
+      askedAt: Date.now(),
+      askedBy: askedBy
+    };
   });
   if(!Object.keys(recs).length){ toast('Those players are no longer askable'); return; }
 
