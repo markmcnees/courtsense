@@ -780,6 +780,10 @@ const PARTNER_SAND_LOCATIONS = [
   "FSU Lakefront Park & Retreat Center (The Rez)"
 ];
 const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
+// Skill bands a partner post's pool speaks in. Stored as the STRING on each pool
+// entry, never an index, so reordering or inserting a band never rewrites history.
+// Order is low to high; comparison is by position in this array.
+const PARTNER_BANDS = ['B', 'BB', 'A', 'AA', 'Open'];
 // Hard cap on the partner-post notify circle, stored as notifyList on the post.
 // The worker slices the players array to 10 in handleInviteNotify, so the client
 // must never let a poster select more than the server will actually send to.
@@ -3575,6 +3579,86 @@ async function savePartnerPost(){
   showView('invite-detail');
 }
 
+// ── PARTNER POOL ──────────────────────────────────────────────────────────
+// Players in a post's circle declaring they want a partner for this tournament
+// and which bands they will play. Display only in this build: joining the pool
+// sends nothing, asks nothing and pairs nobody. It lives at
+// invites/{id}/pool/{nameKey}, a node of its own, so it never touches the rsvps
+// or guestRequests machinery that drives the actual partner decision.
+function partnerBandOk(min, max){
+  const a = PARTNER_BANDS.indexOf(min), b = PARTNER_BANDS.indexOf(max);
+  return a !== -1 && b !== -1 && a <= b;
+}
+
+// Band range for display. A single-band range reads as the one band, not "B to B".
+function partnerBandLabel(e){
+  if(!e) return '';
+  const lo = e.bandMin, hi = e.bandMax;
+  if(!lo && !hi) return '';
+  if(lo === hi) return escapeHTML(lo || hi);
+  return escapeHTML(lo || '?') + ' to ' + escapeHTML(hi || '?');
+}
+
+// Everything respondToPartnerPost gates on EXCEPT the response-specific checks.
+// A live pending guestRequest deliberately does NOT block the pool: asking one
+// person and staying open to others are different statements. Returns null when
+// allowed, else the toast string explaining why not.
+function partnerPoolBlockReason(i){
+  if(!i || i.postType !== 'partner') return 'Not a partner post';
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to join the pool';
+  if(i.status === 'cancelled') return 'Post cancelled';
+  if(i.date && i.date < td()) return 'This tournament has passed';
+  if(isLoggedInHost(i)) return 'This is your post';
+  if(!divisionAllowsViewer(i.division)) return 'This post is for the ' + divisionLabel(i.division) + ' division';
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!me || !myKey) return 'Pick your name first';
+  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey)) return 'This post is not open to you';
+  if(Object.values(i.rsvps || {}).some(r => r && r.status === 'confirmed')) return 'Partner already found';
+  return null;
+}
+
+function joinPartnerPool(){
+  const i = (D.invites||{})[activeInvite];
+  const reason = partnerPoolBlockReason(i);
+  if(reason){ toast(reason); return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  const minEl = $('pool-band-min'), maxEl = $('pool-band-max');
+  const bandMin = (minEl && minEl.value) || PARTNER_BANDS[0];
+  const bandMax = (maxEl && maxEl.value) || PARTNER_BANDS[PARTNER_BANDS.length-1];
+  if(!partnerBandOk(bandMin, bandMax)){ toast('Lowest band cannot be above highest'); return; }
+
+  const entry = { name: me.name, accountId: currentAccountId(), bandMin: bandMin, bandMax: bandMax, joinedAt: Date.now() };
+
+  // Optimistic local + mirror, then persist. Same order approveGuestRequest uses.
+  if(!D.invites[activeInvite].pool) D.invites[activeInvite].pool = {};
+  D.invites[activeInvite].pool[myKey] = entry;
+  pendInviteOverride(activeInvite, inv => {
+    if(!inv.pool) inv.pool = {};
+    inv.pool[myKey] = entry;
+  });
+  renderInviteDetail();
+
+  fbSet('invites/' + activeInvite + '/pool/' + myKey, entry);
+  toast('Added to the pool');
+}
+
+function leavePartnerPool(){
+  const i = (D.invites||{})[activeInvite]; if(!i || i.postType !== 'partner') return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!myKey) return;
+  if(!(i.pool || {})[myKey]) return;
+
+  if(D.invites[activeInvite].pool) delete D.invites[activeInvite].pool[myKey];
+  pendInviteOverride(activeInvite, inv => { if(inv.pool) delete inv.pool[myKey]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/pool/' + myKey);
+  toast('Left the pool');
+}
+
 // DETAIL: partner post view. Called from renderInviteDetail's postType branch,
 // so deep links, the invites listener, and every renderInviteDetail() call all
 // land here for partner posts.
@@ -3592,6 +3676,12 @@ function renderPartnerDetail(i){
     || (myKey && Identity.nameKey(r.name || '') === myKey)) || null;
   const isPast = i.date && i.date < td();
   const isCancelled = i.status === 'cancelled';
+  // Pool entries, oldest first. Keyed by nameKey like rsvps, so a viewer's own
+  // entry is a direct lookup rather than a scan.
+  const pool = Object.entries(i.pool || {})
+    .filter(([k,e]) => e && e.name)
+    .sort((a,b) => (a[1].joinedAt||0) - (b[1].joinedAt||0));
+  const myPool = myKey ? (i.pool || {})[myKey] : null;
   const url = safeEventUrl(i.eventUrl);
   const dateStr = i.date ? new Date(i.date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric', year:'numeric'}) : '';
   const chip = t => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + t + '</span>';
@@ -3650,8 +3740,25 @@ function renderPartnerDetail(i){
   } else if(!(myKey && isChatEligible(i, myKey))){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is limited to ' + escapeHTML(partnerVisLabel(i.eligibility)) + ' members.</div>';
   } else {
+    // Pool controls sit under the ask button: declaring you are looking is a
+    // separate, weaker statement than asking this poster directly, and a player
+    // can do both. Display only in this build.
+    const bandSel = (id, sel) => '<select class="inp" id="' + id + '" style="font-size:13px;padding:8px;">'
+      + PARTNER_BANDS.map(b => '<option value="' + b + '"' + (b === sel ? ' selected' : '') + '>' + b + '</option>').join('')
+      + '</select>';
+    const poolBlock = myPool
+      ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + partnerBandLabel(myPool) + '.</div>'
+        + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
+      : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Still looking?</div>'
+        + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Add yourself to the pool so other players can see you want a partner for this one.</div>'
+        + '<div class="row2" style="margin-bottom:8px;">'
+        +   '<div><label class="lbl">Lowest band</label>' + bandSel('pool-band-min', PARTNER_BANDS[0]) + '</div>'
+        +   '<div><label class="lbl">Highest band</label>' + bandSel('pool-band-max', PARTNER_BANDS[PARTNER_BANDS.length-1]) + '</div>'
+        + '</div>'
+        + '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>';
     actionHTML = '<button class="btn btn-p btn-w" onclick="respondToPartnerPost()">I\'ll Partner With You</button>'
-      + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">' + escapeHTML(i.hostName || 'The poster') + ' gets notified and picks their partner.</div>';
+      + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">' + escapeHTML(i.hostName || 'The poster') + ' gets notified and picks their partner.</div>'
+      + '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
   }
 
   let h = '<div class="card">'
@@ -3672,6 +3779,19 @@ function renderPartnerDetail(i){
     + '</div>'
     + '</div>'
     + '<div class="card">' + actionHTML + '</div>';
+
+  // Looking for a Partner: everyone who has declared they want one for this
+  // tournament, with the bands they will play. Display only; no ask, no pairing.
+  h += '<div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Looking for a Partner' + (pool.length ? ' (' + pool.length + ')' : '') + '</div>'
+    + (pool.length
+        ? pool.map(([k, e]) =>
+            '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
+            + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name) + '</span>'
+            + chip(partnerBandLabel(e))
+            + '</div>').join('')
+        : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet.</p>')
+    + '</div>';
 
   if(isHost && !isCancelled){
     h += '<div class="card"><button class="btn btn-d btn-w" onclick="cancelPartnerPost()">Cancel Post</button></div>';
