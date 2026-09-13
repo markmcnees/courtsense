@@ -4568,8 +4568,13 @@ function renderTournamentDetail(){
   }
   h += '</div>';
 
+  // Partner posts FIRST, then the pool. A post is the heavier, actionable thing
+  // and the directory card's YOUR POST badge promises a route to it, so it sits
+  // where somebody who tapped that badge is already looking.
+  h += trnPostsCardHTML(t);
+
   // The pool. Appended rather than woven in: this function builds one string
-  // and assigns once, so the roster is two more cards on the end.
+  // and assigns once, so the roster is more cards on the end.
   h += trnPoolCardsHTML(t);
 
   cont.innerHTML = h;
@@ -4595,10 +4600,9 @@ function renderTournamentDetail(){
 function trnPartnerIndex(myKey){
   const out = {};
   Object.values(D.invites || {}).forEach(p => {
-    if(!p || p.postType !== 'partner' || p.status === 'cancelled') return;
-    if(partnerIsPast(p)) return;
-    // Nothing still looking is not an open post.
-    if(!partnerOpenNeeds(p).length) return;
+    // ONE predicate, shared with trnPostsFor, so a count here can never disagree
+    // with the rows the tournament detail shows when that count is tapped.
+    if(!trnPostIsVisible(p, myKey)) return;
     // A post with no resolvable tournament has no card to ride on. There are no
     // live ones today (every tournament-less post on the node is cancelled), so
     // this is a guard against a future one rather than a migration. Warned rather
@@ -4609,9 +4613,6 @@ function trnPartnerIndex(myKey){
       console.warn('partner post has no resolvable tournamentId, not counted:', p.id, tid || '(none)');
       return;
     }
-    // The circle, per viewer. Same predicate renderPartnerList used before the
-    // fold, so no post becomes visible that was not visible before.
-    if(!myKey || !isChatEligible(p, myKey)) return;
     if(!out[tid]) out[tid] = { posts: [], mine: 0, asked: 0, offers: 0 };
     const b = out[tid];
     b.posts.push(p);
@@ -4625,6 +4626,93 @@ function trnPartnerIndex(myKey){
     }
   });
   return out;
+}
+
+// ── PARTNER POSTS ON A TOURNAMENT ─────────────────────────────────────────
+// THE ROUTE. Folding the partner list into the directory removed the only way to
+// open a partner post: every post used to have its own card calling
+// openInviteDetail, and after the fold the directory card called
+// openTournamentDetail instead and the detail view listed no posts at all. A
+// player could see "1 looking for a partner" and a YOUR POST badge on the
+// directory, tap it, and land somewhere with no route to the post the badge was
+// about, their own included.
+//
+// The fold is still right. The fix is that the tournament detail lists the posts
+// for that tournament, which is where somebody who tapped a tournament expects
+// to find them.
+
+// The single predicate deciding whether a partner post is visible to a viewer on
+// a tournament surface. trnPartnerIndex COUNTS with it and trnPostsFor LISTS with
+// it, which is what guarantees the count on a directory card equals the number of
+// rows on the page that count sends you to. Two copies of this logic would drift
+// and a card would promise posts the detail view then did not show.
+function trnPostIsVisible(p, myKey){
+  if(!p || p.postType !== 'partner' || p.status === 'cancelled') return false;
+  if(partnerIsPast(p)) return false;
+  // Nothing still looking is not an open post.
+  if(!partnerOpenNeeds(p).length) return false;
+  // The circle, per viewer. A post outside it is neither counted nor listed nor
+  // linked, so its existence is never hinted at.
+  return !!myKey && isChatEligible(p, myKey);
+}
+
+// Every visible post for ONE tournament, oldest first so the list is stable.
+function trnPostsFor(t, myKey){
+  if(!t || !t.id) return [];
+  return Object.values(D.invites || {})
+    .filter(p => p.tournamentId === t.id && trnPostIsVisible(p, myKey))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+}
+
+// One post's badge, most urgent first. Same precedence the partner list cards
+// used before the fold, plus YOUR POST so a host can find their own at a glance.
+function trnPostBadge(p, myKey){
+  const pill = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;white-space:nowrap;">' + txt + '</span>';
+  const iAmHost = isLoggedInHost(p);
+  const allN = partnerAllNeeds(p), openN = partnerOpenNeeds(p);
+  const filledN = allN.length - openN.length;
+  const myAskN = !iAmHost && myKey ? Object.values(p.asks || {}).filter(m => m && m[myKey]).length : 0;
+  const myOfferN = !iAmHost && myKey ? Object.values(p.offers || {}).filter(m => m && m[myKey]).length : 0;
+  const offersN = partnerOfferCount(p);
+  if(myAskN) return pill('#fef3c7', '#92400e', 'YOU WERE ASKED');
+  if(myOfferN) return pill('#fef3c7', '#92400e', myOfferN > 1 ? myOfferN + ' OFFERS SENT' : 'OFFER SENT');
+  if(iAmHost && offersN) return pill('#fef3c7', '#92400e', offersN + ' OFFER' + (offersN === 1 ? '' : 'S'));
+  if(iAmHost) return pill('#d1fae5', '#065f46', 'YOUR POST');
+  if(filledN) return pill('var(--gray-lighter)', 'var(--gray)', filledN + ' OF ' + allN.length + ' FILLED');
+  return '';
+}
+
+// The card. Rendered only when there is at least one visible post, because an
+// empty one would answer a question nobody asked: the directory card shows no
+// count when there are none, so no promise was made to keep.
+//
+// Every row opens openInviteDetail, which is the route that went missing.
+function trnPostsCardHTML(t){
+  const myKey = gameplayKey();
+  const posts = trnPostsFor(t, myKey);
+  if(!posts.length) return '';
+  const esc = v => escapeHTML(String(v)).replace(/'/g, "\\'");
+
+  return '<div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Partner posts (' + posts.length + ')</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">'
+    +   'Players who posted for this tournament and said which divisions they need somebody for. Open one to offer, or to manage your own.'
+    + '</div>'
+    + posts.map(p => {
+        const mine = isLoggedInHost(p);
+        const badge = trnPostBadge(p, myKey);
+        return '<div class="evcard" style="margin-bottom:6px;" onclick="openInviteDetail(\'' + esc(p.id) + '\')">'
+          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
+          +   '<div style="flex:1;">'
+          +     '<div class="evname">' + (mine ? 'Your post' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName)) + '</div>'
+          +     '<div class="evmeta" style="margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + '</div>'
+          +     '<div class="evmeta" style="margin-top:2px;">' + (mine ? 'Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : 'Posted by ' + escapeHTML(p.hostName || 'Anonymous')) + '</div>'
+          +   '</div>'
+          +   badge
+          + '</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
 }
 
 // ── NEEDS YOU ─────────────────────────────────────────────────────────────
@@ -4810,14 +4898,15 @@ function trnPoolEntryDays(e){
 // the worker refuses anything whose postType is not 'partner', so an ask from
 // here would have to invent a post and a hostId. It does not: it points at the
 // post this player already has, when they have one still looking.
+// Now routed through the same predicate as the count and the list. It used to
+// check everything EXCEPT isChatEligible, so a roster row could offer a link to a
+// club-scoped post the viewer was not in the circle for. The button alone would
+// have told them it existed, which is the leak trnPartnerIndex was careful about.
 function trnOpenPostFor(t, nameKey, accountId){
-  const all = Object.values(D.invites || {});
+  const myKey = gameplayKey();
+  const all = trnPostsFor(t, myKey);
   for(let x = 0; x < all.length; x++){
     const p = all[x];
-    if(!p || p.postType !== 'partner' || p.status === 'cancelled') continue;
-    if(!t || p.tournamentId !== t.id) continue;
-    if(partnerIsPast(p)) continue;
-    if(!partnerOpenNeeds(p).length) continue;
     const byId = !!(p.hostId && accountId && p.hostId === accountId);
     const byName = Identity.nameKey(p.hostName || '') === nameKey;
     if(byId || byName) return p;
@@ -5160,10 +5249,16 @@ function trnPoolCardsHTML(t){
         : (pool.length
             ? pool.map(([k, e, days]) => {
                 const post = trnOpenPostFor(t, k, e.accountId);
-                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;">'
+                // The viewer's own row is about THEM, so it reads that way. It used
+                // to say "Mark McNees ... They have a post open" to Mark, which
+                // reads as somebody else's row and offers a link that sounds like
+                // discovering a stranger's post rather than managing your own.
+                const isMe = !!myKey && k === myKey;
+                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMe ? 'background:var(--light);' : '') + '">'
                   + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name)
+                  +   (isMe ? ' <span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;background:var(--gray-lighter);color:var(--gray);padding:2px 6px;border-radius:4px;vertical-align:middle;">YOU</span>' : '')
                   +   (post
-                        ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">They have a post open ' + String.fromCharCode(8594) + '</button>'
+                        ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">' + (isMe ? 'Manage your post ' : 'They have a post open ') + String.fromCharCode(8594) + '</button>'
                         : '')
                   + '</span>'
                   + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
@@ -5240,10 +5335,28 @@ function partnerIsLegacyShape(i){
   return keys.length > 0 && !keys.some(k => needIsDayShaped(needs[k]));
 }
 
-// partnerDateLabel and partnerNeedSummary lived here. Their only caller was the
-// partner list section, which the tournament directory absorbed, and neither the
-// post detail view nor the directory card reads them. Removed rather than left
-// unreferenced; git has them if a per-post summary is ever wanted on a card.
+// partnerDateLabel lived here too. Its only caller was the partner list section
+// the directory absorbed, and nothing reads it now; a post's dates are already in
+// the tournament header above any list of its posts.
+//
+// Short summary of what a post is looking for, for a list row. One clause per DAY,
+// because that is the unit: "Sat: Men's A · Sun: Coed BB or A". A day with several
+// acceptable divisions is the normal case, so the set has to be legible at a glance
+// rather than flattened into a comma list that hides which divisions belong to
+// which day.
+//
+// This was removed in the fold as unreferenced and is back, because the partner
+// posts card on the tournament detail is exactly the per-post summary it was
+// written for. Removing it was premature.
+function partnerNeedSummary(i){
+  const open = partnerOpenNeeds(i), all = partnerAllNeeds(i);
+  if(!all.length) return i && i.division ? divisionLabel(i.division) : '';
+  const shown = open.length ? open : all;
+  const labels = shown.map(n => dayShort(n.day) + ': ' + needDivLabel(n)).join(' · ');
+  const filled = all.length - open.length;
+  return (open.length ? 'Needs: ' + labels : 'All filled: ' + labels)
+    + (open.length && filled ? ' (' + filled + ' day' + (filled === 1 ? '' : 's') + ' filled)' : '');
+}
 
 // 'Sat', 'Sun'. The weekday alone is enough inside a summary that already names
 // the tournament and its dates, and it is what a player actually thinks in.
