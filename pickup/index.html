@@ -940,13 +940,19 @@ function trnSortDivs(list){ return (list || []).slice().sort(trnDivCompare); }
 // per-row annotation, and the badges themselves stay exactly where they were.
 const COED_UNRATED_NOTE = '<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">Coed divisions are not rated. Ratings shown come from men\u0027s and women\u0027s play, so they are not a guide to coed level.</div>';
 
-// Days a post actually covers, ascending, read off its needs. A post with no
-// needs (or a legacy post that predates them) falls back to its own stored date.
+// Days a post actually covers, ascending. Under day-as-unit the needs map is
+// KEYED by day, so this is just its sorted keys. Each need still carries its own
+// day field and that is read first, so a legacy division-keyed post still reports
+// its days correctly here even though it has nothing matchable. A post with no
+// needs at all falls back to its own stored date.
 function partnerNeedDays(i){
-  const ds = Object.values((i && i.needs) || {})
-    .map(n => n && n.day)
-    .filter(Boolean)
-    .sort();
+  const needs = (i && i.needs) || {};
+  const seen = {};
+  Object.keys(needs).forEach(k => {
+    const d = (needs[k] && needs[k].day) || (/^\d{4}-\d{2}-\d{2}$/.test(k) ? k : '');
+    if(d) seen[d] = true;
+  });
+  const ds = Object.keys(seen).sort();
   return ds.length ? ds : ((i && i.date) ? [i.date] : []);
 }
 
@@ -2991,7 +2997,7 @@ let poolNeedsSelected = new Set();
 
 // Ask picker, open for at most one division at a time. Holds nameKeys, the same
 // idiom the notify picker and renderGroupMembers use.
-let askPickerDiv = null;
+let askPickerDay = null;
 let askPickerSelected = new Set();
 let askPickerFilter = '';
 
@@ -3020,7 +3026,7 @@ function backToList(){
   // later showView('tournament-detail') paint the previously opened event.
   activeTournament = null;
   poolNeedsSelected = new Set();
-  askPickerDiv = null;
+  askPickerDay = null;
   askPickerSelected = new Set();
   askPickerFilter = '';
   // Backing out of the tournament form abandons any in-flow return as well.
@@ -3596,7 +3602,7 @@ function renderPartnerList(){
 
   const shown = visible.filter(p =>
     (partnerSurfaceFilter === 'all' || p.surface === partnerSurfaceFilter) &&
-    (partnerDivisionFilter === 'all' || partnerAllNeeds(p).some(n => n.category === partnerDivisionFilter)));
+    (partnerDivisionFilter === 'all' || partnerAllNeeds(p).some(n => needHasCategory(n, partnerDivisionFilter))));
   if(!shown.length){
     h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No posts match those filters.</div>';
     cont.innerHTML = h;
@@ -3922,8 +3928,13 @@ async function savePartnerPost(){
   if(!t){ toast('Pick a tournament first'); return; }
   if(!ppNeeds.size){ toast('Pick at least one division'); return; }
 
-  // Needs: one entry per division the poster wants a partner in. Every need starts
-  // open; filling one later leaves the rest alone.
+  // Needs: one entry per DAY, each holding the set of divisions the poster would
+  // accept on that day. The picker still picks divisions, because that is what a
+  // tournament lists and what a poster thinks about; the grouping happens here, at
+  // save time, so a day is never half-represented in the UI state.
+  //
+  // Several divisions on one day is the NORMAL case. "I will play coed BB or A" is
+  // one Sunday availability, and whichever one gets accepted is the one played.
   const needs = {};
   [...ppNeeds].forEach(divId => {
     const d = (t.divisions || {})[divId];
@@ -3933,14 +3944,16 @@ async function savePartnerPost(){
     // is dropped at the water line rather than trusted because the UI usually
     // prevents it.
     if(!trnIsMatchable(d)) return;
-    needs[divId] = { divId: divId, day: d.day, category: d.category, level: d.level === undefined ? null : d.level, status: 'open' };
+    if(!d.day) return;
+    if(!needs[d.day]) needs[d.day] = { day: d.day, divIds: {}, status: 'open' };
+    needs[d.day].divIds[divId] = true;
   });
   if(!Object.keys(needs).length){ toast('Those divisions are no longer on the tournament, or are not open to partner matching'); return; }
 
   // Dates are DERIVED from the needs, never typed. First day for display, last
   // day for every deadline and past-check, so a multi-day post stays live through
   // the final division it covers.
-  const needDays = Object.values(needs).map(n => n.day).filter(Boolean).sort();
+  const needDays = Object.keys(needs).sort();
   const date = needDays[0] || t.startDate || '';
   const lastDay = needDays[needDays.length - 1] || date;
   if(!date){ toast('That tournament has no usable dates'); return; }
@@ -4563,9 +4576,14 @@ function renderTournamentDetail(){
 // What a pool entry is offering, as chips. Reads the entry's own needs map, so
 // an entry always states the divisions it actually signed up for rather than a
 // band range that had to be interpreted.
+// A pool entry's days, in words, one string per day: "Sat: Men's A". Day-keyed, so
+// this is the sorted keys and each carries its own set.
 function poolEntryNeedLabels(e){
-  return trnSortDivs(Object.values((e && e.needs) || {}).filter(Boolean))
-    .map(n => trnDivLabel(n));
+  const needs = (e && e.needs) || {};
+  return Object.keys(needs).sort().map(day => {
+    const lbl = needDivLabel(needs[day]) || '';
+    return lbl ? (dayShort(day) + ': ' + lbl) : dayShort(day);
+  }).filter(Boolean);
 }
 
 // Everything respondToPartnerPost gates on EXCEPT the response-specific checks.
@@ -4591,22 +4609,45 @@ function partnerPoolBlockReason(i){
 }
 
 // Needs still looking for somebody, by day then the level ladder.
-function partnerOpenNeeds(i){
-  return trnSortDivs(Object.values((i && i.needs) || {}).filter(n => n && needStatusOf(n) === 'open'));
+// Needs are sorted by DAY, not by trnSortDivs: a day has no single category or
+// level to sort on, it has a set. The divisions WITHIN a set are still ladder
+// ordered, by needDivIds.
+//
+// Both readers drop anything that is not a day-shaped, matchable need, so a legacy
+// division-keyed post and an all-juniors day both simply do not appear rather than
+// rendering controls that would misbehave.
+function partnerDayNeeds(i, openOnly){
+  const needs = (i && i.needs) || {};
+  return Object.keys(needs)
+    .map(k => needs[k])
+    .filter(n => !!n && needIsDayShaped(n) && needIsMatchable(n))
+    .filter(n => !openOnly || needStatusOf(n) === 'open')
+    .sort((a, b) => String(a.day || '').localeCompare(String(b.day || '')));
 }
+function partnerOpenNeeds(i){ return partnerDayNeeds(i, true); }
 
 // Every need, open or filled, in the same order.
-function partnerAllNeeds(i){
-  return trnSortDivs(Object.values((i && i.needs) || {}).filter(Boolean));
-}
+function partnerAllNeeds(i){ return partnerDayNeeds(i, false); }
 
-// A post used to carry ONE division, so one gender check settled the whole post.
-// It now carries several, so the question becomes whether ANY of them is open to
-// the viewer. A legacy post with no needs falls back to its stored division.
+// Does this post hold anything the viewer could play? A day admits them when ANY
+// division in its set does, since they only need one of the alternatives to be
+// open to them. A post with no needs at all falls back to its stored division.
 function partnerHasViewableNeed(i){
   const needs = partnerAllNeeds(i);
   if(!needs.length) return divisionAllowsViewer(i && i.division);
-  return needs.some(n => divisionAllowsViewer(n.category));
+  return needs.some(n => needDivIds(n).some(id => {
+    const p = divIdParts(id);
+    return !!p && divisionAllowsViewer(p.category);
+  }));
+}
+
+// True when the post HAS needs but none of them are day-shaped, i.e. it predates
+// this change. Used to say so plainly instead of showing an empty list or the
+// gender message, which would both be misleading.
+function partnerIsLegacyShape(i){
+  const needs = (i && i.needs) || {};
+  const keys = Object.keys(needs);
+  return keys.length > 0 && !keys.some(k => needIsDayShaped(needs[k]));
 }
 
 // Date line for a card: one day reads as one date, several as a range.
@@ -4616,14 +4657,27 @@ function partnerDateLabel(i){
   return (!last || last === first) ? fD(first) : fD(first) + ' to ' + fD(last);
 }
 
-// Short summary of what a post is looking for, for the list card.
+// Short summary of what a post is looking for, for the list card. One clause per
+// DAY now, because that is the unit: "Sat: Men's A · Sun: Coed BB or A". A day
+// with several acceptable divisions is the normal case, so the set has to be
+// legible at a glance rather than flattened into a comma list that hides which
+// divisions belong to which day.
 function partnerNeedSummary(i){
   const open = partnerOpenNeeds(i), all = partnerAllNeeds(i);
   if(!all.length) return i && i.division ? divisionLabel(i.division) : '';
-  const labels = (open.length ? open : all).map(n => trnDivLabel(n)).join(', ');
+  const shown = open.length ? open : all;
+  const labels = shown.map(n => dayShort(n.day) + ': ' + needDivLabel(n)).join(' · ');
   const filled = all.length - open.length;
   return (open.length ? 'Needs: ' + labels : 'All filled: ' + labels)
-    + (open.length && filled ? ' (' + filled + ' filled)' : '');
+    + (open.length && filled ? ' (' + filled + ' day' + (filled === 1 ? '' : 's') + ' filled)' : '');
+}
+
+// 'Sat', 'Sun'. The weekday alone is enough inside a summary that already names
+// the tournament and its dates, and it is what a player actually thinks in.
+function dayShort(dayISO){
+  if(!dayISO) return '';
+  const d = new Date(dayISO + 'T12:00:00');
+  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { weekday: 'short' });
 }
 
 // Same defect as the ask picker had: ticking a division here is a local
@@ -4642,14 +4696,15 @@ function poolToggleNeed(divId, isChecked){
 
 // The pool's own division rows, split out for the same reason the ask picker's
 // rows are: one source for the first paint and every repaint.
+// One row per DAY, ticking a day means "I am available that day for any of these".
+// partnerOpenNeeds already drops unmatchable days, so juniors never appear here.
 function poolNeedRows(i){
-  // Juniors are not poolable, so they are not listed as something to tick.
-  return partnerOpenNeeds(i).filter(n => !needIsPast(n) && trnIsMatchable(n)).map(n => {
-    const safe = escapeHTML(n.divId).replace(/'/g, '&#39;');
-    const checked = poolNeedsSelected.has(n.divId);
+  return partnerOpenNeeds(i).filter(n => !needIsPast(n)).map(n => {
+    const safe = escapeHTML(n.day).replace(/'/g, '&#39;');
+    const checked = poolNeedsSelected.has(n.day);
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
       + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(n)) + '</span>'
+      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(needDivLabel(n)) + '</span>'
       + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
       + '</label>';
   }).join('');
@@ -4662,20 +4717,26 @@ function joinPartnerPool(){
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
 
-  // Only still-open needs can be offered for. A division already settled is not
-  // refillable without the pair dropping first, so offering for it would be a lie.
-  const openIds = new Set(partnerOpenNeeds(i).map(n => n.divId));
+  // Only still-open days can be offered for. A day already settled is not refillable
+  // without the pair dropping first, so offering for it would be a lie. The entry is
+  // keyed by day and carries the viewer's own playable subset of that day, so a pool
+  // entry states what the player could actually be asked for.
+  const openDays = new Set(partnerOpenNeeds(i).map(n => n.day));
   const needs = {};
-  poolNeedsSelected.forEach(divId => {
-    if(!openIds.has(divId)) return;
-    const n = (i.needs || {})[divId];
+  poolNeedsSelected.forEach(day => {
+    if(!openDays.has(day)) return;
+    const n = (i.needs || {})[day];
     if(!n) return;
-    // Same water-line guard savePartnerPost uses: never write a juniors entry,
+    // Same water-line guard savePartnerPost uses: never write an unmatchable entry,
     // whatever the selection claims.
-    if(!trnIsMatchable(n)) return;
-    needs[divId] = { divId: divId, day: n.day, category: n.category, level: n.level === undefined ? null : n.level };
+    if(!needIsMatchable(n)) return;
+    const mine = viewerDivIdsFor(n);
+    if(!mine.length) return;
+    const divIds = {};
+    mine.forEach(id => { divIds[id] = true; });
+    needs[day] = { day: day, divIds: divIds, divLabels: needDivLabel({ divIds: divIds }) };
   });
-  if(!Object.keys(needs).length){ toast('Pick at least one division'); return; }
+  if(!Object.keys(needs).length){ toast('Pick at least one day'); return; }
 
   const entry = { name: me.name, accountId: currentAccountId(), needs: needs, joinedAt: Date.now() };
 
@@ -4736,15 +4797,20 @@ function renderPartnerDetail(i){
   // differ only in the controls, so the state of the post is never hidden.
   function needBlock(n){
     const filled = needStatusOf(n) === 'filled';
-    const dk = esc(n.divId);
+    // The key IS the day. Every lookup below is day-scoped, which is what makes the
+    // whole-day settle possible: one offers map and one asks map per day.
+    const dk = esc(n.day);
     const past = needIsPast(n);
-    const offers = partnerOffersFor(i, n.divId);
-    const asks = partnerAsksFor(i, n.divId);
-    const mineOffer = myOfferOn(i, n.divId, myKey);
-    const mineAsk = myAskOn(i, n.divId, myKey);
+    const offers = partnerOffersFor(i, n.day);
+    const asks = partnerAsksFor(i, n.day);
+    const mineOffer = myOfferOn(i, n.day, myKey);
+    const mineAsk = myAskOn(i, n.day, myKey);
+    // A settled day says which division was actually played; an open one lists what
+    // it will accept.
+    const title = filled ? (needFilledLabel(n) || needDivLabel(n)) : needDivLabel(n);
 
     let head = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
-      + '<span style="flex:1;font-weight:700;font-size:14px;">' + escapeHTML(trnDivLabel(n)) + '</span>'
+      + '<span style="flex:1;font-weight:700;font-size:14px;">' + escapeHTML(title) + '</span>'
       + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
       + (filled
           ? '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">FILLED</span>'
@@ -4757,14 +4823,16 @@ function renderPartnerDetail(i){
     if(filled){
       body += '<div style="font-size:13px;color:#065f46;margin-top:4px;">Partner: ' + escapeHTML(n.partnerName || 'someone') + clubBadge(n.partnerAccountId, n.partnerName) + '</div>';
       if(isHost && !isCancelled && !past){
-        body += '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="unfillNeed(\'' + dk + '\')">Reopen this division</button>';
+        body += '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="unfillNeed(\'' + dk + '\')">Reopen this day</button>';
       }
       return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
     }
 
-    // Juniors carry no matching controls for anybody, the poster included. Checked
-    // before the isHost split so one branch covers both sides.
-    if(trnIsJuniorCategory(n.category)){
+    // A day with nothing matchable in it carries no controls for anybody, the poster
+    // included. Checked before the isHost split so one branch covers both sides.
+    // partnerAllNeeds already filters these out, so this only fires if a need became
+    // unmatchable between the filter and the render.
+    if(!needIsMatchable(n)){
       return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + JUNIOR_NO_MATCH_NOTE + '</div>';
     }
 
@@ -4775,16 +4843,27 @@ function renderPartnerDetail(i){
         body += '<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Offers (' + offers.length + ')</div>'
           + offers.map(([k, r]) =>
               '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;">'
-              + '<span style="flex:1;font-size:13px;font-weight:600;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + clubBadge(r.accountId, r.name) + '</span>'
+              // Two offers on one day can name different subsets, so each row states
+              // what that person will actually play. Without it the poster is picking
+              // a division blind.
+              + '<span style="flex:1;font-size:13px;font-weight:600;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + clubBadge(r.accountId, r.name)
+              +   (recLabel(r) ? '<span style="display:block;font-weight:400;font-size:11px;color:var(--gray);">' + escapeHTML(recLabel(r)) + '</span>' : '')
+              + '</span>'
               + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="acceptOffer(\'' + dk + '\',\'' + esc(k) + '\')">Accept</button>'
               + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineOffer(\'' + dk + '\',\'' + esc(k) + '\')">Pass</button>'
-              + '</div>').join('');
+              + '</div>'
+              // The pick appears under the row whose Accept opened it, so the poster
+              // chooses a division without losing sight of who they are accepting.
+              + (pickIsOpen(n.day, 'offer', k) ? pickRow(n, r, 'offer', k) : '')
+              ).join('');
       }
       if(asks.length){
         body += '<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Asked (' + asks.length + ')</div>'
           + asks.map(([k, r]) =>
               '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;">'
-              + '<span style="flex:1;font-size:13px;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + ' <span style="font-size:11px;color:var(--gray);">waiting</span></span>'
+              + '<span style="flex:1;font-size:13px;">' + escapeHTML(r.name) + ratingBadge(r.name, r.accountId) + ' <span style="font-size:11px;color:var(--gray);">waiting</span>'
+              +   (recLabel(r) ? '<span style="display:block;font-size:11px;color:var(--gray);">' + escapeHTML(recLabel(r)) + '</span>' : '')
+              + '</span>'
               + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="cancelAsk(\'' + dk + '\',\'' + esc(k) + '\')">Cancel</button>'
               + '</div>').join('');
       }
@@ -4792,7 +4871,7 @@ function renderPartnerDetail(i){
         body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">No offers yet.</div>';
       }
       if(!isCancelled && !past){
-        body += (askPickerDiv === n.divId)
+        body += (askPickerDay === n.day)
           ? renderAskPicker(i, n)
           : '<button class="btn btn-g btn-sm" style="margin-top:8px;padding:4px 12px;min-height:0;" onclick="openAskPicker(\'' + dk + '\')">Ask someone</button>';
       }
@@ -4801,25 +4880,29 @@ function renderPartnerDetail(i){
 
     // Viewer. Being asked comes first: it is addressed to them and wants an answer.
     if(mineAsk){
-      body += '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-top:6px;font-size:13px;font-weight:700;">' + escapeHTML(i.hostName || 'The poster') + ' asked you to play this one.</div>'
+      body += '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-top:6px;font-size:13px;font-weight:700;">' + escapeHTML(i.hostName || 'The poster') + ' asked you to play ' + escapeHTML(recLabel(mineAsk) || 'this one') + '.</div>'
         + '<div style="display:flex;gap:8px;margin-top:6px;">'
         + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="acceptAsk(\'' + dk + '\')">Accept</button>'
         + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineAsk(\'' + dk + '\')">Decline</button>'
-        + '</div>';
+        + '</div>'
+        + (pickIsOpen(n.day, 'ask', null) ? pickRow(n, mineAsk, 'ask', null) : '');
     } else if(mineOffer){
-      body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
+      body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent' + (recLabel(mineOffer) ? ' for ' + escapeHTML(recLabel(mineOffer)) : '') + '. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
         + '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="withdrawOffer(\'' + dk + '\')">Withdraw offer</button>';
-    } else if(trnIsJuniorCategory(n.category)){
-      // A legacy post can carry a juniors need. It renders as not matchable rather
-      // than being hidden, so the post still reads honestly, and it gets the policy
-      // line instead of the gender line divisionAllowsViewer would otherwise trigger.
-      body += JUNIOR_NO_MATCH_NOTE;
     } else if(past){
-      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This division has been played.</div>';
-    } else if(!divisionAllowsViewer(n.category)){
-      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This division is ' + escapeHTML(divisionLabel(n.category)) + '.</div>';
+      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This day has been played.</div>';
+    } else if(!viewerDivIdsFor(n).length){
+      // Nothing in the set is open to this viewer. Naming the set rather than one
+      // division, because that is what the day actually holds.
+      body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">Nothing that day is open to you. It is ' + escapeHTML(needDivLabel(n)) + '.</div>';
     } else if(!isCancelled){
-      body += '<button class="btn btn-p btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="offerForNeed(\'' + dk + '\')">I\u0027ll play this one</button>';
+      // Offering commits to the DAY, for any of the divisions in the set the viewer
+      // could play. Which one gets played is settled when the poster accepts.
+      const mineIds = viewerDivIdsFor(n);
+      const label = mineIds.length > 1
+        ? 'I\u0027ll play any of these'
+        : 'I\u0027ll play this one';
+      body += '<button class="btn btn-p btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="offerForNeed(\'' + dk + '\')">' + label + '</button>';
     }
     return '<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">' + head + body + '</div>';
   }
@@ -4833,15 +4916,21 @@ function renderPartnerDetail(i){
     actionHTML = '<div style="font-weight:700;margin-bottom:6px;">Want to partner up?</div>'
       + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to offer for a division.</div>'
       + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
+  } else if(partnerIsLegacyShape(i)){
+    // The post has needs, but they are division-keyed from before day-as-unit. It is
+    // not read as one-division days, because two of those can sit on the same day and
+    // that is the double-booking this change exists to remove. So it says so and
+    // offers nothing, rather than throwing or quietly matching on the old shape.
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;line-height:1.5;">This post was created before divisions were grouped by day, so it can no longer take offers. The poster can repost it.</div>';
   } else if(!isHost && !partnerHasViewableNeed(i)){
-    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">None of this post\u0027s divisions are open to you.</div>';
+    actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">None of this post\u0027s days are open to you.</div>';
   } else if(!isHost && !(myKey && isChatEligible(i, myKey))){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This post is limited to ' + escapeHTML(partnerVisLabel(i.eligibility)) + ' members.</div>';
   } else {
     actionHTML = '<div style="font-weight:700;margin-bottom:2px;">Divisions</div>'
       + '<div style="font-size:12px;color:var(--gray);margin-bottom:6px;">Each one is settled on its own. Filling one leaves the rest looking.</div>'
       + (allNeeds.length ? allNeeds.map(needBlock).join('') : '<div style="font-size:13px;color:var(--gray);">No divisions on this post.</div>')
-      + (allNeeds.some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '');
+      + (allNeeds.some(needHasCoed) ? COED_UNRATED_NOTE : '');
 
     // The pool is a weaker, standing statement than an offer: it says which
     // divisions you could play without addressing this poster. A player can do
@@ -4873,14 +4962,15 @@ function renderPartnerDetail(i){
     +   (isCancelled ? '<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>' : '')
     + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' + chip(i.surface === 'grass' ? 'GRASS' : 'SAND') + chip('PARTNER WANTED') + '</div>'
-    // The needs are the post. Filled ones stay visible so the picture is honest:
-    // a post with one division settled and two open reads that way.
+    // The needs are the post, one chip per DAY. Settled days stay visible so the
+    // picture is honest: a post with Saturday settled and Sunday open reads that way,
+    // and a settled chip names the division actually played rather than the whole set.
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">'
     +   partnerAllNeeds(i).map(n => needStatusOf(n) === 'filled'
-          ? '<span style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + escapeHTML(trnDivLabel(n)).toUpperCase() + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>'
-          : chip(escapeHTML(trnDivLabel(n)).toUpperCase())).join('')
+          ? '<span style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + escapeHTML(dayShort(n.day) + ': ' + (needFilledLabel(n) || needDivLabel(n))).toUpperCase() + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>'
+          : chip(escapeHTML(dayShort(n.day) + ': ' + needDivLabel(n)).toUpperCase())).join('')
     + '</div>'
-    + (partnerAllNeeds(i).some(n => n.category === 'coed') ? COED_UNRATED_NOTE : '')
+    + (partnerAllNeeds(i).some(needHasCoed) ? COED_UNRATED_NOTE : '')
     + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Tournament registration and info ↗</a></div>' : '')
     + (i.description ? '<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:6px;padding:10px 12px;background:var(--sand);border-radius:8px;">' + escapeHTML(i.description) + '</div>' : '')
     + '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Posted by ' + escapeHTML(i.hostName || 'Anonymous') + clubBadge(i.hostId, i.hostName) + ' · Visible to ' + escapeHTML(partnerVisLabel(i.eligibility)) + '</div>'
@@ -4898,16 +4988,18 @@ function renderPartnerDetail(i){
         ? pool.map(([k, e]) =>
             '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
             + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name) + '</span>'
-            // A pool entry copies the post's needs at JOIN time, so a division it
-            // names can have been filled since. Re-check each chip against the
-            // post's current status rather than showing a stale availability.
+            // A pool entry copies the post's needs at JOIN time, so a DAY it names
+            // can have been settled since. Re-check each chip against the post's
+            // current status per day rather than showing a stale availability. The
+            // check moved from per division to per day with the key.
             + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
-            +   trnSortDivs(Object.values(e.needs || {}).filter(Boolean))
-                  .map(pn => {
-                    const live = (i.needs || {})[pn.divId];
+            +   Object.keys(e.needs || {}).sort()
+                  .map(pday => {
+                    const pn = (e.needs || {})[pday];
+                    const live = (i.needs || {})[pday];
                     const gone = !live;
                     const filled = !gone && needStatusOf(live) === 'filled';
-                    const label = escapeHTML(trnDivLabel(pn)).toUpperCase();
+                    const label = escapeHTML(dayShort(pday) + ': ' + (needDivLabel(pn) || '')).toUpperCase();
                     if(gone) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;text-decoration:line-through;">' + label + '</span>';
                     if(filled) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>';
                     return chip(label);
@@ -4987,28 +5079,116 @@ function partnerAsksFor(i, divId){
 // so it is a floor rather than a normal path. Returns '' when the id is unparseable,
 // which every caller treats as 'say nothing' rather than printing the raw id.
 function divIdToLabel(divId){
-  const str = String(divId || '');
-  if(!/^\d{4}-\d{2}-\d{2}-/.test(str)) return '';
-  const rest = str.slice(11);
-  if(!rest) return '';
-  if(trnIsAgeCategory(rest)) return trnDivLabel({ category: rest, level: null });
-  const cut = rest.lastIndexOf('-');
-  if(cut === -1) return trnDivLabel({ category: rest, level: null });
-  return trnDivLabel({ category: rest.slice(0, cut), level: rest.slice(cut + 1) });
+  const p = divIdParts(divId);
+  return p ? trnDivLabel(p) : '';
 }
 
-// The division a record is about, in words. Three sources, best first:
-//   1. the record's own divLabel, denormalized at write time
-//   2. the post's needs map, which carries category and level
-//   3. the divId itself, parsed
-// A raw divId is never returned: it is a key, not something to show a person.
-function divLabelFor(rec, i){
-  const fromRec = rec && typeof rec.divLabel === 'string' ? rec.divLabel.trim() : '';
-  if(fromRec) return fromRec;
-  const divId = (rec && rec.divId) || '';
-  const n = ((i && i.needs) || {})[divId];
-  if(n) { const l = trnDivLabel(n); if(l) return l; }
-  return divIdToLabel(divId);
+// ── DAY-AS-UNIT ───────────────────────────────────────────
+// A post carries one need per DAY, and each need holds a SET of acceptable
+// divisions. Same-day divisions run concurrently at a beach tournament, so a
+// player can be in exactly one of them: "Coed BB or A" is ONE availability with
+// two alternatives, not two availabilities.
+//
+// The old shape keyed needs by division, which treated each as an independent
+// slot. Two people could accept Coed A and Coed BB on the same Sunday and leave
+// the poster committed to two partners at the same hour. Keying by day makes that
+// unrepresentable rather than merely discouraged.
+
+// A divId back into its parts, so a bare id can be sorted and labelled without
+// the tournament. divIdFor builds 'YYYY-MM-DD-<category>[-<level>]', so this is
+// its inverse. Returns null when the string is not a divId at all, which keeps a
+// legacy positional id out of a label rather than half-parsed into nonsense.
+function divIdParts(divId){
+  const str = String(divId || '');
+  if(!/^\d{4}-\d{2}-\d{2}-/.test(str)) return null;
+  const day = str.slice(0, 10);
+  const rest = str.slice(11);
+  if(!rest) return null;
+  if(trnIsAgeCategory(rest)) return { day: day, category: rest, level: null };
+  const cut = rest.lastIndexOf('-');
+  if(cut === -1) return { day: day, category: rest, level: null };
+  return { day: day, category: rest.slice(0, cut), level: rest.slice(cut + 1) };
+}
+
+// A need is DAY-SHAPED when it carries a divIds set. A division-keyed need from
+// before this change is not, and is deliberately NOT read as a one-division day:
+// doing that would quietly reinstate the double-booking, because such a post has
+// one need per division and two of them can still be on the same Sunday. A post
+// whose needs are all legacy therefore reads as having nothing matchable, which is
+// the honest answer, and it never throws.
+function needIsDayShaped(n){
+  return !!(n && n.divIds && typeof n.divIds === 'object' && Object.keys(n.divIds).some(k => n.divIds[k]));
+}
+
+// The divisions a day's need accepts, as divIds, in ladder order per trnSortDivs.
+function needDivIds(n){
+  if(!needIsDayShaped(n)) return [];
+  const ids = Object.keys(n.divIds).filter(k => n.divIds[k]);
+  return ids
+    .map(id => ({ id: id, p: divIdParts(id) }))
+    .filter(x => !!x.p)
+    .sort((a, b) => trnDivCompare(a.p, b.p))
+    .map(x => x.id);
+}
+
+// 'BB or A' / 'BB, A or AA'. Oxford-free, because these are alternatives read
+// aloud rather than a list of things.
+function orList(xs){
+  const a = (xs || []).filter(Boolean);
+  if(!a.length) return '';
+  if(a.length === 1) return a[0];
+  if(a.length === 2) return a[0] + ' or ' + a[1];
+  return a.slice(0, -1).join(', ') + ' or ' + a[a.length - 1];
+}
+
+// A day's need in words. When every division shares a category the category is
+// named once, so three coed levels read 'Coed BB, A or AA' rather than repeating
+// the word three times. A mixed set spells each division out in full. This string
+// is denormalized onto offer and ask records as divLabels, because the Cloudflare
+// worker renders it into an email and cannot derive it.
+function needDivLabel(n){
+  const parts = needDivIds(n).map(divIdParts).filter(Boolean);
+  if(!parts.length) return '';
+  const cats = {};
+  parts.forEach(p => { cats[p.category] = true; });
+  if(Object.keys(cats).length === 1 && parts.every(p => !!p.level)){
+    return trnCatLabel(parts[0].category) + ' ' + orList(parts.map(p => trnLevelLabel(p.level)));
+  }
+  return orList(parts.map(p => trnDivLabel(p)));
+}
+
+// Does any division in this day's set belong to that category? The old readers
+// asked n.category, which a day does not have: Sunday can hold coed A and coed BB,
+// and in principle a day could hold two categories at once.
+function needHasCategory(n, cat){
+  return needDivIds(n).some(id => { const p = divIdParts(id); return !!p && p.category === cat; });
+}
+function needHasCoed(n){ return needHasCategory(n, 'coed'); }
+
+// A day is matchable when at least one division in its set is. Juniors are out of
+// partner matching entirely, so a day whose whole set is juniors is not a need at
+// all and never becomes one at save time.
+function needIsMatchable(n){
+  const parts = needDivIds(n).map(divIdParts).filter(Boolean);
+  return parts.some(p => trnIsMatchable(p));
+}
+
+// What an offer or ask record says it will play, in words. Three sources, best
+// first:
+//   1. divLabels, the set the client denormalized at write time ('Coed BB or A')
+//   2. divLabel, the single label an old record carried
+//   3. the divIds themselves, parsed and rendered
+// A raw key is never returned: it is a key, not something to show a person.
+function recLabel(rec){
+  const many = rec && typeof rec.divLabels === 'string' ? rec.divLabels.trim() : '';
+  if(many) return many;
+  const one = rec && typeof rec.divLabel === 'string' ? rec.divLabel.trim() : '';
+  if(one) return one;
+  const ids = recDivIds(rec);
+  if(!ids.length) return '';
+  const m = {};
+  ids.forEach(id => { m[id] = true; });
+  return needDivLabel({ divIds: m });
 }
 
 // Total pending across every need, for the list badge.
@@ -5031,48 +5211,66 @@ function needIsPast(n){ return !!(n && n.day) && n.day < td(); }
 // Returns null when allowed, else the toast string.
 function needOfferBlockReason(i, n){
   if(!i || i.postType !== 'partner') return 'Not a partner post';
-  if(!n) return 'Division not found';
+  if(!n) return 'Day not found';
+  if(!needIsDayShaped(n)) return 'This post was created before divisions were grouped by day';
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to offer';
   if(i.status === 'cancelled') return 'Post cancelled';
-  if(needIsPast(n)) return 'That division has already been played';
+  if(needIsPast(n)) return 'That day has already been played';
   if(isLoggedInHost(i)) return 'This is your post';
-  // Ahead of the gender check so the reason is the real one. divisionAllowsViewer
-  // already refuses juniors, so without this the player would be told a juniors
-  // division is "not open to you", which reads as a gender ruling rather than the
-  // policy it is.
-  if(trnIsJuniorCategory(n.category)) return 'CourtSense does not do partner matching for junior divisions';
-  if(!divisionAllowsViewer(n.category)) return 'That division is ' + divisionLabel(n.category) + ', not open to you';
+  // A day admits the viewer when ANY division in its set does: they only have to be
+  // able to play one of the alternatives. Juniors are checked first so the reason is
+  // the policy rather than a gender ruling, and a set that is entirely juniors is
+  // not a need at all.
+  if(!needIsMatchable(n)) return 'CourtSense does not do partner matching for junior divisions';
+  if(!viewerDivIdsFor(n).length){
+    return 'Nothing that day is open to you';
+  }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!me || !myKey) return 'Pick your name first';
   if(!activeEligibleNames(i, Date.now()).some(x => Identity.nameKey(x) === myKey)) return 'This post is not open to you';
-  if(needStatusOf(n) !== 'open') return 'That division is already filled';
+  if(needStatusOf(n) !== 'open') return 'That day is already settled';
   return null;
 }
 
-// OFFER: a viewer volunteers for ONE need. Several offers on several divisions
-// are fine; one per division per person, which the nameKey key enforces.
-function offerForNeed(divId){
+// The subset of a day's divisions the VIEWER could actually play: matchable, and
+// open to their gender. This is what an offer records, because offering for a
+// division you cannot enter is not an offer. Ladder ordered, like every set.
+function viewerDivIdsFor(n){
+  return needDivIds(n).filter(id => {
+    const p = divIdParts(id);
+    return !!p && trnIsMatchable(p) && divisionAllowsViewer(p.category);
+  });
+}
+
+// OFFER: a viewer volunteers for ONE DAY. Several offers on several days are fine;
+// one per day per person, which the day key plus the nameKey enforces structurally.
+// That is the constraint that matters: the old division key allowed one offer per
+// division, which let the same person be pending on two concurrent Sunday slots.
+function offerForNeed(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const decoded = trnDecodeKey(divId);
+  const decoded = trnDecodeKey(day);
   const n = (i.needs || {})[decoded];
   const reason = needOfferBlockReason(i, n);
   if(reason){ toast(reason); return; }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-  if(myOfferOn(i, decoded, myKey)){ toast('You already offered for that one'); return; }
+  if(myOfferOn(i, decoded, myKey)){ toast('You already offered for that day'); return; }
 
-  // divLabel and day are COPIES of what the need already says, denormalized the
-  // same way savePartnerPost copies the tournament's name, date and location onto
-  // the post: the Cloudflare worker reads this record directly to name the
-  // division in an email and cannot follow a reference to the tournament. Without
-  // them an email could only say 'a division'.
+  // divIds is the OFFERER'S subset: the divisions on that day they could play and
+  // would accept. divLabels is that subset in words, denormalized the same way
+  // savePartnerPost copies the tournament name and location onto the post, because
+  // the Cloudflare worker reads this record to name the division in an email and
+  // cannot follow a reference to the tournament or re-derive a label.
+  const mine = viewerDivIdsFor(n);
+  const divIds = {};
+  mine.forEach(id => { divIds[id] = true; });
   const rec = {
     name: me.name,
     accountId: currentAccountId(),
-    divId: decoded,
-    divLabel: trnDivLabel(n),
-    day: n.day || null,
+    day: n.day || decoded,
+    divIds: divIds,
+    divLabels: needDivLabel({ divIds: divIds }),
     offeredAt: Date.now()
   };
 
@@ -5088,7 +5286,7 @@ function offerForNeed(divId){
   renderInviteDetail();
 
   const _persist = fbSet('invites/' + activeInvite + '/offers/' + decoded + '/' + myKey, rec);
-  toast('Offer sent for ' + trnDivLabel(n));
+  toast('Offer sent for ' + (rec.divLabels || dayShort(rec.day)));
 
   // Tell the poster by email, ids only. The worker resolves their address
   // SERVER-SIDE from the post's hostId and renders every line from the record, so
@@ -5107,16 +5305,16 @@ function offerForNeed(divId){
   warnIfNotEmailed(
     _persist.then(function(ok){
       if(ok !== true) return true;
-      return notifyWorker('/pickup/offer-notify', { inviteId: _inv, divId: decoded, nameKey: myKey });
+      return notifyWorker('/pickup/offer-notify', { inviteId: _inv, day: decoded, nameKey: myKey });
     }),
     'Offer sent, but the poster was not emailed.'
   );
 }
 
-// Only the offerer may withdraw their own offer.
-function withdrawOffer(divId){
+// Only the offerer may withdraw their own offer. One per day, so one key.
+function withdrawOffer(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const decoded = trnDecodeKey(divId);
+  const decoded = trnDecodeKey(day);
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!myKey) return;
@@ -5130,54 +5328,144 @@ function withdrawOffer(divId){
   toast('Offer withdrawn');
 }
 
-// FILL: the one place a need becomes filled, whichever direction it came from.
-// The partner is recorded ON THE NEED. The rsvps map and the slot math are
-// deliberately not used: a post has one rsvps map and slots 1, so it cannot
-// carry two filled needs, and calling the slot math would quietly waitlist the
-// second one. First accept wins: every other offer and ask on THIS division is
-// deleted, and every other need is left exactly as it was.
-function fillNeed(divId, name, accountId){
+// FILL: the one place a day becomes filled, whichever direction it came from.
+// The partner and the division actually played are recorded ON THE NEED. The rsvps
+// map and the slot math are deliberately not used: a post has one rsvps map and
+// slots 1, so it cannot carry two filled days, and calling the slot math would
+// quietly waitlist the second one.
+//
+// The two deletes are the whole reason the key is a day. Filling Sunday removes
+// offers/{day} and asks/{day} ENTIRE, so every pending offer and ask on every
+// division of that day, from everyone, goes at once. Nothing enumerates the day's
+// divisions, which means a division added to the tournament after the post was
+// written cannot be missed, and a stale record on it cannot survive the fill.
+// Other days are untouched.
+function fillNeed(day, chosenDivId, name, accountId){
   const i = (D.invites||{})[activeInvite]; if(!i) return false;
-  const n = (i.needs || {})[divId]; if(!n) return false;
-  if(needStatusOf(n) !== 'open'){ toast('That division is already filled'); return false; }
-  const merged = Object.assign({}, n, { status: 'filled', partnerName: name, partnerAccountId: accountId || null });
+  const n = (i.needs || {})[day]; if(!n) return false;
+  if(needStatusOf(n) !== 'open'){ toast('That day is already settled'); return false; }
+  // The chosen division has to be one the need actually accepts. A pick from a
+  // stale render, or a hand-built call, must not record a division nobody agreed to.
+  const accepted = needDivIds(n);
+  const chosen = accepted.indexOf(chosenDivId) !== -1 ? chosenDivId : (accepted.length === 1 ? accepted[0] : null);
+  if(!chosen){ toast('Pick which division'); return false; }
+  const merged = Object.assign({}, n, {
+    status: 'filled', filledDivId: chosen, partnerName: name, partnerAccountId: accountId || null,
+  });
 
-  D.invites[activeInvite].needs[divId] = merged;
-  if(D.invites[activeInvite].offers) delete D.invites[activeInvite].offers[divId];
-  if(D.invites[activeInvite].asks) delete D.invites[activeInvite].asks[divId];
+  D.invites[activeInvite].needs[day] = merged;
+  if(D.invites[activeInvite].offers) delete D.invites[activeInvite].offers[day];
+  if(D.invites[activeInvite].asks) delete D.invites[activeInvite].asks[day];
   pendInviteOverride(activeInvite, inv => {
     if(!inv.needs) inv.needs = {};
-    inv.needs[divId] = merged;
-    if(inv.offers) delete inv.offers[divId];
-    if(inv.asks) delete inv.asks[divId];
+    inv.needs[day] = merged;
+    if(inv.offers) delete inv.offers[day];
+    if(inv.asks) delete inv.asks[day];
   });
   renderInviteDetail();
 
-  fbSet('invites/' + activeInvite + '/needs/' + divId, merged);
-  fbDel('invites/' + activeInvite + '/offers/' + divId);
-  fbDel('invites/' + activeInvite + '/asks/' + divId);
+  fbSet('invites/' + activeInvite + '/needs/' + day, merged);
+  fbDel('invites/' + activeInvite + '/offers/' + day);
+  fbDel('invites/' + activeInvite + '/asks/' + day);
   return true;
 }
 
-// Poster accepts an offer.
-function acceptOffer(divId, nameKey){
+// The division a settled day was played in, in words. Reads filledDivId, which is
+// the whole point of recording it: without it a filled day could only say which
+// divisions were acceptable, not which one happened.
+function needFilledLabel(n){
+  const id = (n && n.filledDivId) || '';
+  return id ? divIdToLabel(id) : '';
+}
+
+// ── ACCEPTING, AND THE ONE NEW INTERACTION ───────────────────────
+// A day holds a set, so accepting has to end with ONE division: that is what gets
+// played and what fillNeed records. When the set has a single division there is
+// nothing to decide and the accept goes straight through, which is the common case
+// and must not grow a click. When it has several, the accepting side picks.
+//
+// The pick is a row of division buttons rendered inline in the need block, the same
+// btn-sm idiom Accept and Pass already use, keyed by a module-level "which pick is
+// open" variable exactly like askPickerDay. No modal, no new component, and it
+// closes by picking or by Cancel.
+//
+// pickFor is the pending pick: null, or { day, kind, key }. kind is 'offer' or
+// 'ask', and key is the offerer's nameKey for an offer and unused for an ask, since
+// an ask is always addressed to the viewer themselves.
+let pickFor = null;
+function openPick(day, kind, key){
+  pickFor = { day: trnDecodeKey(day), kind: kind, key: key ? trnDecodeKey(key) : null };
+  renderInviteDetail();
+}
+function closePick(){ pickFor = null; renderInviteDetail(); }
+function pickIsOpen(day, kind, key){
+  if(!pickFor || pickFor.day !== day || pickFor.kind !== kind) return false;
+  return kind !== 'offer' || pickFor.key === key;
+}
+
+// The divisions an accept may choose from: the intersection of what the day accepts
+// and what the offer or ask named. An intersection rather than either side alone,
+// because the day may have been edited since the record was written and a division
+// nobody offered for must not be selectable. Ladder ordered, like every set.
+function pickOptions(n, rec){
+  const fromRec = recDivIds(rec);
+  const onDay = needDivIds(n);
+  const inter = onDay.filter(id => fromRec.indexOf(id) !== -1);
+  return inter.length ? inter : onDay;
+}
+
+// The divisions an offer or ask record names. divIds is the current field; a record
+// written before day-as-unit carried a single divId, and reading that keeps an
+// in-flight record from becoming unacceptable mid-migration.
+function recDivIds(rec){
+  const m = rec && rec.divIds;
+  if(m && typeof m === 'object'){
+    const ids = Object.keys(m).filter(k => m[k]);
+    if(ids.length) return ids;
+  }
+  return (rec && rec.divId) ? [rec.divId] : [];
+}
+
+// The inline pick row. Rendered where the accept button was, so the control appears
+// exactly where the poster was already looking.
+function pickRow(n, rec, kind, key){
+  const opts = pickOptions(n, rec);
+  const esc = v => escapeHTML(String(v)).replace(/\'/g, '&#39;');
+  const go = kind === 'offer'
+    ? (id) => 'acceptOffer(\'' + esc(n.day) + '\',\'' + esc(key) + '\',\'' + esc(id) + '\')'
+    : (id) => 'acceptAsk(\'' + esc(n.day) + '\',\'' + esc(id) + '\')';
+  return '<div style="margin-top:6px;font-size:12px;color:var(--gray);">Which division?</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'
+    +   opts.map(id => '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="' + go(id) + '">' + escapeHTML(divIdToLabel(id)) + '</button>').join('')
+    +   '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="closePick()">Cancel</button>'
+    + '</div>';
+}
+
+// Poster accepts an offer. chosenDivId is supplied only by the pick row; without it
+// a single-division day accepts immediately and a multi-division day opens the pick
+// instead of guessing.
+function acceptOffer(day, nameKey, chosenDivId){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can accept'); return; }
   if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
-  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  const dk = trnDecodeKey(day), nk = trnDecodeKey(nameKey);
   const rec = (((i.offers || {})[dk]) || {})[nk];
   if(!rec){ toast('That offer is gone'); return; }
-  // Resolve through the record first: trnDivLabel on a missing need returned an
-  // empty string, so this toast could read 'Alice is your partner for '.
-  const lbl = divLabelFor(rec, i);
-  if(fillNeed(dk, rec.name, rec.accountId)) toast(rec.name + ' is your partner' + (lbl ? ' for ' + lbl : ''));
+  const n = (i.needs || {})[dk];
+  if(!n){ toast('Day not found'); return; }
+  const opts = pickOptions(n, rec);
+  const chosen = chosenDivId ? trnDecodeKey(chosenDivId) : (opts.length === 1 ? opts[0] : null);
+  if(!chosen){ openPick(dk, 'offer', nk); return; }
+  pickFor = null;
+  const lbl = divIdToLabel(chosen);
+  if(fillNeed(dk, chosen, rec.name, rec.accountId)) toast(rec.name + ' is your partner' + (lbl ? ' for ' + lbl : ''));
 }
 
-// Poster declines one offer. Deletes it; the need stays open for others.
-function declineOffer(divId, nameKey){
+// Poster declines one offer. Deletes it; the day stays open for others.
+function declineOffer(day, nameKey){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can decline'); return; }
-  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  const dk = trnDecodeKey(day), nk = trnDecodeKey(nameKey);
   if(!(((i.offers || {})[dk]) || {})[nk]) return;
 
   if(D.invites[activeInvite].offers && D.invites[activeInvite].offers[dk]) delete D.invites[activeInvite].offers[dk][nk];
@@ -5189,10 +5477,10 @@ function declineOffer(divId, nameKey){
 }
 
 // ASK: the poster reaches out. Only the poster creates or cancels one.
-function cancelAsk(divId, nameKey){
+function cancelAsk(day, nameKey){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can cancel an ask'); return; }
-  const dk = trnDecodeKey(divId), nk = trnDecodeKey(nameKey);
+  const dk = trnDecodeKey(day), nk = trnDecodeKey(nameKey);
   if(!(((i.asks || {})[dk]) || {})[nk]) return;
 
   if(D.invites[activeInvite].asks && D.invites[activeInvite].asks[dk]) delete D.invites[activeInvite].asks[dk][nk];
@@ -5203,10 +5491,12 @@ function cancelAsk(divId, nameKey){
   toast('Ask cancelled');
 }
 
-// Target accepts an ask aimed at them. Same fill, opposite direction.
-function acceptAsk(divId){
+// Target accepts an ask aimed at them. Same fill, opposite direction, and the same
+// pick: the ASKED player chooses which division of the day they will play, because
+// they are the one who has to show up for it.
+function acceptAsk(day, chosenDivId){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const dk = trnDecodeKey(divId);
+  const dk = trnDecodeKey(day);
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   const mine = myAskOn(i, dk, myKey);
@@ -5216,14 +5506,21 @@ function acceptAsk(divId){
   // already-offered check: being asked does not bypass the circle or the division.
   const reason = needOfferBlockReason(i, n);
   if(reason){ toast(reason); return; }
-  const lbl = divLabelFor(mine, i) || trnDivLabel(n);
-  if(fillNeed(dk, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
+  // The choices are narrowed to what the accepter could actually play, so being
+  // asked for a set never offers them a division their gender bars.
+  const mineIds = viewerDivIdsFor(n);
+  const opts = pickOptions(n, mine).filter(id => mineIds.indexOf(id) !== -1);
+  const chosen = chosenDivId ? trnDecodeKey(chosenDivId) : (opts.length === 1 ? opts[0] : null);
+  if(!chosen){ openPick(dk, 'ask', null); return; }
+  pickFor = null;
+  const lbl = divIdToLabel(chosen);
+  if(fillNeed(dk, chosen, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
 }
 
-// Target declines. Deletes the ask; the need stays open.
-function declineAsk(divId){
+// Target declines. Deletes the ask; the day stays open.
+function declineAsk(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
-  const dk = trnDecodeKey(divId);
+  const dk = trnDecodeKey(day);
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
   if(!myAskOn(i, dk, myKey)){ toast('No ask to decline'); return; }
@@ -5236,20 +5533,22 @@ function declineAsk(divId){
   toast('Declined');
 }
 
-// Poster-only: unfill a need that was settled. Clears the partner fields and
-// reopens it. Guarded three ways: poster only, the need must exist, and it must
-// actually BE filled, so this can never blank an open need's fields or be
-// triggered by a stale render. Offers and asks on that division were deleted at
-// fill time and do not come back; the need simply returns to looking.
-function unfillNeed(divId){
+// Poster-only: reopen a DAY that was settled. Clears the partner fields and the
+// division that had been chosen, so the day goes back to accepting its whole set.
+// Guarded three ways: poster only, the need must exist, and it must actually BE
+// filled, so this can never blank an open day's fields or be triggered by a stale
+// render. Offers and asks were deleted at fill time and do not come back; the day
+// simply returns to looking.
+function unfillNeed(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can do that'); return; }
-  const dk = trnDecodeKey(divId);
+  const dk = trnDecodeKey(day);
   const n = (i.needs || {})[dk];
-  if(!n){ toast('Division not found'); return; }
-  if(needStatusOf(n) !== 'filled'){ toast('That division is not filled'); return; }
-  if(!confirm('Reopen ' + trnDivLabel(n) + '? ' + (n.partnerName ? n.partnerName + ' comes off it.' : ''))) return;
-  const merged = Object.assign({}, n, { status: 'open', partnerName: null, partnerAccountId: null });
+  if(!n){ toast('Day not found'); return; }
+  if(needStatusOf(n) !== 'filled'){ toast('That day is not settled'); return; }
+  const what = needFilledLabel(n) || needDivLabel(n) || dayShort(n.day);
+  if(!confirm('Reopen ' + what + '? ' + (n.partnerName ? n.partnerName + ' comes off it.' : ''))) return;
+  const merged = Object.assign({}, n, { status: 'open', filledDivId: null, partnerName: null, partnerAccountId: null });
 
   D.invites[activeInvite].needs[dk] = merged;
   pendInviteOverride(activeInvite, inv => { if(!inv.needs) inv.needs = {}; inv.needs[dk] = merged; });
@@ -5264,20 +5563,22 @@ function unfillNeed(divId){
 // THIS division come first, because those players have already said they would
 // play it; the rest of the eligible circle follows. Same checkbox-over-a-Set
 // idiom the notify picker uses, not a new one.
-function openAskPicker(divId){
+function openAskPicker(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can ask'); return; }
-  // A legacy post can still carry a juniors need. The control is not rendered for
-  // one, but the guard is here too rather than relying on the render.
-  const nOpen = ((i.needs || {})[trnDecodeKey(divId)]) || null;
-  if(nOpen && trnIsJuniorCategory(nOpen.category)){ toast('CourtSense does not do partner matching for junior divisions'); return; }
-  askPickerDiv = trnDecodeKey(divId);
+  // A legacy post can still carry an unmatchable need. The control is not rendered
+  // for one, but the guard is here too rather than relying on the render.
+  const nOpen = ((i.needs || {})[trnDecodeKey(day)]) || null;
+  if(nOpen && !needIsMatchable(nOpen)){
+    toast('CourtSense does not do partner matching for junior divisions'); return;
+  }
+  askPickerDay = trnDecodeKey(day);
   askPickerSelected = new Set();
   askPickerFilter = '';
   renderInviteDetail();
 }
 function closeAskPicker(){
-  askPickerDiv = null;
+  askPickerDay = null;
   askPickerSelected = new Set();
   askPickerFilter = '';
   renderInviteDetail();
@@ -5305,19 +5606,27 @@ function askPickerSetFilter(v){
 // the Send count. The filter input itself is never rewritten, so it keeps focus,
 // its caret position and the page scroll.
 function askPickerRepaint(){
-  const i = (D.invites||{})[activeInvite]; if(!i || !askPickerDiv) return;
-  const n = (i.needs || {})[askPickerDiv]; if(!n) return;
+  const i = (D.invites||{})[activeInvite]; if(!i || !askPickerDay) return;
+  const n = (i.needs || {})[askPickerDay]; if(!n) return;
   const list = $('ask-picker-list');
   if(list) list.innerHTML = askPickerRows(i, n);
   const cnt = $('ask-picker-count');
   if(cnt) cnt.textContent = String(askPickerSelected.size);
 }
 
-// Candidates for one need: pool-first, then the rest of the circle. Anyone
-// already asked or already offering is dropped, since there is nothing to ask.
+// Candidates for one DAY: pool-first, then the rest of the circle. Anyone already
+// asked or already offering on that day is dropped, since there is nothing to ask.
+// Both exclusions are day lookups now, which is what makes them correct: under the
+// division key a player already pending on Sunday coed BB was still offered for
+// Sunday coed A, the concurrent slot they could not also play.
+//
+// The gender check runs per division and the candidate passes when ANY division in
+// the set admits them, because one acceptable alternative is enough.
 function askCandidates(i, n){
-  const asked = ((i.asks || {})[n.divId]) || {};
-  const offered = ((i.offers || {})[n.divId]) || {};
+  const day = n.day;
+  const asked = ((i.asks || {})[day]) || {};
+  const offered = ((i.offers || {})[day]) || {};
+  const dayDivs = needDivIds(n).map(divIdParts).filter(p => !!p && trnIsMatchable(p));
   const seen = new Set();
   const out = [];
   const add = (name, accountId, fromPool) => {
@@ -5325,14 +5634,14 @@ function askCandidates(i, n){
     if(!k || seen.has(k)) return;
     if(asked[k] || offered[k]) return;
     if(i.hostId && accountId && accountId === i.hostId) return;
-    if(!divisionAllowsViewer2(n.category, accountId, name)) return;
+    if(!dayDivs.some(p => divisionAllowsViewer2(p.category, accountId, name))) return;
     seen.add(k);
     out.push({ key: k, name: name, accountId: accountId || null, fromPool: !!fromPool });
   };
-  // Pool first: these players already named this division.
+  // Pool first: these players already named this day.
   Object.values(i.pool || {}).forEach(e => {
     if(!e || !e.name) return;
-    if(!((e.needs || {})[n.divId])) return;
+    if(!((e.needs || {})[day])) return;
     add(e.name, e.accountId, true);
   });
   // Then the circle this post is visible to.
@@ -5382,9 +5691,9 @@ function askPickerRows(i, n){
 // The picker shell. The filter input and the list container carry ids so a
 // keystroke can repaint the rows without touching the input that produced it.
 function renderAskPicker(i, n){
-  const dk = escapeHTML(n.divId).replace(/'/g, '&#39;');
+  const dk = escapeHTML(n.day).replace(/'/g, '&#39;');
   return '<div style="margin-top:8px;border:1px solid var(--sand-border);border-radius:8px;padding:8px;">'
-    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Ask someone to play ' + escapeHTML(trnDivLabel(n)) + '</div>'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Ask someone to play ' + escapeHTML(needDivLabel(n)) + '</div>'
     + '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Players already in the pool for this division are listed first.</div>'
     + '<input class="inp" id="ask-picker-filter" placeholder="Filter by name" value="' + escapeHTML(askPickerFilter) + '" oninput="askPickerSetFilter(this.value)" style="margin-bottom:6px;font-size:13px;padding:8px;">'
     + '<div id="ask-picker-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:6px;">' + askPickerRows(i, n) + '</div>'
@@ -5396,34 +5705,43 @@ function renderAskPicker(i, n){
 }
 
 // Write one ask per selected player. Poster-only, need must still be open.
-function sendAsks(divId){
+function sendAsks(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the poster can ask'); return; }
-  const dk = trnDecodeKey(divId);
+  const dk = trnDecodeKey(day);
   const n = (i.needs || {})[dk];
-  if(!n){ toast('Division not found'); return; }
-  if(trnIsJuniorCategory(n.category)){ toast('CourtSense does not do partner matching for junior divisions'); return; }
-  if(needStatusOf(n) !== 'open'){ toast('That division is already filled'); return; }
+  if(!n){ toast('Day not found'); return; }
+  if(!needIsMatchable(n)){ toast('CourtSense does not do partner matching for junior divisions'); return; }
+  if(needStatusOf(n) !== 'open'){ toast('That day is already settled'); return; }
   if(i.status === 'cancelled'){ toast('Post cancelled'); return; }
-  if(needIsPast(n)){ toast('That division has already been played'); return; }
+  if(needIsPast(n)){ toast('That day has already been played'); return; }
   if(!askPickerSelected.size){ toast('Pick at least one player'); return; }
 
   const cands = askCandidates(i, n);
   const byKey = {};
   cands.forEach(c => { byKey[c.key] = c; });
   const askedBy = (CourtSenseAuth.currentPlayer() || {}).id || null;
+  const dayDivIds = needDivIds(n).filter(id => { const p = divIdParts(id); return !!p && trnIsMatchable(p); });
   const recs = {};
   askPickerSelected.forEach(k => {
     const c = byKey[k];
     if(!c) return;
-    // Same denormalization as the offer record, for the same reason: the worker
-    // names the division from this record, not from the tournament.
+    // divIds is the subset of the day THIS candidate could play, narrowed by their
+    // own gender, so an ask never names a division the person cannot enter. Same
+    // denormalization as the offer record and for the same reason: the worker names
+    // the divisions from this record, not from the tournament.
+    const theirs = {};
+    dayDivIds.forEach(id => {
+      const p = divIdParts(id);
+      if(p && divisionAllowsViewer2(p.category, c.accountId, c.name)) theirs[id] = true;
+    });
+    if(!Object.keys(theirs).length) return;
     recs[k] = {
       name: c.name,
       accountId: c.accountId,
-      divId: dk,
-      divLabel: trnDivLabel(n),
-      day: n.day || null,
+      day: n.day || dk,
+      divIds: theirs,
+      divLabels: needDivLabel({ divIds: theirs }),
       askedAt: Date.now(),
       askedBy: askedBy
     };
@@ -5439,7 +5757,7 @@ function sendAsks(divId){
     if(!inv.asks[dk]) inv.asks[dk] = {};
     Object.keys(recs).forEach(k => { inv.asks[dk][k] = recs[k]; });
   });
-  askPickerDiv = null;
+  askPickerDay = null;
   askPickerSelected = new Set();
   askPickerFilter = '';
   renderInviteDetail();
@@ -5448,13 +5766,14 @@ function sendAsks(divId){
   // notify calls, because each asked player gets their own message. Each call is
   // chained on its OWN write for the reason spelled out in offerForNeed, the worker
   // reads the ask back before sending, and a write that failed resolves true so the
-  // save complaint is not doubled up with an email complaint.
+  // save complaint is not doubled up with an email complaint. The path and the
+  // payload are both keyed by day now; the worker accepts either spelling.
   const _inv = activeInvite;
   const _keys = Object.keys(recs);
   const _notifs = _keys.map(function(k){
     return fbSet('invites/' + _inv + '/asks/' + dk + '/' + k, recs[k]).then(function(ok){
       if(ok !== true) return true;
-      return notifyWorker('/pickup/ask-notify', { inviteId: _inv, divId: dk, nameKey: k });
+      return notifyWorker('/pickup/ask-notify', { inviteId: _inv, day: dk, nameKey: k });
     });
   });
   const nn = _keys.length;
@@ -6383,7 +6702,7 @@ function openInviteDetail(id){
   // Pool offers and the ask picker are scoped to one post, so opening a different
   // post must not inherit either the divisions ticked or a half-open picker.
   poolNeedsSelected = new Set();
-  askPickerDiv = null;
+  askPickerDay = null;
   askPickerSelected = new Set();
   askPickerFilter = '';
   ensureProfilesLoaded().then(()=>showView('invite-detail'));
