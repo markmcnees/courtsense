@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="robots" content="noindex, follow">
-<title>Tallahassee Pickup</title>
-<meta name="description" content="Beach volleyball pickup tournaments and ratings. Run by CourtSense.">
+<title>Tallahassee Beach Volleyball</title>
+<meta name="description" content="Pickup games, King of the Beach nights and sanctioned tournament listings for beach volleyball in Tallahassee. Run by CourtSense.">
 <link rel="canonical" href="https://courtsense.app/pickup/">
 <meta name="author" content="CourtSense">
 
@@ -202,7 +202,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="hdr-top">
     <h1 class="brand" onclick="goHome()" style="font-weight:normal;">
       <span>👑</span>
-      <span id="app-name">Tallahassee Pickup</span>
+      <span id="app-name">Tallahassee Beach</span>
       <span class="sync off" id="sync" title="Connecting..."></span>
     </h1>
     <div class="event-title" id="event-title" style="display:none;"></div>
@@ -224,10 +224,24 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- LIST VIEW -->
   <div class="pane" id="view-list">
-    <!-- Two categories, not a hierarchy: a "Create a game" card (two equal event
-         types) and a "Community" card (two equal community actions). Plain white
-         cards plus ctitle headings group each pair and lift the outline buttons
-         off the sand background so they no longer wash out. -->
+    <!-- CONTENT FIRST, ACTIONS AFTER. This used to open with three cards and six
+         buttons of things you COULD do, with your own games fourth and anything
+         needing an answer buried in a badge. The order is now: what wants an
+         answer, your games, the tournament directory, the ranked nights you are
+         running, then the create cards, then the archive.
+
+         The directory absorbed the partner-post list. One card per real event,
+         carrying how many people are looking and how many are in the pool, so an
+         event can no longer appear twice on one screen under two headings that
+         both said "Tournaments". -->
+    <div id="needs-you"></div>
+    <div id="invite-list"></div>
+    <!-- tournament-list: THE ID IS LOAD-BEARING. nav.js points the site nav's
+         Tournaments tab at /pickup/?view=tournaments and the deep-link handler
+         scrolls to this id inside a try/catch, so renaming it would break that
+         tab silently. -->
+    <div id="tournament-list"></div>
+    <div id="event-list-active"></div>
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Create a game</div>
       <div style="margin-bottom:10px;">
@@ -235,20 +249,21 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a casual game and let players join.</div>
       </div>
       <div>
-        <button class="btn btn-g btn-w" onclick="startNewEvent()">＋ New Pickup Tournament</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Run a King of the Beach night with live scoring.</div>
+        <button class="btn btn-g btn-w" onclick="startNewEvent()">👑 King/Queen of the Beach (ranked)</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">One night, rotating partners, live scoring. Counts toward your rating.</div>
       </div>
     </div>
-    <!-- Tournaments: one card. Finding a partner starts by picking a tournament,
-         so the two used to ask for the same facts and are now one flow. Adding to
-         the directory still stands alone, on the directory itself, because
-         contributing a tournament is its own act and must not require pretending
-         to look for a partner. -->
+    <!-- Heading is an ACTION, not a list. It used to say "Tournaments", the same
+         words as the directory heading rendered further down, so one screen had
+         two identical headings, one a button and one a list. Adding to the
+         directory still stands alone, on the directory itself, because
+         contributing a tournament must not require pretending to look for a
+         partner. -->
     <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Tournaments</div>
+      <div class="ctitle"><span class="bar"></span>Find a partner</div>
       <div>
         <button class="btn btn-g btn-w" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. To just list a tournament, use Add a tournament below.</div>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. To just list a tournament, use Add a tournament in the directory above.</div>
       </div>
     </div>
     <div class="card" style="padding:14px;">
@@ -262,10 +277,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
       </div>
     </div>
-    <div id="invite-list"></div>
-    <div id="partner-list"></div>
-    <div id="tournament-list"></div>
-    <div id="event-list"></div>
+    <div id="event-list-past"></div>
   </div>
 
   <!-- INVITE SETUP VIEW -->
@@ -562,7 +574,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="pane" id="view-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="cancelSetup()">← Back</button>
     <div class="card">
-      <div class="ctitle"><span class="bar"></span>New Event</div>
+      <div class="ctitle"><span class="bar"></span>New King/Queen of the Beach</div>
       <div class="fg">
         <label class="lbl">Event Name</label>
         <input class="inp" id="su-name" placeholder="Pickup Saturday">
@@ -1002,9 +1014,25 @@ const TRN_PRESETS = {
 // The worker slices the players array to 10 in handleInviteNotify, so the client
 // must never let a poster select more than the server will actually send to.
 const PARTNER_NOTIFY_MAX = 10;
-// Per-city display name for the header and tab title. Display only, not a data
-// path. A future city instance changes only this line.
-const APP_NAME = 'Tallahassee Pickup';
+// Per-city display names. Display only, never a data path; the node names under
+// DB_ROOT are unaffected, and so is the /pickup/ URL, which is deep-linked by
+// shareJoinLink as ?game=, pointed at by nav.js and allowed in robots.txt.
+//
+// "Tallahassee Pickup" mislabelled its own contents. The page carries three
+// different things and only one of them is pickup: casual games, ranked
+// King/Queen of the Beach nights, and a directory of SANCTIONED events like
+// SSOVA and First Coast that CourtSense does not run at all. Calling the
+// container "Pickup" told a player looking for SSOVA they were in the wrong
+// place.
+//
+// Two values because a 20px Bebas header with 3px tracking and a browser tab
+// have different length budgets. The header is a brand mark sitting beside a
+// crown, a sync dot and two buttons, so it stays roughly as wide as the name it
+// replaces; the title is what shows in a tab, a bookmark and a search result,
+// where "Tallahassee Beach" alone would read oddly for a landlocked city.
+// A future city instance changes only these two lines.
+const APP_NAME  = 'Tallahassee Beach';
+const APP_TITLE = 'Tallahassee Beach Volleyball';
 const LEAGUE_KINGS_PATH  = 'tally_kotb/kings/players';
 const LEAGUE_QUEENS_PATH = 'tally_kotb/queens/players';
 // Club roster feeding Quick Add. One club hardcoded into a city-wide pickup app is a
@@ -1525,7 +1553,7 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderInviteList(); renderTournamentList(); renderEventList(); }
+  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTournamentList(); renderEventList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
   else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
@@ -1551,9 +1579,9 @@ function renderEventList(){
     return (bm.closedAt||bm.createdAt||0)-(am.closedAt||am.createdAt||0);
   });
 
-  let h = '';
+  let h = '', hPast = '';
   if(events.length){
-    h += `<div class="ctitle"><span class="bar"></span>Active Events</div>`;
+    h += `<div class="ctitle"><span class="bar"></span>Active Ranked Nights</div>`;
     h += events.map(e=>{
       const m = e.meta||{};
       const playerCount = Object.keys(e.players||{}).length;
@@ -1564,8 +1592,8 @@ function renderEventList(){
     }).join('');
   }
   if(archives.length){
-    h += `<div class="ctitle" style="margin-top:18px;"><span class="bar"></span>Past Events</div>`;
-    h += archives.map(e=>{
+    hPast += `<div class="ctitle"><span class="bar"></span>Past Ranked Nights</div>`;
+    hPast += archives.map(e=>{
       const m = e.meta||e;
       const playerCount = Object.keys(e.players||{}).length;
       const gameCount   = Object.keys(e.results||{}).length;
@@ -1575,11 +1603,15 @@ function renderEventList(){
       </div>`;
     }).join('');
   }
-  // No tournaments (no active events and no archives): render nothing for this
-  // section so the empty-state does not read as a contradiction under the
-  // Upcoming Pickups list. The New Pickup Tournament button above remains for
-  // discoverability. (h is already an empty string in that case.)
-  $('event-list').innerHTML = h;
+  // Nothing active and nothing archived renders nothing at all, so an empty
+  // state never reads as a contradiction next to the lists around it. The
+  // King/Queen of the Beach button in the create card stays for discoverability.
+  //
+  // Two containers, not one. Active nights are CONTENT and sit near the top with
+  // the rest of what exists; past nights are an archive and sit below the create
+  // cards. One container could not straddle that.
+  const elA = $('event-list-active'); if(elA) elA.innerHTML = h;
+  const elP = $('event-list-past');   if(elP) elP.innerHTML = hPast;
 }
 
 // SETUP VIEW
@@ -3230,8 +3262,8 @@ function computeEligible(e){
     // Club circle (tournament partner posts): players whose ACCOUNT record
     // carries memberships/{orgId}. Reads the same public profiles cache
     // allKnownPlayerNames already uses; no extra Firebase read. Before the
-    // cache first loads this resolves empty; renderPartnerList kicks the load
-    // and re-renders when it lands.
+    // cache first loads this resolves empty; openTournamentDetail awaits
+    // ensureProfilesLoaded, and the invites listener re-renders when it lands.
     const cache = window._profilesCache || {};
     const memberKeys = new Set();
     Object.values(cache).forEach(p => {
@@ -3405,13 +3437,10 @@ async function ensureProfilesLoaded(){
 
 // LIST: Upcoming Pickups
 function renderInviteList(){
-  // Partner posts live on the same invites node but render in their own list
-  // section (own container), so paint it on every invites refresh too.
-  renderPartnerList();
   const cont = $('invite-list'); if(!cont) return;
   const now = Date.now();
-  // postType 'partner' records are tournament partner posts, not games; they are
-  // excluded here and handled entirely by renderPartnerList above.
+  // postType 'partner' records are tournament partner posts, not games. They are
+  // excluded here and surfaced on their tournament's card in the directory.
   const all = Object.values(D.invites||{}).filter(i => i && i.id && i.status !== 'cancelled' && i.postType !== 'partner');
   // Mark past events as past
   const upcoming = all.filter(i => {
@@ -3489,7 +3518,6 @@ function renderInviteList(){
 // tournament. slots is fixed at 1 (one partner sought), so the existing
 // confirmed-slot math means "partner found" when the poster accepts someone.
 
-let partnerSurfaceFilter = 'all', partnerDivisionFilter = 'all';
 
 // The viewer's own gender from their logged-in account record (profile.gender,
 // 'M' | 'F' | 'unspecified'). Used ONLY to hide divisions the viewer cannot
@@ -3584,104 +3612,6 @@ function partnerVisLabel(e){
 // Render-safe event URL: only http(s) links come back, anything else is ''.
 function safeEventUrl(u){
   return (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) ? u.trim() : '';
-}
-
-function setPartnerFilter(kind, v){
-  if(kind === 'surface') partnerSurfaceFilter = v;
-  else if(kind === 'division') partnerDivisionFilter = v;
-  renderPartnerList();
-}
-
-// LIST: open partner posts the viewer can act on. Visibility is the same
-// predicate the games list uses (host OR non-declined RSVP OR the eligibility
-// circle, via isChatEligible; club posts resolve through the new 'club'
-// baseMode) AND the division gate from the viewer's own gender. The poster
-// always sees their own post regardless of division.
-function renderPartnerList(){
-  const cont = $('partner-list'); if(!cont) return;
-  const myKey = gameplayKey();
-  const posts = Object.values(D.invites||{}).filter(p =>
-    p && p.id && p.postType === 'partner' && p.status !== 'cancelled' && !partnerIsPast(p));
-  if(!myKey){
-    // Logged-out: the games section above already shows the login CTA once.
-    cont.innerHTML = posts.length
-      ? '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournament partners</div><div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in to see partner posts.</div>'
-      : '';
-    return;
-  }
-  // Club-scoped posts and badges need the account profiles cache; kick one load
-  // and repaint when it lands (ensureProfilesLoaded has its own 30s TTL).
-  if(!window._profilesCacheTs && posts.length){
-    ensureProfilesLoaded().then(()=>{ if(view==='list') renderPartnerList(); }).catch(()=>{});
-  }
-  const visible = posts
-    .filter(p => isChatEligible(p, myKey) && (isLoggedInHost(p) || partnerHasViewableNeed(p)))
-    .sort((a,b) => String(a.date).localeCompare(String(b.date)));
-
-  let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournament partners (' + visible.length + ')</div>';
-  if(!visible.length){
-    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No open partner posts right now. Playing a tournament soon? Post one above.</div>';
-    cont.innerHTML = h;
-    return;
-  }
-  const pill = (kind, v, lbl, cur) =>
-    '<button onclick="setPartnerFilter(\'' + kind + '\',\'' + v + '\')" style="flex:1;padding:6px 4px;border-radius:8px;border:1px solid var(--sand-border);background:' + (cur===v?'var(--primary)':'#fff') + ';color:' + (cur===v?'#fff':'var(--gray)') + ';font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;cursor:pointer;">' + lbl + '</button>';
-  h += '<div style="display:flex;gap:6px;margin-bottom:6px;">'
-    + pill('surface','all','All surfaces',partnerSurfaceFilter)
-    + pill('surface','sand','Sand',partnerSurfaceFilter)
-    + pill('surface','grass','Grass',partnerSurfaceFilter)
-    + '</div>'
-    + '<div style="display:flex;gap:6px;margin-bottom:10px;">'
-    + pill('division','all','All divisions',partnerDivisionFilter)
-    + pill('division','mens',"Men's",partnerDivisionFilter)
-    + pill('division','womens',"Women's",partnerDivisionFilter)
-    + pill('division','coed','Coed',partnerDivisionFilter)
-    + '</div>';
-
-  const shown = visible.filter(p =>
-    (partnerSurfaceFilter === 'all' || p.surface === partnerSurfaceFilter) &&
-    (partnerDivisionFilter === 'all' || partnerAllNeeds(p).some(n => needHasCategory(n, partnerDivisionFilter))));
-  if(!shown.length){
-    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">No posts match those filters.</div>';
-    cont.innerHTML = h;
-    return;
-  }
-  h += shown.map(p => {
-    // Every badge is now per-need. A post can be partly settled, so "partner
-    // found" is no longer a property of the post: it is a count of its needs.
-    const iAmHost = isLoggedInHost(p);
-    const allN = partnerAllNeeds(p);
-    const openN = partnerOpenNeeds(p);
-    const filledN = allN.length - openN.length;
-    const offersN = partnerOfferCount(p);
-    const myOfferN = !iAmHost && myKey
-      ? Object.values(p.offers || {}).filter(m => m && m[myKey]).length : 0;
-    const myAskN = !iAmHost && myKey
-      ? Object.values(p.asks || {}).filter(m => m && m[myKey]).length : 0;
-    const myFilledN = myKey
-      ? allN.filter(n => needStatusOf(n) === 'filled'
-          && (n.partnerAccountId ? n.partnerAccountId === currentAccountId() : Identity.nameKey(n.partnerName || '') === myKey)).length : 0;
-    const pill = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">' + txt + '</span>';
-    let badge = '';
-    if(myAskN) badge = pill('#fef3c7', '#92400e', 'YOU WERE ASKED');
-    else if(myFilledN) badge = pill('#d1fae5', '#065f46', myFilledN > 1 ? "YOU'RE IN " + myFilledN : "YOU'RE PARTNERED");
-    else if(myOfferN) badge = pill('#fef3c7', '#92400e', myOfferN > 1 ? myOfferN + ' OFFERS SENT' : 'OFFER SENT');
-    else if(iAmHost && offersN) badge = pill('#fef3c7', '#92400e', offersN + ' OFFER' + (offersN===1?'':'S'));
-    else if(allN.length && !openN.length) badge = pill('var(--gray-lighter)', 'var(--gray)', 'ALL FILLED');
-    else if(filledN) badge = pill('var(--gray-lighter)', 'var(--gray)', filledN + ' OF ' + allN.length + ' FILLED');
-    return '<div class="evcard" onclick="openInviteDetail(\'' + escapeHTML(p.id).replace(/'/g,"\\'") + '\')">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
-      +   '<div style="flex:1;">'
-      +     '<div class="evname">' + escapeHTML(p.name || 'Tournament') + '</div>'
-      +     '<div class="evmeta">' + escapeHTML(partnerDateLabel(p)) + ' · ' + (p.surface === 'grass' ? 'Grass' : 'Sand') + (p.location ? ' · ' + escapeHTML(p.location) : '') + '</div>'
-      +     '<div class="evmeta" style="margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + '</div>'
-      +     '<div class="evmeta" style="margin-top:2px;">Posted by ' + escapeHTML(p.hostName || 'Anonymous') + clubBadge(p.hostId, p.hostName) + ' · ' + partnerVisLabel(p.eligibility) + '</div>'
-      +   '</div>'
-      +   badge
-      + '</div>'
-      + '</div>';
-  }).join('');
-  cont.innerHTML = h;
 }
 
 // SETUP: new partner post form.
@@ -4486,6 +4416,9 @@ function renderTournamentList(){
     return;
   }
   const visible = all.slice().sort((a,b) => String(a.startDate).localeCompare(String(b.startDate)));
+  // One pass, not one per card. Viewer-scoped, so a club post nobody here can
+  // open is neither counted nor hinted at.
+  const partnerIdx = trnPartnerIndex(myKey);
 
   // The directory is a shared resource, so adding to it has to stand on its own.
   // This control is present whether the list is full, empty or filtered to
@@ -4502,6 +4435,11 @@ function renderTournamentList(){
     cont.innerHTML = h;
     return;
   }
+  // Surface and format only. The partner list used to carry a DIVISION filter too;
+  // it is deliberately not rebuilt here. A post was about one division, so
+  // filtering it by division meant something. A tournament spans fourteen, so
+  // "show me men's" would match almost every card and hide almost nothing. A pill
+  // that filters nothing is worse than no pill.
   const pill = (kind, v, lbl, cur) =>
     '<button onclick="setTrnFilter(\'' + kind + '\',\'' + v + '\')" style="flex:1;padding:6px 4px;border-radius:8px;border:1px solid var(--sand-border);background:' + (cur===v?"var(--primary)":"#fff") + ';color:' + (cur===v?"#fff":"var(--gray)") + ';font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;cursor:pointer;">' + lbl + '</button>';
   h += '<div style="display:flex;gap:6px;margin-bottom:6px;">'
@@ -4527,11 +4465,30 @@ function renderTournamentList(){
     const nDiv = Object.keys(t.divisions || {}).length;
     const meta = [trnRangeLabel(t), t.surface === "grass" ? "Grass" : "Sand", trnFormatLabel(t.format)].filter(Boolean).join(" \u00b7 ");
     const sub = [t.location, t.organizer].filter(Boolean).map(escapeHTML).join(" \u00b7 ");
+    // The two numbers that used to require a second section and a second card.
+    const idx = partnerIdx[t.id] || { posts: [], mine: 0, asked: 0, offers: 0 };
+    const nPost = idx.posts.length;
+    const nPool = Object.keys(t.pool || {}).length;
+    const who = [];
+    if(nPost) who.push(nPost + ' looking for a partner');
+    if(nPool) who.push(nPool + ' in the pool');
+    // One badge, most urgent wins, same precedence the partner cards used.
+    const pill2 = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;white-space:nowrap;">' + txt + '</span>';
+    let badge = '';
+    if(idx.asked) badge = pill2('#fef3c7', '#92400e', 'YOU WERE ASKED');
+    else if(idx.offers) badge = pill2('#fef3c7', '#92400e', idx.offers + ' OFFER' + (idx.offers===1?'':'S'));
+    else if(idx.mine) badge = pill2('#d1fae5', '#065f46', 'YOUR POST');
     return '<div class="evcard" onclick="openTournamentDetail(\'' + escapeHTML(t.id).replace(/'/g, "&#39;") + '\')">'
-      + '<div class="evname">' + escapeHTML(t.name || "Tournament") + '</div>'
-      + '<div class="evmeta">' + meta + '</div>'
-      + (sub ? '<div class="evmeta" style="margin-top:2px;">' + sub + '</div>' : "")
-      + '<div class="evmeta" style="margin-top:2px;">' + nDiv + ' division' + (nDiv===1?"":"s") + '</div>'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
+      +   '<div style="flex:1;">'
+      +     '<div class="evname">' + escapeHTML(t.name || "Tournament") + '</div>'
+      +     '<div class="evmeta">' + meta + '</div>'
+      +     (sub ? '<div class="evmeta" style="margin-top:2px;">' + sub + '</div>' : "")
+      +     '<div class="evmeta" style="margin-top:2px;">' + nDiv + ' division' + (nDiv===1?"":"s")
+      +       (who.length ? ' \u00b7 ' + who.join(' \u00b7 ') : '') + '</div>'
+      +   '</div>'
+      +   badge
+      + '</div>'
       + '</div>';
   }).join("");
   h += addBtn;
@@ -4615,6 +4572,115 @@ function renderTournamentDetail(){
   // and assigns once, so the roster is two more cards on the end.
   h += trnPoolCardsHTML(t);
 
+  cont.innerHTML = h;
+}
+
+// ── PARTNER POSTS, INDEXED BY TOURNAMENT ──────────────────────────────────
+// Partner posts no longer get a list of their own. SSOVA used to appear twice on
+// the home screen, once as a post under "Tournament partners" and once as the
+// event under "Tournaments", with nothing saying they were the same thing. One
+// card per real event now, and the post count rides on it.
+//
+// THE CIRCLE IS NOT OPTIONAL. A partner post is visibility-scoped through
+// isChatEligible (host, or a non-declined rsvp, or the eligibility circle,
+// including club-scoped posts). The directory itself is deliberately ungated,
+// which is right for describing events. But a COUNT of posts is not a
+// description of the event, it is a statement about records, and counting a post
+// the viewer cannot open would both leak that it exists and be a lie the moment
+// they tapped through and found nothing. So the count is per viewer.
+//
+// One pass over D.invites, bucketed by tournamentId, following trnOpenPostFor's
+// shape. Called once per render rather than once per card, because the old
+// per-card lookup was O(cards x invites) and this is O(invites).
+function trnPartnerIndex(myKey){
+  const out = {};
+  Object.values(D.invites || {}).forEach(p => {
+    if(!p || p.postType !== 'partner' || p.status === 'cancelled') return;
+    if(partnerIsPast(p)) return;
+    // Nothing still looking is not an open post.
+    if(!partnerOpenNeeds(p).length) return;
+    // A post with no resolvable tournament has no card to ride on. There are no
+    // live ones today (every tournament-less post on the node is cancelled), so
+    // this is a guard against a future one rather than a migration. Warned rather
+    // than dropped silently, because the create flow has required a tournament
+    // since 1c9a7c0 and a new one would mean something regressed.
+    const tid = p.tournamentId;
+    if(!tid || !(D.tournaments || {})[tid]){
+      console.warn('partner post has no resolvable tournamentId, not counted:', p.id, tid || '(none)');
+      return;
+    }
+    // The circle, per viewer. Same predicate renderPartnerList used before the
+    // fold, so no post becomes visible that was not visible before.
+    if(!myKey || !isChatEligible(p, myKey)) return;
+    if(!out[tid]) out[tid] = { posts: [], mine: 0, asked: 0, offers: 0 };
+    const b = out[tid];
+    b.posts.push(p);
+    if(isLoggedInHost(p)){
+      b.mine++;
+      b.offers += partnerOfferCount(p);
+    } else {
+      // Already computed the same way renderPartnerList's badge was: an ask on
+      // any day of this post that is addressed to the viewer.
+      if(Object.values(p.asks || {}).some(m => m && m[myKey])) b.asked++;
+    }
+  });
+  return out;
+}
+
+// ── NEEDS YOU ─────────────────────────────────────────────────────────────
+// The one section that is about the viewer rather than about what exists. It
+// carries only things that WANT AN ANSWER, which is why a confirmed game is not
+// in it: being in a game is good news, not a task, and Your games already badges
+// it one section down. A "needs you" list that fills up with things needing
+// nothing stops being read.
+//
+// Both signals were already computed, just buried in badges on cards the viewer
+// had to scroll to find. Nothing new is stored and nothing new is fetched.
+// Spot-filled notices would need a stored trace and are deliberately absent.
+function renderNeedsYou(){
+  const cont = $('needs-you'); if(!cont) return;
+  const myKey = gameplayKey();
+  if(!myKey){ cont.innerHTML = ''; return; }
+
+  const asks = [];      // somebody asked YOU to play
+  const decisions = []; // somebody offered on YOUR post
+  Object.values(D.invites || {}).forEach(p => {
+    if(!p || p.postType !== 'partner' || p.status === 'cancelled') return;
+    if(partnerIsPast(p)) return;
+    if(!isChatEligible(p, myKey)) return;
+    if(isLoggedInHost(p)){
+      const n = partnerOfferCount(p);
+      if(n) decisions.push({ post: p, n: n });
+    } else {
+      const days = Object.keys(p.asks || {}).filter(d => (p.asks[d] || {})[myKey]);
+      if(days.length) asks.push({ post: p, days: days });
+    }
+  });
+  if(!asks.length && !decisions.length){ cont.innerHTML = ''; return; }
+
+  const open = id => "openInviteDetail('" + escapeHTML(id).replace(/'/g, "\\'") + "')";
+  const pill = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;white-space:nowrap;">' + txt + '</span>';
+
+  let h = '<div class="ctitle"><span class="bar"></span>Needs you (' + (asks.length + decisions.length) + ')</div>';
+  h += asks.map(a =>
+    '<div class="evcard" onclick="' + open(a.post.id) + '">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+    +   '<div style="flex:1;">'
+    +     '<div class="evname">' + escapeHTML(a.post.name || 'Tournament') + '</div>'
+    +     '<div class="evmeta">' + escapeHTML(a.post.hostName || 'Someone') + ' asked you to play '
+    +       escapeHTML(a.days.map(d => dayShort(d)).join(' and ')) + '</div>'
+    +   '</div>'
+    +   pill('#fef3c7', '#92400e', 'ANSWER')
+    + '</div></div>').join('');
+  h += decisions.map(d =>
+    '<div class="evcard" onclick="' + open(d.post.id) + '">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+    +   '<div style="flex:1;">'
+    +     '<div class="evname">' + escapeHTML(d.post.name || 'Tournament') + '</div>'
+    +     '<div class="evmeta">' + d.n + ' offer' + (d.n === 1 ? '' : 's') + ' on your post</div>'
+    +   '</div>'
+    +   pill('#fef3c7', '#92400e', d.n === 1 ? 'REVIEW' : 'REVIEW ' + d.n)
+    + '</div></div>').join('');
   cont.innerHTML = h;
 }
 
@@ -5174,27 +5240,10 @@ function partnerIsLegacyShape(i){
   return keys.length > 0 && !keys.some(k => needIsDayShaped(needs[k]));
 }
 
-// Date line for a card: one day reads as one date, several as a range.
-function partnerDateLabel(i){
-  const first = partnerFirstDay(i), last = partnerLastDay(i);
-  if(!first) return '';
-  return (!last || last === first) ? fD(first) : fD(first) + ' to ' + fD(last);
-}
-
-// Short summary of what a post is looking for, for the list card. One clause per
-// DAY now, because that is the unit: "Sat: Men's A · Sun: Coed BB or A". A day
-// with several acceptable divisions is the normal case, so the set has to be
-// legible at a glance rather than flattened into a comma list that hides which
-// divisions belong to which day.
-function partnerNeedSummary(i){
-  const open = partnerOpenNeeds(i), all = partnerAllNeeds(i);
-  if(!all.length) return i && i.division ? divisionLabel(i.division) : '';
-  const shown = open.length ? open : all;
-  const labels = shown.map(n => dayShort(n.day) + ': ' + needDivLabel(n)).join(' · ');
-  const filled = all.length - open.length;
-  return (open.length ? 'Needs: ' + labels : 'All filled: ' + labels)
-    + (open.length && filled ? ' (' + filled + ' day' + (filled === 1 ? '' : 's') + ' filled)' : '');
-}
+// partnerDateLabel and partnerNeedSummary lived here. Their only caller was the
+// partner list section, which the tournament directory absorbed, and neither the
+// post detail view nor the directory card reads them. Removed rather than left
+// unreferenced; git has them if a per-post summary is ever wanted on a card.
 
 // 'Sat', 'Sun'. The weekday alone is enough inside a summary that already names
 // the tournament and its dates, and it is what a player actually thinks in.
@@ -8426,10 +8475,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initFB();
   showView('list');
 
-  // Header and tab title both read from APP_NAME (the single per-city value).
+  // Header takes the short mark, the tab takes the unambiguous one. Both are
+  // per-city values declared together up top.
   const _an = document.getElementById('app-name');
   if(_an) _an.textContent = APP_NAME;
-  document.title = APP_NAME;
+  document.title = APP_TITLE;
 
   // Deep-link reader: courtsense.app/pickup/?game=<id> opens that one game's
   // detail view, including for logged-out visitors. When present we suppress the
