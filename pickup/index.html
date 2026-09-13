@@ -233,14 +233,18 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          The directory absorbed the partner-post list. One card per real event,
          carrying how many people are looking and how many are in the pool, so an
          event can no longer appear twice on one screen under two headings that
-         both said "Tournaments". -->
+         both said "Tournaments".
+
+         The directory itself then moved OUT, into view-tournaments. The site nav
+         carries two links to this page, Pickup and Tournaments, and while the
+         directory sat here they landed within a screen of each other and read as
+         the same destination. They are now genuinely different: this is what is
+         yours and what you can start, and Tournaments is the directory. -->
     <div id="needs-you"></div>
     <div id="invite-list"></div>
-    <!-- tournament-list: THE ID IS LOAD-BEARING. nav.js points the site nav's
-         Tournaments tab at /pickup/?view=tournaments and the deep-link handler
-         scrolls to this id inside a try/catch, so renaming it would break that
-         tab silently. -->
-    <div id="tournament-list"></div>
+    <!-- Discovery only: one line pointing at the directory, which lives in its
+         own view now. Below what needs the player, above what they could start. -->
+    <div id="trn-pointer"></div>
     <div id="event-list-active"></div>
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Create a game</div>
@@ -278,6 +282,18 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
     <div id="event-list-past"></div>
+  </div>
+
+  <!-- TOURNAMENTS VIEW: the directory and nothing else. Reached from the site
+       nav at /pickup/?view=tournaments and from the Back button on a tournament
+       detail opened from here.
+
+       tournament-list KEEPS ITS ID. It moved panes, it was not renamed:
+       renderTournamentList writes to it by id, and nav.js:45 addresses this view
+       by query string rather than by element, so the two stay in step. -->
+  <div class="pane" id="view-tournaments">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div id="tournament-list"></div>
   </div>
 
   <!-- INVITE SETUP VIEW -->
@@ -560,7 +576,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- TOURNAMENT DETAIL VIEW -->
   <div class="pane" id="view-tournament-detail">
-    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList(trnDetailFrom)">← Back</button>
     <div id="trn-detail-body"></div>
   </div>
 
@@ -1517,6 +1533,7 @@ function showView(v){
   $('view-event').classList.toggle('on', v==='event');
   $('view-invite-setup').classList.toggle('on',  v==='invite-setup');
   $('view-partner-setup').classList.toggle('on', v==='partner-setup');
+  $('view-tournaments').classList.toggle('on', v==='tournaments');
   $('view-tournament-setup').classList.toggle('on', v==='tournament-setup');
   $('view-tournament-detail').classList.toggle('on', v==='tournament-detail');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
@@ -1527,7 +1544,7 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
-  if(view==='invite-setup' || view==='partner-setup' || view==='invite-detail' || view==='tournament-setup' || view==='tournament-detail'){ backToList(); return; }
+  if(view==='tournaments' || view==='invite-setup' || view==='partner-setup' || view==='invite-detail' || view==='tournament-setup' || view==='tournament-detail'){ backToList(); return; }
 }
 function openProfile(){
   if(!window.Identity){ toast('Profile module not loaded yet, refresh the page'); return; }
@@ -1571,7 +1588,8 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTournamentList(); renderEventList(); }
+  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTrnPointer(); renderEventList(); }
+  else if(view==='tournaments'){ renderTournamentList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
   else if(view==='invite-setup'){ renderEligibilityFields(); renderInclude(); renderExclude(); updateInvitePreview(); }
@@ -3085,7 +3103,10 @@ function deepCopy(v){
   return JSON.parse(JSON.stringify(v));
 }
 
-function backToList(){
+// target defaults to the home list. The tournament detail passes trnDetailFrom,
+// because the directory is now reachable from its own view and sending somebody
+// back to the home list would lose the place they were browsing.
+function backToList(target){
   activeInvite = null;
   inviteEditId = null;
   setupState = null;
@@ -3098,7 +3119,7 @@ function backToList(){
   askPickerFilter = '';
   // Backing out of the tournament form abandons any in-flow return as well.
   ppReturnAfterTournament = false;
-  showView('list');
+  showView(target === 'tournaments' ? 'tournaments' : 'list');
 }
 
 function fmtTime(t){
@@ -3670,13 +3691,21 @@ function startNewPartnerPost(){
   showView('partner-setup');
 }
 
-// Upcoming tournaments, the same window and sort the directory uses.
-function ppUpcomingTournaments(){
+// THE window. Not cancelled, and ending today or later, soonest first.
+//
+// This existed twice: once inline in renderTournamentList and once here, under a
+// comment promising it was "the same window and sort the directory uses". A
+// promise in a comment is not a guarantee, and a home-screen count that disagreed
+// with the directory it points at would be the exact bug worth avoiding. Three
+// callers now share one definition: the directory, the partner-post picker, and
+// the discovery pointer.
+function trnUpcoming(){
   const today = td();
   return Object.values(D.tournaments || {})
     .filter(t => t && t.id && t.status !== 'cancelled' && (!t.endDate || t.endDate >= today))
     .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
 }
+function ppUpcomingTournaments(){ return trnUpcoming(); }
 
 function ppPickTournament(id){
   const t = (D.tournaments || {})[id];
@@ -4378,8 +4407,12 @@ async function saveTournament(){
   if(ok) toast(soft.length ? "Added. Heads up: " + soft.join(", ") + "." : "Tournament added");
 }
 
+// Where the detail was opened FROM, so its Back button returns there rather than
+// always dumping the viewer on the home list.
+let trnDetailFrom = 'list';
 function openTournamentDetail(id){
   if(!(D.tournaments || {})[id]){ toast("Tournament not found"); return; }
+  trnDetailFrom = (view === 'tournaments') ? 'tournaments' : 'list';
   activeTournament = id;
   // The pool selection is scoped to ONE tournament, so opening a different one
   // must not inherit the days ticked on the last. Same reset openInviteDetail
@@ -4427,9 +4460,7 @@ function setTrnFilter(kind, v){
 function renderTournamentList(){
   const cont = $("tournament-list"); if(!cont) return;
   const myKey = gameplayKey();
-  const today = td();
-  const all = Object.values(D.tournaments || {}).filter(t =>
-    t && t.id && t.status !== "cancelled" && (!t.endDate || t.endDate >= today));
+  const all = trnUpcoming();
   if(!myKey){
     cont.innerHTML = all.length
       ? '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments</div><div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in to see tournaments.</div>'
@@ -4445,7 +4476,8 @@ function renderTournamentList(){
       + '<div class="evmeta" style="padding:0 2px 8px;color:var(--gray);">The rest of the app is unaffected. Check the console for the read error.</div>';
     return;
   }
-  const visible = all.slice().sort((a,b) => String(a.startDate).localeCompare(String(b.startDate)));
+  // trnUpcoming already sorted.
+  const visible = all;
   // One pass, not one per card. Viewer-scoped, so a club post nobody here can
   // open is neither counted nor hinted at.
   const partnerIdx = trnPartnerIndex(myKey);
@@ -4766,6 +4798,44 @@ function trnPostsCardHTML(t){
           + evcardAction(action)
           + '</div>';
       }).join('')
+    + '</div>';
+}
+
+// ── DISCOVERY POINTER ───────────────────────────────────
+// One line on the home screen saying the directory is there and has something in
+// it. Moving the directory into its own view was right, but it cost discovery: a
+// player opening the app no longer learns SSOVA exists unless they happen to tap
+// Tournaments. Putting the directory back would restore the redundancy the view
+// removed, and would grow without bound as events are listed.
+//
+// A LINE, not a card and not a list, so it cannot grow: one tournament and forty
+// render identically.
+//
+// The count comes from trnUpcoming, the same function the directory renders from,
+// so the number here and the list there cannot disagree.
+//
+// THREE CASES RENDER NOTHING AT ALL:
+//   logged out      the directory itself only says 'log in to see tournaments',
+//                   and Your games above already carries one login prompt. Two on
+//                   one screen is nagging.
+//   zero upcoming   '0 tournaments coming up' advertises an empty room. Worse
+//                   than silence, because it costs a tap to learn nothing.
+//   read failed     trnLoadFailed means there is no count to stand behind. The
+//                   DIRECTORY says 'Could not load tournaments' in red, which is
+//                   the right place for it: that is where somebody went looking.
+//                   Repeating it here would put an alarm on a screen the player
+//                   was not asking about, for a thing they cannot act on from
+//                   here, and the nav link stays available either way.
+function renderTrnPointer(){
+  const cont = $('trn-pointer'); if(!cont) return;
+  if(!gameplayKey() || trnLoadFailed){ cont.innerHTML = ''; return; }
+  const n = trnUpcoming().length;
+  if(!n){ cont.innerHTML = ''; return; }
+  // evcardAction supplies the arrow and the primary colour, so this reads as the
+  // same kind of thing as every card cue without being a card. The wrapper is
+  // what makes it tappable and holds the 44px target.
+  cont.innerHTML = '<div onclick="showView(\'tournaments\')" style="display:flex;align-items:center;min-height:44px;padding:0 2px;cursor:pointer;">'
+    + evcardAction(n + ' tournament' + (n === 1 ? '' : 's') + ' coming up')
     + '</div>';
 }
 
@@ -8803,18 +8873,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const _deepLinkGame = _deepLinkParams.get('game') || _deepLinkParams.get('invite');
   if(_deepLinkGame) openDeepLinkGame(_deepLinkGame);
 
-  // ?view=tournaments is how the site nav reaches the tournament directory. The
-  // directory is a section of the list view, not a pane of its own, so this
-  // scrolls to it rather than switching views. Deferred one tick so the first
-  // render has painted the section before we try to find it.
-  if(_deepLinkParams.get('view') === 'tournaments'){
-    setTimeout(function(){
-      try {
-        const el = document.getElementById('tournament-list');
-        if(el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch(e){ /* best effort; the section is reachable by scrolling anyway */ }
-    }, 400);
-  }
+  // ?view=tournaments is how the site nav reaches the tournament directory, and
+  // it is now a VIEW rather than a section, so this switches panes.
+  //
+  // The 400ms scrollIntoView it replaces is gone, not merely bypassed. There is
+  // nothing left to scroll to: the directory is the whole pane and starts at the
+  // top of it. That timer was already a guess at when the first Firebase render
+  // would paint, and a guess that now guards nothing is worse than no code.
+  //
+  // showView calls refreshAll, which renders the directory, so this works on a
+  // cold load from another page of the site and not only on an in-app tap.
+  if(_deepLinkParams.get('view') === 'tournaments') showView('tournaments');
 
   // CourtSense auth gate (D.40). Players need a passwordHash on their
   // tally_kotb_pickup/players/{key} record (set by admin-players Approve
