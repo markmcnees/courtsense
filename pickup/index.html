@@ -1379,6 +1379,24 @@ function warnIfAnyNotEmailed(list, note){
   });
 }
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// The action cue every tappable .evcard carries: what opening it does, in the
+// primary colour, ending in an arrow. Introduced for the partner post rows in
+// 7e302e8; this is the same markup, factored out so the six card types cannot
+// drift apart.
+//
+// .evcard has cursor:pointer and an :active brightness shift, and neither does
+// anything useful on a phone: there is no cursor, and the press state only
+// appears once you have already tapped. Without a line like this a card is
+// indistinguishable from the static rows sitting beside it.
+//
+// Rendered INSIDE the card, never as a nested <button>. The card already owns
+// the onclick, so a button would be a second tap target inside the first: a tap
+// landing between them would do nothing, and the 44px obligation would move off
+// the row and onto the button.
+function evcardAction(text){
+  return '<div class="evmeta" style="margin-top:6px;color:var(--primary);font-weight:700;">'
+    + escapeHTML(text) + ' ' + String.fromCharCode(8594) + '</div>';
+}
 function nameKey(name){return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');}
 // Absolute start instant in ms. Computed HERE, in the browser, because only the
 // browser knows the local timezone. Cloudflare Workers run in UTC, so the same
@@ -1588,6 +1606,7 @@ function renderEventList(){
       return `<div class="evcard" onclick="openEvent('${m.id}')">
         <div class="evname">${escapeHTML(m.name||'Event')}</div>
         <div class="evmeta">${fD(m.date)} · ${m.courts||2} courts · ${playerCount} player${playerCount===1?'':'s'}</div>
+        ${evcardAction('Open the night')}
       </div>`;
     }).join('');
   }
@@ -1600,6 +1619,7 @@ function renderEventList(){
       return `<div class="evcard ar" onclick="viewArchive('${m.id}')">
         <div class="evname">${escapeHTML(m.name||'Event')}</div>
         <div class="evmeta">${fD(m.date)} · ${playerCount} player${playerCount===1?'':'s'} · ${gameCount} game${gameCount===1?'':'s'}</div>
+        ${evcardAction('See the results')}
       </div>`;
     }).join('');
   }
@@ -3494,6 +3514,12 @@ function renderInviteList(){
     let badge = '';
     if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
     else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
+    // Reuses the RSVP state the badge above already resolved, so a game the
+    // viewer is in says so and one they have not joined names the thing they
+    // came to do.
+    const gameAction = (myRsvp && myRsvp.status === 'confirmed') ? 'See who else is in'
+      : (myRsvp && myRsvp.status === 'waitlist') ? 'See your spot'
+      : 'Open to RSVP';
     return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
@@ -3503,6 +3529,7 @@ function renderInviteList(){
         </div>
         ${badge}
       </div>
+      ${evcardAction(gameAction)}
     </div>`;
   }).join('');
   cont.innerHTML = h;
@@ -3697,6 +3724,9 @@ function ppRenderTournamentPick(){
       return '<div class="evcard" style="margin-bottom:6px;" onclick="ppPickTournament(\'' + safe + '\')">'
         + '<div class="evname">' + escapeHTML(t.name || 'Tournament') + '</div>'
         + '<div class="evmeta">' + escapeHTML(meta) + '</div>'
+        // A pick rather than a navigation, but it does advance the form to the
+        // divisions step, so the arrow reads correctly as 'proceed'.
+        + evcardAction('Pick this tournament')
         + '</div>';
     }).join('');
   }
@@ -4489,6 +4519,10 @@ function renderTournamentList(){
       +   '</div>'
       +   badge
       + '</div>'
+      // Varies on the counts the card already carries. Promising 'see who is
+      // looking' on a tournament nobody has joined would send them to an empty
+      // roster; the divisions are what is actually there.
+      + evcardAction((nPost || nPool) ? 'See who is looking' : 'See the divisions')
       + '</div>';
   }).join("");
   h += addBtn;
@@ -4729,8 +4763,7 @@ function trnPostsCardHTML(t){
           +   '</div>'
           +   badge
           + '</div>'
-          // Inside the card, so the whole card stays the one tap target.
-          + '<div class="evmeta" style="margin-top:6px;color:var(--primary);font-weight:700;">' + action + ' ' + String.fromCharCode(8594) + '</div>'
+          + evcardAction(action)
           + '</div>';
       }).join('')
     + '</div>';
