@@ -4383,7 +4383,14 @@ async function saveTournament(){
 function openTournamentDetail(id){
   if(!(D.tournaments || {})[id]){ toast("Tournament not found"); return; }
   activeTournament = id;
-  showView("tournament-detail");
+  // The pool selection is scoped to ONE tournament, so opening a different one
+  // must not inherit the days ticked on the last. Same reset openInviteDetail
+  // does for the post it is leaving.
+  poolNeedsSelected = new Set();
+  // The roster renders a rating badge and a club badge per player, and both read
+  // the public profiles cache. Without this the whole roster loses its badges on
+  // a cold open, exactly as openInviteDetail found.
+  ensureProfilesLoaded().then(() => showView("tournament-detail"));
 }
 
 // Flip ONE division's regStatus. Deliberately the only edit path on a
@@ -4564,18 +4571,307 @@ function renderTournamentDetail(){
     }
   }
   h += '</div>';
+
+  // The pool. Appended rather than woven in: this function builds one string
+  // and assigns once, so the roster is two more cards on the end.
+  h += trnPoolCardsHTML(t);
+
   cont.innerHTML = h;
 }
 
-// ── PARTNER POOL ──────────────────────────────────────────────────────────
-// Players in a post's circle declaring they want a partner for this tournament
-// and which bands they will play. Display only in this build: joining the pool
-// sends nothing, asks nothing and pairs nobody. It lives at
-// invites/{id}/pool/{nameKey}, a node of its own, so it never touches the rsvps
-// or guestRequests machinery that drives the actual partner decision.
-// What a pool entry is offering, as chips. Reads the entry's own needs map, so
-// an entry always states the divisions it actually signed up for rather than a
-// band range that had to be interpreted.
+// ── TOURNAMENT POOL ───────────────────────────────────────────────────────
+// One pool per TOURNAMENT, at tournaments/{id}/pool/{nameKey}, a sibling of
+// divisions. It replaces the per-post pool entirely.
+//
+// The post-level pool had the defect this fixes: a pool lived on one partner
+// post, so three posts for the same tournament meant three disconnected pools
+// and a player had to find a specific post before they could say they were
+// looking. Nothing about the RECORD changes, only where it lives:
+//   { name, accountId, joinedAt, needs }
+// with needs keyed by day and each day's divIds holding the JOINER'S OWN
+// playable subset, exactly as viewerDivIdsFor computes it. That shape already
+// survived day-as-unit and is not redesigned here.
+//
+// The pool is display only, same as the post-level pool was. Joining sends
+// nothing, asks nobody and pairs nobody: every ask path is rooted at
+// invites/{id} and needs a post behind it, so a roster row links to the
+// person's post when they have one rather than inventing one.
+//
+// No expiry path is needed. The pool lives INSIDE the tournament record, so a
+// tournament that drops out of the directory on endDate takes its pool with it.
+
+// Has the event finished? endDate is authoritative and falls back to startDate,
+// matching the directory filter in renderTournamentList. The post side asks the
+// same question through partnerIsPast.
+function trnIsPast(t){
+  const last = (t && (t.endDate || t.startDate)) || '';
+  return !!last && last < td();
+}
+
+// The tournament's days as day-keyed needs, which is the shape every pool helper
+// already speaks. One entry per day, carrying that day's whole division set.
+//
+// THIS IS THE JUNIORS WATER LINE. The post-level picker got its rows from
+// partnerOpenNeeds, which had already dropped anything unmatchable, so juniors
+// could never reach it. These rows come from the tournament's own divisions map
+// instead, which contains every juniors division the organizer listed, so the
+// filter has to be here and explicit. A day whose divisions are ALL juniors
+// produces no need at all rather than an empty one.
+//
+// Advertised-only divisions stay in, matching ppToggleNeed: registration may
+// still open, and the row says so rather than removing the day.
+function trnPoolDayNeeds(t){
+  const divs = Object.values((t && t.divisions) || {})
+    .filter(d => d && d.day && d.id && trnIsMatchable(d));
+  const byDay = {};
+  divs.forEach(d => { (byDay[d.day] = byDay[d.day] || []).push(d); });
+  return Object.keys(byDay).sort().map(day => {
+    const divIds = {};
+    trnSortDivs(byDay[day]).forEach(d => { divIds[d.id] = true; });
+    return { day: day, divIds: divIds };
+  });
+}
+
+// Days this tournament lists that are juniors-only, counted rather than silently
+// dropped, so the note explains an absence the organizer can see on the grid
+// right above it.
+function trnJuniorOnlyDayCount(t){
+  const divs = Object.values((t && t.divisions) || {}).filter(d => d && d.day);
+  const all = {}, matchable = {};
+  divs.forEach(d => { all[d.day] = true; if(trnIsMatchable(d)) matchable[d.day] = true; });
+  return Object.keys(all).filter(day => !matchable[day]).length;
+}
+
+// Everything joining is gated on. No host check, no circle and no eligibility:
+// a tournament has no poster and the directory is open to every logged-in user,
+// which is the whole point of moving the pool here. Returns null when allowed,
+// else the toast string.
+function trnPoolBlockReason(t){
+  if(!t || !t.id) return 'Tournament not found';
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to join the pool';
+  if(t.status === 'cancelled') return 'This tournament was cancelled';
+  if(trnIsPast(t)) return 'This tournament has passed';
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!me || !myKey) return 'Pick your name first';
+  if(!trnPoolDayNeeds(t).length) return 'This tournament has no divisions open to partner matching';
+  return null;
+}
+
+// A pool entry's days for DISPLAY: juniors stripped, ladder ordered, each with
+// its own label. An entry written before this filter, or against a division the
+// organizer has since changed, can come back empty, and an empty list is the
+// signal to drop the whole row rather than render a name with no divisions.
+function trnPoolEntryDays(e){
+  const needs = (e && e.needs) || {};
+  return Object.keys(needs).sort().map(day => {
+    const ids = needDivIds(needs[day])
+      .filter(id => { const p = divIdParts(id); return !!p && trnIsMatchable(p); });
+    if(!ids.length) return null;
+    const divIds = {};
+    ids.forEach(id => { divIds[id] = true; });
+    return { day: day, divIds: divIds, label: needDivLabel({ divIds: divIds }) };
+  }).filter(Boolean);
+}
+
+// The roster cannot ask anybody. Every ask path writes to invites/{id}/asks and
+// the worker refuses anything whose postType is not 'partner', so an ask from
+// here would have to invent a post and a hostId. It does not: it points at the
+// post this player already has, when they have one still looking.
+function trnOpenPostFor(t, nameKey, accountId){
+  const all = Object.values(D.invites || {});
+  for(let x = 0; x < all.length; x++){
+    const p = all[x];
+    if(!p || p.postType !== 'partner' || p.status === 'cancelled') continue;
+    if(!t || p.tournamentId !== t.id) continue;
+    if(partnerIsPast(p)) continue;
+    if(!partnerOpenNeeds(p).length) continue;
+    const byId = !!(p.hostId && accountId && p.hostId === accountId);
+    const byName = Identity.nameKey(p.hostName || '') === nameKey;
+    if(byId || byName) return p;
+  }
+  return null;
+}
+
+// Ticking a day is a LOCAL selection, not a change to the tournament, so it
+// repaints the row list alone. Rebuilding the whole detail view for a tick
+// scrolls the page away from the control being used, which is the same defect
+// the ask picker and the post-level pool both had to fix.
+function trnPoolToggle(day, isChecked){
+  const decoded = trnDecodeKey(day);
+  if(isChecked) poolNeedsSelected.add(decoded); else poolNeedsSelected.delete(decoded);
+  const list = $('trn-pool-list');
+  const t = (D.tournaments || {})[activeTournament];
+  if(list && t) list.innerHTML = trnPoolRows(t);
+  else renderTournamentDetail();
+}
+
+// One row per DAY. Ticking a day means "I am available that day for any of these
+// I can actually play", which is why the label is the VIEWER'S subset rather
+// than the day's whole set: offering for a division your gender bars is not an
+// offer. A day the viewer can play nothing on is dropped, not shown disabled.
+function trnPoolRows(t){
+  return trnPoolDayNeeds(t).filter(n => !needIsPast(n)).map(n => {
+    const mine = viewerDivIdsFor(n);
+    if(!mine.length) return '';
+    const divIds = {};
+    mine.forEach(id => { divIds[id] = true; });
+    const safe = escapeHTML(n.day).replace(/'/g, '&#39;');
+    const checked = poolNeedsSelected.has(n.day);
+    // Advertised-only is a word, never a block, matching ppToggleNeed.
+    const noReg = mine.filter(id => {
+      const d = ((t.divisions || {})[id]) || null;
+      return !!d && trnRegOf(d) === 'advertised';
+    }).length;
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
+      + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="trnPoolToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(needDivLabel({ divIds: divIds }))
+      +   (noReg ? '<span style="display:block;font-weight:400;font-size:11px;color:#92400e;">' + noReg + ' of these has no open registration yet</span>' : '')
+      + '</span>'
+      + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
+      + '</label>';
+  }).join('');
+}
+
+function joinTournamentPool(){
+  const t = (D.tournaments || {})[activeTournament];
+  const reason = trnPoolBlockReason(t);
+  if(reason){ toast(reason); return; }
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+
+  // Only days the tournament still lists can be offered for, and each entry
+  // records the viewer's OWN playable subset so a pool entry always states what
+  // that player could actually be asked for.
+  const live = {};
+  trnPoolDayNeeds(t).forEach(n => { live[n.day] = n; });
+  const needs = {};
+  poolNeedsSelected.forEach(day => {
+    const n = live[day];
+    if(!n || needIsPast(n)) return;
+    // The same water-line guard savePartnerPost and the old pool both used:
+    // never write an unmatchable entry, whatever the selection claims. The rows
+    // already filtered juniors out; this is the second line, not the only one.
+    if(!needIsMatchable(n)) return;
+    const mine = viewerDivIdsFor(n);
+    if(!mine.length) return;
+    const divIds = {};
+    mine.forEach(id => { divIds[id] = true; });
+    needs[day] = { day: day, divIds: divIds, divLabels: needDivLabel({ divIds: divIds }) };
+  });
+  if(!Object.keys(needs).length){ toast('Pick at least one day'); return; }
+
+  const entry = { name: me.name, accountId: currentAccountId(), needs: needs, joinedAt: Date.now() };
+
+  // Optimistic local, re-render, then persist. Same order saveTournament and
+  // approveGuestRequest use.
+  if(!D.tournaments[activeTournament].pool) D.tournaments[activeTournament].pool = {};
+  D.tournaments[activeTournament].pool[myKey] = entry;
+  renderTournamentDetail();
+
+  fbSet('tournaments/' + activeTournament + '/pool/' + myKey, entry);
+  toast('Added to the pool');
+}
+
+function leaveTournamentPool(){
+  const t = (D.tournaments || {})[activeTournament]; if(!t) return;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+  if(!myKey) return;
+  if(!(t.pool || {})[myKey]) return;
+
+  if(D.tournaments[activeTournament].pool) delete D.tournaments[activeTournament].pool[myKey];
+  poolNeedsSelected = new Set();
+  renderTournamentDetail();
+
+  fbDel('tournaments/' + activeTournament + '/pool/' + myKey);
+  toast('Left the pool');
+}
+
+// The two cards renderTournamentDetail appends. Returned as HTML rather than
+// painted, because that function builds one string and assigns once.
+//
+// A finished tournament carries neither card: there is nothing to declare and a
+// roster of who WAS looking is not information anybody needs. The directory
+// already hides past tournaments, but a stale activeTournament can still reach
+// one, so the guard lives here where the rendering is.
+function trnPoolCardsHTML(t){
+  if(trnIsPast(t)){
+    return '<div class="card"><div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This tournament has passed.</div></div>';
+  }
+
+  const isAuthed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
+  const myKey = gameplayKey();
+  const pool = Object.entries(t.pool || {})
+    .filter(([k, e]) => e && e.name)
+    .map(([k, e]) => [k, e, trnPoolEntryDays(e)])
+    // A row whose divisions all filtered out is dropped entirely. A name with no
+    // divisions says nothing and invites a message nobody can act on.
+    .filter(([k, e, days]) => days.length)
+    .sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+  const mine = myKey ? (t.pool || {})[myKey] : null;
+  const chip = x => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + x + '</span>';
+
+  // ── card one: what the viewer is offering ──
+  let av = '';
+  if(!isAuthed){
+    av = '<div style="font-weight:700;margin-bottom:6px;">Looking for a partner?</div>'
+      + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to say which days you would play. Everyone looking for this tournament shows up in one place.</div>'
+      + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
+  } else if(mine){
+    av = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(mine).join(', ') || 'this tournament') + '.</div>'
+      + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Anyone playing this tournament can see you and reach out.</div>'
+      + '<button class="btn btn-g btn-w" onclick="leaveTournamentPool()">Leave pool</button>';
+  } else {
+    const rows = trnPoolRows(t);
+    av = '<div style="font-weight:700;margin-bottom:2px;">Your availability</div>'
+      + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Tick the days you would play. You show up on the list below with what you are open to, and anyone can reach out.</div>'
+      + (rows
+          ? '<div id="trn-pool-list" style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + rows + '</div>'
+            + '<button class="btn btn-g btn-w" onclick="joinTournamentPool()">Add me to the pool</button>'
+          : '<div style="font-size:13px;color:var(--gray);">Nothing on this tournament is open to you.</div>');
+  }
+  const juniorDays = trnJuniorOnlyDayCount(t);
+  let h = '<div class="card">' + av
+    + (juniorDays ? JUNIOR_NO_MATCH_NOTE : '')
+    + '</div>';
+
+  // ── card two: the roster ──
+  const anyCoed = pool.some(([k, e, days]) => days.some(d => needHasCoed(d)));
+  h += '<div class="card">'
+    + '<div class="ctitle"><span class="bar"></span>Looking for a Partner' + (pool.length ? ' (' + pool.length + ')' : '') + '</div>'
+    + (!isAuthed
+        ? '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
+        : (pool.length
+            ? pool.map(([k, e, days]) => {
+                const post = trnOpenPostFor(t, k, e.accountId);
+                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;">'
+                  + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name)
+                  +   (post
+                        ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">They have a post open ' + String.fromCharCode(8594) + '</button>'
+                        : '')
+                  + '</span>'
+                  + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
+                  +   days.map(d => chip(escapeHTML(dayShort(d.day) + ': ' + d.label).toUpperCase())).join('')
+                  + '</span>'
+                  + '</div>';
+              }).join('')
+            : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet. Be first.</p>'))
+    + (anyCoed ? COED_UNRATED_NOTE : '')
+    + '</div>';
+
+  return h;
+}
+
+// ── PARTNER POST NEEDS ──────────────────────────────────────────────────────────
+// A post's own needs, plus the one label helper both sides share.
+//
+// The pool that used to live here, at invites/{id}/pool/{nameKey}, is gone. It
+// belonged to ONE post, so several posts for the same tournament produced
+// several disconnected pools and a player had to find a particular post before
+// they could say they were looking at all. It lives on the tournament itself
+// now; see the TOURNAMENT POOL section above. poolEntryNeedLabels stayed behind
+// because it reads nothing but an entry's own needs map, and both sides use it.
 // A pool entry's days, in words, one string per day: "Sat: Men's A". Day-keyed, so
 // this is the sorted keys and each carries its own set.
 function poolEntryNeedLabels(e){
@@ -4584,28 +4880,6 @@ function poolEntryNeedLabels(e){
     const lbl = needDivLabel(needs[day]) || '';
     return lbl ? (dayShort(day) + ': ' + lbl) : dayShort(day);
   }).filter(Boolean);
-}
-
-// Everything respondToPartnerPost gates on EXCEPT the response-specific checks.
-// A live pending guestRequest deliberately does NOT block the pool: asking one
-// person and staying open to others are different statements. Returns null when
-// allowed, else the toast string explaining why not.
-function partnerPoolBlockReason(i){
-  if(!i || i.postType !== 'partner') return 'Not a partner post';
-  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return 'Log in to join the pool';
-  if(i.status === 'cancelled') return 'Post cancelled';
-  if(partnerIsPast(i)) return 'This tournament has passed';
-  if(isLoggedInHost(i)) return 'This is your post';
-  const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-  if(!me || !myKey) return 'Pick your name first';
-  if(!activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey)) return 'This post is not open to you';
-  // No confirmed-partner check any more, and no single-division gate. A post now
-  // carries several needs: one of them being settled must not lock everybody out
-  // of the others, and the viewer's own division eligibility is decided per need
-  // in the picker rather than once for the whole post.
-  if(!partnerOpenNeeds(i).length) return 'Every division on this post is filled';
-  return null;
 }
 
 // Needs still looking for somebody, by day then the level ladder.
@@ -4680,94 +4954,6 @@ function dayShort(dayISO){
   return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { weekday: 'short' });
 }
 
-// Same defect as the ask picker had: ticking a division here is a local
-// selection, not a change to the post, and rebuilding the whole detail view for
-// it scrolls the page away from the control being used. Repaint the pool row
-// list only. Joining and leaving the pool still repaint everything, because those
-// really do change the post.
-function poolToggleNeed(divId, isChecked){
-  const decoded = trnDecodeKey(divId);
-  if(isChecked) poolNeedsSelected.add(decoded); else poolNeedsSelected.delete(decoded);
-  const list = $('pool-need-list');
-  const i = (D.invites||{})[activeInvite];
-  if(list && i) list.innerHTML = poolNeedRows(i);
-  else renderInviteDetail();
-}
-
-// The pool's own division rows, split out for the same reason the ask picker's
-// rows are: one source for the first paint and every repaint.
-// One row per DAY, ticking a day means "I am available that day for any of these".
-// partnerOpenNeeds already drops unmatchable days, so juniors never appear here.
-function poolNeedRows(i){
-  return partnerOpenNeeds(i).filter(n => !needIsPast(n)).map(n => {
-    const safe = escapeHTML(n.day).replace(/'/g, '&#39;');
-    const checked = poolNeedsSelected.has(n.day);
-    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
-      + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="poolToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
-      + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(needDivLabel(n)) + '</span>'
-      + '<span style="font-size:11px;color:var(--gray);">' + escapeHTML(fDshort(n.day)) + '</span>'
-      + '</label>';
-  }).join('');
-}
-
-function joinPartnerPool(){
-  const i = (D.invites||{})[activeInvite];
-  const reason = partnerPoolBlockReason(i);
-  if(reason){ toast(reason); return; }
-  const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-
-  // Only still-open days can be offered for. A day already settled is not refillable
-  // without the pair dropping first, so offering for it would be a lie. The entry is
-  // keyed by day and carries the viewer's own playable subset of that day, so a pool
-  // entry states what the player could actually be asked for.
-  const openDays = new Set(partnerOpenNeeds(i).map(n => n.day));
-  const needs = {};
-  poolNeedsSelected.forEach(day => {
-    if(!openDays.has(day)) return;
-    const n = (i.needs || {})[day];
-    if(!n) return;
-    // Same water-line guard savePartnerPost uses: never write an unmatchable entry,
-    // whatever the selection claims.
-    if(!needIsMatchable(n)) return;
-    const mine = viewerDivIdsFor(n);
-    if(!mine.length) return;
-    const divIds = {};
-    mine.forEach(id => { divIds[id] = true; });
-    needs[day] = { day: day, divIds: divIds, divLabels: needDivLabel({ divIds: divIds }) };
-  });
-  if(!Object.keys(needs).length){ toast('Pick at least one day'); return; }
-
-  const entry = { name: me.name, accountId: currentAccountId(), needs: needs, joinedAt: Date.now() };
-
-  // Optimistic local + mirror, then persist. Same order approveGuestRequest uses.
-  if(!D.invites[activeInvite].pool) D.invites[activeInvite].pool = {};
-  D.invites[activeInvite].pool[myKey] = entry;
-  pendInviteOverride(activeInvite, inv => {
-    if(!inv.pool) inv.pool = {};
-    inv.pool[myKey] = entry;
-  });
-  renderInviteDetail();
-
-  fbSet('invites/' + activeInvite + '/pool/' + myKey, entry);
-  toast('Added to the pool');
-}
-
-function leavePartnerPool(){
-  const i = (D.invites||{})[activeInvite]; if(!i || i.postType !== 'partner') return;
-  const me = window.Identity ? Identity.getCurrent() : null;
-  const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
-  if(!myKey) return;
-  if(!(i.pool || {})[myKey]) return;
-
-  if(D.invites[activeInvite].pool) delete D.invites[activeInvite].pool[myKey];
-  pendInviteOverride(activeInvite, inv => { if(inv.pool) delete inv.pool[myKey]; });
-  renderInviteDetail();
-
-  fbDel('invites/' + activeInvite + '/pool/' + myKey);
-  toast('Left the pool');
-}
-
 // DETAIL: partner post view. Called from renderInviteDetail's postType branch,
 // so deep links, the invites listener, and every renderInviteDetail() call all
 // land here for partner posts.
@@ -4780,12 +4966,6 @@ function renderPartnerDetail(i){
   // settled on its own, so everything below is per need.
   const isPast = partnerIsPast(i);
   const isCancelled = i.status === 'cancelled';
-  // Pool entries, oldest first. Keyed by nameKey like rsvps, so a viewer's own
-  // entry is a direct lookup rather than a scan.
-  const pool = Object.entries(i.pool || {})
-    .filter(([k,e]) => e && e.name)
-    .sort((a,b) => (a[1].joinedAt||0) - (b[1].joinedAt||0));
-  const myPool = myKey ? (i.pool || {})[myKey] : null;
   const url = safeEventUrl(i.eventUrl);
   const dateStr = i.date ? new Date(i.date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric', year:'numeric'}) : '';
   const chip = t => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + t + '</span>';
@@ -4932,24 +5112,6 @@ function renderPartnerDetail(i){
       + (allNeeds.length ? allNeeds.map(needBlock).join('') : '<div style="font-size:13px;color:var(--gray);">No divisions on this post.</div>')
       + (allNeeds.some(needHasCoed) ? COED_UNRATED_NOTE : '');
 
-    // The pool is a weaker, standing statement than an offer: it says which
-    // divisions you could play without addressing this poster. A player can do
-    // both, so it keeps its own block below the per-need controls.
-    if(!isHost){
-      const openNeeds = partnerOpenNeeds(i).filter(n => !needIsPast(n));
-      // Built by poolNeedRows so a tick can repaint just this list.
-      const needRows = poolNeedRows(i);
-      const poolBlock = myPool
-        ? '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(myPool).join(', ') || 'this post') + '.</div>'
-          + '<button class="btn btn-g btn-w" onclick="leavePartnerPool()">Leave pool</button>'
-        : '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">Not ready to offer?</div>'
-          + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Add yourself to the pool instead, so the poster and other players can see you are available.</div>'
-          + (needRows
-              ? '<div id="pool-need-list" style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + needRows + '</div>'
-              : '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Every division on this post is settled.</div>')
-          + (needRows ? '<button class="btn btn-g btn-w" onclick="joinPartnerPool()">Add me to the pool</button>' : '');
-      actionHTML += '<div style="border-top:1px solid var(--sand-border);margin-top:12px;padding-top:12px;">' + poolBlock + '</div>';
-    }
   }
 
   let h = '<div class="card">'
@@ -4979,35 +5141,6 @@ function renderPartnerDetail(i){
     + '</div>'
     + '</div>'
     + '<div class="card">' + actionHTML + '</div>';
-
-  // Looking for a Partner: everyone who has declared they want one for this
-  // tournament, with the bands they will play. Display only; no ask, no pairing.
-  h += '<div class="card">'
-    + '<div class="ctitle"><span class="bar"></span>Looking for a Partner' + (pool.length ? ' (' + pool.length + ')' : '') + '</div>'
-    + (pool.length
-        ? pool.map(([k, e]) =>
-            '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">'
-            + '<span style="flex:1;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name) + '</span>'
-            // A pool entry copies the post's needs at JOIN time, so a DAY it names
-            // can have been settled since. Re-check each chip against the post's
-            // current status per day rather than showing a stale availability. The
-            // check moved from per division to per day with the key.
-            + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
-            +   Object.keys(e.needs || {}).sort()
-                  .map(pday => {
-                    const pn = (e.needs || {})[pday];
-                    const live = (i.needs || {})[pday];
-                    const gone = !live;
-                    const filled = !gone && needStatusOf(live) === 'filled';
-                    const label = escapeHTML(dayShort(pday) + ': ' + (needDivLabel(pn) || '')).toUpperCase();
-                    if(gone) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;text-decoration:line-through;">' + label + '</span>';
-                    if(filled) return '<span style="background:var(--gray-lighter);color:var(--gray);border:1px solid var(--gray-light);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">FILLED</span></span>';
-                    return chip(label);
-                  }).join('')
-            + '</span>'
-            + '</div>').join('')
-        : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet.</p>')
-    + '</div>';
 
   if(isHost && !isCancelled){
     h += '<div class="card"><button class="btn btn-d btn-w" onclick="cancelPartnerPost()">Cancel Post</button></div>';
@@ -5702,8 +5835,8 @@ function askPickerRepaint(){
   if(cnt) cnt.textContent = String(askPickerSelected.size);
 }
 
-// Candidates for one DAY: pool-first, then the rest of the circle. Anyone already
-// asked or already offering on that day is dropped, since there is nothing to ask.
+// Candidates for one DAY: the post's eligible circle. Anyone already asked or
+// already offering on that day is dropped, since there is nothing to ask.
 // Both exclusions are day lookups now, which is what makes them correct: under the
 // division key a player already pending on Sunday coed BB was still offered for
 // Sunday coed A, the concurrent slot they could not also play.
@@ -5717,23 +5850,20 @@ function askCandidates(i, n){
   const dayDivs = needDivIds(n).map(divIdParts).filter(p => !!p && trnIsMatchable(p));
   const seen = new Set();
   const out = [];
-  const add = (name, accountId, fromPool) => {
+  const add = (name, accountId) => {
     const k = Identity.nameKey(name);
     if(!k || seen.has(k)) return;
     if(asked[k] || offered[k]) return;
     if(i.hostId && accountId && accountId === i.hostId) return;
     if(!dayDivs.some(p => divisionAllowsViewer2(p.category, accountId, name))) return;
     seen.add(k);
-    out.push({ key: k, name: name, accountId: accountId || null, fromPool: !!fromPool });
+    out.push({ key: k, name: name, accountId: accountId || null });
   };
-  // Pool first: these players already named this day.
-  Object.values(i.pool || {}).forEach(e => {
-    if(!e || !e.name) return;
-    if(!((e.needs || {})[day])) return;
-    add(e.name, e.accountId, true);
-  });
-  // Then the circle this post is visible to.
-  activeEligibleNames(i, Date.now()).forEach(nm => add(nm, resolveAccountId(nm), false));
+  // The pool moved to the tournament, so a POST no longer has one to rank by.
+  // Candidates are the circle, in name order. Pool-first ordering comes back only
+  // if asking ever moves to the tournament roster, which needs a post-free ask
+  // record the worker will accept.
+  activeEligibleNames(i, Date.now()).forEach(nm => add(nm, resolveAccountId(nm)));
   return out;
 }
 
@@ -5771,7 +5901,6 @@ function askPickerRows(i, n){
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
       + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="askPickerToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
       + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(c.name) + ratingBadge(c.name, c.accountId) + '</span>'
-      + (c.fromPool ? '<span style="font-size:9px;font-family:\'Bebas Neue\';letter-spacing:1px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">IN POOL</span>' : '')
       + '</label>';
   }).join('');
 }
@@ -5782,7 +5911,7 @@ function renderAskPicker(i, n){
   const dk = escapeHTML(n.day).replace(/'/g, '&#39;');
   return '<div style="margin-top:8px;border:1px solid var(--sand-border);border-radius:8px;padding:8px;">'
     + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Ask someone to play ' + escapeHTML(needDivLabel(n)) + '</div>'
-    + '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Players already in the pool for this division are listed first.</div>'
+    + '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Everyone this post is visible to who could play that day.</div>'
     + '<input class="inp" id="ask-picker-filter" placeholder="Filter by name" value="' + escapeHTML(askPickerFilter) + '" oninput="askPickerSetFilter(this.value)" style="margin-bottom:6px;font-size:13px;padding:8px;">'
     + '<div id="ask-picker-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:6px;">' + askPickerRows(i, n) + '</div>'
     + '<div style="display:flex;gap:8px;margin-top:8px;">'
