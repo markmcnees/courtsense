@@ -5340,7 +5340,28 @@ function withdrawOffer(day){
 // divisions, which means a division added to the tournament after the post was
 // written cannot be missed, and a stale record on it cannot survive the fill.
 // Other days are untouched.
-function fillNeed(day, chosenDivId, name, accountId){
+//
+// ORDERING, and it is the whole reason this function grew a tail. The
+// spot-filled notice has to run BETWEEN the write and the deletes:
+//   1. needs/{day} goes to 'filled' first, and the notify waits on that write.
+//      The worker re-reads the need and refuses to send unless it is already
+//      filled, so firing beside the write rather than after it would usually
+//      arrive first, read an open day, and skip with ok:true. That reports as a
+//      success and emails nobody, the same defect offerForNeed documents.
+//   2. the accepter's OWN ask leaf goes next, on its own and awaited, because
+//      the worker's recipient list is exactly asks/{day} and the one person who
+//      must not be told the spot was filled is the player who just took it.
+//   3. then the notify.
+//   4. then the two subtree deletes.
+// Swapping 3 and 4 leaves the worker reading an empty subtree and mailing
+// nobody, silently. That is the failure this ordering exists to prevent, and it
+// is what notifyThenClear is for.
+//
+// fillNeed still returns a boolean SYNCHRONOUSLY and neither caller awaits it.
+// The optimistic render below has already painted and the caller's toast has
+// already fired before any of the tail resolves, so an accept never waits on a
+// network round trip.
+function fillNeed(day, chosenDivId, name, accountId, acceptedKey){
   const i = (D.invites||{})[activeInvite]; if(!i) return false;
   const n = (i.needs || {})[day]; if(!n) return false;
   if(needStatusOf(n) !== 'open'){ toast('That day is already settled'); return false; }
@@ -5353,6 +5374,13 @@ function fillNeed(day, chosenDivId, name, accountId){
     status: 'filled', filledDivId: chosen, partnerName: name, partnerAccountId: accountId || null,
   });
 
+  // Who just accepted, so the notice is not sent to them. Both callers pass it:
+  // acceptOffer the offerer's key, acceptAsk the viewer's own. The fallback
+  // derives it from the name for a hand-built call, and an empty key simply
+  // means nothing is removed rather than removing the wrong leaf.
+  const mineKey = acceptedKey
+    || (window.Identity && Identity.nameKey ? Identity.nameKey(name || '') : '');
+
   D.invites[activeInvite].needs[day] = merged;
   if(D.invites[activeInvite].offers) delete D.invites[activeInvite].offers[day];
   if(D.invites[activeInvite].asks) delete D.invites[activeInvite].asks[day];
@@ -5364,10 +5392,70 @@ function fillNeed(day, chosenDivId, name, accountId){
   });
   renderInviteDetail();
 
-  fbSet('invites/' + activeInvite + '/needs/' + day, merged);
-  fbDel('invites/' + activeInvite + '/offers/' + day);
-  fbDel('invites/' + activeInvite + '/asks/' + day);
+  // The deletes moved into notifyThenClear. They still happen on every path it
+  // can take, including every failure, so a fill never leaves them undone.
+  notifyThenClear(
+    fbSet('invites/' + activeInvite + '/needs/' + day, merged),
+    activeInvite, day, mineKey
+  );
   return true;
+}
+
+// How long a fill will wait on the worker before clearing the day regardless.
+// Bounded on purpose: the deletes are not optional and must not be left undone
+// by a worker that never answers. Comfortably inside the 10s TTL on the pending
+// invite override (see the sweep in initFB), so the listener cannot echo the
+// still-present asks back into the view before they are gone.
+const SPOT_FILLED_WAIT_MS = 6000;
+
+// The tail of a fill: tell everybody else on the day that it is settled, then
+// clear the day's offers and asks. Detached from fillNeed so no accept waits on
+// a round trip, and strictly ordered inside so the notice cannot race its own
+// recipients out of existence.
+//
+// saved is fillNeed's needs/{day} write, awaited first for the reason spelled
+// out above fillNeed. Nothing here can reject: fbSet and fbDel already resolve
+// false on failure and notifyWorker never throws.
+//
+// Nothing here is ever allowed to retract the fill. The accept has already been
+// written, rendered and toasted; a failure anywhere below changes only whether a
+// second toast says the others were not emailed.
+async function notifyThenClear(saved, invId, day, acceptedKey){
+  const base = 'invites/' + invId + '/';
+  let cleared = false;
+  const clear = function(){
+    if(cleared) return;
+    cleared = true;
+    fbDel(base + 'offers/' + day);
+    fbDel(base + 'asks/' + day);
+  };
+
+  try {
+    // The need never saved, so the worker would read an open day and send
+    // nothing. Clear anyway and skip the pointless call: the fill stands
+    // locally and the failed write has already complained via _fbWriteFailed.
+    if((await saved) !== true){ clear(); return; }
+
+    // The accepter's own ask, removed alone and AWAITED so it is gone from the
+    // subtree before the worker reads it. Usually a no-op on the acceptOffer
+    // path, where the accepted player holds an offer rather than an ask.
+    if(acceptedKey) await fbDel(base + 'asks/' + day + '/' + acceptedKey);
+
+    // Raced against the wait, so a slow or silent worker delays the clear by at
+    // most SPOT_FILLED_WAIT_MS. On a timeout the email is the only thing lost.
+    const sent = await Promise.race([
+      notifyWorker('/pickup/spot-filled-notify', { inviteId: invId, day: day }),
+      new Promise(function(res){ setTimeout(function(){ res(false); }, SPOT_FILLED_WAIT_MS); })
+    ]);
+
+    clear();
+    warnIfNotEmailed(sent, 'Partnered, but the other players were not emailed.');
+  } catch(e){
+    // Belt and braces. Nothing above is expected to throw, and if something
+    // does, the deletes still have to happen.
+    console.error('spot-filled tail failed', e);
+    clear();
+  }
 }
 
 // The division a settled day was played in, in words. Reads filledDivId, which is
@@ -5458,7 +5546,7 @@ function acceptOffer(day, nameKey, chosenDivId){
   if(!chosen){ openPick(dk, 'offer', nk); return; }
   pickFor = null;
   const lbl = divIdToLabel(chosen);
-  if(fillNeed(dk, chosen, rec.name, rec.accountId)) toast(rec.name + ' is your partner' + (lbl ? ' for ' + lbl : ''));
+  if(fillNeed(dk, chosen, rec.name, rec.accountId, nk)) toast(rec.name + ' is your partner' + (lbl ? ' for ' + lbl : ''));
 }
 
 // Poster declines one offer. Deletes it; the day stays open for others.
@@ -5514,7 +5602,7 @@ function acceptAsk(day, chosenDivId){
   if(!chosen){ openPick(dk, 'ask', null); return; }
   pickFor = null;
   const lbl = divIdToLabel(chosen);
-  if(fillNeed(dk, chosen, mine.name || me.name, mine.accountId || currentAccountId())) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
+  if(fillNeed(dk, chosen, mine.name || me.name, mine.accountId || currentAccountId(), myKey)) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
 }
 
 // Target declines. Deletes the ask; the day stays open.
