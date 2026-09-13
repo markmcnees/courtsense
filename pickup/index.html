@@ -1298,6 +1298,17 @@ function fbDel(p){
   return db.ref(DB_ROOT+'/'+p).remove().then(function(){ return true; })
     .catch(function(err){ _fbWriteFailed('delete',p,err); return false; });
 }
+// MERGE, not replace. update() writes only the keys it is handed and leaves
+// every unnamed sibling alone; set() on the same path would replace the whole
+// node with just those keys. That is exactly the bug 2e74119 fixed in the
+// profile editor, where set() on players/{id}/profile silently wiped every
+// field the form did not carry. Any write into a node somebody else also owns
+// keys of goes through here.
+function fbUpdate(p,obj){
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT+'/'+p).update(obj).then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('save',p,err); return false; });
+}
 
 // ── WORKER NOTIFICATIONS ─────────────────────────────────────
 // An HTTP error resolves the fetch promise, so the old .catch(console.warn) only
@@ -2994,6 +3005,10 @@ let ppReturnAfterTournament = false;
 // Pool join state, scoped to the post being viewed: which needs the viewer is
 // offering to cover.
 let poolNeedsSelected = new Set();
+// The gender answer given inline during ONE pool join, before it is written.
+// Never read as a stored value: it exists only between the tap and the join, and
+// openTournamentDetail clears it.
+let trnGenderPick = null;
 
 // Ask picker, open for at most one division at a time. Holds nameKeys, the same
 // idiom the notify picker and renderGroupMembers use.
@@ -3485,6 +3500,29 @@ function viewerGender(){
   const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const g = p && p.profile && p.profile.gender;
   return (g === 'M' || g === 'F') ? g : null;
+}
+// The RAW stored answer, which viewerGender deliberately collapses to null.
+// 'unspecified' is a real answer a player gave, not an absence, and the two have
+// to be told apart in exactly one place: deciding whether to ASK. Asking someone
+// who already declined would be a nag, and asking nobody would leave the roster
+// publishing claims we cannot back. Every narrowing decision still goes through
+// viewerGender, which treats both as un-narrowable.
+function viewerGenderRaw(){
+  const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const g = p && p.profile && p.profile.gender;
+  return (g === 'M' || g === 'F' || g === 'unspecified') ? g : null;
+}
+// The same raw answer for somebody who is NOT the viewer, off the public
+// profiles cache. Mirrors how divisionAllowsViewer2 resolves a candidate.
+function accountGenderRaw(accountId, name){
+  const cache = window._profilesCache || {};
+  let p = (accountId && cache[accountId]) || null;
+  if(!p && name){
+    const k = Identity.nameKey(name);
+    for(const id in cache){ const c = cache[id]; if(c && Identity.nameKey(nameStr(c) || '') === k){ p = c; break; } }
+  }
+  const g = p && p.profile && p.profile.gender;
+  return (g === 'M' || g === 'F' || g === 'unspecified') ? g : null;
 }
 function divisionAllowsViewer(div){
   // Juniors first, and unconditionally: no gender, known or unknown, opens one.
@@ -4387,6 +4425,7 @@ function openTournamentDetail(id){
   // must not inherit the days ticked on the last. Same reset openInviteDetail
   // does for the post it is leaving.
   poolNeedsSelected = new Set();
+  trnGenderPick = null;
   // The roster renders a rating badge and a club badge per player, and both read
   // the public profiles cache. Without this the whole roster loses its badges on
   // a cold open, exactly as openInviteDetail found.
@@ -4681,7 +4720,16 @@ function trnPoolEntryDays(e){
     const ids = needDivIds(needs[day])
       .filter(id => {
         const p = divIdParts(id);
-        return !!p && trnIsMatchable(p) && divisionAllowsViewer2(p.category, e && e.accountId, e && e.name);
+        if(!p || !trnIsMatchable(p)) return false;
+        if(!divisionAllowsViewer2(p.category, e && e.accountId, e && e.name)) return false;
+        // An owner who answered 'unspecified' cannot back a gendered division,
+        // and divisionAllowsViewer2 permits it because that predicate also
+        // serves asking, where permissive is right. Entries written from now on
+        // never contain one; this is what keeps an older record honest too.
+        if(accountGenderRaw(e && e.accountId, e && e.name) === 'unspecified'){
+          return p.category !== 'mens' && p.category !== 'womens';
+        }
+        return true;
       });
     if(!ids.length) return null;
     const divIds = {};
@@ -4719,8 +4767,11 @@ function trnPoolToggle(day, isChecked){
   const decoded = trnDecodeKey(day);
   if(isChecked) poolNeedsSelected.add(decoded); else poolNeedsSelected.delete(decoded);
   const list = $('trn-pool-list');
+  const foot = $('trn-pool-foot');
   const t = (D.tournaments || {})[activeTournament];
-  if(list && t) list.innerHTML = trnPoolRows(t);
+  // Both, because ticking a gendered day is what summons the question and
+  // unticking it is what dismisses it again.
+  if(list && foot && t){ list.innerHTML = trnPoolRows(t); foot.innerHTML = trnPoolFootHTML(t); }
   else renderTournamentDetail();
 }
 
@@ -4728,9 +4779,73 @@ function trnPoolToggle(day, isChecked){
 // I can actually play", which is why the label is the VIEWER'S subset rather
 // than the day's whole set: offering for a division your gender bars is not an
 // offer. A day the viewer can play nothing on is dropped, not shown disabled.
+// What this viewer may actually PUBLISH for a day, which is stricter than what
+// they may see. divisionAllowsViewer is a display filter and is deliberately
+// permissive: an unknown gender sees every division because ineligibility cannot
+// be determined, and the viewer can always decline. A pool entry is different.
+// It is a standing claim rendered under a real name to everybody browsing the
+// tournament, so a division the player cannot back must not go into it.
+//
+// Three cases, and only the third differs from viewerDivIdsFor:
+//   'M' / 'F'      already narrowed correctly by viewerDivIdsFor.
+//   not answered   pass through. They are about to be ASKED, and hiding the
+//                  gendered divisions before the question would make the
+//                  question look pointless.
+//   'unspecified'  drop mens and womens. They answered, the answer cannot be
+//                  narrowed, and publishing both would be the exact claim this
+//                  whole change exists to stop.
+//
+// divisionAllowsViewer is untouched. This narrows only what gets written and
+// shown HERE; no other caller changes behaviour.
+function trnPublishableDivIds(n){
+  const ids = viewerDivIdsFor(n);
+  if(viewerGenderRaw() !== 'unspecified') return ids;
+  return ids.filter(id => {
+    const p = divIdParts(id);
+    return !!p && p.category !== 'mens' && p.category !== 'womens';
+  });
+}
+
+// Does the CURRENT selection touch a division whose entry would be a gendered
+// claim? Only then is the question load-bearing. Already answered, in either
+// direction, means never ask again.
+function trnSelectionNeedsGender(t){
+  if(viewerGenderRaw()) return false;
+  const live = {};
+  trnPoolDayNeeds(t).forEach(n => { live[n.day] = n; });
+  let touches = false;
+  poolNeedsSelected.forEach(day => {
+    const n = live[day];
+    if(!n || needIsPast(n)) return;
+    if(needDivIds(n).some(id => {
+      const p = divIdParts(id);
+      return !!p && (p.category === 'mens' || p.category === 'womens');
+    })) touches = true;
+  });
+  return touches;
+}
+
+// Does this tournament list any gendered division at all? Used only to decide
+// whether an 'unspecified' player is owed the line explaining what is missing.
+function trnHasGenderedDivision(t){
+  return Object.values((t && t.divisions) || {}).some(d => {
+    return !!d && (d.category === 'mens' || d.category === 'womens');
+  });
+}
+
+// The answer, captured but NOT written. The write happens at join, so ticking
+// around the card never touches the account record.
+function trnPickGender(v){
+  trnGenderPick = (v === 'M' || v === 'F' || v === 'unspecified') ? v : null;
+  const foot = $('trn-pool-foot');
+  const t = (D.tournaments || {})[activeTournament];
+  if(foot && t) foot.innerHTML = trnPoolFootHTML(t);
+  else renderTournamentDetail();
+}
+
 function trnPoolRows(t){
   return trnPoolDayNeeds(t).filter(n => !needIsPast(n)).map(n => {
-    const mine = viewerDivIdsFor(n);
+    const mine = trnPublishableDivIds(n);
     if(!mine.length) return '';
     const divIds = {};
     mine.forEach(id => { divIds[id] = true; });
@@ -4751,12 +4866,80 @@ function trnPoolRows(t){
   }).join('');
 }
 
-function joinTournamentPool(){
+// Everything below the day rows: the gender question when it is load-bearing,
+// the 'unspecified' explanation when one is owed, and the join button. Split out
+// so ticking a day can repaint it without rebuilding the detail view, the same
+// scoped-repaint discipline trnPoolToggle already follows for the rows.
+function trnPoolFootHTML(t){
+  let h = '';
+
+  // Asked ONCE, inline, and only for this join. It appears the moment a ticked
+  // day carries a gendered division and disappears again if that day is
+  // unticked, so nobody is questioned who did not need to be.
+  if(trnSelectionNeedsGender(t)){
+    const opt = (v, label) => {
+      const on = trnGenderPick === v;
+      return '<button type="button" onclick="trnPickGender(\'' + v + '\')" style="flex:1;min-height:44px;padding:8px 6px;border-radius:8px;cursor:pointer;font-family:\'Bebas Neue\';font-size:13px;letter-spacing:1px;'
+        + 'border:1px solid ' + (on ? 'var(--primary)' : 'var(--sand-border)') + ';'
+        + 'background:' + (on ? 'var(--primary)' : '#fff') + ';color:' + (on ? '#fff' : 'var(--gray)') + ';">' + label + '</button>';
+    };
+    h += '<div style="border:1px solid var(--sand-border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--sand);">'
+      + '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">One thing first</div>'
+      + '<div style="font-size:12px;color:var(--gray);line-height:1.5;margin-bottom:8px;">You picked a day with men\u2019s or women\u2019s divisions. Which should we list you for? We ask once and keep it on your profile.</div>'
+      + '<div style="display:flex;gap:6px;">' + opt('M', 'MEN' + String.fromCharCode(8217) + 'S') + opt('F', 'WOMEN' + String.fromCharCode(8217) + 'S') + opt('unspecified', 'RATHER NOT') + '</div>'
+      + (trnGenderPick === 'unspecified'
+          ? '<div style="font-size:12px;color:#92400e;line-height:1.5;margin-top:8px;">That is fine. We will list you for coed only, because a men\u2019s or women\u2019s entry would claim something we cannot back. You can change it any time in your profile.</div>'
+          : '')
+      + '</div>';
+  }
+
+  // Already answered 'unspecified' on a previous visit, and this tournament runs
+  // gendered divisions they will not appear in. Said once, plainly, rather than
+  // letting those rows quietly not exist.
+  if(viewerGenderRaw() === 'unspecified' && trnHasGenderedDivision(t)){
+    h += '<div style="font-size:12px;color:var(--gray);line-height:1.5;margin-bottom:8px;">Your profile says you would rather not give a gender, so only coed is listed here. Men\u2019s and women\u2019s need one, so the roster does not claim something we cannot back.</div>';
+  }
+
+  h += '<button class="btn btn-g btn-w" onclick="joinTournamentPool()">Add me to the pool</button>';
+  return h;
+}
+
+async function joinTournamentPool(){
   const t = (D.tournaments || {})[activeTournament];
   const reason = trnPoolBlockReason(t);
   if(reason){ toast(reason); return; }
   const me = window.Identity ? Identity.getCurrent() : null;
   const myKey = gameplayKey() || (me && Identity.nameKey(me.name));
+
+  // The question is load-bearing and unanswered. Refuse the join rather than
+  // publishing a claim we cannot back, and repaint so the control is on screen.
+  if(trnSelectionNeedsGender(t) && !trnGenderPick){
+    const foot = $('trn-pool-foot');
+    if(foot) foot.innerHTML = trnPoolFootHTML(t); else renderTournamentDetail();
+    toast('Pick one so we know which divisions to list you for');
+    return;
+  }
+
+  // Persist the answer BEFORE the entry, and await it. If it fails the join stops:
+  // an entry narrowed by a gender the profile does not carry would be exactly the
+  // inconsistency this exists to remove. The in-memory value is set first so every
+  // narrowing below reads the new answer without waiting on the profiles cache,
+  // and rolled back if the write does not land.
+  if(trnGenderPick && !viewerGenderRaw()){
+    const acct = currentAccountId();
+    if(!acct){ toast('Log in again to save that'); return; }
+    const chosen = trnGenderPick;
+    const restore = _trnApplyGenderLocally(acct, me && me.name, chosen);
+    // update(), never set(): players/{id}/profile holds a dozen other fields and
+    // set() would replace the node with this one key. See fbUpdate.
+    const saved = await fbUpdate('players/' + acct + '/profile', { gender: chosen });
+    if(saved !== true){
+      restore();
+      toast('Could not save that. Nothing was posted.');
+      return;
+    }
+    trnGenderPick = null;
+  }
 
   // Only days the tournament still lists can be offered for, and each entry
   // records the viewer's OWN playable subset so a pool entry always states what
@@ -4764,6 +4947,9 @@ function joinTournamentPool(){
   const live = {};
   trnPoolDayNeeds(t).forEach(n => { live[n.day] = n; });
   const needs = {};
+  // Set when a ticked day yielded nothing publishable, so the refusal below can
+  // say why instead of repeating 'pick a day' at somebody who picked three.
+  let droppedAll = false;
   poolNeedsSelected.forEach(day => {
     const n = live[day];
     if(!n || needIsPast(n)) return;
@@ -4771,13 +4957,20 @@ function joinTournamentPool(){
     // never write an unmatchable entry, whatever the selection claims. The rows
     // already filtered juniors out; this is the second line, not the only one.
     if(!needIsMatchable(n)) return;
-    const mine = viewerDivIdsFor(n);
-    if(!mine.length) return;
+    // Publishable, not merely viewable: an 'unspecified' player loses the
+    // gendered divisions here rather than publishing a claim they cannot back.
+    const mine = trnPublishableDivIds(n);
+    if(!mine.length){ droppedAll = true; return; }
     const divIds = {};
     mine.forEach(id => { divIds[id] = true; });
     needs[day] = { day: day, divIds: divIds, divLabels: needDivLabel({ divIds: divIds }) };
   });
-  if(!Object.keys(needs).length){ toast('Pick at least one day'); return; }
+  if(!Object.keys(needs).length){
+    toast(droppedAll && viewerGenderRaw() === 'unspecified'
+      ? 'Those days only have gendered divisions, so there is nothing to list you for'
+      : 'Pick at least one day');
+    return;
+  }
 
   const entry = { name: me.name, accountId: currentAccountId(), needs: needs, joinedAt: Date.now() };
 
@@ -4789,6 +4982,44 @@ function joinTournamentPool(){
 
   fbSet('tournaments/' + activeTournament + '/pool/' + myKey, entry);
   toast('Added to the pool');
+}
+
+// Make a just-chosen gender visible to every narrowing path IMMEDIATELY, without
+// waiting on the 30 second profiles cache window in ensureProfilesLoaded. Three
+// places read a gender and all three are updated here:
+//   1. the auth session record, which viewerGender and viewerGenderRaw read, so
+//      trnPublishableDivIds narrows correctly on the very next line
+//   2. the public profiles cache, which divisionAllowsViewer2 reads, so this
+//      player's own roster row renders narrowed on the same paint
+//   3. the cache timestamp, zeroed so the next ensureProfilesLoaded refetches
+//      rather than serving the stale window it is still inside
+// Returns an undo, because the caller applies this BEFORE the write and has to
+// put it back if the write does not land.
+function _trnApplyGenderLocally(accountId, name, value){
+  const undo = [];
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  if(auth){
+    if(!auth.profile) auth.profile = {};
+    const had = auth.profile.gender;
+    auth.profile.gender = value;
+    undo.push(function(){ auth.profile.gender = had; });
+  }
+  const cache = window._profilesCache || {};
+  let rec = (accountId && cache[accountId]) || null;
+  if(!rec && name){
+    const k = Identity.nameKey(name);
+    for(const id in cache){ const c = cache[id]; if(c && Identity.nameKey(nameStr(c) || '') === k){ rec = c; break; } }
+  }
+  if(rec){
+    if(!rec.profile) rec.profile = {};
+    const had = rec.profile.gender;
+    rec.profile.gender = value;
+    undo.push(function(){ rec.profile.gender = had; });
+  }
+  const hadTs = window._profilesCacheTs;
+  window._profilesCacheTs = 0;
+  undo.push(function(){ window._profilesCacheTs = hadTs; });
+  return function(){ undo.forEach(function(f){ try{ f(); }catch(e){} }); };
 }
 
 function leaveTournamentPool(){
@@ -4846,7 +5077,7 @@ function trnPoolCardsHTML(t){
       + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Tick the days you would play. You show up on the list below with what you are open to, and anyone can reach out.</div>'
       + (rows
           ? '<div id="trn-pool-list" style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;margin-bottom:8px;">' + rows + '</div>'
-            + '<button class="btn btn-g btn-w" onclick="joinTournamentPool()">Add me to the pool</button>'
+            + '<div id="trn-pool-foot">' + trnPoolFootHTML(t) + '</div>'
           : '<div style="font-size:13px;color:var(--gray);">Nothing on this tournament is open to you.</div>');
   }
   const juniorDays = trnJuniorOnlyDayCount(t);
