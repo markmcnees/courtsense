@@ -235,11 +235,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          event can no longer appear twice on one screen under two headings that
          both said "Tournaments".
 
-         The directory itself then moved OUT, into view-tournaments. The site nav
-         carries two links to this page, Pickup and Tournaments, and while the
-         directory sat here they landed within a screen of each other and read as
-         the same destination. They are now genuinely different: this is what is
-         yours and what you can start, and Tournaments is the directory. -->
+         The directory itself then moved OUT, into view-tournaments, and the
+         partner action followed it. The site nav carries two links to this page,
+         Pickup and Tournaments, and while both lived here they landed within a
+         screen of each other and read as the same destination. They are now
+         genuinely different: this is pickup games and ranked nights, and
+         Tournaments is the directory plus the two things you do to it. -->
     <div id="needs-you"></div>
     <div id="invite-list"></div>
     <!-- Discovery only: one line pointing at the directory, which lives in its
@@ -257,19 +258,10 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">One night, rotating partners, live scoring. Counts toward your rating.</div>
       </div>
     </div>
-    <!-- Heading is an ACTION, not a list. It used to say "Tournaments", the same
-         words as the directory heading rendered further down, so one screen had
-         two identical headings, one a button and one a list. Adding to the
-         directory still stands alone, on the directory itself, because
-         contributing a tournament must not require pretending to look for a
-         partner. -->
-    <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Find a partner</div>
-      <div>
-        <button class="btn btn-g btn-w" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick a tournament, say which divisions you need a partner for. To just list a tournament, use Add a tournament in the directory above.</div>
-      </div>
-    </div>
+    <!-- Find a Tournament Partner moved to the Tournaments view. A partner post
+         is made AGAINST a tournament and its first question is "which one?", so
+         the action belongs on the surface holding the objects it acts on. This
+         screen is pickup games and ranked nights. -->
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Community</div>
       <div style="margin-bottom:10px;">
@@ -483,7 +475,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <!-- PARTNER POST SETUP VIEW: a tournament partner post, not a game. No courts,
        no scoring, no play window; CourtSense does not run the tournament. -->
   <div class="pane" id="view-partner-setup">
-    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList(createFrom)">← Back</button>
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Find a Tournament Partner</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">Post a tournament you want to play in. Players respond, you pick your partner. CourtSense does not run the tournament.</div>
@@ -516,7 +508,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- TOURNAMENT SETUP VIEW -->
   <div class="pane" id="view-tournament-setup">
-    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList(createFrom)">← Back</button>
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Add a Tournament</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">List a tournament so players can find it and each other. CourtSense does not run it and does not handle registration.</div>
@@ -3691,6 +3683,7 @@ function partnerTournament(i){
 function startNewPartnerPost(){
   // Same create gate as startNewInvite: a real login only.
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to post'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  createFrom = createdFromHere();
   if($('pp-note')) $('pp-note').value = '';
   ppTournamentId = null;
   ppNeeds = new Set();
@@ -4144,6 +4137,10 @@ function trnSelParts(key){
 // stale flag that later teleports a directory add into a half-written post.
 function startNewTournament(returnToPartner){
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  // Only a DIRECT add records an origin. The in-flow call leaves createFrom
+  // holding wherever the partner post was started, which is where abandoning
+  // this form should land.
+  if(!returnToPartner) createFrom = createdFromHere();
   ppReturnAfterTournament = !!returnToPartner;
   ["trn-name","trn-start","trn-end","trn-loc","trn-addr","trn-url","trn-organizer"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("trn-surface")) $("trn-surface").value = "sand";
@@ -4413,6 +4410,9 @@ async function saveTournament(){
     showView('partner-setup');
   } else {
     activeTournament = rec.id;
+    // showView direct, so openTournamentDetail never ran and trnDetailFrom would
+    // otherwise be stale. Adding from the directory should go back to it.
+    trnDetailFrom = createFrom;
     showView("tournament-detail");
   }
 
@@ -4423,6 +4423,16 @@ async function saveTournament(){
 // Where the detail was opened FROM, so its Back button returns there rather than
 // always dumping the viewer on the home list.
 let trnDetailFrom = 'list';
+
+// The same idea for a CREATE flow. One variable, not one per form, because only
+// one is open at a time.
+//
+// The inline add-a-tournament hop inside the partner flow deliberately does not
+// touch it: backing out of that form abandons the post in progress either way
+// (backToList clears ppReturnAfterTournament), so it should land wherever the
+// POST was started from, not on the form that spawned it.
+let createFrom = 'list';
+function createdFromHere(){ return view === 'tournaments' ? 'tournaments' : 'list'; }
 function openTournamentDetail(id){
   if(!(D.tournaments || {})[id]){ toast("Tournament not found"); return; }
   trnDetailFrom = (view === 'tournaments') ? 'tournaments' : 'list';
@@ -4495,13 +4505,25 @@ function renderTournamentList(){
   // open is neither counted nor hinted at.
   const partnerIdx = trnPartnerIndex(myKey);
 
-  // The directory is a shared resource, so adding to it has to stand on its own.
-  // This control is present whether the list is full, empty or filtered to
-  // nothing: contributing a tournament must never require starting a partner post
-  // you did not want. Same button the empty state always had, just no longer
-  // reachable only when the directory happens to be empty.
+  // THE TWO THINGS A PLAYER DOES ON THIS SURFACE: put an event on the directory,
+  // or say they need a partner for one.
+  //
+  // Find a Tournament Partner used to sit on the pickup home screen, a screen
+  // away from every tournament it could be about, while its own first question is
+  // "which tournament?". It is here now.
+  //
+  // The two stay SEPARATE actions. The directory is a shared resource, so
+  // contributing an event must never require starting a partner post you did not
+  // want, which is why adding still stands alone rather than being a step inside
+  // the post flow.
+  //
+  // Both render in this one block, so both are present whether the list is full,
+  // empty or filtered to nothing. A partner post still works against an empty
+  // directory, because the picker carries its own inline add.
   const addBtn = '<button class="btn btn-g btn-w" style="margin-top:10px;" onclick="startNewTournament()">🏆 Add a tournament</button>'
-    + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Anyone can list one. It shows up here for everybody.</div>';
+    + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Anyone can list one. It shows up here for everybody.</div>'
+    + '<button class="btn btn-g btn-w" style="margin-top:14px;" onclick="startNewPartnerPost()">🤝 Find a Tournament Partner</button>'
+    + '<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Pick one of these and say which divisions you need somebody for.</div>';
 
   let h = '<div class="ctitle" style="margin-top:14px;"><span class="bar"></span>Tournaments (' + visible.length + ')</div>';
   if(!visible.length){
