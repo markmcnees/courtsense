@@ -4701,6 +4701,25 @@ function trnPostsCardHTML(t){
     + posts.map(p => {
         const mine = isLoggedInHost(p);
         const badge = trnPostBadge(p, myKey);
+        // WHAT OPENING IT DOES, in words, ending in the same arrow every other
+        // tappable row on this page uses. The row was already an .evcard, so it
+        // had cursor:pointer and a press state, but nothing on screen said it was
+        // a link: no arrow, no action text, and a name-plus-details block that
+        // reads exactly like the static roster rows further down the same view.
+        //
+        // Text rather than a button, deliberately. A <button> here would be a
+        // second tap target inside a card that is already one, so a miss between
+        // them would do nothing and the 44px rule would apply to the button
+        // instead of the row. The roster uses a button because its row is NOT
+        // clickable; this row is.
+        //
+        // Three cases, because the useful action differs. Somebody holding a
+        // pending ask on this post has an answer to give, not an offer to make,
+        // and sending them to 'Open to offer' would describe the wrong control.
+        const askedMe = !mine && !!myKey && Object.values(p.asks || {}).some(m => m && askIsPending(m[myKey]));
+        const action = mine
+          ? 'Manage your asks and offers'
+          : (askedMe ? 'Answer the ask' : 'Open to offer');
         return '<div class="evcard" style="margin-bottom:6px;" onclick="openInviteDetail(\'' + esc(p.id) + '\')">'
           + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
           +   '<div style="flex:1;">'
@@ -4710,6 +4729,8 @@ function trnPostsCardHTML(t){
           +   '</div>'
           +   badge
           + '</div>'
+          // Inside the card, so the whole card stays the one tap target.
+          + '<div class="evmeta" style="margin-top:6px;color:var(--primary);font-weight:700;">' + action + ' ' + String.fromCharCode(8594) + '</div>'
           + '</div>';
       }).join('')
     + '</div>';
