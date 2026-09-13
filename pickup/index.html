@@ -4658,18 +4658,36 @@ function trnPoolBlockReason(t){
   return null;
 }
 
-// A pool entry's days for DISPLAY: juniors stripped, ladder ordered, each with
-// its own label. An entry written before this filter, or against a division the
-// organizer has since changed, can come back empty, and an empty list is the
-// signal to drop the whole row rather than render a name with no divisions.
+// A pool entry's days for DISPLAY: juniors stripped, narrowed to what the entry's
+// OWNER can actually enter, ladder ordered, each with its own label. An entry that
+// comes back empty is the signal to drop the whole row rather than render a name
+// with no divisions.
+//
+// The gender check reads the OWNER'S profile, not the viewer's, through
+// divisionAllowsViewer2. This row is that player's public claim about themselves,
+// so it is narrowed by what THEY can play and every viewer sees the same row.
+// Using divisionAllowsViewer here instead would filter one person's stated
+// availability by whoever happened to be looking at it, which is nonsense.
+//
+// It is applied at RENDER, not only at write, because an entry can already be
+// stored wrong: joinTournamentPool narrows against the joiner's gender AT JOIN
+// TIME, so anyone who joined before setting a gender has a record naming
+// divisions they cannot enter. Re-checking here means setting a gender fixes the
+// display of an old entry with no data migration. A record whose owner still has
+// no gender stored is unchanged: nothing can be narrowed, so nothing is.
 function trnPoolEntryDays(e){
   const needs = (e && e.needs) || {};
   return Object.keys(needs).sort().map(day => {
     const ids = needDivIds(needs[day])
-      .filter(id => { const p = divIdParts(id); return !!p && trnIsMatchable(p); });
+      .filter(id => {
+        const p = divIdParts(id);
+        return !!p && trnIsMatchable(p) && divisionAllowsViewer2(p.category, e && e.accountId, e && e.name);
+      });
     if(!ids.length) return null;
     const divIds = {};
     ids.forEach(id => { divIds[id] = true; });
+    // Rebuilt from the FILTERED set, never read off the stored divLabels, which
+    // was denormalized at join time and says whatever was true then.
     return { day: day, divIds: divIds, label: needDivLabel({ divIds: divIds }) };
   }).filter(Boolean);
 }
@@ -4872,14 +4890,15 @@ function trnPoolCardsHTML(t){
 // they could say they were looking at all. It lives on the tournament itself
 // now; see the TOURNAMENT POOL section above. poolEntryNeedLabels stayed behind
 // because it reads nothing but an entry's own needs map, and both sides use it.
-// A pool entry's days, in words, one string per day: "Sat: Men's A". Day-keyed, so
-// this is the sorted keys and each carries its own set.
+// A pool entry's days, in words, one string per day: "Sat: Men's A".
+//
+// Delegates to trnPoolEntryDays rather than reading the stored need, so the line
+// a player reads about THEMSELVES ("You are in the pool for ...") and the row
+// everybody else reads about them are built from one filtered source. Reading
+// needDivLabel off the raw stored need here is what let a stale divLabels string
+// keep announcing a division its owner cannot enter.
 function poolEntryNeedLabels(e){
-  const needs = (e && e.needs) || {};
-  return Object.keys(needs).sort().map(day => {
-    const lbl = needDivLabel(needs[day]) || '';
-    return lbl ? (dayShort(day) + ': ' + lbl) : dayShort(day);
-  }).filter(Boolean);
+  return trnPoolEntryDays(e).map(d => dayShort(d.day) + ': ' + d.label);
 }
 
 // Needs still looking for somebody, by day then the level ladder.
