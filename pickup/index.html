@@ -4622,7 +4622,7 @@ function trnPartnerIndex(myKey){
     } else {
       // Already computed the same way renderPartnerList's badge was: an ask on
       // any day of this post that is addressed to the viewer.
-      if(Object.values(p.asks || {}).some(m => m && m[myKey])) b.asked++;
+      if(Object.values(p.asks || {}).some(m => m && askIsPending(m[myKey]))) b.asked++;
     }
   });
   return out;
@@ -4671,7 +4671,7 @@ function trnPostBadge(p, myKey){
   const iAmHost = isLoggedInHost(p);
   const allN = partnerAllNeeds(p), openN = partnerOpenNeeds(p);
   const filledN = allN.length - openN.length;
-  const myAskN = !iAmHost && myKey ? Object.values(p.asks || {}).filter(m => m && m[myKey]).length : 0;
+  const myAskN = !iAmHost && myKey ? Object.values(p.asks || {}).filter(m => m && askIsPending(m[myKey])).length : 0;
   const myOfferN = !iAmHost && myKey ? Object.values(p.offers || {}).filter(m => m && m[myKey]).length : 0;
   const offersN = partnerOfferCount(p);
   if(myAskN) return pill('#fef3c7', '#92400e', 'YOU WERE ASKED');
@@ -4740,7 +4740,7 @@ function renderNeedsYou(){
       const n = partnerOfferCount(p);
       if(n) decisions.push({ post: p, n: n });
     } else {
-      const days = Object.keys(p.asks || {}).filter(d => (p.asks[d] || {})[myKey]);
+      const days = Object.keys(p.asks || {}).filter(d => askIsPending((p.asks[d] || {})[myKey]));
       if(days.length) asks.push({ post: p, days: days });
     }
   });
@@ -5459,7 +5459,22 @@ function renderPartnerDetail(i){
               + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="cancelAsk(\'' + dk + '\',\'' + esc(k) + '\')">Cancel</button>'
               + '</div>').join('');
       }
-      if(!offers.length && !asks.length){
+      // Declined and not yet swept. Shown rather than hidden: a poster who is
+      // told somebody passed should find that on the post too, and be able to
+      // tidy the row away themselves instead of waiting on a delete that has
+      // already failed once.
+      const declinedAsks = partnerDeclinedAsksFor(i, n.day);
+      if(declinedAsks.length){
+        body += '<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Passed (' + declinedAsks.length + ')</div>'
+          + declinedAsks.map(([k, r]) =>
+              '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;">'
+              + '<span style="flex:1;font-size:13px;color:var(--gray);">' + escapeHTML(r.name) + ' <span style="font-size:11px;">declined</span>'
+              +   (recLabel(r) ? '<span style="display:block;font-size:11px;">' + escapeHTML(recLabel(r)) + '</span>' : '')
+              + '</span>'
+              + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="clearDeclinedAsk(\'' + dk + '\',\'' + esc(k) + '\')">Clear</button>'
+              + '</div>').join('');
+      }
+      if(!offers.length && !asks.length && !declinedAsks.length){
         body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">No offers yet.</div>';
       }
       if(!isCancelled && !past){
@@ -5614,10 +5629,35 @@ function partnerOffersFor(i, divId){
     .filter(([k, r]) => r && r.name)
     .sort((x, y) => (x[1].offeredAt || 0) - (y[1].offeredAt || 0));
 }
+// ── A DECLINED ASK IS DECLINED, NOT PENDING ───────────────────────────────
+// declineThenClear stamps declinedAt, notifies, then deletes. The delete is
+// CLEANUP; the marker is the state. A delete that fails leaves an ask in the
+// tree that has genuinely been declined, and treating presence as pending would
+// make that ask lie in five directions at once: the poster would see somebody
+// still deciding, the count would include them, the ask picker would refuse to
+// re-offer them, and the decliner would be told they had been asked again.
+//
+// So every reader of asks/{day} asks these instead of testing presence. The
+// worker already reads declinedAt the same way, so client and server agree on
+// what the record means.
+function askIsDeclined(a){ return !!(a && typeof a.declinedAt === 'number' && a.declinedAt > 0); }
+function askIsPending(a){ return !!(a && a.name) && !askIsDeclined(a); }
+
+// Still waiting on an answer. This is what 'Asked (n)' counts and what the ask
+// picker excludes.
 function partnerAsksFor(i, divId){
   return Object.entries(((i && i.asks) || {})[divId] || {})
-    .filter(([k, r]) => r && r.name)
+    .filter(([k, r]) => askIsPending(r))
     .sort((x, y) => (x[1].askedAt || 0) - (y[1].askedAt || 0));
+}
+
+// Answered with a no, and still in the tree because the delete has not landed.
+// Rendered so the poster can see it and clear it rather than wondering why
+// somebody never replied.
+function partnerDeclinedAsksFor(i, divId){
+  return Object.entries(((i && i.asks) || {})[divId] || {})
+    .filter(([k, r]) => r && r.name && askIsDeclined(r))
+    .sort((x, y) => (x[1].declinedAt || 0) - (y[1].declinedAt || 0));
 }
 // Last-resort label from a divId alone: '2026-09-20-coed-bb' reads as 'Coed BB'.
 // Only reached when a record predates divLabel AND its need is gone from the post,
@@ -5744,7 +5784,11 @@ function myOfferOn(i, divId, myKey){
   return myKey ? ((((i && i.offers) || {})[divId] || {})[myKey] || null) : null;
 }
 function myAskOn(i, divId, myKey){
-  return myKey ? ((((i && i.asks) || {})[divId] || {})[myKey] || null) : null;
+  // A declined ask is not an open question, so it never renders the accept and
+  // decline block again. If the delete failed, the decliner reloads and simply
+  // sees nothing, which is the truth: they already answered.
+  const a = myKey ? ((((i && i.asks) || {})[divId] || {})[myKey] || null) : null;
+  return askIsPending(a) ? a : null;
 }
 // A need has its own day, so a three-day post keeps Sunday live after Saturday
 // has come and gone. The post-level past-check is the LAST day; this is per need.
@@ -5906,7 +5950,7 @@ function withdrawOffer(day){
 // The optimistic render below has already painted and the caller's toast has
 // already fired before any of the tail resolves, so an accept never waits on a
 // network round trip.
-function fillNeed(day, chosenDivId, name, accountId, acceptedKey){
+function fillNeed(day, chosenDivId, name, accountId, acceptedKey, fromAsk){
   const i = (D.invites||{})[activeInvite]; if(!i) return false;
   const n = (i.needs || {})[day]; if(!n) return false;
   if(needStatusOf(n) !== 'open'){ toast('That day is already settled'); return false; }
@@ -5941,7 +5985,7 @@ function fillNeed(day, chosenDivId, name, accountId, acceptedKey){
   // can take, including every failure, so a fill never leaves them undone.
   notifyThenClear(
     fbSet('invites/' + activeInvite + '/needs/' + day, merged),
-    activeInvite, day, mineKey
+    activeInvite, day, mineKey, !!fromAsk
   );
   return true;
 }
@@ -5965,7 +6009,7 @@ const SPOT_FILLED_WAIT_MS = 6000;
 // Nothing here is ever allowed to retract the fill. The accept has already been
 // written, rendered and toasted; a failure anywhere below changes only whether a
 // second toast says the others were not emailed.
-async function notifyThenClear(saved, invId, day, acceptedKey){
+async function notifyThenClear(saved, invId, day, acceptedKey, fromAsk){
   const base = 'invites/' + invId + '/';
   let cleared = false;
   const clear = function(){
@@ -5980,6 +6024,24 @@ async function notifyThenClear(saved, invId, day, acceptedKey){
     // nothing. Clear anyway and skip the pointless call: the fill stands
     // locally and the failed write has already complained via _fbWriteFailed.
     if((await saved) !== true){ clear(); return; }
+
+    // The poster asked somebody and just got a yes. Fired HERE rather than in
+    // acceptAsk because the worker refuses unless needs/{day} already reads
+    // 'filled' and takes the partner name off that record, so it has to wait on
+    // the write above. Fire and forget: it never blocks the clear below and
+    // never retracts an accept that already stands.
+    //
+    // fromAsk is what keeps it off the acceptOffer path. Both accept paths run
+    // through fillNeed, but only one of them answers an ASK: acceptOffer is the
+    // POSTER accepting somebody's offer, so mailing them "X accepted your ask"
+    // would name an ask that never existed and tell them a thing they just did.
+    // One fill is one notifyThenClear, so this cannot fire twice either.
+    if(fromAsk){
+      warnIfNotEmailed(
+        notifyWorker('/pickup/ask-answered-notify', { inviteId: invId, day: day, outcome: 'accepted' }),
+        'Partnered, but the poster was not emailed.'
+      );
+    }
 
     // The accepter's own ask, removed alone and AWAITED so it is gone from the
     // subtree before the worker reads it. Usually a no-op on the acceptOffer
@@ -6147,10 +6209,46 @@ function acceptAsk(day, chosenDivId){
   if(!chosen){ openPick(dk, 'ask', null); return; }
   pickFor = null;
   const lbl = divIdToLabel(chosen);
-  if(fillNeed(dk, chosen, mine.name || me.name, mine.accountId || currentAccountId(), myKey)) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
+  if(fillNeed(dk, chosen, mine.name || me.name, mine.accountId || currentAccountId(), myKey, true)) toast('You are partnered' + (lbl ? ' for ' + lbl : ''));
 }
 
-// Target declines. Deletes the ask; the day stays open.
+// Poster-only sweep of a declined ask whose delete never landed. Same write as
+// cancelAsk and the same gate, but its own name and copy: cancelling an ask the
+// target has not answered and clearing one they already refused are different
+// acts, and a toast saying 'Ask cancelled' would misdescribe this one.
+//
+// It notifies nothing. The decline was already announced when it happened.
+function clearDeclinedAsk(day, nameKey){
+  const i = (D.invites||{})[activeInvite]; if(!i) return;
+  if(!isLoggedInHost(i)){ toast('Only the poster can do that'); return; }
+  const dk = trnDecodeKey(day), nk = trnDecodeKey(nameKey);
+  const rec = (((i.asks || {})[dk]) || {})[nk];
+  if(!askIsDeclined(rec)) return;
+
+  if(D.invites[activeInvite].asks && D.invites[activeInvite].asks[dk]) delete D.invites[activeInvite].asks[dk][nk];
+  pendInviteOverride(activeInvite, inv => { if(inv.asks && inv.asks[dk]) delete inv.asks[dk][nk]; });
+  renderInviteDetail();
+
+  fbDel('invites/' + activeInvite + '/asks/' + dk + '/' + nk);
+  toast('Cleared');
+}
+
+// Target declines. The day stays open, and the poster is told, because a decline
+// is real information: it frees them to ask somebody else.
+//
+// ORDERING, and it is why this grew a tail like fillNeed's. A decline used to
+// delete the ask and write nothing else, which left NOTHING on the server that a
+// decline had happened: the record was gone and the need was still open. The
+// worker therefore refuses to send on a bare claim, because a payload naming the
+// decliner would let any caller tell a poster that anyone had passed.
+//
+// So the proof is written first:
+//   1. declinedAt goes onto the ask leaf, and is awaited.
+//   2. then the notify. The worker scans asks/{day} for the marked entry and
+//      reads the name off THAT record, so the payload still names nobody.
+//   3. then the ask leaf is deleted.
+// Reversing 2 and 3 leaves the worker with nothing to find, which is exactly the
+// silence this sequence exists to end.
 function declineAsk(day){
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const dk = trnDecodeKey(day);
@@ -6162,8 +6260,49 @@ function declineAsk(day){
   pendInviteOverride(activeInvite, inv => { if(inv.asks && inv.asks[dk]) delete inv.asks[dk][myKey]; });
   renderInviteDetail();
 
-  fbDel('invites/' + activeInvite + '/asks/' + dk + '/' + myKey);
+  // Detached, so declining never waits on a round trip. The row is already gone
+  // from the view and the toast has already fired before any of this resolves.
+  declineThenClear(activeInvite, dk, myKey);
   toast('Declined');
+}
+
+// The tail of a decline: stamp the proof, tell the poster, then remove the ask.
+// Nothing here can reject; fbSet and fbDel resolve false on failure and
+// notifyWorker never throws.
+//
+// IF THE DELETE FAILS AFTER THE STAMP the ask survives carrying declinedAt. The
+// poster's post then still lists it as pending until they cancel it, and the
+// decliner sees the ask again and can decline again. It cannot turn into repeat
+// mail: the worker only honours a marker less than fifteen minutes old, so a
+// stranded one goes quiet on its own. fbDel has already complained through
+// _fbWriteFailed, so the failure is visible rather than silent.
+async function declineThenClear(invId, day, myKey){
+  const leaf = 'invites/' + invId + '/asks/' + day + '/' + myKey;
+  let cleared = false;
+  const clear = function(){ if(cleared) return; cleared = true; fbDel(leaf); };
+
+  try {
+    // The proof, and the only thing the worker will accept as one. Awaited,
+    // because notifying before it lands would find an unmarked ask and skip.
+    const stamped = await fbSet(leaf + '/declinedAt', Date.now());
+    // Nothing was written, so there is nothing to prove the decline with and the
+    // worker would refuse anyway. Skip the pointless call and still clean up.
+    if(stamped !== true){ clear(); return; }
+
+    // Bounded like the fill tail, so a silent worker cannot leave the ask behind.
+    // On a timeout the email is the only thing lost; the decline still completes.
+    const sent = await Promise.race([
+      notifyWorker('/pickup/ask-answered-notify', { inviteId: invId, day: day, outcome: 'declined' }),
+      new Promise(function(res){ setTimeout(function(){ res(false); }, SPOT_FILLED_WAIT_MS); })
+    ]);
+
+    clear();
+    warnIfNotEmailed(sent, 'Declined, but the poster was not emailed.');
+  } catch(e){
+    // Belt and braces. The ask still has to go.
+    console.error('decline tail failed', e);
+    clear();
+  }
 }
 
 // Poster-only: reopen a DAY that was settled. Clears the partner fields and the
@@ -6257,7 +6396,12 @@ function askPickerRepaint(){
 // the set admits them, because one acceptable alternative is enough.
 function askCandidates(i, n){
   const day = n.day;
-  const asked = ((i.asks || {})[day]) || {};
+  // Pending asks only. Somebody who declined is free to be asked again, which is
+  // the whole point of telling the poster they declined; excluding them here
+  // would hand the poster news they could not act on.
+  const askedAll = ((i.asks || {})[day]) || {};
+  const asked = {};
+  Object.keys(askedAll).forEach(k => { if(askIsPending(askedAll[k])) asked[k] = askedAll[k]; });
   const offered = ((i.offers || {})[day]) || {};
   const dayDivs = needDivIds(n).map(divIdParts).filter(p => !!p && trnIsMatchable(p));
   const seen = new Set();
