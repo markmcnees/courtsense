@@ -437,6 +437,11 @@ body.admin-locked .card-admin-archive{display:none;}
         <label class="lbl">Time Slots (comma-separated)</label>
         <input class="inp" id="sg-slots" type="text" value="6:15 PM, 7:00 PM" placeholder="6:15 PM, 7:00 PM" maxlength="200">
       </div>
+      <div class="fg">
+        <label class="lbl">First doubleheader (optional)</label>
+        <select class="inp" id="sg-pin"><option value="">No preference</option></select>
+        <div style="font-size:12px;color:var(--gray);margin-top:4px;line-height:1.5;">Pick a team to give them the Week 1 doubleheader. They sit out Week 2. Leave it on No preference and the generator chooses.</div>
+      </div>
       <details class="adv-section">
         <summary>Advanced &mdash; Scoring Rules</summary>
         <div class="adv-body">
@@ -1529,6 +1534,8 @@ function renderScheduleGen(){
   const rCount = resultsCount();
   // Reset the Courts field to this division's saved value or its default on every refresh.
   refreshCourtsField();
+  // Repopulate the optional first-doubleheader picker for this division's roster.
+  refreshPinField();
 
   if(helper){
     if(teamCount < 4){
@@ -1820,6 +1827,73 @@ function packIntoWeeks(pairings, teamIds, W){
   return {weeks, weekTeamCount, skippedByes};
 }
 
+// Rule B (hard): a doubleheader should be followed by that team's bye the NEXT week.
+// packIntoWeeks decides WHICH matches share a week but not WHERE those weeks sit in the
+// calendar, and its Phase 2 tiebreak (strict < while scanning w ascending) hands every tie
+// to the earliest week, so the unavoidable doubleheaders pile into the opening weeks.
+// Weeks are interchangeable containers and dates are not attached until genSchedule below,
+// so this is a PURE PERMUTATION: no pairing is altered, no team's game count changes, and
+// no week's match count changes (so the capacity precondition still holds).
+// pinTeamId, when supplied and found, puts that team's doubleheader week first.
+// Returns a new array; the input is not mutated.
+function alternateHeavyWeeks(weeksArr, teamIds, pinTeamId){
+  const info = weeksArr.map(function(wk, i){
+    const c = Object.create(null);
+    wk.forEach(function(p){ c[p.a] = (c[p.a]||0)+1; c[p.b] = (c[p.b]||0)+1; });
+    return {
+      i: i,
+      dh:  teamIds.filter(function(t){ return (c[t]||0) >= 2; }),
+      bye: teamIds.filter(function(t){ return !(c[t]||0); })
+    };
+  });
+  let heavy = info.filter(function(x){ return x.dh.length > 0; });
+  if(!heavy.length) return weeksArr.slice();   // even leagues pack flat, so this is a no-op
+  if(pinTeamId){
+    const k = heavy.findIndex(function(h){ return h.dh.indexOf(pinTeamId) >= 0; });
+    // k < 0 means the pinned team never doubles (or is not on the roster). Leave the order
+    // alone rather than fail, which reproduces the unpinned result.
+    if(k > 0) heavy = [heavy[k]].concat(heavy.slice(0, k), heavy.slice(k + 1));
+  }
+  const light = info.filter(function(x){ return x.dh.length === 0; });
+  const order = [];
+  const used = new Set();
+  heavy.forEach(function(h){
+    order.push(h.i);
+    // Pair this heavy week with a rest week in which one of its doubleheader teams sits out.
+    let m = light.find(function(l){
+      return !used.has(l.i) && l.bye.some(function(b){ return h.dh.indexOf(b) >= 0; });
+    });
+    if(!m) m = light.find(function(l){ return !used.has(l.i); });
+    if(m){ used.add(m.i); order.push(m.i); }
+  });
+  light.forEach(function(l){ if(!used.has(l.i)) order.push(l.i); });
+  return order.map(function(i){ return weeksArr[i]; });
+}
+
+// Recompute the Rule B report from a weeks array. packIntoWeeks builds skippedByes (and its
+// weekTeamCount) against the PRE-permutation order, so both go stale once the weeks move.
+// This derives per-week team counts straight from the final weeks array, so the admin banner
+// always describes the schedule that actually gets written.
+// Same shape as packIntoWeeks: [{teamId, doubledWeek, playedWeek}], 1-based week numbers.
+function computeSkippedByes(weeksArr, teamIds){
+  const counts = weeksArr.map(function(wk){
+    const c = Object.create(null);
+    wk.forEach(function(p){ c[p.a] = (c[p.a]||0)+1; c[p.b] = (c[p.b]||0)+1; });
+    return c;
+  });
+  const out = [];
+  for(let w = 0; w < counts.length - 1; w++){
+    teamIds.forEach(function(t){
+      const doubled = (counts[w][t] || 0) >= 2;
+      const playedNext = (counts[w+1][t] || 0) >= 1;
+      if(doubled && playedNext){
+        out.push({ teamId: t, doubledWeek: w + 1, playedWeek: w + 2 });
+      }
+    });
+  }
+  return out;
+}
+
 // Assign court + time slot to each match in a week.
 // HARD RULE: within any single time slot (= round), every team appears AT MOST ONCE.
 // A team may play twice in one night (a doubleheader), but its two matches MUST land in
@@ -1959,6 +2033,21 @@ function refreshCourtsField(){
   }
 }
 
+// Populate the optional "first doubleheader" picker from the active division's roster.
+// Called alongside refreshCourtsField on every admin refresh, including after switchDiv.
+// Keeps the current selection when that team is still on the roster, otherwise falls back
+// to No preference, which is the unpinned generator behavior.
+function refreshPinField(){
+  const sel = $('sg-pin');
+  if(!sel) return;
+  const prev = sel.value;
+  const teams = Object.values(D[DIV].teams||{}).filter(t=>t&&t.id&&t.name)
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  sel.innerHTML = '<option value="">No preference</option>'
+    + teams.map(t => '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.name)+'</option>').join('');
+  sel.value = (prev && teams.some(t => t.id === prev)) ? prev : '';
+}
+
 // ─── SCHEDULE GENERATION (Admin) — deterministic ───
 async function genSchedule(){
   if(!requireAdmin('genSchedule')) return;
@@ -2016,11 +2105,26 @@ async function genSchedule(){
   // `cycles` here is just how many full cycles seeded the pool; it is still recorded in meta/config.
   const cycles = Math.max(1, Math.ceil(GAMES_PER_TEAM / (N - 1)));
 
+  // Optional pin: give this team the Week 1 doubleheader (and therefore the Week 2 bye).
+  // Null-guarded because the control is absent in older shells; an empty value means
+  // no preference, and an id no longer on the roster is ignored the same way.
+  const _pinSel = $('sg-pin');
+  const pinTeamId = (_pinSel && _pinSel.value && teamIds.indexOf(_pinSel.value) >= 0)
+    ? _pinSel.value
+    : null;
+
   let pairings, packed;
   try{
     const pool = generatePairings(teamIds, cycles);
     pairings = trimPairingsToTarget(pool, teamIds, GAMES_PER_TEAM);
     packed = packIntoWeeks(pairings, teamIds, weeks);
+    // Rule B (hard): reorder the packed weeks so every doubleheader is followed by that
+    // team's bye, instead of leaving them front-loaded. Pure permutation, so Rule A's exact
+    // game counts and every week's match count are untouched.
+    packed.weeks = alternateHeavyWeeks(packed.weeks, teamIds, pinTeamId);
+    // packIntoWeeks computed skippedByes against the OLD week order, so it is now stale.
+    // Recompute from the permuted weeks before it reaches scheduleMeta and the admin banner.
+    packed.skippedByes = computeSkippedByes(packed.weeks, teamIds);
   }catch(err){
     console.error(err);
     $('sg-preview').innerHTML = '<div class="err-banner">Generator error: '+escapeHtml(err.message)+'</div>';
