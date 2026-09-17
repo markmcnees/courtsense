@@ -510,7 +510,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="pane" id="view-tournament-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList(createFrom)">← Back</button>
     <div class="card">
-      <div class="ctitle"><span class="bar"></span>Add a Tournament</div>
+      <div class="ctitle"><span class="bar"></span><span id="trn-su-title">Add a Tournament</span></div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">List a tournament so players can find it and each other. CourtSense does not run it and does not handle registration.</div>
       <div class="fg">
         <label class="lbl">Tournament Name</label>
@@ -555,12 +555,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Divisions <span id="trn-div-count" style="color:var(--gray);font-size:12px;font-weight:400;letter-spacing:0;margin-left:6px;">0 selected</span></div>
-      <div class="fg">
+      <div class="fg" id="trn-preset-wrap">
         <label class="lbl">Start from a preset</label>
         <select class="inp" id="trn-preset" onchange="trnApplyPreset(this.value)"></select>
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">A preset fills the grid. Everything stays editable after.</div>
       </div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Tick every division the tournament runs. If one is listed but registration is not actually open, tap <strong>Mark no reg</strong> on that row so players know not to plan around it.</div>
+      <div id="trn-grid-help" style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Tick every division the tournament runs. If one is listed but registration is not actually open, tap <strong>Mark no reg</strong> on that row so players know not to plan around it.</div>
+      <div id="trn-edit-note" style="display:none;font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Dates and divisions can't be changed yet. Registration status can still be updated from the tournament page.</div>
       <div id="trn-grid"></div>
     </div>
     <button class="btn btn-p btn-w" id="trn-save-btn" onclick="saveTournament()">Add Tournament</button>
@@ -1066,6 +1067,9 @@ let trnSelectedDivs = new Set();
 // freshly checked cell defaults to open without needing an entry here.
 let trnAdvertisedDivs = new Set();
 let trnDays = [];
+// The tournament being EDITED, null on a create. Same single-variable shape as
+// inviteEditId: only one form is open at a time, so one flag covers it.
+let trnEditId = null;
 let trnSurfaceFilter = 'all';
 let trnFormatFilter = 'all';
 // Set when the tournaments listener errors, so the list can say 'could not load'
@@ -3124,6 +3128,9 @@ function backToList(target){
   askPickerFilter = '';
   // Backing out of the tournament form abandons any in-flow return as well.
   ppReturnAfterTournament = false;
+  // An abandoned edit must not leave the flag set, or the NEXT save would write
+  // this form's values onto the tournament that was being edited.
+  trnEditId = null;
   showView(target === 'tournaments' ? 'tournaments' : 'list');
 }
 
@@ -4142,6 +4149,11 @@ function startNewTournament(returnToPartner){
   // this form should land.
   if(!returnToPartner) createFrom = createdFromHere();
   ppReturnAfterTournament = !!returnToPartner;
+  // A create always starts from the create chrome, whatever the last edit left
+  // behind. Clearing the flag BEFORE trnEditFormChrome so the restore is driven
+  // by the mode we are entering, not the one we are leaving.
+  trnEditId = null;
+  trnEditFormChrome(false);
   ["trn-name","trn-start","trn-end","trn-loc","trn-addr","trn-url","trn-organizer"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("trn-surface")) $("trn-surface").value = "sand";
   const fmt = $("trn-format");
@@ -4156,6 +4168,97 @@ function startNewTournament(returnToPartner){
   trnDays = [];
   trnRenderGrid();
   showView("tournament-setup");
+}
+
+// ── EDIT MODE CHROME ──────────────────────────────────────────────────────
+// One function owns every difference between the create form and the edit form,
+// in BOTH directions. A setter that only ever turned edit mode on would leave a
+// disabled date field behind the next time somebody added a tournament, which is
+// the class of bug that makes a shared form feel haunted.
+//
+// PART ONE edits text only. Dates and the division grid are locked because
+// changing either can renumber or orphan a divId that a partner post, an offer,
+// an ask or a pool entry already references, and nothing reconciles those today.
+// Registration status stays editable where it always was, on the detail view,
+// because trnSetDivReg writes a single leaf and cannot orphan anything.
+function trnEditFormChrome(isEdit){
+  const title = $("trn-su-title");
+  if(title) title.textContent = isEdit ? "Edit Tournament" : "Add a Tournament";
+  const btn = $("trn-save-btn");
+  if(btn) btn.textContent = isEdit ? "Save Changes" : "Add Tournament";
+  ["trn-start","trn-end"].forEach(id => {
+    const el = $(id);
+    if(!el) return;
+    el.disabled = !!isEdit;
+    el.style.opacity = isEdit ? "0.6" : "";
+  });
+  const pre = $("trn-preset-wrap");
+  if(pre) pre.style.display = isEdit ? "none" : "";
+  const help = $("trn-grid-help");
+  if(help) help.style.display = isEdit ? "none" : "";
+  const note = $("trn-edit-note");
+  if(note) note.style.display = isEdit ? "" : "none";
+}
+
+// Prefill the create form from an existing record. Mirrors startEditInvite: set
+// the flag, load module state off the record, show the view, then fill the inputs
+// inside a setTimeout(...,0) so the pane is laid out before anything is written
+// into it.
+//
+// The gate is a login and nothing more, matching trnSetDivReg and the detail
+// view's own 'Anyone can correct a listing'. The directory is shared on purpose.
+function startEditTournament(id){
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){
+    toast("Log in to edit a tournament"); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return;
+  }
+  const t = (D.tournaments || {})[id];
+  if(!t){ toast("Tournament not found"); return; }
+  trnEditId = id;
+  // Back out of the form to the tournament, not to wherever the directory was
+  // opened from, so cancelling an edit lands on the thing being edited.
+  createFrom = 'tournaments';
+  ppReturnAfterTournament = false;
+
+  // Selection state, rebuilt from the STORED divisions. trnSelKey is index-free
+  // (day|category|level), so this round-trips exactly: buildTournamentRecord
+  // reverses it with trnSelParts and re-derives the same divIds.
+  trnSelectedDivs = new Set();
+  trnAdvertisedDivs = new Set();
+  Object.values(t.divisions || {}).forEach(d => {
+    if(!d || !d.day || !d.category) return;
+    const level = trnIsAgeCategory(d.category) ? null : (d.level || null);
+    const key = trnSelKey(d.day, d.category, level);
+    trnSelectedDivs.add(key);
+    // trnRegOf collapses absent, unknown and malformed to 'open', so a division
+    // written before regStatus existed seeds as open rather than vanishing.
+    if(trnRegOf(d) === "advertised") trnAdvertisedDivs.add(key);
+  });
+  trnDays = (Array.isArray(t.days) && t.days.length)
+    ? t.days.slice()
+    : trnDayList(t.startDate, t.endDate || t.startDate);
+
+  showView("tournament-setup");
+  setTimeout(() => {
+    trnEditFormChrome(true);
+    if($("trn-name")) $("trn-name").value = t.name || "";
+    if($("trn-start")) $("trn-start").value = t.startDate || "";
+    if($("trn-end")) $("trn-end").value = t.endDate || t.startDate || "";
+    if($("trn-loc")) $("trn-loc").value = t.location || "";
+    if($("trn-addr")) $("trn-addr").value = t.locationAddress || "";
+    if($("trn-url")) $("trn-url").value = t.eventUrl || "";
+    if($("trn-organizer")) $("trn-organizer").value = t.organizer || "";
+    const surf = $("trn-surface");
+    if(surf) surf.value = (t.surface === "grass") ? "grass" : "sand";
+    const fmt = $("trn-format");
+    if(fmt){
+      // Rebuilt here as well as in startNewTournament: an edit can be the first
+      // time this form is opened in a session, and an empty select would save
+      // the TRN_FORMATS[0] fallback over whatever the record actually holds.
+      fmt.innerHTML = TRN_FORMATS.map(f => "<option value=" + JSON.stringify(f) + ">" + trnFormatLabel(f) + "</option>").join("");
+      fmt.value = TRN_FORMATS.indexOf(t.format) !== -1 ? t.format : TRN_FORMATS[0];
+    }
+    trnRenderGrid();
+  }, 0);
 }
 
 // Date range changed: rebuild the day list and drop any selection whose day is
@@ -4231,6 +4334,9 @@ function trnApplyPreset(key){
 // renderGroupMembers: a Set of selections, a live count, rebuilt wholesale.
 function trnRenderGrid(){
   const grid = $("trn-grid"); if(!grid) return;
+  // PART ONE: the grid is a read-only summary while editing. See trnEditFormChrome
+  // for why dates and divisions are locked.
+  const locked = !!trnEditId;
   const countEl = $("trn-div-count");
   if(countEl) countEl.textContent = trnSelectedDivs.size + " selected";
   if(!trnDays.length){
@@ -4252,7 +4358,7 @@ function trnRenderGrid(){
       // The hit area is 44px tall (the published minimum) while the visible chip
       // stays small, so the row keeps its density without being a dart-throw.
       const regBtn = checked
-        ? '<button type="button" onclick="trnToggleReg(\'' + safe + '\')" aria-pressed="' + (advertised ? "true" : "false") + '" title="' + (advertised ? "Registration is not open for this division. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.") + '" style="flex-shrink:0;display:flex;align-items:center;min-height:44px;padding:0 10px;background:none;border:none;cursor:pointer;">'
+        ? '<button type="button" ' + (locked ? 'disabled' : 'onclick="trnToggleReg(\'' + safe + '\')"') + ' aria-pressed="' + (advertised ? "true" : "false") + '" title="' + (locked ? "Registration status is edited from the tournament page." : (advertised ? "Registration is not open for this division. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.")) + '" style="flex-shrink:0;display:flex;align-items:center;min-height:44px;padding:0 10px;background:none;border:none;cursor:' + (locked ? "default" : "pointer") + ';">'
         +   '<span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:6px;white-space:nowrap;'
         +     (advertised
                 ? "background:#fef3c7;color:#92400e;border:1px solid #d97706;"
@@ -4261,8 +4367,8 @@ function trnRenderGrid(){
         + '</button>'
         : "";
       return '<div style="display:flex;align-items:center;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
-        + '<label style="flex:1;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 8px;cursor:pointer;">'
-        +   '<input type="checkbox" ' + (checked?"checked":"") + ' onchange="trnToggleDiv(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
+        + '<label style="flex:1;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 8px;cursor:' + (locked ? "default" : "pointer") + ';">'
+        +   '<input type="checkbox" ' + (checked?"checked":"") + ' ' + (locked ? "disabled" : 'onchange="trnToggleDiv(\'' + safe + '\',this.checked)"') + ' style="width:16px;height:16px;flex-shrink:0;">'
         +   '<span style="flex:1;font-size:13px;font-weight:' + (checked?"700":"500") + ';">' + escapeHTML(trnDivLabel(c)) + '</span>'
         + '</label>'
         + regBtn
@@ -4335,6 +4441,74 @@ function buildTournamentRecord(){
   };
 }
 
+// ── THE EDITABLE SURFACE ──────────────────────────────────────────────────
+// PART ONE edits text-level fields ONLY. This list is the whole contract, and it
+// is deliberately an allow-list rather than a deny-list: a field added to
+// buildTournamentRecord later is NOT editable until somebody puts it here and
+// thinks about what editing it would orphan.
+//
+// Every name here is a TOP-LEVEL LEAF of the tournament record. That is what
+// makes the edit write safe: the pool lives at tournaments/{id}/pool and the
+// divisions at tournaments/{id}/divisions, and neither is reachable from this
+// list, so no edit can replace or drop them.
+const TRN_EDITABLE_FIELDS = ['name','location','locationAddress','eventUrl','organizer','surface','format'];
+// Stamped alongside them on every edit. Separate list because these are derived
+// rather than read off the form.
+const TRN_EDIT_STAMP_FIELDS = ['updatedAt','updatedBy','updatedByName'];
+
+// Pure builder for an EDIT. Returns the flat leaf patch, validating nothing, the
+// same build/validate split buildTournamentRecord and trnValidate use.
+//
+// Flat on purpose. fbUpdate writes each key as its own path under
+// tournaments/{id}, so a nested object here would become a set() on that subtree
+// and replace it. Nothing in TRN_EDITABLE_FIELDS is an object, and the check
+// script asserts it stays that way.
+function buildTournamentEditPatch(){
+  const name = (($("trn-name") && $("trn-name").value) || "").trim();
+  const location = (($("trn-loc") && $("trn-loc").value) || "").trim();
+  const locationAddress = (($("trn-addr") && $("trn-addr").value) || "").trim();
+  // Identical normalization to buildTournamentRecord, deliberately duplicated
+  // rather than shared: the create path reads a different element set and the
+  // two have drifted apart before. The check script asserts they agree.
+  let eventUrl = (($("trn-url") && $("trn-url").value) || "").trim();
+  if(eventUrl && !/^https?:\/\//i.test(eventUrl)) eventUrl = "https://" + eventUrl;
+  const organizer = (($("trn-organizer") && $("trn-organizer").value) || "").trim();
+  const surface = (($("trn-surface") && $("trn-surface").value) === "grass") ? "grass" : "sand";
+  const fmtRaw = ($("trn-format") && $("trn-format").value) || "";
+  const format = TRN_FORMATS.indexOf(fmtRaw) !== -1 ? fmtRaw : TRN_FORMATS[0];
+
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  return {
+    name: name,
+    location: location,
+    locationAddress: locationAddress,
+    // null, not '', so clearing the field removes the key rather than leaving an
+    // empty string that safeEventUrl would have to special-case.
+    eventUrl: eventUrl || null,
+    organizer: organizer,
+    surface: surface,
+    format: format,
+    updatedAt: Date.now(),
+    // updatedBy is a SECOND pair of fields, never an overwrite of createdBy. Who
+    // listed it and who last corrected it are different facts and the detail view
+    // credits the lister.
+    updatedBy: (auth && auth.id) || null,
+    updatedByName: me ? me.name : ((auth && (auth.displayName || auth.name)) || "Anonymous")
+  };
+}
+
+// The subset of trnValidate that applies to an edit. Dates, days and divisions
+// are locked in this build, so validating them here would only ever re-check
+// values the form cannot have changed.
+function trnValidateEdit(patch){
+  if(!patch.name) return "Name the tournament";
+  if(!patch.location) return "Add a location";
+  if(!patch.surface) return "Pick a surface";
+  if(TRN_FORMATS.indexOf(patch.format) === -1) return "Pick a format";
+  return null;
+}
+
 // Blocking validation, off the built record. Returns null when clear, else the
 // toast string. Mirrors validateWideningTiers returning a message rather than
 // scattering toasts through the builder.
@@ -4376,6 +4550,7 @@ function trnFindDuplicate(rec){
 
 async function saveTournament(){
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); return; }
+  if(trnEditId){ return saveTournamentEdit(); }
   const rec = buildTournamentRecord();
   const problem = trnValidate(rec);
   if(problem){ toast(problem); return; }
@@ -4416,8 +4591,58 @@ async function saveTournament(){
     showView("tournament-detail");
   }
 
+  // set() is correct HERE and only here: rec.id was just minted, so the node is
+  // empty and there is no pool, no divisions and no sibling to replace. The EDIT
+  // path must never copy this line, because tournaments/{id}/pool is a child of
+  // this node and a set() would take it with it. See saveTournamentEdit.
   const ok = await fbSet("tournaments/" + rec.id, rec);
   if(ok) toast(soft.length ? "Added. Heads up: " + soft.join(", ") + "." : "Tournament added");
+}
+
+// ── SAVE AN EDIT ──────────────────────────────────────────────────────────
+// Leaf writes only, through fbUpdate, which calls update() rather than set() and
+// so touches ONLY the keys it is handed. Everything unnamed survives untouched:
+// pool, divisions, days, startDate, endDate, createdBy, createdByName, createdAt
+// and status.
+//
+// This is the whole safety property of part one and it is worth being blunt about
+// why. tournaments/{id}/pool holds the free-agent roster, a child of the record
+// itself. fbSet("tournaments/" + id, patch) would replace the node with just the
+// patch and silently delete every pool entry on it. There is no undo and nothing
+// would report it. So the edit path never calls fbSet on the record node, and the
+// check script asserts no built path equals it.
+//
+// No duplicate check: trnFindDuplicate matches on event URL first, so a record
+// being edited would always find ITSELF and offer to open the thing already open.
+async function saveTournamentEdit(){
+  const id = trnEditId;
+  const existing = (D.tournaments || {})[id];
+  if(!existing){ toast("Tournament not found"); trnEditId = null; return; }
+
+  const patch = buildTournamentEditPatch();
+  const problem = trnValidateEdit(patch);
+  // The form stays open with every value intact: nothing has been cleared and the
+  // flag is still set, so a corrected field can be saved straight away.
+  if(problem){ toast(problem); return; }
+
+  // Persist FIRST, then paint. The create path is optimistic because a new record
+  // has nowhere to fall back to, but an edit does: the record on screen is still
+  // valid, so a failed write should leave it alone rather than show a change that
+  // did not land.
+  const ok = await fbUpdate("tournaments/" + id, patch);
+  if(!ok){ toast("Could not save. Try again."); return; }
+
+  // Local mirror, field by field onto the SAME object, so pool, divisions, days,
+  // the dates and the created-by stamps are never touched. Object.assign over the
+  // patch keys only; a wholesale replace here would desync the cache from what was
+  // actually written and drop the pool locally until the listener echoed.
+  Object.assign(existing, patch);
+
+  trnEditId = null;
+  activeTournament = id;
+  trnDetailFrom = 'tournaments';
+  toast("Listing updated");
+  showView("tournament-detail");
 }
 
 // Where the detail was opened FROM, so its Back button returns there rather than
@@ -4603,6 +4828,9 @@ function renderTournamentDetail(){
   const t = (D.tournaments || {})[activeTournament];
   if(!t){ cont.innerHTML = '<div class="card"><p style="color:var(--gray);font-size:13px;">Tournament not found.</p></div>'; return; }
   const url = safeEventUrl(t.eventUrl);
+  // One login check for the whole render. canEdit below reads the same fact for
+  // the division chips; they are deliberately the same gate.
+  const loggedIn = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
   const chip = x => '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + x + '</span>';
   const divs = Object.values(t.divisions || {});
   const byDay = {};
@@ -4620,6 +4848,18 @@ function renderTournamentDetail(){
     + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Registration and info \u2197</a></div>' : "")
     + (t.organizer ? '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Organized by ' + escapeHTML(t.organizer) + '</div>' : "")
     + '<div style="font-size:12px;color:var(--gray);margin-top:4px;">Listed by ' + escapeHTML(t.createdByName || "Anonymous") + '</div>'
+    // Corrected-by is a second line, never a replacement for the first. Shown only
+    // once an edit has happened, and only when it was somebody OTHER than the
+    // lister, so the ordinary case of a lister fixing their own typo stays quiet.
+    + ((t.updatedByName && t.updatedByName !== t.createdByName)
+        ? '<div style="font-size:12px;color:var(--gray);margin-top:2px;">Corrected by ' + escapeHTML(t.updatedByName) + '</div>' : "")
+    // Login is the whole gate, matching trnSetDivReg and the divisions footer:
+    // the directory is shared and a wrong listing should be fixable by whoever
+    // notices. Full width and 44px, the same secondary treatment the Back button
+    // uses, so it reads as a real control without competing with the title.
+    + (loggedIn
+        ? '<button class="btn btn-g btn-sm" style="width:100%;min-height:44px;margin-top:12px;" onclick="startEditTournament(\'' + escapeHTML(t.id).replace(/'/g, "&#39;") + '\')">Edit this listing</button>'
+        : "")
     + '</div>';
 
   h += '<div class="card"><div class="ctitle"><span class="bar"></span>Divisions</div>';
@@ -4634,7 +4874,7 @@ function renderTournamentDetail(){
     // so a wrong listing is fixable by whoever notices rather than only by whoever
     // created it: the gate is a login, nothing more. A 44px hit area, because this
     // is a real control and the chip alone is far under the minimum target.
-    const canEdit = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
+    const canEdit = loggedIn;
     const divChip = d => {
       const label = escapeHTML(trnDivLabel(d)).toUpperCase();
       const adv = trnRegOf(d) === "advertised";
@@ -5789,9 +6029,16 @@ function renderPartnerDetail(i){
 // serve the pickup-game guest door, which is genuinely whole-event and still
 // works exactly as before.
 // ── PER-NEED OFFERS AND ASKS ──────────────────────────────────────────────
-// Two nodes, deliberately separate, both keyed by division then by the player:
-//   invites/{id}/offers/{divId}/{nameKey}  a viewer volunteering for that need
-//   invites/{id}/asks/{divId}/{nameKey}    the poster reaching out for that need
+// Two nodes, deliberately separate, both keyed by DAY then by the player:
+//   invites/{id}/offers/{day}/{nameKey}  a viewer volunteering for that need
+//   invites/{id}/asks/{day}/{nameKey}    the poster reaching out for that need
+//
+// Keyed by day, NOT by divId. Under day-as-unit a need is one day holding a set
+// of acceptable divisions, so one offer per day per person is the constraint that
+// matters; the old division key let the same person be pending on two concurrent
+// Sunday slots. Each record carries its own divIds subset and a denormalized
+// divLabels string, because the worker renders emails off the record and cannot
+// follow a reference. See offerForNeed.
 //
 // Same lifecycle, opposite direction, opposite gates. Merging them would push a
 // direction check into every gate and every render, so they stay apart.
