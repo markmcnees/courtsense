@@ -532,8 +532,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <input class="inp" id="trn-addr" placeholder="Street address (optional)" style="margin-top:8px;">
       </div>
       <div class="fg">
-        <label class="lbl">Registration or Info Link (optional)</label>
-        <input class="inp" id="trn-url" type="url" placeholder="https://...">
+        <label class="lbl">Registration or Info Link (required)</label>
+        <input class="inp" id="trn-url" type="url" placeholder="https://..." required>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Where players actually sign up. A listing needs one so others can check the event is real.</div>
       </div>
       <div class="row2">
         <div>
@@ -875,6 +876,64 @@ function trnRegOf(d){
   const r = d && d.regStatus;
   return TRN_REG_STATUSES.indexOf(r) === -1 ? 'open' : r;
 }
+// ── THE REGISTRATION LINK ─────────────────────────────────────────────────
+// A tournament in this directory has to be verifiably real. Anyone logged in can
+// list one, so the link is what separates a real event from a typo or a guess: a
+// player who cannot get to a registration page has no way to check the listing is
+// true, and no way to act on it. It is therefore REQUIRED on create and can never
+// be cleared on edit.
+//
+// ONE normalizer, shared. The create and edit builders each used to carry their
+// own copy of the scheme-prefixing line, which is exactly how the live First Coast
+// record ended up with a trailing period that broke its link: a pasted value went
+// through untouched because neither copy cleaned anything.
+function trnNormalizeEventUrl(raw){
+  let u = String(raw == null ? "" : raw).trim();
+  if(!u) return null;
+  // Strip trailing punctuation that is never part of a real link, repeatedly, so a
+  // value pasted out of a sentence or a bracketed note comes back clean. Done
+  // BEFORE the scheme is prepended so the check below sees the final string.
+  //
+  // Deliberately trailing only. A dot, comma or paren INSIDE a url is ordinary and
+  // often load-bearing (a path segment, a query value), so nothing here touches the
+  // middle. A query string and a fragment survive untouched unless they themselves
+  // end in stray punctuation.
+  let prev;
+  do {
+    prev = u;
+    u = u.replace(/[.,;:!?)\]}>'"\u2019\u201d`]+$/, "").trim();
+  } while(u !== prev && u);
+  if(!u) return null;
+  if(!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = "https://" + u;
+  return u;
+}
+
+// Is this a link a player could actually follow? Parsed rather than pattern
+// matched, so the answer comes from the same engine the browser will use.
+//
+// The scheme check is the one that matters for safety: trnNormalizeEventUrl only
+// prepends https:// when there is NO scheme, so a value that already says
+// javascript: or data: arrives here intact and has to be rejected. safeEventUrl
+// guards the render, but a bad value should never reach the record in the first
+// place.
+//
+// The hostname test is a plausibility check, not a validation: a bare word like
+// "tbd" becomes https://tbd, which parses fine and has no dot, and localhost is
+// never a link anybody else can open.
+function trnValidEventUrl(url){
+  if(!url) return false;
+  let p;
+  try { p = new URL(String(url)); } catch(e){ return false; }
+  if(p.protocol !== "http:" && p.protocol !== "https:") return false;
+  const host = (p.hostname || "").toLowerCase();
+  if(host === "localhost" || host.indexOf(".") === -1) return false;
+  return true;
+}
+
+// One message, used by create and edit alike, so a player is told the same thing
+// whichever form they are in.
+const TRN_URL_REQUIRED_MSG = "Add the tournament's registration link so players know the event is real.";
+
 const TRN_AGE_PREFIX = 'girls-';
 const TRN_CAT_LABEL = {
   'mens':"Men's", 'womens':"Women's", 'coed':'Coed',
@@ -1070,6 +1129,11 @@ let trnDays = [];
 // The tournament being EDITED, null on a create. Same single-variable shape as
 // inviteEditId: only one form is open at a time, so one flag covers it.
 let trnEditId = null;
+// Whether THIS edit session may change divisions. Captured once when the form
+// opens so the grid, the notice and the save all answer from the same fact, and
+// re-checked at save time so a logout mid-edit cannot slip a structural change
+// through on a stale flag.
+let trnEditCanStructure = false;
 let trnSurfaceFilter = 'all';
 let trnFormatFilter = 'all';
 // Set when the tournaments listener errors, so the list can say 'could not load'
@@ -3131,6 +3195,7 @@ function backToList(target){
   // An abandoned edit must not leave the flag set, or the NEXT save would write
   // this form's values onto the tournament that was being edited.
   trnEditId = null;
+  trnEditCanStructure = false;
   showView(target === 'tournaments' ? 'tournaments' : 'list');
 }
 
@@ -4153,7 +4218,8 @@ function startNewTournament(returnToPartner){
   // behind. Clearing the flag BEFORE trnEditFormChrome so the restore is driven
   // by the mode we are entering, not the one we are leaving.
   trnEditId = null;
-  trnEditFormChrome(false);
+  trnEditCanStructure = false;
+  trnEditFormChrome(false, false);
   ["trn-name","trn-start","trn-end","trn-loc","trn-addr","trn-url","trn-organizer"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("trn-surface")) $("trn-surface").value = "sand";
   const fmt = $("trn-format");
@@ -4181,23 +4247,38 @@ function startNewTournament(returnToPartner){
 // an ask or a pool entry already references, and nothing reconciles those today.
 // Registration status stays editable where it always was, on the detail view,
 // because trnSetDivReg writes a single leaf and cannot orphan anything.
-function trnEditFormChrome(isEdit){
+function trnEditFormChrome(isEdit, canStructure){
   const title = $("trn-su-title");
   if(title) title.textContent = isEdit ? "Edit Tournament" : "Add a Tournament";
   const btn = $("trn-save-btn");
   if(btn) btn.textContent = isEdit ? "Save Changes" : "Add Tournament";
+  // Dates stay locked for EVERYONE in this build, creator and admin included. A
+  // trim orphans every reference on the dropped day and a shift renumbers all of
+  // them at once, and nothing reconciles either yet. Divisions are separable
+  // because a divId is stable under add and remove; a date change is not.
   ["trn-start","trn-end"].forEach(id => {
     const el = $(id);
     if(!el) return;
     el.disabled = !!isEdit;
     el.style.opacity = isEdit ? "0.6" : "";
   });
+  // The preset stays hidden even for a creator: a preset states a whole selection
+  // across day OFFSETS, so applying one to an existing record would silently
+  // restructure every day at once, which is exactly what this build will not do.
   const pre = $("trn-preset-wrap");
   if(pre) pre.style.display = isEdit ? "none" : "";
   const help = $("trn-grid-help");
   if(help) help.style.display = isEdit ? "none" : "";
   const note = $("trn-edit-note");
-  if(note) note.style.display = isEdit ? "" : "none";
+  if(note){
+    note.style.display = isEdit ? "" : "none";
+    // Cleared every time the chrome runs, so a removal-blocked message from a
+    // previous attempt cannot persist in red over the next edit.
+    note.style.color = "";
+    note.textContent = canStructure
+      ? "Dates can't be changed yet. You can add or remove divisions."
+      : "Dates and divisions can't be changed yet. Registration status can still be updated from the tournament page. Only the person who listed this tournament can change its divisions.";
+  }
 }
 
 // Prefill the create form from an existing record. Mirrors startEditInvite: set
@@ -4214,6 +4295,7 @@ function startEditTournament(id){
   const t = (D.tournaments || {})[id];
   if(!t){ toast("Tournament not found"); return; }
   trnEditId = id;
+  trnEditCanStructure = trnCanEditStructure(t);
   // Back out of the form to the tournament, not to wherever the directory was
   // opened from, so cancelling an edit lands on the thing being edited.
   createFrom = 'tournaments';
@@ -4239,7 +4321,7 @@ function startEditTournament(id){
 
   showView("tournament-setup");
   setTimeout(() => {
-    trnEditFormChrome(true);
+    trnEditFormChrome(true, trnEditCanStructure);
     if($("trn-name")) $("trn-name").value = t.name || "";
     if($("trn-start")) $("trn-start").value = t.startDate || "";
     if($("trn-end")) $("trn-end").value = t.endDate || t.startDate || "";
@@ -4334,9 +4416,11 @@ function trnApplyPreset(key){
 // renderGroupMembers: a Set of selections, a live count, rebuilt wholesale.
 function trnRenderGrid(){
   const grid = $("trn-grid"); if(!grid) return;
-  // PART ONE: the grid is a read-only summary while editing. See trnEditFormChrome
-  // for why dates and divisions are locked.
-  const locked = !!trnEditId;
+  // Editing an existing tournament: the grid is a read-only summary unless the
+  // viewer may change structure. trnEditCanStructure is captured once at
+  // startEditTournament rather than re-derived here, so a render cannot disagree
+  // with the form the person is looking at.
+  const locked = !!trnEditId && !trnEditCanStructure;
   const countEl = $("trn-div-count");
   if(countEl) countEl.textContent = trnSelectedDivs.size + " selected";
   if(!trnDays.length){
@@ -4392,8 +4476,7 @@ function buildTournamentRecord(){
   const endDate = endRaw || startDate;
   const location = (($("trn-loc") && $("trn-loc").value) || "").trim();
   const locationAddress = (($("trn-addr") && $("trn-addr").value) || "").trim();
-  let eventUrl = (($("trn-url") && $("trn-url").value) || "").trim();
-  if(eventUrl && !/^https?:\/\//i.test(eventUrl)) eventUrl = "https://" + eventUrl;
+  const eventUrl = trnNormalizeEventUrl($("trn-url") && $("trn-url").value);
   const surface = (($("trn-surface") && $("trn-surface").value) === "grass") ? "grass" : "sand";
   const fmtRaw = ($("trn-format") && $("trn-format").value) || "";
   const format = TRN_FORMATS.indexOf(fmtRaw) !== -1 ? fmtRaw : TRN_FORMATS[0];
@@ -4441,6 +4524,138 @@ function buildTournamentRecord(){
   };
 }
 
+// ── WHO MAY CHANGE STRUCTURE ──────────────────────────────────────────────
+// ADVISORY ONLY, and it is worth being blunt about it rather than letting a
+// future reader assume otherwise. The login session is an UNSIGNED JSON blob in
+// localStorage: auth.js restores it by reading parsed.playerId and trusting it,
+// with no token and no signature anywhere in the flow. On top of that the
+// tally_kotb_pickup node is world-writable, so anybody can skip this UI and
+// write to the database from a console.
+//
+// So these predicates stop ACCIDENTS, not attacks. That is still worth having:
+// removing a division orphans other people's posts and pool entries, and an edit
+// that destructive should take intent rather than a stray tap. Nobody should ever
+// treat this as a security boundary.
+//
+// The real fix is a worker-verified edit endpoint: /auth/exec-session already
+// shows the shape (verify credentials server-side, check an account id against a
+// server-only list, mint a session token) and patchNode already does the leaf
+// merge. Until that exists, this is a courtesy lock on a door with no wall.
+const TRN_ADMIN_ACCOUNT_IDS = ['player_a10358'];
+function trnMyAccountId(){
+  const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
+  return (auth && auth.id) || null;
+}
+// Did this account list this tournament? Modeled on isLoggedInHost WITHOUT its
+// nameKey fallback: that branch exists for invites written before hostId, and
+// every tournament has carried createdBy since the node was created, so a
+// name-based match here would only ever weaken the check. Two people can share a
+// display name; they cannot share an account id.
+function trnIsCreator(t){
+  if(!t || !t.createdBy) return false;
+  const me = trnMyAccountId();
+  return !!me && me === t.createdBy;
+}
+function trnIsAdmin(){
+  const me = trnMyAccountId();
+  return !!me && TRN_ADMIN_ACCOUNT_IDS.indexOf(me) !== -1;
+}
+// A record with NO createdBy is admin-only on purpose: trnIsCreator returns false
+// for it, so nobody inherits structural rights over a legacy listing by accident.
+function trnCanEditStructure(t){ return trnIsCreator(t) || trnIsAdmin(); }
+
+// ── WHAT A DIVISION REMOVAL WOULD ORPHAN ──────────────────────────────────
+// Pure. Reads the tournament and the invites map, takes the doomed divIds as an
+// argument, mutates nothing and writes nothing.
+//
+// LIVE vs NON-BLOCKING is the whole point of the split. Live means a reference
+// somebody is still relying on: a need on a non-cancelled partner post, a pending
+// offer or ask on one, or a pool entry. Those block a removal.
+//
+// Two kinds are counted but never block:
+//   - CANCELLED posts. Already dead. Blocking on one would make a tournament
+//     permanently uneditable because somebody once posted and withdrew.
+//   - LEGACY division-keyed needs and asks, the shape from before day-as-unit.
+//     needIsDayShaped returns false for them, so the app already treats such a
+//     post as having nothing matchable and shows the 'created before divisions
+//     were grouped by day' banner. It cannot take an offer or an ask, so it is
+//     inert. Counted anyway, in its own bucket, so a confirm can mention it as a
+//     footnote rather than either hiding it or inflating the blocking number with
+//     a post that can no longer do anything.
+function trnCountDivRefs(t, invites, divIds){
+  const gone = new Set(divIds || []);
+  const out = { live: {}, other: {}, liveTotal: 0, otherTotal: 0, poolEntries: 0, livePosts: 0 };
+  const bump = (bucket, id) => {
+    if(!gone.has(id)) return;
+    out[bucket][id] = (out[bucket][id] || 0) + 1;
+    out[bucket === 'live' ? 'liveTotal' : 'otherTotal']++;
+  };
+
+  Object.values(invites || {}).forEach(p => {
+    if(!p || p.postType !== 'partner' || !t || p.tournamentId !== t.id) return;
+    const isLive = p.status !== 'cancelled';
+    let touchedLive = false;
+
+    Object.entries(p.needs || {}).forEach(([key, n]) => {
+      if(needIsDayShaped(n)){
+        Object.keys(n.divIds).filter(k => n.divIds[k]).forEach(divId => {
+          if(!gone.has(divId)) return;
+          if(isLive){ bump('live', divId); touchedLive = true; } else bump('other', divId);
+        });
+      } else if(gone.has(key)){
+        // Legacy division-keyed need: the KEY is the reference and divIds is empty.
+        // Never blocking, whatever the post's status, because the post is inert.
+        bump('other', key);
+      }
+    });
+
+    // Offers and asks are keyed by DAY; each record carries its own divIds subset.
+    // A legacy record keyed by a divId carries none, so the key is its only
+    // reference and it lands in the non-blocking bucket for the same reason.
+    Object.entries(p.offers || {}).forEach(([key, m]) => {
+      Object.values(m || {}).forEach(r => {
+        if(!r || !r.name) return;
+        const ids = Object.keys((r.divIds) || {}).filter(k => r.divIds[k]);
+        if(ids.length){
+          ids.forEach(divId => {
+            if(!gone.has(divId)) return;
+            if(isLive){ bump('live', divId); touchedLive = true; } else bump('other', divId);
+          });
+        } else if(gone.has(key)) bump('other', key);
+      });
+    });
+    Object.entries(p.asks || {}).forEach(([key, m]) => {
+      Object.values(m || {}).forEach(r => {
+        if(!askIsPending(r)) return;
+        const ids = Object.keys((r.divIds) || {}).filter(k => r.divIds[k]);
+        if(ids.length){
+          ids.forEach(divId => {
+            if(!gone.has(divId)) return;
+            if(isLive){ bump('live', divId); touchedLive = true; } else bump('other', divId);
+          });
+        } else if(gone.has(key)) bump('other', key);
+      });
+    });
+
+    if(touchedLive) out.livePosts++;
+  });
+
+  // A pool entry is ALWAYS live. There is no cancelled state for one: a player is
+  // either in the pool or they have left it.
+  Object.values((t && t.pool) || {}).forEach(e => {
+    let touched = false;
+    Object.values((e && e.needs) || {}).forEach(n => {
+      Object.keys((n && n.divIds) || {}).filter(k => n.divIds[k]).forEach(divId => {
+        if(!gone.has(divId)) return;
+        bump('live', divId); touched = true;
+      });
+    });
+    if(touched) out.poolEntries++;
+  });
+
+  return out;
+}
+
 // ── THE EDITABLE SURFACE ──────────────────────────────────────────────────
 // PART ONE edits text-level fields ONLY. This list is the whole contract, and it
 // is deliberately an allow-list rather than a deny-list: a field added to
@@ -4467,11 +4682,10 @@ function buildTournamentEditPatch(){
   const name = (($("trn-name") && $("trn-name").value) || "").trim();
   const location = (($("trn-loc") && $("trn-loc").value) || "").trim();
   const locationAddress = (($("trn-addr") && $("trn-addr").value) || "").trim();
-  // Identical normalization to buildTournamentRecord, deliberately duplicated
-  // rather than shared: the create path reads a different element set and the
-  // two have drifted apart before. The check script asserts they agree.
-  let eventUrl = (($("trn-url") && $("trn-url").value) || "").trim();
-  if(eventUrl && !/^https?:\/\//i.test(eventUrl)) eventUrl = "https://" + eventUrl;
+  // Same normalizer as buildTournamentRecord, shared rather than copied. The two
+  // used to carry duplicate lines and the check script asserted they matched; one
+  // function means there is nothing left to drift.
+  const eventUrl = trnNormalizeEventUrl($("trn-url") && $("trn-url").value);
   const organizer = (($("trn-organizer") && $("trn-organizer").value) || "").trim();
   const surface = (($("trn-surface") && $("trn-surface").value) === "grass") ? "grass" : "sand";
   const fmtRaw = ($("trn-format") && $("trn-format").value) || "";
@@ -4498,12 +4712,53 @@ function buildTournamentEditPatch(){
   };
 }
 
+// ── WHAT THE GRID CHANGED ─────────────────────────────────────────────────
+// Pure diff of the edited selection against the STORED divisions. Returns added
+// and removed divIds plus the divisions whose registration posture moved, which
+// are three different writes and must not be conflated: an add writes a whole
+// division node, a remove writes null, and a posture change writes one leaf
+// inside a division that is staying.
+//
+// Only days already on the record are considered. Dates are locked, so a
+// selection on any other day cannot exist; filtering on t.days anyway means a
+// stale Set can never invent a division on a day the tournament does not run.
+function trnDiffDivisions(t){
+  const stored = (t && t.divisions) || {};
+  const live = new Set((t && t.days) || []);
+  const wanted = {};
+  [...trnSelectedDivs].forEach(key => {
+    const p = trnSelParts(key);
+    if(!p.day || !live.has(p.day)) return;
+    if(TRN_CATEGORIES.indexOf(p.category) === -1) return;
+    const level = trnIsAgeCategory(p.category) ? null : p.level;
+    if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
+    const divId = divIdFor(p.day, p.category, level);
+    const reg = trnAdvertisedDivs.has(key) ? "advertised" : "open";
+    wanted[divId] = {
+      id: divId, day: p.day, category: p.category, level: level,
+      regStatus: TRN_REG_STATUSES.indexOf(reg) === -1 ? "open" : reg
+    };
+  });
+  const added = Object.keys(wanted).filter(id => !stored[id]);
+  const removed = Object.keys(stored).filter(id => !wanted[id]);
+  // Posture moved on a division present on BOTH sides. trnRegOf reads the stored
+  // value through the same absent-means-open rule every other reader uses.
+  const reposted = Object.keys(wanted)
+    .filter(id => stored[id] && trnRegOf(stored[id]) !== wanted[id].regStatus);
+  return { wanted: wanted, added: added, removed: removed, reposted: reposted };
+}
+
 // The subset of trnValidate that applies to an edit. Dates, days and divisions
 // are locked in this build, so validating them here would only ever re-check
 // values the form cannot have changed.
 function trnValidateEdit(patch){
   if(!patch.name) return "Name the tournament";
   if(!patch.location) return "Add a location";
+  // Changeable, never clearable. saveTournamentEdit returns on a non-null message
+  // before it builds any update, so a failed check saves NOTHING: not the text
+  // fields, not the division adds or removals, and the form stays open with every
+  // value intact.
+  if(!trnValidEventUrl(patch.eventUrl)) return TRN_URL_REQUIRED_MSG;
   if(!patch.surface) return "Pick a surface";
   if(TRN_FORMATS.indexOf(patch.format) === -1) return "Pick a format";
   return null;
@@ -4519,6 +4774,9 @@ function trnValidate(rec){
   if(rec.endDate < rec.startDate) return "End date cannot be before the start date";
   if(!rec.days.length) return "That date range is not valid";
   if(!rec.location) return "Add a location";
+  // The link is REQUIRED, not advisory. It used to be a soft warning in
+  // saveTournament, which let a listing exist that nobody could verify or act on.
+  if(!trnValidEventUrl(rec.eventUrl)) return TRN_URL_REQUIRED_MSG;
   if(!rec.surface) return "Pick a surface";
   if(!rec.format) return "Pick a format";
   if(!Object.keys(rec.divisions).length) return "Pick at least one division";
@@ -4565,8 +4823,9 @@ async function saveTournament(){
   }
 
   // Soft warnings, after the decision to write and never blocking it.
+  // No entry for a missing link: trnValidate now blocks on it above, so reaching
+  // here means the record HAS a usable one.
   const soft = [];
-  if(!rec.eventUrl) soft.push("no registration link");
   if(!rec.organizer) soft.push("no organizer");
   if(rec.days.length > 4) soft.push(rec.days.length + " days is unusually long");
 
@@ -4599,18 +4858,68 @@ async function saveTournament(){
   if(ok) toast(soft.length ? "Added. Heads up: " + soft.join(", ") + "." : "Tournament added");
 }
 
-// ── SAVE AN EDIT ──────────────────────────────────────────────────────────
-// Leaf writes only, through fbUpdate, which calls update() rather than set() and
-// so touches ONLY the keys it is handed. Everything unnamed survives untouched:
-// pool, divisions, days, startDate, endDate, createdBy, createdByName, createdAt
-// and status.
+// Build the full multi-path update for an edit. Pure: returns the map, writes
+// nothing, so the check script can assert on exactly what would be sent.
 //
-// This is the whole safety property of part one and it is worth being blunt about
-// why. tournaments/{id}/pool holds the free-agent roster, a child of the record
-// itself. fbSet("tournaments/" + id, patch) would replace the node with just the
-// patch and silently delete every pool entry on it. There is no undo and nothing
-// would report it. So the edit path never calls fbSet on the record node, and the
-// check script asserts no built path equals it.
+// Every key is a FULLY QUALIFIED path from the database root, the same shape
+// saveInvite's multi-path writes use. One update() means the text fields, the
+// division adds, the division removals and any posture change either all land or
+// none do, so the record can never be left with divisions that disagree with the
+// stamps describing them.
+//
+// NESTED OBJECTS ARE CORRECT HERE, and that looks like it contradicts part one.
+// It does not. The rule is about what a path REPLACES. buildTournamentEditPatch
+// keeps every value scalar because its keys sit directly under tournaments/{id},
+// where an object value would replace a whole subtree such as divisions or pool.
+// Here the path already names ONE division, so an object value replaces exactly
+// that division and nothing else, which is precisely what an add means.
+//
+// A removal is written as null. In RTDB an update() with null deletes that child,
+// atomically and per key. The alternative (read the divisions map, delete keys,
+// set() it back) is a read-modify-write that would lose a concurrent add and
+// would put the whole divisions node on the wire.
+function buildTournamentEditUpdates(id, patch, diff, canStructure){
+  const base = DB_ROOT + '/tournaments/' + id;
+  const updates = {};
+  Object.keys(patch).forEach(k => { updates[base + '/' + k] = patch[k]; });
+  if(!canStructure || !diff) return updates;
+  diff.added.forEach(divId => { updates[base + '/divisions/' + divId] = diff.wanted[divId]; });
+  diff.removed.forEach(divId => { updates[base + '/divisions/' + divId] = null; });
+  // One leaf inside a division that is STAYING. Writing the whole division here
+  // would be correct today but would silently clobber any field a later build
+  // adds to a division, so it writes only the field that moved.
+  diff.reposted.forEach(divId => {
+    updates[base + '/divisions/' + divId + '/regStatus'] = diff.wanted[divId].regStatus;
+  });
+  return updates;
+}
+
+// The blocking message for a removal that cannot go through. Names each division
+// and its live count, because 'some divisions are in use' tells the organizer
+// nothing about what to do next.
+function trnRemovalBlockMessage(t, refs, removed){
+  const blocked = removed.filter(id => refs.live[id]);
+  if(!blocked.length) return null;
+  return blocked.map(id => {
+    const d = (t.divisions || {})[id];
+    const label = d ? trnDivLabel(d) : id;
+    const n = refs.live[id];
+    return label + " can't be removed because " + n + ' player' + (n === 1 ? '' : 's') +
+           ' ' + (n === 1 ? 'is' : 'are') + ' using it. Mark it No Reg instead.';
+  }).join(' ');
+}
+
+// ── SAVE AN EDIT ──────────────────────────────────────────────────────────
+// Leaf writes only. Every path in the update names a text leaf, one division, or
+// one field inside a division, so everything unnamed survives untouched: pool,
+// days, startDate, endDate, createdBy, createdByName, createdAt and status.
+//
+// This is the safety property the whole feature rests on, and it is worth being
+// blunt about why. tournaments/{id}/pool holds the free-agent roster, a child of
+// the record itself. A set() on tournaments/{id} would replace the node with just
+// the patch and silently delete every pool entry on it. There is no undo and
+// nothing would report it. So no write here ever targets the record node, nor the
+// divisions node as a whole, and the check script asserts both.
 //
 // No duplicate check: trnFindDuplicate matches on event URL first, so a record
 // being edited would always find ITSELF and offer to open the thing already open.
@@ -4625,23 +4934,65 @@ async function saveTournamentEdit(){
   // flag is still set, so a corrected field can be saved straight away.
   if(problem){ toast(problem); return; }
 
+  // Re-check at SAVE time rather than trusting the flag captured when the form
+  // opened. A logout, an account switch or a very long-lived form could all make
+  // the captured answer stale, and the destructive half of this write is the half
+  // that must not run on a stale yes.
+  const canStructure = trnCanEditStructure(existing);
+  const diff = trnDiffDivisions(existing);
+  const changedStructure = !!(diff.added.length || diff.removed.length || diff.reposted.length);
+
+  if(changedStructure && !canStructure){
+    // Nothing is saved, not even the text fields. A partial save here would be
+    // worse than a refusal: the person asked for one change and would get half of
+    // it, with no indication which half.
+    toast('Only the person who listed this tournament can change its divisions');
+    return;
+  }
+
+  if(canStructure && diff.removed.length){
+    const refs = trnCountDivRefs(existing, D.invites || {}, diff.removed);
+    const blocked = trnRemovalBlockMessage(existing, refs, diff.removed);
+    if(blocked){
+      // Refuse the whole save and keep the form open with every value intact, so
+      // the division can be re-ticked or the text fix retried without retyping.
+      toast(blocked);
+      const note = $('trn-edit-note');
+      if(note){ note.textContent = blocked; note.style.display = ''; note.style.color = '#b91c1c'; }
+      return;
+    }
+  }
+
+  const updates = buildTournamentEditUpdates(id, patch, diff, canStructure);
+
   // Persist FIRST, then paint. The create path is optimistic because a new record
   // has nowhere to fall back to, but an edit does: the record on screen is still
   // valid, so a failed write should leave it alone rather than show a change that
   // did not land.
-  const ok = await fbUpdate("tournaments/" + id, patch);
-  if(!ok){ toast("Could not save. Try again."); return; }
+  if(!db){ toast('Not connected. Try again.'); return; }
+  try { await db.ref().update(updates); }
+  catch(e){ console.error(e); toast('Could not save. Try again.'); return; }
 
-  // Local mirror, field by field onto the SAME object, so pool, divisions, days,
-  // the dates and the created-by stamps are never touched. Object.assign over the
-  // patch keys only; a wholesale replace here would desync the cache from what was
-  // actually written and drop the pool locally until the listener echoed.
+  // Local mirror onto the SAME object, field by field and division by division, so
+  // pool, days, the dates and the created-by stamps are never touched. A wholesale
+  // replace here would desync the cache from what was actually written and drop
+  // the pool locally until the listener echoed.
   Object.assign(existing, patch);
+  if(canStructure && changedStructure){
+    if(!existing.divisions) existing.divisions = {};
+    diff.added.forEach(divId => { existing.divisions[divId] = diff.wanted[divId]; });
+    diff.removed.forEach(divId => { delete existing.divisions[divId]; });
+    diff.reposted.forEach(divId => { existing.divisions[divId].regStatus = diff.wanted[divId].regStatus; });
+  }
 
   trnEditId = null;
+  trnEditCanStructure = false;
   activeTournament = id;
   trnDetailFrom = 'tournaments';
-  toast("Listing updated");
+  const bits = [];
+  if(diff.added.length) bits.push(diff.added.length + ' added');
+  if(diff.removed.length) bits.push(diff.removed.length + ' removed');
+  toast(bits.length ? 'Listing updated. Divisions: ' + bits.join(', ') + '.' : 'Listing updated');
   showView("tournament-detail");
 }
 
