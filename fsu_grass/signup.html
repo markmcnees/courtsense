@@ -280,7 +280,7 @@
               <span class="fld-err" id="err-email"></span>
               <span class="hint" id="email-status"></span>
             </div>
-            <div class="field full">
+            <div class="field full" id="pw-field">
               <label for="pw" id="pw-label">Create a password</label>
               <input type="password" id="pw" placeholder="At least 8 characters" autocomplete="new-password">
               <span class="hint" id="pw-hint">This is your CourtSense login. It travels with you across the club, leagues, and pickup.</span>
@@ -440,7 +440,8 @@
         <div class="cico">&#127952;</div>
         <h2>Thanks for applying.</h2>
         <p id="confirm-lead">We have received your application to the Grass Volleyball Club at FSU. We will be in touch soon about tryouts.</p>
-        <p class="muted">Your CourtSense login works across the club, leagues, and pickup with the email and password on your account.</p>
+        <p id="confirm-claim-note" style="display:none;"></p>
+        <p class="muted" id="confirm-muted">Your CourtSense login works across the club, leagues, and pickup with the email and password on your account.</p>
       </div>
     </div>
   </div>
@@ -451,13 +452,14 @@
 <script>
 // FSU Grass Club signup. Branches on whether the entered email already has a
 // CourtSense account (resolved via /auth/lookup):
-//   new       -> create the account with CourtSenseAuth.createPlayer
+//   new       -> create the account with CourtSenseAuth.createPlayer (/auth/signup)
 //   claimed   -> verify the member's existing password with /auth/verify
-//   unclaimed -> let the member set a password with /auth/register (claim)
+//   unclaimed -> email a set-password link through /auth/reset-request; no
+//                password is set on this page
 // Then attaches an fsu_grass membership, writes a club roster record (status
 // 'prospect') and a club profile record, all in one atomic multi-path write.
 // Existing accounts are never duplicated and gain only the membership, phone,
-// and profile/gender; no other field changes.
+// and profile/gender; no other field changes. The unclaimed branch saves no phone.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -524,7 +526,7 @@ const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
 // Account state for the entered email, resolved via /auth/lookup:
 //   'new'       no CourtSense account yet -> create one
 //   'claimed'   account exists with a password -> verify their existing password
-//   'unclaimed' account exists but no password set -> they set one now (claim)
+//   'unclaimed' account exists but no password set -> we email them a link to set one
 //   'unknown'   not looked up yet, or the lookup failed
 //   'checking'  a lookup is in flight
 let acctState = 'unknown';
@@ -567,6 +569,10 @@ function clearErrors(){
 // account state, so the password field is never ambiguous.
 function updatePwUi(){
   const lbl = $('pw-label'), hint = $('pw-hint'), status = $('email-status'), pw = $('pw');
+  // An unclaimed account never sets a password on this page. It gets an emailed
+  // set-password link instead, so the password field is hidden on that path.
+  const pwField = $('pw-field');
+  if(pwField) pwField.style.display = (acctState === 'unclaimed') ? 'none' : '';
   if(acctState === 'claimed'){
     if(lbl) lbl.textContent = 'Your CourtSense password';
     if(pw){ pw.setAttribute('autocomplete','current-password'); pw.placeholder = 'Your existing password'; }
@@ -574,7 +580,7 @@ function updatePwUi(){
   } else if(acctState === 'unclaimed'){
     if(lbl) lbl.textContent = 'Create a password';
     if(pw){ pw.setAttribute('autocomplete','new-password'); pw.placeholder = 'At least 8 characters'; }
-    if(hint) hint.textContent = 'We found your CourtSense account, but it does not have a password yet. Set one now to finish and add the club membership.';
+    if(hint) hint.textContent = 'We found your CourtSense account, but it does not have a password yet. When you join, we will email you a link to set one.';
   } else {
     if(lbl) lbl.textContent = 'Create a password';
     if(pw){ pw.setAttribute('autocomplete','new-password'); pw.placeholder = 'At least 8 characters'; }
@@ -583,7 +589,7 @@ function updatePwUi(){
   if(status){
     if(acctState === 'checking') status.textContent = 'Checking for an existing account...';
     else if(acctState === 'claimed') status.textContent = 'Existing CourtSense account found.';
-    else if(acctState === 'unclaimed') status.textContent = 'Existing CourtSense account found (no password set yet).';
+    else if(acctState === 'unclaimed') status.textContent = 'Existing CourtSense account found. It has no password yet, so we will email you a link to set one.';
     else status.textContent = '';
   }
 }
@@ -777,6 +783,26 @@ function showConfirm(){
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 
+// Confirmation for the unclaimed branch. The membership (and any door check-in) has
+// landed; what is left is the emailed set-password link. At the door the check-in
+// already landed with the roster write, so showConfirm says so; away from the door an
+// exec can check them in by hand. The standard login line is hidden because this
+// account has no password yet.
+function showClaimConfirm(sent){
+  const note = $('confirm-claim-note');
+  if(note){
+    const lines = sent
+      ? ['Check your email to set your password. We sent a link to the address on your CourtSense account, and it works for 48 hours.']
+      : ['We could not send your set-password email just now. Go to courtsense.app/join and enter your email to get the link.'];
+    if(!tryoutSession) lines.push('An exec can check you in tonight.');
+    lines.push('We did not save your phone or emergency contact yet. Give them to an exec.');
+    note.textContent = lines.join(' ');
+    note.style.display = 'block';
+  }
+  const muted = $('confirm-muted'); if(muted) muted.style.display = 'none';
+  showConfirm();
+}
+
 // Already a club member. At the door that still has to end in a check-in, so find their
 // existing roster record and mark them present rather than sending them away to log in.
 async function alreadyMember(accountKey){
@@ -796,9 +822,10 @@ async function alreadyMember(accountKey){
   if($('form-err')) $('form-err').innerHTML = 'Good news, you are already an FSU Grass Club member. Head to the <a href="' + clubAppUrl() + '">club app</a> to log in.';
 }
 
-// Club welcome for the two RETURNING-member branches (claiming an unclaimed account,
-// and signing in with an existing one). The new-account branch does not use this:
-// CourtSenseAuth.createPlayer already sends its own welcome with the same tenant keys.
+// Club welcome for the RETURNING-member branch (signing in with an existing
+// password). The new-account branch does not use this: CourtSenseAuth.createPlayer
+// already sends its own welcome with the same tenant keys. The unclaimed branch does
+// not either, because this copy tells the member their existing password works.
 //
 // tenant_returning:true switches the worker to the returning-member copy, which
 // confirms them into the club rather than welcoming them to CourtSense. Same
@@ -982,8 +1009,11 @@ async function doJoin(){
     }
 
     // Password rules per branch: a fresh password needs 8+, an existing one only
-    // needs to be non-empty (it may predate the length rule).
-    if(pwIsNew()){
+    // needs to be non-empty (it may predate the length rule). An unclaimed account
+    // takes no password here; it gets an emailed link instead.
+    if(acctState === 'unclaimed'){
+      // no password on this path
+    } else if(pwIsNew()){
       if(!pw || pw.length < 8){ setFieldErr('pw','Password must be at least 8 characters.'); $('pw').focus(); return; }
     } else {
       if(!pw){ setFieldErr('pw','Enter your existing CourtSense password.'); $('pw').focus(); return; }
@@ -1022,33 +1052,31 @@ async function doJoin(){
       return;
     }
 
-    // ---- EXISTING, UNCLAIMED: set a password (claim), then attach membership ----
+    // ---- EXISTING, UNCLAIMED: attach membership, email a set-password link ----
+    // Typing an email proves only that someone knows it, so no password is set here.
+    // The club membership (and the door check-in, when there is one) is written
+    // exactly as on the other branches, then the worker emails a set-password link to
+    // the address on file. Phone and emergency contact are NOT saved on this path:
+    // the only writer of them, /auth/contact, verifies a password this account does
+    // not have yet, and nothing else may store them. The member adds them after
+    // setting a password. The returning-member welcome is skipped too, because it
+    // tells the member their existing password already works.
     if(acctState === 'unclaimed'){
-      btn.textContent = 'Setting your password...';
-      let reg, status;
+      btn.textContent = 'Adding your membership...';
+      if(!(await writeClub(acctPlayerId))) return;
+      let sent = false;
       try {
-        const r = await fetch(AUTH_WORKER + '/auth/register', {
+        const r = await fetch(AUTH_WORKER + '/auth/reset-request', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ rosterPath: ROSTER_PATH, playerId: acctPlayerId, password: pw })
+          body: JSON.stringify({ rosterPath: ROSTER_PATH, email: email.toLowerCase() })
         });
-        status = r.status; reg = await r.json();
+        const j = await r.json().catch(function(){ return null; });
+        sent = !!(j && j.ok === true);
+        if(!sent) console.error('claim link request rejected', r.status, (j && j.code) || '');
       } catch(err){
-        console.error('register failed', err);
-        if($('form-err')) $('form-err').textContent = 'Network error. Try again.';
-        return;
+        console.error('claim link request failed to reach the worker');
       }
-      if(status === 409 || (reg && reg.code === 'conflict')){
-        // Claimed in the meantime: switch this session to the verify branch.
-        acctState = 'claimed'; updatePwUi();
-        if($('form-err')) $('form-err').textContent = 'This account already has a password. Enter your existing password and submit again.';
-        return;
-      }
-      if(!reg || reg.ok !== true){ if($('form-err')) $('form-err').textContent = (reg && reg.error) || 'Could not set your password. Try again.'; return; }
-      // /auth/register just set this password on this account, so member mode verifies.
-      if(await writeClub(acctPlayerId)){
-        notifyClubWelcome(acctPlayerId, email.toLowerCase(), (first + ' ' + last).trim());
-        await finishJoin(acctPlayerId, email, pw);
-      }
+      showClaimConfirm(sent);
       return;
     }
 

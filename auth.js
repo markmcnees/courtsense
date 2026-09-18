@@ -511,10 +511,10 @@
   }
 
   // ── createPlayer: self-serve community signup ────────────────────────────
-  // Validates input, reserves a snake_case key under {rosterPath}, hashes the
-  // user-chosen password (cost 10), writes the player record with verified:false,
-  // queues a 'welcome' email (generated_password:null since the user picked it),
-  // and sets sessionStorage so the new account is immediately logged in.
+  // Validates input, asks the worker's /auth/signup to create the account (record,
+  // password, and email, all server side), queues a 'welcome' email
+  // (generated_password:null since the user picked it), and sets the session so
+  // the new account is immediately logged in.
   async function createPlayer(opts){
     const o = opts || {};
     const email = String(o.email == null ? '' : o.email).trim();
@@ -551,109 +551,70 @@
       return { ok:false, error:'Auth not initialized. Reload the page.' };
     }
 
-    // Email-based dedup, runs FIRST (before the snake_case-key check below). A
-    // pre-created league player (keyed by stable_id) or any prior signup may
-    // already own this email under a DIFFERENT key than snake_case(displayName),
-    // so the key check alone would miss them and create a duplicate. Resolve
-    // server-side via /auth/lookup (private node first, public fallback), which
-    // matches the SAME email shapes attemptLogin and the join page use (top-level
-    // email OR emails.primary). No client roster read, so this survives the
-    // players-PII rules flip. Read-only; createPlayer still has one write below.
-    const emailTarget = email.toLowerCase();
-    try {
-      const lr = await fetch(AUTH_WORKER + '/auth/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: _rosterPath, email: emailTarget })
-      });
-      const lookup = await lr.json();
-      if(!lookup || lookup.ok !== true){
-        console.error('CourtSenseAuth.createPlayer: email dedup lookup error', lookup);
-        return { ok:false, error:'Network error. Try again.' };
-      }
-      if(lookup.found){
-        return { ok:false, code:'EMAIL_EXISTS', error:'It looks like you already have an account. Head to the join page to claim it or log in.' };
-      }
-    } catch(e){
-      console.error('CourtSenseAuth.createPlayer: email dedup lookup failed', e);
-      return { ok:false, error:'Network error. Try again.' };
-    }
-
-    // Snake-case key matches Ratings.nameKey convention: lowercase, strip
-    // Firebase-forbidden chars, collapse whitespace to underscore.
-    const playerKey = displayName.toLowerCase().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_');
-    if(!playerKey) return { ok:false, error:'Display name produces an invalid key. Use letters and numbers.' };
-
-    let existing;
-    try {
-      const snap = await _db.ref(_rosterPath + '/' + playerKey).once('value');
-      existing = snap.val();
-    } catch(e){
-      console.error('CourtSenseAuth.createPlayer: existence check failed', e);
-      return { ok:false, error:'Network error. Try again.' };
-    }
-    if(existing){
-      return { ok:false, error:'Display name already taken. Try a variation.' };
-    }
-
-    // League auto-link runs before bcrypt so we can write a single atomic
-    // update below. A read failure here returns null (not blocking) so signup
-    // still succeeds when the league roster is unreachable.
+    // League auto-link suggestion. A read failure here returns null (not blocking)
+    // so signup still succeeds when the league roster is unreachable. The worker
+    // keeps the link only if that league record exists and its name matches.
     const leagueMatch = await findLeagueMatch(displayName);
 
-    const now = Date.now();
     const emailLower = email.toLowerCase();
-    // No passwordHash here: the password is set server-side via /auth/register
-    // below, which writes the hash to the locked-down credentials node. No email
-    // here either: the public players record never carries email (Track B). The
-    // email is written to the deny-default private node server-side by /auth/register.
+
+    // The worker creates the whole account in one request: the public record, the
+    // password (in the locked credentials node), and the email (in the locked
+    // private node). The browser writes nothing, so a password can only ever land
+    // on a record that same request created. The worker also refuses an email that
+    // already has an account and a display name whose key is taken, before writing
+    // anything, which replaces the lookup and key checks that used to run here.
+    let reg = null;
+    try {
+      const rr = await fetch(AUTH_WORKER + '/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: emailLower,
+          password: password,
+          displayName: displayName,
+          city: city,
+          skillLevel: skillLevel,
+          gender: genderVal || '',
+          leaguePlayerId: leagueMatch,
+          tenant: (tenantSlug || tenantName) ? { slug: tenantSlug, name: tenantName } : null
+        })
+      });
+      reg = await rr.json();
+    } catch(e){
+      console.error('CourtSenseAuth.createPlayer: signup failed', e);
+      return { ok:false, error:'Network error. Try again.' };
+    }
+    if(!reg || reg.ok !== true || !reg.playerId){
+      const code = reg && reg.code;
+      if(code === 'email_exists'){
+        return { ok:false, code:'EMAIL_EXISTS', error:'It looks like you already have an account. Head to the join page to claim it or log in.' };
+      }
+      if(code === 'name_taken'){
+        return { ok:false, error:'Display name already taken. Try a variation.' };
+      }
+      // Validation, rate limit, and bad-name refusals carry a message meant for the
+      // person; anything else gets the generic retry line.
+      if(code === 'bad_request' || code === 'weak_password' || code === 'bad_name' || code === 'rate_limited'){
+        return { ok:false, error: (reg && reg.error) || 'Could not create account. Try again.' };
+      }
+      return { ok:false, error:'Could not finish creating your account. Please try again.', code:'REGISTER_FAILED' };
+    }
+    const playerKey = reg.playerId;
+
+    // The in-memory copy of what the worker just wrote, for the session. Same shape
+    // the worker writes; it never carries a password or an email.
+    const now = Date.now();
     const playerRecord = {
       displayName: displayName,
       name: displayName, // legacy field used by the login picker (auth.js displayNameOf)
       city: city,
-      // profile is the bucket for self-described player attributes; gender sits
-      // next to skillLevel and is only included when the caller supplied one.
       profile: genderVal ? { skillLevel: skillLevel, gender: genderVal } : { skillLevel: skillLevel },
-      leaguePlayerId: leagueMatch, // { side, playerId } if name matched a league roster, else null
+      leaguePlayerId: leagueMatch,
       verified: false,
       createdAt: now,
       updatedAt: now
     };
-    const updates = {};
-    updates[_rosterPath + '/' + playerKey] = playerRecord;
-
-    try { await _db.ref().update(updates); }
-    catch(e){
-      console.error('CourtSenseAuth.createPlayer: write failed', e);
-      return { ok:false, error:'Could not create account. Try again.' };
-    }
-
-    // Set the password server-side: the worker hashes it and writes to the
-    // locked-down credentials node, so the hash is never written from the client.
-    let regOk = false;
-    try {
-      const rr = await fetch(AUTH_WORKER + '/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: _rosterPath, playerId: playerKey, password: password, email: emailLower })
-      });
-      const reg = await rr.json();
-      regOk = !!(reg && reg.ok === true);
-      if(regOk && reg.emailMirrored === false) console.warn('CourtSenseAuth.createPlayer: email was not mirrored to the private node');
-    } catch(e){
-      console.error('CourtSenseAuth.createPlayer: register failed', e);
-    }
-    if(!regOk){
-      // Clean undo: remove the just-written record so a retry sees no existing
-      // account and proceeds cleanly. (No welcome email was written; the worker
-      // /notify call only fires after a successful register, below.)
-      try {
-        const undo = {};
-        undo[_rosterPath + '/' + playerKey] = null;
-        await _db.ref().update(undo);
-      } catch(e){ console.warn('CourtSenseAuth.createPlayer: undo failed', e); }
-      return { ok:false, error:'Could not finish creating your account. Please try again.', code:'REGISTER_FAILED' };
-    }
 
     // Set session so the new account is immediately logged in. keepSignedIn
     // defaults to false to preserve prior behavior for callers that omit it;
