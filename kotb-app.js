@@ -288,6 +288,14 @@ function fbDel(p){
 }
 function gP(id){return (D[SIDE].players||{})[id]||null;}
 function pN(id){const p=gP(id);return p?p.name:'?';}
+// Display a value taken from a stored result slot. Slots hold roster ids, but two
+// legacy results still hold a bare sub name written by an older build, so show that
+// string rather than a bare question mark. Nothing here writes, it only renders.
+function pNR(v){const p=gP(v);return p?p.name:(typeof v==='string'&&v.trim()?v:'?');}
+// A court override marks a slot as "a sub played here". Older builds stored the
+// string '__SUB__'; current code stores true. Accept both so a page left open across
+// a deploy keeps working.
+function isSubMark(v){return v===true||v==='__SUB__';}
 function closeModal(id){$(id).classList.remove('on');}
 
 // ─── WEEK LOCK ───
@@ -1281,31 +1289,18 @@ function openAbsModal(){
   const week=D[SIDE].weeks[wid];if(!week)return;
   const players=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false);
   const absences=week.absences||[];
-  const subs=week.subs||[];
   let h=`<div style="font-size:14px;color:var(--gray);margin-bottom:14px;"><strong style="color:var(--black);">Week ${week.weekNum}</strong> · ${fD(week.date)}</div>`;
-  h+=`<div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--gray);margin-bottom:10px;">MARK ABSENCES — tap to flag, add sub name if known</div>`;
+  h+=`<div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--gray);margin-bottom:10px;">MARK ABSENCES, tap to flag anyone out this week</div>`;
   players.forEach(p=>{
     const isAbs=absences.includes(p.id);
-    const subEntry=(subs||[]).find(s=>s.forPlayerId===p.id);
     h+=`<div style="padding:12px 0;border-bottom:1px solid var(--sand-border);">
       <div style="display:flex;align-items:center;gap:12px;">
         <input type="checkbox" id="abs-${p.id}" ${isAbs?'checked':''} style="width:22px;height:22px;accent-color:var(--primary);cursor:pointer;">
         <label for="abs-${p.id}" style="flex:1;font-weight:700;font-size:15px;cursor:pointer;">${p.name}</label>
       </div>
-      <div id="sub-row-${p.id}" style="margin-top:8px;padding-left:34px;display:${isAbs?'block':'none'};">
-        <input class="inp" id="sub-${p.id}" placeholder="Sub name (optional)" value="${subEntry?subEntry.name:''}" style="font-size:13px;padding:10px 12px;">
-      </div>
     </div>`;
   });
   $('abs-body').innerHTML=h;
-  // Toggle sub inputs on checkbox change
-  players.forEach(p=>{
-    const cb=$('abs-'+p.id);
-    if(cb) cb.addEventListener('change',()=>{
-      const row=$('sub-row-'+p.id);
-      if(row) row.style.display=cb.checked?'block':'none';
-    });
-  });
   $('abs-modal').classList.add('on');
 }
 
@@ -1313,18 +1308,15 @@ function saveAbsences(){
   const wid=$('week-sel').value;
   const week=D[SIDE].weeks[wid];if(!week)return;
   const players=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false);
-  const absences=[],subs=[];
+  const absences=[];
   players.forEach(p=>{
     const cb=$('abs-'+p.id);
-    if(cb&&cb.checked){
-      absences.push(p.id);
-      const subInp=$('sub-'+p.id);
-      const subName=subInp?subInp.value.trim():'';
-      if(subName) subs.push({name:subName,forPlayerId:p.id});
-    }
+    if(cb&&cb.checked) absences.push(p.id);
   });
   fbSet(SIDE+'/weeks/'+wid+'/absences',absences.length?absences:null);
-  fbSet(SIDE+'/weeks/'+wid+'/subs',subs.length?subs:null);
+  // A fill-in player's name is not league data and is no longer captured anywhere.
+  // Clear any name a previous build stored on this week.
+  fbSet(SIDE+'/weeks/'+wid+'/subs',null);
   $('abs-modal').classList.remove('on');
   toast('Absences saved!');
   loadWeekDetail();
@@ -1611,11 +1603,13 @@ async function genNight(skipOverwriteCheck){
   const absences=getSessionAbsences();
   const allP=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false);
   const present=allP.filter(p=>!absences.includes(p.id));
-  // Auto-label absent players as Sub 1, Sub 2, etc.
+  // Absent players hold their spot as an anonymous Sub 1, Sub 2 placeholder. A
+  // fill-in player's real name is deliberately never used here: it would become the
+  // slot value, and from there it would be written into a saved result as if it were
+  // a player id. The durable record of a sub is subSlots on the result.
   let subCounter=0;
   const subPlayers=absences.map(abPid=>{
-    const namedSub=(week.subs||[]).find(s=>s.forPlayerId===abPid);
-    const subName=namedSub&&namedSub.name?namedSub.name:'Sub '+(++subCounter);
+    const subName='Sub '+(++subCounter);
     return {id:subName,name:subName,isSub:true,forId:abPid};
   });
   const pool=[...present,...subPlayers];
@@ -2013,7 +2007,6 @@ function renderScoreAbsencePanel(){
     <div id="abs-panel-body" style="display:none;padding:10px 14px;">
       <div style="font-size:12px;color:var(--gray);margin-bottom:10px;">Tap to mark a player absent. Their spot fills as Sub 1, Sub 2, etc. when the schedule generates.</div>`;
 
-  const savedSubs=week.subs||[];
   let subN=0;
   players.forEach(p=>{
     const isAbs=absences.includes(p.id);
@@ -2029,8 +2022,7 @@ function renderScoreAbsencePanel(){
       <button onclick="toggleScoreAbsence('${p.id}')" style="background:${isAbs?'#fee2e2':'var(--gray-lighter)'};color:${isAbs?'#b91c1c':'var(--gray)'};border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
         ${isAbs?'✕ Absent':'Absent'}
       </button>
-    </div>
-    ${isAbs?`<div style="padding:6px 0 4px 2px;"><input class="inp" placeholder="Sub name (optional)" value="${savedSubs.find(x=>x.forPlayerId===p.id)?.name||''}" oninput="saveScoreSubName('${p.id}',this.value)" style="font-size:13px;padding:8px 12px;"></div>`:''}`;
+    </div>`;
   });
 
   h+=`<div style="padding-top:10px;font-size:12px;color:var(--gray);">${absentCount} absent · ${players.length-absentCount} playing tonight</div>
@@ -2051,54 +2043,6 @@ function toggleAbsPanel(){
   body.style.display=open?'block':'none';
   if(arrow)arrow.textContent=open?'▴':'▾';
   window._absPanelOpen=open;
-}
-
-function saveScoreSubName(pid, name){
-  if(!liveWeek)return;
-  const week=D[SIDE].weeks[liveWeek];if(!week)return;
-  // Find the old ID this absent player's sub slot has in the current rounds
-  const absences=getSessionAbsences();
-  let counter=0;
-  let oldId=null;
-  for(const abPid of absences){
-    const prev=(week.subs||[]).find(s=>s.forPlayerId===abPid);
-    const prevName=prev&&prev.name?prev.name:'Sub '+(++counter);
-    if(abPid===pid){oldId=prevName;break;}
-  }
-  // Compute new sub counter position for this player (for blank-name fallback)
-  let counter2=0;
-  let newId=null;
-  for(const abPid of absences){
-    const prev=(week.subs||[]).find(s=>s.forPlayerId===abPid);
-    // In the new state, this player has no named sub if name is blank
-    const willHaveName=abPid===pid?name.trim():prev&&prev.name;
-    if(!willHaveName)counter2++;
-    if(abPid===pid){newId=name.trim()||'Sub '+counter2;break;}
-  }
-  // Save subs list
-  let subs=(week.subs||[]).filter(s=>s.forPlayerId!==pid);
-  const trimmed=name.trim();
-  if(trimmed) subs.push({name:trimmed,forPlayerId:pid});
-  fbSet(SIDE+'/weeks/'+liveWeek+'/subs',subs.length?subs:null);
-  // If a schedule exists and the ID changed, patch the rounds live
-  if(newId&&week.rounds&&week.rounds.length){
-    // Check if oldId exists in rounds; if not, fall back to '?' (legacy AI placeholder)
-    const allSlots=week.rounds.flatMap(rd=>(rd.courts||[]).flatMap(ct=>[...(ct.t1||[]),...(ct.t2||[])]));
-    const validRegistered=new Set(Object.values(D[SIDE].players||{}).filter(p=>p&&p.name).map(p=>p.id));
-    const effectiveOld=allSlots.includes(oldId)?oldId
-      :allSlots.find(id=>!validRegistered.has(id)&&id!==newId)||oldId;
-    if(effectiveOld&&effectiveOld!==newId){
-      const updatedRounds=week.rounds.map(rd=>({
-        ...rd,
-        courts:(rd.courts||[]).map(ct=>({
-          ...ct,
-          t1:(ct.t1||[]).map(id=>id===effectiveOld?newId:id),
-          t2:(ct.t2||[]).map(id=>id===effectiveOld?newId:id)
-        }))
-      }));
-      fbSet(SIDE+'/weeks/'+liveWeek+'/rounds',updatedRounds);
-    }
-  }
 }
 
 function toggleScoreAbsence(pid){
@@ -2215,7 +2159,8 @@ function renderLiveCourts(){
   const cfg=D[SIDE].config||{};
   const results=Object.values(D[SIDE].results||{});
 
-  // courtSubs: runtime overrides {courtIdx: {pid: subName}}
+  // courtSubs: runtime sub marks {weekId:round:courtIdx: {pid: true}}. Marks only,
+  // never names. A marked player stays in the team and is recorded in subSlots.
   if(!window._courtSubs) window._courtSubs = {};
 
   let h='';
@@ -2223,14 +2168,14 @@ function renderLiveCourts(){
     // Get overridden players for this court (sub swaps done on the score screen)
     const overrides = window._courtSubs[liveWeek+':'+liveRound+':'+idx] || {};
 
-    // Build team arrays with any runtime sub overrides
+    // Build team arrays. The scheduled player's name is always what shows: a sub is
+    // indicated by the marker styling, never by substituting a different name.
     const resolveTeam = (team) => team.map(id => {
       const isRegistered=!!(D[SIDE].players||{})[id];
-      const baseName=isRegistered?pN(id):id; // subs use their ID as display name
       return {
         id,
-        displayName: overrides[id]==='__SUB__' ? baseName : (overrides[id] || baseName),
-        isSub: !isRegistered||!!overrides[id]
+        displayName: isRegistered?pN(id):pNR(id),
+        isSub: !isRegistered||isSubMark(overrides[id])
       };
     });
     const t1r = resolveTeam(c.t1);
@@ -2307,45 +2252,41 @@ function renderLiveCourts(){
   cont.innerHTML = h;
 }
 
-// ─── SUB SWAP MODAL ───
-// Opens a sheet to replace any scheduled player on a court with a sub name
+// ─── SUB MARK MODAL ───
+// Opens a sheet to mark any scheduled player on a court as "a sub played for them".
+// It records a MARK against the scheduled player's id, never a replacement name. The
+// name of a fill-in player is not league data and is never stored.
 let _swapCtx = null;
 function openSubSwap(weekId, round, idx, t1s, t2s){
   _swapCtx = {weekId, round, idx, t1:t1s.split(',').filter(Boolean), t2:t2s.split(',').filter(Boolean)};
   const overrides = window._courtSubs[weekId+':'+round+':'+idx] || {};
-  const allPlayers = [..._swapCtx.t1, ..._swapCtx.t2];
 
-  let h = `<div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1.5px;color:var(--gray);margin-bottom:14px;">Replace scheduled players with tonight's subs. Leave blank to keep original.</div>`;
+  let h = `<div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1.5px;color:var(--gray);margin-bottom:14px;">Tap Sub for anyone who is out tonight and had someone fill in. Their name stays on the card, and the game will not count for them.</div>`;
 
   ['Team 1', 'Team 2'].forEach((label, ti) => {
     const team = ti===0 ? _swapCtx.t1 : _swapCtx.t2;
     h += `<div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--primary);margin:12px 0 8px;">${label}</div>`;
     team.forEach(pid => {
-      const current = overrides[pid] || '';
-      const isSub = current === '__SUB__';
-      const subName = isSub ? '' : current;
+      const isSub = isSubMark(overrides[pid]);
       h += `<div style="padding:10px 0;border-bottom:1px solid var(--sand-border);">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:10px;">
           <div style="flex:1;">
             <div style="font-weight:700;font-size:14px;">${pN(pid)}</div>
-            <div style="font-size:12px;color:var(--gray);">Scheduled player</div>
+            <div style="font-size:12px;color:var(--gray);" id="subhint-${pid}">${isSub?'A sub played this slot':'Scheduled player'}</div>
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;background:${isSub?'var(--primary)':'var(--gray-lighter)'};color:${isSub?'#fff':'var(--gray)'};padding:7px 12px;border-radius:8px;transition:.15s;">
             <input type="checkbox" id="issub-${pid}" ${isSub?'checked':''} onchange="toggleSubMode('${pid}')" style="display:none;">
             👤 Sub
           </label>
         </div>
-        <div id="subname-row-${pid}" style="display:${isSub?'none':'block'};">
-          <input class="inp" id="swap-${pid}" placeholder="Replace with sub name (optional)" value="${subName}" style="font-size:13px;padding:10px 12px;">
-        </div>
       </div>`;
     });
   });
 
-  h += `<div style="margin-top:6px;font-size:12px;color:var(--gray);">💡 If both players on a team are subs, a forfeit button appears automatically.</div>`;
+  h += `<div style="margin-top:6px;font-size:12px;color:var(--gray);">💡 If both players on a team are subs, a forfeit button appears automatically. You can also set this afterwards with Edit on a saved result.</div>`;
 
   $('abs-body').innerHTML = h;
-  $('abs-modal').querySelector('.mtitle span').textContent = 'Edit Players — Round '+round+' Court '+(idx+1);
+  $('abs-modal').querySelector('.mtitle span').textContent = 'Subs, Round '+round+' Court '+(idx+1);
   $('abs-modal').querySelector('.btn.btn-p.btn-w').textContent = 'Apply Changes';
   $('abs-modal').querySelector('.btn.btn-p.btn-w').onclick = applySubSwap;
   $('abs-modal').classList.add('on');
@@ -2353,22 +2294,13 @@ function openSubSwap(weekId, round, idx, t1s, t2s){
 
 function toggleSubMode(pid){
   const cb=document.getElementById('issub-'+pid);
-  const nameRow=document.getElementById('subname-row-'+pid);
-  const lbl=cb?cb.closest('label'):null;
   if(!cb)return;
-  if(cb.checked){
-    // Mark as sub — hide name input, set hidden value
-    if(nameRow)nameRow.style.display='none';
-    // Store __SUB__ marker in a hidden field
-    let hidden=document.getElementById('swap-'+pid);
-    if(!hidden){hidden=document.createElement('input');hidden.id='swap-'+pid;hidden.type='hidden';nameRow.appendChild(hidden);}
-    hidden.value='__SUB__';
-    if(lbl){lbl.style.background='var(--primary)';lbl.style.color='#fff';}
-  }else{
-    if(nameRow)nameRow.style.display='block';
-    const inp=document.getElementById('swap-'+pid);
-    if(inp)inp.value='';
-    if(lbl){lbl.style.background='var(--gray-lighter)';lbl.style.color='var(--gray)';}
+  const lbl=cb.closest('label');
+  const hint=document.getElementById('subhint-'+pid);
+  if(hint) hint.textContent = cb.checked ? 'A sub played this slot' : 'Scheduled player';
+  if(lbl){
+    lbl.style.background = cb.checked ? 'var(--primary)' : 'var(--gray-lighter)';
+    lbl.style.color = cb.checked ? '#fff' : 'var(--gray)';
   }
 }
 
@@ -2376,10 +2308,11 @@ function applySubSwap(){
   if(!_swapCtx) return;
   const key = _swapCtx.weekId+':'+_swapCtx.round+':'+_swapCtx.idx;
   if(!window._courtSubs) window._courtSubs = {};
+  // Marks only. The value is always true, so nothing here can become a team slot.
   const overrides = {};
   [..._swapCtx.t1, ..._swapCtx.t2].forEach(pid => {
-    const inp = $('swap-'+pid);
-    if(inp && inp.value.trim()) overrides[pid] = inp.value.trim();
+    const cb = document.getElementById('issub-'+pid);
+    if(cb && cb.checked) overrides[pid] = true;
   });
   window._courtSubs[key] = overrides;
   $('abs-modal').classList.remove('on');
@@ -2387,7 +2320,7 @@ function applySubSwap(){
   $('abs-modal').querySelector('.btn.btn-p.btn-w').textContent = 'Save';
   $('abs-modal').querySelector('.btn.btn-p.btn-w').onclick = saveAbsences;
   renderLiveCourts();
-  toast('Players updated ✓');
+  toast('Subs updated ✓');
 }
 
 function adj(idx,side,d){
@@ -2452,12 +2385,12 @@ async function saveScore(wid,round,court,t1s,t2s,idx){
   const t2=t2s.split(',').filter(Boolean);
   const id=gi('r');
   const ov=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+idx])||{};
-  // For __SUB__ markers: keep original pid but record them in subSlots so stats skip them
-  const applyOv=team=>team.map(pid=>ov[pid]&&ov[pid]!=='__SUB__'?ov[pid]:pid);
-  const subSlots=[...t1,...t2].filter(pid=>ov[pid]==='__SUB__');
-  // Named subs (non-registered): store name string directly
-  const namedSubs=[...t1,...t2].filter(pid=>ov[pid]&&ov[pid]!=='__SUB__').map(pid=>ov[pid]);
-  const t1Saved=applyOv(t1), t2Saved=applyOv(t2);
+  // The teams stored are ALWAYS the scheduled player ids. A marked slot keeps its id
+  // and is recorded in subSlots, which is what calcStats and the rating resolver skip.
+  // Nothing from the override map is ever written into a team, so a slot cannot hold
+  // anything but a roster id.
+  const subSlots=[...t1,...t2].filter(pid=>isSubMark(ov[pid]));
+  const t1Saved=t1.slice(), t2Saved=t2.slice();
   // The court, not the result id, is the key: a fresh id is minted on every tap, so
   // keying on the id would let a second tap store the same game twice.
   const wKey='kotb:'+SIDE+':'+wid+':'+round+':'+court;
@@ -2472,7 +2405,7 @@ async function saveScore(wid,round,court,t1s,t2s,idx){
     applyRatingsLeague(id, t1Saved, t2Saved, s1, s2, subSlots, false);
   };
   const outcome=await settleScoreWrite(
-    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,namedSubs:namedSubs.length?namedSubs:null,ts:Date.now()}),
+    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:t1Saved,t2:t2Saved,s1,s2,isForfeit:false,subSlots:subSlots.length?subSlots:null,ts:Date.now()}),
     { key:wKey, subject:subject, onLanded:after,
       failTail:'did NOT save. It is still on screen. Check your connection, then tap Save Set again.',
       pendTail:'It is still on screen and nothing has been lost.',
@@ -2493,10 +2426,12 @@ async function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   const t1=t1s.split(',').filter(Boolean);
   const t2=t2s.split(',').filter(Boolean);
   const id=gi('r');
-  // Apply any sub name overrides to the stored teams
+  // Same rule saveScore follows. This path used to map the override value straight
+  // into the team, which is how the literal marker string reached storage as a team
+  // member. The teams are the scheduled ids and the marks go to subSlots.
   const overrides=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+(idx||0)])||{};
-  const resolveIds=team=>team.map(pid=>overrides[pid]?overrides[pid]:pid);
-  const st1=resolveIds(t1),st2=resolveIds(t2);
+  const subSlots=[...t1,...t2].filter(pid=>isSubMark(overrides[pid]));
+  const st1=t1.slice(),st2=t2.slice();
   const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
   // Same court key as saveScore, so a forfeit and a score cannot both go in on one court.
   const wKey='kotb:'+SIDE+':'+wid+':'+round+':'+court;
@@ -2505,10 +2440,10 @@ async function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   // A forfeit is a recorded result like any other, so it locks the week too.
   const after=function(){
     _autoLockWeek(wid, SIDE);
-    applyRatingsLeague(id, st1, st2, s1, s2, null, true);
+    applyRatingsLeague(id, st1, st2, s1, s2, subSlots, true);
   };
   const outcome=await settleScoreWrite(
-    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,ts:Date.now()}),
+    fbSet(SIDE+'/results/'+id,{id,weekId:wid,round,court,t1:st1,t2:st2,s1,s2,isForfeit:true,subSlots:subSlots.length?subSlots:null,ts:Date.now()}),
     { key:wKey, subject:subject, onLanded:after,
       failTail:'did NOT save. Check your connection, then record it again.',
       pendTail:'Nothing has been lost.',
@@ -2524,16 +2459,24 @@ function openEditResult(id){
   if(!_scoreGate(function(){ openEditResult(id); })) return;
   const r=((D[SIDE]||{}).results||{})[id];if(!r)return;
   window._editResultId=id;
-  // Resolve display names: if value looks like a player ID, get name; else it's already a name
-  const resolveName=v=>{const p=gP(v);return p?p.name:v;};
+  // Every slot is a roster player or empty. A legacy result may still hold a bare sub
+  // name written by an older build, so show what is stored as a note and let the
+  // director replace it with a real player. Saving can only ever write roster ids.
   const allP=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false).sort((a,b)=>a.name.localeCompare(b.name));
+  const subSet=new Set(Array.isArray(r.subSlots)?r.subSlots:[]);
   function pSelect(fid,val){
-    const resolved=resolveName(val);
-    let opts='<option value="">— sub / other —</option>'+allP.map(p=>`<option value="${p.id}" ${p.id===val||p.name===resolved?'selected':''}>${p.name}</option>`).join('');
-    const isKnown=allP.some(p=>p.id===val||p.name===resolved);
+    const isRoster=!!gP(val);
+    const wasSub=subSet.has(val);
+    let opts='<option value="">— no player —</option>'+allP.map(p=>`<option value="${p.id}" ${p.id===val?'selected':''}>${p.name}</option>`).join('');
+    const stray=(!isRoster&&typeof val==='string'&&val.trim())
+      ? `<div style="font-size:11px;color:var(--loss);">Currently stored: ${pNR(val)}. Pick a player or leave empty.</div>`
+      : '';
     return `<div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-      <select class="inp" id="${fid}-sel" style="font-size:13px;padding:8px;" onchange="document.getElementById('${fid}-txt').style.display=this.value?'none':'block'">${opts}</select>
-      <input class="inp" id="${fid}-txt" placeholder="Sub name" style="font-size:13px;padding:8px;display:${isKnown?'none':'block'};" value="${isKnown?'':resolved}">
+      <select class="inp" id="${fid}-sel" style="font-size:13px;padding:8px;">${opts}</select>
+      ${stray}
+      <label style="font-size:11px;color:var(--gray);display:flex;align-items:center;gap:5px;cursor:pointer;">
+        <input type="checkbox" id="${fid}-sub" ${wasSub?'checked':''}> a sub played this slot
+      </label>
     </div>`;
   }
   const body=$('edit-result-body');
@@ -2560,10 +2503,10 @@ function openEditResult(id){
 async function saveEditResult(){
   const id=window._editResultId;if(!id)return;
   const r=((D[SIDE]||{}).results||{})[id];if(!r)return;
-  const resolveSel=pre=>{
-    const sel=$(`${pre}-sel`),txt=$(`${pre}-txt`);
-    return sel&&sel.value?sel.value:(txt?txt.value.trim():'');
-  };
+  // Roster ids only. There is no free-text path any more, so no code here can put a
+  // name string into a team.
+  const SLOTS=['er-t1p1','er-t1p2','er-t2p1','er-t2p2'];
+  const resolveSel=pre=>{const sel=$(pre+'-sel');return sel&&sel.value?sel.value:'';};
   const court=parseInt($('er-court')?.value)||r.court;
   const round=parseInt($('er-round')?.value)||r.round;
   const t1=[resolveSel('er-t1p1'),resolveSel('er-t1p2')].filter(Boolean);
@@ -2571,6 +2514,15 @@ async function saveEditResult(){
   const s1=parseInt($('er-s1')?.value)||0;
   const s2=parseInt($('er-s2')?.value)||0;
   if(!t1.length||!t2.length){toast('Each team needs at least one player');return;}
+  // Rebuild the sub flags from the checkboxes, so one set in error can be cleared
+  // here rather than needing a direct database edit. Only a roster id still present
+  // in a team can carry a flag.
+  const inPlay=new Set([...t1,...t2]);
+  const subSlots=SLOTS
+    .map(pre=>({pre,val:resolveSel(pre)}))
+    .filter(x=>x.val&&gP(x.val)&&inPlay.has(x.val)&&$(x.pre+'-sub')&&$(x.pre+'-sub').checked)
+    .map(x=>x.val)
+    .filter((v,i,a)=>a.indexOf(v)===i);
   if(s1===s2){toast('Scores cannot be tied');return;}
   // The result id is stable here, so it is a safe key.
   const wKey='kotb:edit:'+id;
@@ -2581,13 +2533,15 @@ async function saveEditResult(){
   // Closing the modal is guarded on it still showing this result, so a late close cannot
   // shut a box the director has since reopened on a different game.
   const after=function(){
+    // The reversal must undo what was actually applied, so it uses the OLD flags.
+    // The re-apply uses the NEW ones, which is what makes a flag change take effect.
     reverseRatingsLeague(id, r.t1||[], r.t2||[], r.subSlots||null);
-    applyRatingsLeague(id, t1, t2, s1, s2, r.subSlots||null, r.isForfeit===true);
+    applyRatingsLeague(id, t1, t2, s1, s2, subSlots.length?subSlots:null, r.isForfeit===true);
     if(window._editResultId===id) $('edit-result-modal').classList.remove('on');
   };
   // Preserve the stored forfeit flag on edit; do not silently convert a forfeit to a rated game.
   const outcome=await settleScoreWrite(
-    fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:r.isForfeit===true}),
+    fbSet(SIDE+'/results/'+id,{...r,court,round,t1,t2,s1,s2,isForfeit:r.isForfeit===true,subSlots:subSlots.length?subSlots:null}),
     { key:wKey, subject:subject, onLanded:after,
       failTail:'did NOT save. The old result is unchanged and your edits are still in the box. '
         +'Check your connection, then tap Save again.',
@@ -2744,8 +2698,8 @@ function exportExcel(){
   const results = Object.values(D[side].results||{}).sort((a,b)=>a.ts-b.ts);
   const resultRows = results.map(r=>{
     const week = D[side].weeks[r.weekId];
-    const t1names = (r.t1||[]).map(id=>pN(id)).join(' & ');
-    const t2names = (r.t2||[]).map(id=>pN(id)).join(' & ');
+    const t1names = (r.t1||[]).map(id=>pNR(id)).join(' & ');
+    const t2names = (r.t2||[]).map(id=>pNR(id)).join(' & ');
     const w1 = r.s1>r.s2;
     return {
       Week: week?('Week '+week.weekNum):(r.weekId||''),
@@ -2769,7 +2723,7 @@ function exportExcel(){
     Object.entries(ph).forEach(([partnerId,s])=>{
       phRows.push({
         Player: p.name,
-        Partner: pN(partnerId),
+        Partner: pNR(partnerId),
         GP: s.gp, W: s.w, L: s.l,
         PF: s.pf, PA: s.pa, '+/-': s.pf-s.pa
       });
