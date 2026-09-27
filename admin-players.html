@@ -380,7 +380,9 @@ function loadContacts(){
     if(status === 403 && res && res.code === 'forbidden'){ clearAdminKey('contacts'); return; }
     if(!res || !res.ok){ logLine('Contact load failed: '+((res && res.error) || ('HTTP '+status))); return; }
     CONTACTS = {};
-    (res.players || []).forEach(p => { CONTACTS[p.playerId] = { email: p.email || '', phone: p.phone || '' }; });
+    // hasPassword comes from the worker (credential presence only, never the hash). A worker
+    // that does not send it yet leaves it null, which the list shows as "not loaded".
+    (res.players || []).forEach(p => { CONTACTS[p.playerId] = { email: p.email || '', phone: p.phone || '', hasPassword: typeof p.hasPassword === 'boolean' ? p.hasPassword : null }; });
     logLine('Loaded contact info for '+Object.keys(CONTACTS).length+' players.');
     renderList();
   }).catch(err => { console.error(err); logLine('Contact load error: '+(err && err.message || err)); });
@@ -1018,11 +1020,11 @@ function recordsArray(){
     blockedAt: p && p.blockedAt || null,
     updatedAt: p && p.updatedAt || 0,
     // Display-only derived flags (no writes). hasProfile = the player actually
-    // filled out a profile; claimed = they have an account (activated, or no
-    // pending activation token). claimed intentionally also trusts activated:true
-    // so a real, set-up record with a stale leftover token is not mislabeled.
+    // filled out a profile. claimed = the account has a password, the same meaning the
+    // worker uses (a credentials entry; see /auth/lookup). It comes from /auth/admin-list
+    // and is null until that loads, so the badge never guesses from leftover fields.
     hasProfile: !!(p && p.profile && p.profile.skillLevel),
-    claimed: !!(p && (p.activated === true || !p.activationToken))
+    claimed: (CONTACTS[key] && typeof CONTACTS[key].hasPassword === 'boolean') ? CONTACTS[key].hasPassword : null
   })).sort((a,b)=>{
     if(a.blocked !== b.blocked) return a.blocked ? 1 : -1;
     return a.name.localeCompare(b.name);
@@ -1034,13 +1036,14 @@ function renderList(){
   const all = recordsArray().filter(r => !filter || r.name.toLowerCase().includes(filter) || (contactEmail(r.key)||'').toLowerCase().includes(filter));
   $('count').textContent = all.length;
   // Summary counts are computed from the FULL record set (not the filtered view).
-  // claimed and precreated partition the total; "with profile" is a subset of claimed.
+  // "have a password" and "no password yet" partition the total once claim status loads.
   const fullSet = recordsArray();
   const nProfile = fullSet.filter(r => r.hasProfile).length;
-  const nClaimed = fullSet.filter(r => r.claimed).length;
-  const nPre = fullSet.filter(r => !r.claimed && !r.hasProfile).length;
-  if($('summary')) $('summary').textContent =
-    fullSet.length + ' total · ' + nClaimed + ' claimed (' + nProfile + ' with a profile) · ' + nPre + ' precreated';
+  const claimKnown = fullSet.some(r => r.claimed !== null);
+  const nClaimed = fullSet.filter(r => r.claimed === true).length;
+  const nNoPw = fullSet.filter(r => r.claimed === false).length;
+  if($('summary')) $('summary').textContent = fullSet.length + ' total · ' + nProfile + ' with a profile · '
+    + (claimKnown ? nClaimed + ' have a password · ' + nNoPw + ' no password yet' : 'password status not loaded');
   if(!all.length){
     $('rbody').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--gray);padding:18px;">No profiles yet. Players get listed here once they save a profile.</td></tr>';
     return;
@@ -1054,10 +1057,11 @@ function renderList(){
     if(!r.blocked && r.notificationsEnabled) tags += `<span class="tag notif-on">NOTIFY</span> `;
     if(!r.blocked && !r.notificationsEnabled) tags += `<span class="tag notif-off">SILENT</span> `;
     if(muted) tags += `<span class="tag muted">${esc(muteStr)}</span> `;
-    // Profile / claim state (display only): one badge per row.
+    // Profile / password state (display only). NO PASSWORD shows even beside a profile, since
+    // that person still cannot log in; nothing shows while the status has not loaded.
     if(r.hasProfile) tags += `<span class="tag notif-on">PROFILE ✓</span> `;
-    else if(r.claimed) tags += `<span class="tag claimed">CLAIMED</span> `;
-    else tags += `<span class="tag notif-off">PRECREATED</span> `;
+    else if(r.claimed === true) tags += `<span class="tag claimed">CLAIMED</span> `;
+    if(r.claimed === false) tags += `<span class="tag notif-off">NO PASSWORD</span> `;
     let actionBtns = '';
     if(r.blocked){
       actionBtns += `<button class="btn btn-g" onclick="doUnblock('${esc(r.key)}')">Unblock</button>`;
