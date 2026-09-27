@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.161';
+const APP_VERSION='1.1.162';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12678,7 +12678,7 @@ function pcStartPractice(squad){
     renderPracticeCheckin();
   });
 }
-function pcClose(){ _pcOpenSid=null; _pcQuery=''; renderPracticeCheckin(); }
+function pcClose(){ _pcOpenSid=null; _pcQuery=''; ptDetach(); renderPracticeCheckin(); }
 function pcSetFilter(f){ _pcFilter=(f==='gold'||f==='garnet')?f:'all'; renderPracticeCheckin(); }
 // Filter rows in place on each keystroke: no read, no redraw, focus stays in the box.
 function pcSearch(){
@@ -12783,18 +12783,686 @@ function resolveClubRating(clubRosterId){
   if(R[key]) return {status:'collision', key:key};
   return {status:'new', key:key, name:display, seed:csRankFor(p)};
 }
+
+// ---- Practice tournament (club, exec only) ---------------------------------
+// A one-night King or Queen of the Beach built from a practice session's checked-in players,
+// stored at DB_ROOT/practiceTournaments/pt-{sessionId}. That is a child of the club matches node
+// the live rule already governs (no rules change), and the key means one practice has at most one:
+//   meta     { sessionId, squad, date, format:'mixed'|'kq', courts, poolCourts:{pool:[court]},
+//              gamesPerPlayer, scoreTo, status:'setup'|'active'|'final', createdAt, updatedAt, endedAt? }
+//   players  { clubRosterId: { name, pool:'mixed'|'kings'|'queens', addedAt, gameTarget, droppedAt? } }
+//   rounds   { pool: [ { roundIndex, games:[ {gid, court, t1:[id,id], t2:[id,id]} ], sitOut:[id] } ] }
+//   results  { gid: { pool, t1, t2, s1, s2, at, by, rated:false, editedAt? } }
+// Club roster ids are used everywhere. A result starts rated:false and an edit keeps whatever rated
+// says, so a later rating step can rate each game exactly once and un-rate it before any change.
+// The schedule builder is local and deterministic (no AI call) and keeps pickup's behavior: every
+// player has a game target, sit-outs go to whoever has sat least, partners and opponents repeat as
+// little as possible, and a late arrival gets a target pro-rated to the rounds left.
+var PT_DEFAULTS={courts:2, gamesPerPlayer:6, scoreTo:15};
+var _ptTid=null;          // tournament the listener is attached to
+var _ptRef=null, _ptHandler=null;
+var _ptData;              // undefined while loading, null when none exists, else the node
+var _ptSetup=null;        // this device's setup choices while meta.status is 'setup'
+var _ptDraft={};          // gid -> { s1, s2 } typed but not saved, kept across redraws
+var _ptEditGid=null;      // the result being edited, if any
+var _ptView={};           // pool -> round index picked in the round view (absent means current)
+var _ptPoolTab='kings';   // which pool shows on a Kings and Queens night
+var _ptUi={add:'', addPool:'', drop:''}; // add and drop pickers, kept across redraws
+var _ptBusy=false;        // a schedule write is in flight; blocks double taps
+var _pcRendering=false;   // true while renderPracticeCheckin runs, so a listener never re-enters it
+
+// Listener on the open practice's tournament only. Attached and detached by renderPracticeCheckin.
+function ptAttach(sid){
+  var tid=sid?('pt-'+sid):null;
+  if(tid===_ptTid) return;
+  ptDetach();
+  if(!tid) return;
+  _ptTid=tid;
+  if(!db){ _ptData=null; return; }
+  _ptData=undefined;
+  _ptRef=db.ref(DB_ROOT+'/practiceTournaments/'+tid);
+  _ptHandler=function(s){
+    if(_ptTid!==tid) return;
+    _ptData=s.val();
+    if(!_pcRendering) renderPracticeCheckin();
+  };
+  _ptRef.on('value',_ptHandler,function(err){ console.warn('practice tournament read failed',err); });
+}
+function ptDetach(){
+  if(_ptRef&&_ptHandler) _ptRef.off('value',_ptHandler);
+  _ptRef=null; _ptHandler=null; _ptTid=null; _ptData=undefined; _ptSetup=null;
+  _ptDraft={}; _ptEditGid=null; _ptView={}; _ptUi={add:'',addPool:'',drop:''}; _ptBusy=false;
+}
+
+// ---- Reads over the live node --------------------------------------------
+// Firebase hands arrays back as objects when they have gaps and drops empty ones, so every list
+// goes through ptArr.
+function ptArr(v){
+  if(Array.isArray(v)) return v.filter(function(x){ return x!=null; });
+  if(v&&typeof v==='object') return Object.keys(v).sort(function(a,b){ return a-b; }).map(function(k){ return v[k]; }).filter(function(x){ return x!=null; });
+  return [];
+}
+function ptMeta(){ return (_ptData&&_ptData.meta)||{}; }
+function ptPlayersObj(){ return (_ptData&&_ptData.players)||{}; }
+function ptResultsObj(){ return (_ptData&&_ptData.results)||{}; }
+function ptHasResults(){ return Object.keys(ptResultsObj()).length>0; }
+function ptPools(){ return ptMeta().format==='kq'?['kings','queens']:['mixed']; }
+function ptPoolLabel(pool){ return pool==='kings'?'Kings':pool==='queens'?'Queens':'Mixed'; }
+function ptRoundsFor(pool){
+  var raw=_ptData&&_ptData.rounds?_ptData.rounds[pool]:null;
+  return ptArr(raw).map(function(rd){
+    return {
+      roundIndex:rd.roundIndex,
+      games:ptArr(rd.games).map(function(g){ return {gid:g.gid, court:g.court, t1:ptArr(g.t1), t2:ptArr(g.t2)}; }),
+      sitOut:ptArr(rd.sitOut)
+    };
+  });
+}
+function ptCourtsFor(pool){
+  var pc=ptArr((ptMeta().poolCourts||{})[pool]);
+  return pc.length?pc:ptRange(1,ptMeta().courts||PT_DEFAULTS.courts);
+}
+function ptRange(a,b){ var out=[]; for(var i=a;i<=b;i++) out.push(i); return out; }
+function ptPlayerName(pid){
+  var pl=ptPlayersObj()[pid]; if(pl&&pl.name) return pl.name;
+  var p=gP(pid); return p?(((p.firstName||'')+' '+(p.lastName||'')).trim()||pid):pid;
+}
+// Checked-in, eligible, and still on the roster (a name and gender come from the roster record).
+function ptPresentIds(sid){
+  var a=(D.tryoutAttendance||{})[sid]||{};
+  return Object.keys(a).filter(function(pid){ return practiceEligibleId(pid)&&a[pid]&&a[pid].present&&gP(pid); });
+}
+function ptGenderPool(g){ return g==='M'?'kings':g==='F'?'queens':null; }
+function ptBy(){
+  try{ var s=JSON.parse(sessionStorage.getItem('csCoachSession')||'null'); if(s&&s.execName) return s.execName; }catch(e){}
+  return COACH_LABEL;
+}
+function ptScoreVal(v){
+  var s=String(v==null?'':v).trim();
+  return /^\d{1,3}$/.test(s)?parseInt(s,10):null;
+}
+
+// ---- Writes: this tournament only ----------------------------------------
+// One multi-path update under practiceTournaments/{tid}, so each action lands whole or not at all.
+// Live mode needs no local mirror: the listener sees the change at once. Demo mode (no db) applies
+// the same paths to the in-memory node so the screen still moves.
+function ptUpdate(updates){
+  if(!_ptTid) return Promise.resolve(false);
+  var clean=JSON.parse(JSON.stringify(updates));
+  if(!db){ ptMirror(clean); renderPracticeCheckin(); return Promise.resolve(true); }
+  return fbUpdateAt(DB_ROOT+'/practiceTournaments/'+_ptTid, clean);
+}
+function ptMirror(updates){
+  if(!_ptData) _ptData={};
+  Object.keys(updates).forEach(function(path){
+    var parts=path.split('/'), node=_ptData;
+    for(var i=0;i<parts.length-1;i++){
+      if(!node[parts[i]]||typeof node[parts[i]]!=='object') node[parts[i]]={};
+      node=node[parts[i]];
+    }
+    var last=parts[parts.length-1];
+    if(updates[path]===null) delete node[last]; else node[last]=updates[path];
+  });
+}
+
+// ---- Schedule builder (local, deterministic) -----------------------------
+function ptPv(M,a,b){ return (M[a]&&M[a][b])||0; }
+function ptBump(M,a,b){
+  if(!a||!b) return;
+  (M[a]=M[a]||{})[b]=(M[a][b]||0)+1;
+  (M[b]=M[b]||{})[a]=(M[b][a]||0)+1;
+}
+// Repeat cost of one game given the pairings so far. A repeated partner weighs 3x a repeated
+// opponent, the same balance the league generator uses.
+function ptGameCost(pC,oC,g){
+  var c=0;
+  [g.t1,g.t2].forEach(function(t){ var p=ptPv(pC,t[0],t[1]); c+=3*p*p; });
+  g.t1.forEach(function(a){ g.t2.forEach(function(b){ var o=ptPv(oC,a,b); c+=o*o; }); });
+  return c;
+}
+// Rounds for one pool. ids play toward targets[id] games each. Each round seats up to one court of
+// four per court number, fewer when only a handful still need games (at most three players then
+// play an extra game to fill a court). Most games still owed plays first, then whoever has sat
+// the most, then a rotating order so ties do not always fall the same way. pC and oC carry the
+// partner and opponent counts so far and are updated in place.
+function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex){
+  var n=ids.length, courtsMax=Math.min(courtNums.length,Math.floor(n/4));
+  if(courtsMax<1) return [];
+  var rem={}, sat={}, ord={};
+  ids.forEach(function(id,i){ rem[id]=Math.max(0,targets[id]|0); sat[id]=0; ord[id]=i; });
+  var out=[], guard=0;
+  while(guard++<200){
+    var needers=ids.filter(function(id){ return rem[id]>0; }).length;
+    if(!needers) break;
+    var courtsN=Math.min(courtsMax,Math.ceil(needers/4)), A=courtsN*4;
+    var rot=(out.length*5)%n;
+    var sorted=ids.slice().sort(function(a,b){
+      return (rem[b]-rem[a])||(sat[b]-sat[a])||(((ord[a]+rot)%n)-((ord[b]+rot)%n));
+    });
+    var active=sorted.slice(0,A), sitters=sorted.slice(A);
+    // Teams: repeatedly take the pair that has partnered least.
+    var left=active.slice(), teams=[];
+    while(left.length>=2){
+      var bi=0,bj=1,bc=Infinity;
+      for(var i=0;i<left.length;i++) for(var j=i+1;j<left.length;j++){ var c=ptPv(pC,left[i],left[j]); if(c<bc){bc=c;bi=i;bj=j;} }
+      teams.push([left[bi],left[bj]]); left.splice(bj,1); left.splice(bi,1);
+    }
+    // Games: repeatedly take the two teams that have faced each other least.
+    var games=[];
+    while(teams.length>=2){
+      var ti=0,tj=1,tc=Infinity;
+      for(var x=0;x<teams.length;x++) for(var y=x+1;y<teams.length;y++){
+        var oc=0; teams[x].forEach(function(a){ teams[y].forEach(function(b){ oc+=ptPv(oC,a,b); }); });
+        if(oc<tc){tc=oc;ti=x;tj=y;}
+      }
+      games.push({t1:teams[ti],t2:teams[tj]}); teams.splice(tj,1); teams.splice(ti,1);
+    }
+    // Polish: swap any two players across teams in this round while the round's repeat cost drops.
+    var better=true, polish=0;
+    while(better&&polish++<30){
+      better=false;
+      var slots=[];
+      games.forEach(function(g,gi2){ ['t1','t2'].forEach(function(tk){ g[tk].forEach(function(id,si){ slots.push({g:gi2,tk:tk,si:si}); }); }); });
+      for(var s1=0;s1<slots.length;s1++) for(var s2=s1+1;s2<slots.length;s2++){
+        var P=slots[s1], Q=slots[s2];
+        if(P.g===Q.g&&P.tk===Q.tk) continue;
+        var gP1=games[P.g], gQ1=games[Q.g];
+        var before=ptGameCost(pC,oC,gP1)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1));
+        var a1=gP1[P.tk][P.si], b1=gQ1[Q.tk][Q.si];
+        gP1[P.tk][P.si]=b1; gQ1[Q.tk][Q.si]=a1;
+        var after=ptGameCost(pC,oC,gP1)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1));
+        if(after<before){ better=true; } else { gP1[P.tk][P.si]=a1; gQ1[Q.tk][Q.si]=b1; }
+      }
+    }
+    games.forEach(function(g,ci){
+      g.gid=gi('g'); g.court=courtNums[ci];
+      ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
+      g.t1.forEach(function(a){ g.t2.forEach(function(b){ ptBump(oC,a,b); }); });
+    });
+    active.forEach(function(id){ rem[id]--; });
+    sitters.forEach(function(id){ sat[id]++; });
+    out.push({roundIndex:startIndex+out.length, games:games.map(function(g){ return {gid:g.gid,court:g.court,t1:g.t1,t2:g.t2}; }), sitOut:sitters});
+  }
+  return out;
+}
+// Court numbers per pool. Mixed gets every court. Kings and Queens each get one, then the rest go
+// one at a time to whichever pool has the most players per court and can still fill another.
+function ptAllocCourts(format,courts,counts){
+  var C=Math.max(1,courts|0);
+  if(format!=='kq') return {mixed:ptRange(1,C)};
+  var k=counts.kings||0, q=counts.queens||0, kc=1, qc=1, left=C-2;
+  while(left>0){
+    var kRoom=Math.floor(k/4)-kc, qRoom=Math.floor(q/4)-qc;
+    if(kRoom<=0&&qRoom<=0) break;
+    if(qRoom<=0||(kRoom>0&&k/kc>=q/qc)) kc++; else qc++;
+    left--;
+  }
+  return {kings:ptRange(1,kc), queens:ptRange(kc+1,kc+qc)};
+}
+// Where scored play stops in a pool. A round counts as started once any game in it has a score.
+function ptPoolProgress(pool){
+  var rounds=ptRoundsFor(pool), res=ptResultsObj(), firstOpen=-1, lastScored=-1;
+  rounds.forEach(function(rd,i){
+    var any=false, all=rd.games.length>0;
+    rd.games.forEach(function(g){ if(res[g.gid]) any=true; else all=false; });
+    if(!all&&firstOpen<0) firstOpen=i;
+    if(any) lastScored=i;
+  });
+  return {rounds:rounds, firstOpen:firstOpen, lastScored:lastScored};
+}
+// Rebuild the unplayed rounds of one pool against a players map (the map already reflects the add
+// or drop being made). A late add keeps the current round as it stands, since games may be on the
+// sand, and joins from the next one with a pro-rated target. A drop keeps every round that has a
+// score and rebuilds the rest, so a round nobody has scored yet is redrawn without them. Games
+// already played are never touched, and neither is any round that holds a score.
+function ptRebuildPool(pool,players,lateAddPid){
+  var prog=ptPoolProgress(pool), rounds=prog.rounds, res=ptResultsObj();
+  var keep=prog.lastScored+1;
+  if(lateAddPid) keep=Math.max(keep, prog.firstOpen<0?rounds.length:prog.firstOpen+1);
+  var kept=rounds.slice(0,keep), total=rounds.length, regen=total-keep;
+  var gpp=ptMeta().gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer;
+  var ids=Object.keys(players).filter(function(id){ var p=players[id]; return p&&p.pool===pool&&!p.droppedAt; });
+  var done={}, pending={}, targets={}, lateTarget=null;
+  ids.forEach(function(id){ done[id]=0; pending[id]=0; });
+  Object.keys(res).forEach(function(gid){
+    var r=res[gid]; if(!r||r.pool!==pool) return;
+    ptArr(r.t1).concat(ptArr(r.t2)).forEach(function(id){ if(done[id]!=null) done[id]++; });
+  });
+  kept.forEach(function(rd){ rd.games.forEach(function(g){
+    if(res[g.gid]) return;
+    g.t1.concat(g.t2).forEach(function(id){ if(pending[id]!=null) pending[id]++; });
+  }); });
+  ids.forEach(function(id){
+    if(id===lateAddPid){
+      var pro=Math.max(1,Math.round(gpp*regen/Math.max(1,total)));
+      lateTarget=done[id]+pro; targets[id]=pro; return;
+    }
+    var gt=(players[id].gameTarget!=null)?players[id].gameTarget:gpp;
+    targets[id]=Math.max(0,gt-done[id]-pending[id]);
+  });
+  if(ids.length<4) return {rounds:kept, short:true, lateTarget:lateTarget};
+  var pC={}, oC={};
+  kept.forEach(function(rd){ rd.games.forEach(function(g){
+    ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
+    g.t1.forEach(function(a){ g.t2.forEach(function(b){ ptBump(oC,a,b); }); });
+  }); });
+  var fresh=ptBuildRounds(ids,targets,ptCourtsFor(pool),pC,oC,keep);
+  return {rounds:kept.concat(fresh), short:false, lateTarget:lateTarget};
+}
+// Standings for one pool: wins, then point differential, then name. Anyone who played keeps their
+// games after a drop.
+function ptStandings(pool){
+  var pl=ptPlayersObj(), res=ptResultsObj(), rows={};
+  var row=function(id){
+    if(!rows[id]){ var p=pl[id]||{}; rows[id]={id:id, name:p.name||ptPlayerName(id), w:0, l:0, pd:0, gp:0, dropped:!!p.droppedAt}; }
+    return rows[id];
+  };
+  Object.keys(pl).forEach(function(id){ if(pl[id]&&pl[id].pool===pool) row(id); });
+  Object.keys(res).forEach(function(gid){
+    var r=res[gid]; if(!r||r.pool!==pool) return;
+    var s1=+r.s1||0, s2=+r.s2||0;
+    var add=function(id,mine,theirs){ var x=row(id); x.gp++; x.pd+=mine-theirs; if(mine>theirs) x.w++; else x.l++; };
+    ptArr(r.t1).forEach(function(id){ add(id,s1,s2); });
+    ptArr(r.t2).forEach(function(id){ add(id,s2,s1); });
+  });
+  return Object.keys(rows).map(function(k){ return rows[k]; })
+    .sort(function(a,b){ return (b.w-a.w)||(b.pd-a.pd)||String(a.name).localeCompare(String(b.name)); });
+}
+
+// ---- Exec actions ----------------------------------------------------------
+function ptGate(){ return tsFeatureOn()&&currentRole==='coach'&&!!_ptTid&&!!_pcOpenSid; }
+// Open setup. Writing meta with status 'setup' claims the tournament for this practice, so a second
+// exec sees the same setup instead of starting another.
+function ptOpenSetup(){
+  if(!ptGate()||_ptData===undefined||_ptData) return;
+  var sess=(D.tryoutSessions||{})[_pcOpenSid]; if(!sess) return;
+  if(ptPresentIds(_pcOpenSid).length<4){ toast('Kings Night needs at least 4 players checked in'); return; }
+  var now=Date.now();
+  _ptSetup=null;
+  ptUpdate({meta:{sessionId:_pcOpenSid, squad:sess.squad||'', date:sess.date||td(), format:'mixed',
+    courts:PT_DEFAULTS.courts, gamesPerPlayer:PT_DEFAULTS.gamesPerPlayer, scoreTo:PT_DEFAULTS.scoreTo,
+    status:'setup', createdAt:now, updatedAt:now}});
+}
+function ptSetupState(){
+  var m=ptMeta();
+  if(!_ptSetup||_ptSetup.tid!==_ptTid){
+    _ptSetup={tid:_ptTid, format:m.format==='kq'?'kq':'mixed', courts:m.courts||PT_DEFAULTS.courts,
+      gamesPerPlayer:m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer, scoreTo:m.scoreTo||PT_DEFAULTS.scoreTo, picks:{}};
+  }
+  return _ptSetup;
+}
+function ptSetupSet(field,val){
+  var s=ptSetupState();
+  if(field==='format') s.format=(val==='kq')?'kq':'mixed';
+  else if(field==='courts') s.courts=Math.min(12,Math.max(1,parseInt(val,10)||1));
+  else if(field==='gamesPerPlayer') s.gamesPerPlayer=Math.min(20,Math.max(1,parseInt(val,10)||1));
+  else if(field==='scoreTo') s.scoreTo=Math.min(99,Math.max(1,parseInt(val,10)||1));
+  renderPracticeCheckin();
+}
+// Kings or Queens for one player tonight, for a roster record with no gender. Held on this device
+// until Start and then stored only on the tournament; the roster record is never changed.
+function ptSetupPick(pid,pool){
+  var s=ptSetupState();
+  if(pool==='kings'||pool==='queens') s.picks[pid]=pool; else delete s.picks[pid];
+  renderPracticeCheckin();
+}
+// Everything Start needs, and the reason it cannot start yet.
+function ptSetupPlan(){
+  var s=ptSetupState(), ids=ptPresentIds(_pcOpenSid), plan={ok:false, msg:'', offerMixed:false, players:{}, counts:{}, missing:[]};
+  if(ids.length<4){ plan.msg='Kings Night needs at least 4 players checked in ('+ids.length+' so far).'; return plan; }
+  if(s.format==='kq'){
+    var k=0,q=0;
+    ids.forEach(function(id){
+      var pool=s.picks[id]||ptGenderPool(gP(id).gender);
+      if(pool==='kings') k++; else if(pool==='queens') q++; else plan.missing.push(id);
+      plan.players[id]=pool;
+    });
+    plan.counts={kings:k, queens:q};
+    var miss=plan.missing.length;
+    if(k+miss<4||q+miss<4){
+      plan.msg='Kings and Queens needs at least 4 players in each pool. Tonight has '+k+' Kings and '+q+' Queens'+(miss?(' with '+miss+' not assigned'):'')+'.';
+      plan.offerMixed=true; return plan;
+    }
+    if(miss){ plan.msg='Pick Kings or Queens for the '+miss+' player'+(miss===1?'':'s')+' marked below before starting.'; return plan; }
+    if(k<4||q<4){ plan.msg='Kings and Queens needs at least 4 players in each pool. Tonight has '+k+' Kings and '+q+' Queens.'; plan.offerMixed=true; return plan; }
+    if(s.courts<2){ plan.msg='Kings and Queens needs at least 2 courts, one for each pool.'; plan.offerMixed=true; return plan; }
+  } else {
+    ids.forEach(function(id){ plan.players[id]='mixed'; });
+    plan.counts={mixed:ids.length};
+  }
+  plan.ok=true;
+  return plan;
+}
+function ptStart(){
+  if(!ptGate()||_ptBusy) return;
+  if(!_ptData||ptMeta().status!=='setup'){ toast('This Kings Night has already started'); return; }
+  var s=ptSetupState(), plan=ptSetupPlan();
+  if(!plan.ok){ toast(plan.msg); return; }
+  var now=Date.now(), players={}, rounds={};
+  Object.keys(plan.players).forEach(function(id){
+    var p=gP(id);
+    players[id]={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||id, pool:plan.players[id], addedAt:now, gameTarget:s.gamesPerPlayer};
+  });
+  var poolCourts=ptAllocCourts(s.format,s.courts,plan.counts);
+  Object.keys(poolCourts).forEach(function(pool){
+    var ids=Object.keys(players).filter(function(id){ return players[id].pool===pool; });
+    var targets={}; ids.forEach(function(id){ targets[id]=s.gamesPerPlayer; });
+    rounds[pool]=ptBuildRounds(ids,targets,poolCourts[pool],{},{},0);
+  });
+  var m=ptMeta();
+  _ptBusy=true;
+  ptUpdate({
+    meta:{sessionId:_pcOpenSid, squad:m.squad||'', date:m.date||td(), format:s.format, courts:s.courts, poolCourts:poolCourts,
+      gamesPerPlayer:s.gamesPerPlayer, scoreTo:s.scoreTo, status:'active', createdAt:m.createdAt||now, updatedAt:now},
+    players:players, rounds:rounds
+  }).then(function(ok){
+    _ptBusy=false;
+    if(ok){ _ptSetup=null; _ptView={}; _ptPoolTab='kings'; toast('Kings Night started'); }
+    renderPracticeCheckin();
+  });
+}
+// Before any score: rebuild every round from scratch for whoever is still in.
+function ptRegenerate(){
+  if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
+  if(ptHasResults()){ toast('Scores are in, so the rounds can no longer be regenerated'); return; }
+  if(!window.confirm('Regenerate every round? The current matchups will be replaced.')) return;
+  var m=ptMeta(), pl=ptPlayersObj(), gpp=m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer, upd={}, now=Date.now();
+  ptPools().forEach(function(pool){
+    var ids=Object.keys(pl).filter(function(id){ return pl[id]&&pl[id].pool===pool&&!pl[id].droppedAt; });
+    var targets={}; ids.forEach(function(id){ targets[id]=gpp; upd['players/'+id+'/gameTarget']=gpp; });
+    upd['rounds/'+pool]=ids.length>=4?ptBuildRounds(ids,targets,ptCourtsFor(pool),{},{},0):[];
+  });
+  upd['meta/updatedAt']=now;
+  _ptBusy=true;
+  ptUpdate(upd).then(function(ok){ _ptBusy=false; _ptView={}; if(ok) toast('Rounds regenerated'); renderPracticeCheckin(); });
+}
+// Before any score only (setup included): remove the tournament entirely.
+function ptDelete(){
+  if(!ptGate()||_ptBusy) return;
+  if(ptHasResults()){ toast('Scores are in. Use End Night instead.'); return; }
+  if(!window.confirm('Delete tonight\'s Kings Night? Its setup and rounds will be removed.')) return;
+  var tid=_ptTid;
+  _ptBusy=true;
+  fbSet('practiceTournaments/'+tid,null).then(function(ok){
+    _ptBusy=false;
+    if(ok){ if(!db&&_ptTid===tid) _ptData=null; _ptSetup=null; _ptView={}; toast('Kings Night deleted'); }
+    renderPracticeCheckin();
+  });
+}
+function ptEndNight(){
+  if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
+  var open=0, res=ptResultsObj();
+  ptPools().forEach(function(pool){ ptRoundsFor(pool).forEach(function(rd){ rd.games.forEach(function(g){ if(!res[g.gid]) open++; }); }); });
+  if(!window.confirm('End tonight\'s Kings Night?'+(open?(' '+open+' unscored game'+(open===1?'':'s')+' will not count.'):'')+' Scores are locked after this.')) return;
+  var now=Date.now();
+  ptUpdate({'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now}).then(function(ok){ if(ok) toast('Kings Night final'); });
+}
+function ptLateAdd(){
+  if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
+  var pid=_ptUi.add; if(!pid){ toast('Pick a player to add'); return; }
+  var p=gP(pid); if(!p||ptPresentIds(_pcOpenSid).indexOf(pid)<0){ toast('Only checked-in players can be added'); return; }
+  var pl=ptPlayersObj(), cur=pl[pid];
+  if(cur&&!cur.droppedAt){ toast('Already playing tonight'); return; }
+  var pool='mixed';
+  if(ptMeta().format==='kq'){
+    pool=_ptUi.addPool||(cur&&cur.pool)||ptGenderPool(p.gender);
+    if(pool!=='kings'&&pool!=='queens'){ toast('Pick Kings or Queens for this player'); return; }
+  }
+  var rec={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||pid, pool:pool, addedAt:Date.now(), gameTarget:0};
+  var next=Object.assign({},pl); next[pid]=rec;
+  var rb=ptRebuildPool(pool,next,pid);
+  rec.gameTarget=rb.lateTarget!=null?rb.lateTarget:0;
+  var upd={}; upd['players/'+pid]=rec; upd['rounds/'+pool]=rb.rounds; upd['meta/updatedAt']=Date.now();
+  _ptBusy=true;
+  ptUpdate(upd).then(function(ok){
+    _ptBusy=false;
+    if(ok){ _ptUi.add=''; _ptUi.addPool=''; toast(rec.name+' added'+(rb.short?'. Fewer than 4 players in this pool, so no new rounds.':'')); }
+    renderPracticeCheckin();
+  });
+}
+function ptDrop(){
+  if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
+  var pid=_ptUi.drop; if(!pid){ toast('Pick a player to drop'); return; }
+  var pl=ptPlayersObj(), cur=pl[pid]; if(!cur||cur.droppedAt) return;
+  if(!window.confirm('Drop '+(cur.name||'this player')+'? Games they already played still count. Rounds nobody has scored yet are rebuilt without them.')) return;
+  var now=Date.now(), next=Object.assign({},pl);
+  next[pid]=Object.assign({},cur,{droppedAt:now});
+  var rb=ptRebuildPool(cur.pool,next,null);
+  var upd={}; upd['players/'+pid+'/droppedAt']=now; upd['rounds/'+cur.pool]=rb.rounds; upd['meta/updatedAt']=now;
+  _ptBusy=true;
+  ptUpdate(upd).then(function(ok){
+    _ptBusy=false;
+    if(ok){ _ptUi.drop=''; toast((cur.name||'Player')+' dropped'+(rb.short?'. Fewer than 4 players left in this pool, so its unplayed rounds were cleared.':'')); }
+    renderPracticeCheckin();
+  });
+}
+function ptUiSet(field,val){ _ptUi[field]=val||''; if(field==='add') _ptUi.addPool=''; renderPracticeCheckin(); }
+function ptPickPool(pool){ _ptPoolTab=(pool==='queens')?'queens':'kings'; renderPracticeCheckin(); }
+function ptPickRound(pool,i){ _ptView[pool]=i; renderPracticeCheckin(); }
+function ptDraftSet(gid,side,val){ (_ptDraft[gid]=_ptDraft[gid]||{})[side]=val; }
+function ptFindGame(pool,gid){
+  var found=null;
+  ptRoundsFor(pool).forEach(function(rd){ rd.games.forEach(function(g){ if(g.gid===gid) found=g; }); });
+  return found;
+}
+function ptSaveScore(pool,gid){
+  if(!ptGate()||ptMeta().status!=='active') return;
+  var g=ptFindGame(pool,gid); if(!g) return;
+  var d=_ptDraft[gid]||{}, s1=ptScoreVal(d.s1), s2=ptScoreVal(d.s2);
+  if(s1==null||s2==null){ toast('Enter both scores as whole numbers'); return; }
+  if(s1===s2){ toast('Scores cannot be tied. Someone has to win.'); return; }
+  var prev=ptResultsObj()[gid], now=Date.now(), rec;
+  if(prev){
+    // An edit changes only the score. rated is carried as is, so a rated game can be un-rated first.
+    rec=Object.assign({},prev,{s1:s1, s2:s2, editedAt:now, by:ptBy()});
+  } else {
+    rec={pool:pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:ptBy(), rated:false};
+  }
+  var upd={}; upd['results/'+gid]=rec; upd['meta/updatedAt']=now;
+  ptUpdate(upd).then(function(ok){
+    if(!ok) return; // the draft stays on screen so nothing is retyped
+    delete _ptDraft[gid];
+    if(_ptEditGid===gid) _ptEditGid=null;
+    toast(prev?'Score updated':'Score saved');
+    renderPracticeCheckin();
+  });
+}
+function ptEditScore(gid){
+  var r=ptResultsObj()[gid]; if(!r||ptMeta().status!=='active') return;
+  _ptEditGid=gid; _ptDraft[gid]={s1:String(r.s1), s2:String(r.s2)};
+  renderPracticeCheckin();
+}
+function ptCancelEdit(){ if(_ptEditGid) delete _ptDraft[_ptEditGid]; _ptEditGid=null; renderPracticeCheckin(); }
+function ptClearScore(gid){
+  if(!ptGate()||ptMeta().status!=='active') return;
+  if(!ptResultsObj()[gid]) return;
+  if(!window.confirm('Clear this score? The game goes back to unplayed.')) return;
+  var upd={}; upd['results/'+gid]=null; upd['meta/updatedAt']=Date.now();
+  ptUpdate(upd).then(function(ok){ if(ok){ if(_ptEditGid===gid) _ptEditGid=null; delete _ptDraft[gid]; toast('Score cleared'); renderPracticeCheckin(); } });
+}
+
+// ---- Tournament section of the Practice Check-in panel --------------------
+function ptHtml(sid,esc){
+  var head='<div style="border-top:1px dashed var(--gray-lighter);margin:4px 0 12px;padding-top:10px;">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">KINGS NIGHT</div>';
+  var tail='</div>';
+  var btn=function(label,onclick,bg,fg,extra){
+    return '<button class="btn btn-small" style="padding:6px 12px;font-size:12px;background:'+bg+';color:'+fg+';border:none;'+(extra||'')+'" onclick="'+onclick+'">'+label+'</button>';
+  };
+  var gray=function(t){ return '<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">'+t+'</div>'; };
+  if(_ptData===undefined) return head+gray('Loading...')+tail;
+  var present=ptPresentIds(sid);
+  if(!_ptData){
+    if(present.length<4) return head+gray('Kings Night opens once 4 players are checked in ('+present.length+' so far).')+tail;
+    return head+btn('Start Kings Night','ptOpenSetup()','#782F40','#fff','width:100%;padding:10px 12px;font-size:13px;')+tail;
+  }
+  var m=ptMeta();
+  if(m.status==='setup') return head+ptSetupHtml(esc,btn,gray)+tail;
+  return head+ptNightHtml(sid,esc,btn,gray,present)+tail;
+}
+function ptSetupHtml(esc,btn,gray){
+  var s=ptSetupState(), plan=ptSetupPlan();
+  var fmt=function(v,lbl){ return '<button class="filter-btn'+(s.format===v?' active':'')+'" style="flex:1;text-align:center;" onclick="ptSetupSet(\'format\',\''+v+'\')">'+lbl+'</button>'; };
+  var num=function(id,field,val,lbl,max){
+    return '<label style="flex:1;min-width:90px;font-size:11px;color:var(--gray);">'+lbl
+      +'<input type="number" inputmode="numeric" min="1" max="'+max+'" class="form-input" id="'+id+'" value="'+esc(val)+'" onchange="ptSetupSet(\''+field+'\',this.value)" style="padding:8px;font-size:14px;width:100%;box-sizing:border-box;margin-top:2px;"></label>';
+  };
+  var ids=ptPresentIds(_pcOpenSid).slice().sort(function(a,b){ return ptPlayerName(a).localeCompare(ptPlayerName(b)); });
+  var list;
+  if(s.format==='kq'){
+    list=ids.map(function(id){
+      var p=gP(id), g=ptGenderPool(p.gender), pick=s.picks[id];
+      var right;
+      if(g&&!pick) right='<span style="font-size:11px;color:var(--gray);">'+ptPoolLabel(g)+'</span>';
+      else right='<select class="form-select" onchange="ptSetupPick(\''+esc(id)+'\',this.value)" style="padding:4px 6px;font-size:12px;'+(pick?'':'border-color:var(--red);')+'">'
+        +'<option value="">'+(g?ptPoolLabel(g)+' (roster)':'Pick one')+'</option>'
+        +'<option value="kings"'+(pick==='kings'?' selected':'')+'>Kings</option>'
+        +'<option value="queens"'+(pick==='queens'?' selected':'')+'>Queens</option></select>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--gray-lighter);font-size:13px;color:var(--charcoal);">'
+        +'<span>'+esc(ptPlayerName(id))+'</span>'+right+'</div>';
+    }).join('');
+  } else {
+    list='<div style="font-size:12px;color:var(--charcoal);line-height:1.5;">'+ids.map(function(id){ return esc(ptPlayerName(id)); }).join(', ')+'</div>';
+  }
+  var counts=s.format==='kq'
+    ?(plan.counts.kings||0)+' Kings, '+(plan.counts.queens||0)+' Queens'+(plan.missing.length?(', '+plan.missing.length+' to assign'):'')
+    :ids.length+' players';
+  return gray('Everyone checked in plays. Players who arrive later can be added once it starts.')
+    +'<div style="display:flex;gap:6px;margin-bottom:8px;">'+fmt('mixed','Mixed')+fmt('kq','Kings and Queens')+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+    +num('pt-su-courts','courts',s.courts,'Courts',12)+num('pt-su-games','gamesPerPlayer',s.gamesPerPlayer,'Games each',20)+num('pt-su-score','scoreTo',s.scoreTo,'Play to',99)
+    +'</div>'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;letter-spacing:1px;color:var(--charcoal);margin-bottom:2px;">PLAYERS: '+esc(counts)+'</div>'
+    +'<div style="max-height:260px;overflow-y:auto;margin-bottom:8px;">'+list+'</div>'
+    +(plan.msg?'<div style="font-size:12px;color:var(--red);font-weight:700;margin-bottom:6px;">'+esc(plan.msg)+'</div>':'')
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    +(plan.offerMixed&&s.format==='kq'?btn('Use Mixed','ptSetupSet(\'format\',\'mixed\')','#082A4F','#fff'):'')
+    +btn('Start','ptStart()',plan.ok?'#217F7F':'var(--gray-light)',plan.ok?'#fff':'var(--gray)','flex:1;min-width:120px;')
+    +btn('Cancel','ptDelete()','var(--gray-light)','var(--charcoal)')
+    +'</div>';
+}
+function ptNightHtml(sid,esc,btn,gray,present){
+  var m=ptMeta(), pl=ptPlayersObj(), res=ptResultsObj(), isFinal=m.status==='final', pools=ptPools();
+  if(pools.indexOf(_ptPoolTab)<0) _ptPoolTab=pools[0];
+  var pool=pools.length>1?_ptPoolTab:pools[0];
+  var nm=function(id){
+    var p=pl[id], t=esc(ptPlayerName(id));
+    if(p&&p.droppedAt) t+=' <span style="font-size:10px;color:var(--gray);">(left)</span>';
+    return t;
+  };
+  var html=gray((m.format==='kq'?'Kings and Queens':'Mixed')+' · play to '+esc(m.scoreTo||PT_DEFAULTS.scoreTo)+' · '+esc(m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer)+' games each'+(isFinal?' · <strong style="color:var(--charcoal);">Final</strong>':''));
+  if(pools.length>1){
+    html+='<div style="display:flex;gap:6px;margin-bottom:8px;">'+pools.map(function(p){
+      return '<button class="filter-btn'+(p===pool?' active':'')+'" style="flex:1;text-align:center;" onclick="ptPickPool(\''+p+'\')">'+ptPoolLabel(p)+'</button>';
+    }).join('')+'</div>';
+  }
+  // Round picker and the picked round's courts.
+  var prog=ptPoolProgress(pool), rounds=prog.rounds;
+  if(!rounds.length){
+    html+=gray('No rounds scheduled in this pool.');
+  } else {
+    var cur=prog.firstOpen<0?rounds.length-1:prog.firstOpen;
+    var ri=(_ptView[pool]!=null&&_ptView[pool]<rounds.length)?_ptView[pool]:cur;
+    html+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">'+rounds.map(function(rd,i){
+      var done=rd.games.length&&rd.games.every(function(g){ return res[g.gid]; });
+      return '<button class="filter-btn'+(i===ri?' active':'')+'" style="padding:4px 9px;font-size:11px;" onclick="ptPickRound(\''+pool+'\','+i+')">R'+(i+1)+(done?' ✓':'')+'</button>';
+    }).join('')+'</div>';
+    var rd=rounds[ri];
+    html+=rd.games.map(function(g){
+      var r=res[g.gid], editing=(_ptEditGid===g.gid)&&!isFinal, d=_ptDraft[g.gid]||{};
+      var t1=g.t1.map(nm).join(' &amp; '), t2=g.t2.map(nm).join(' &amp; ');
+      var box='<div style="border:1px solid var(--gray-lighter);border-radius:8px;padding:8px 10px;margin-bottom:6px;">'
+        +'<div style="font-size:11px;color:var(--gray);margin-bottom:4px;">Round '+(ri+1)+' · Court '+esc(g.court)+'</div>';
+      if(r&&!editing){
+        var w1=(+r.s1)>(+r.s2);
+        box+='<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;'+(w1?'font-weight:700;color:#217F7F;':'color:var(--charcoal);')+'"><span>'+t1+'</span><span>'+esc(r.s1)+'</span></div>'
+          +'<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;'+(!w1?'font-weight:700;color:#217F7F;':'color:var(--charcoal);')+'"><span>'+t2+'</span><span>'+esc(r.s2)+'</span></div>'
+          +(isFinal?'':'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">'
+            +btn('Edit','ptEditScore(\''+esc(g.gid)+'\')','var(--gray-light)','var(--charcoal)','padding:4px 10px;font-size:11px;')
+            +btn('Clear','ptClearScore(\''+esc(g.gid)+'\')','var(--gray-light)','var(--charcoal)','padding:4px 10px;font-size:11px;')+'</div>');
+      } else if(isFinal){
+        box+='<div style="font-size:13px;color:var(--charcoal);">'+t1+' <span style="color:var(--gray);">vs</span> '+t2+'</div>'
+          +'<div style="font-size:11px;color:var(--gray);margin-top:2px;">Not played</div>';
+      } else {
+        var inp=function(side){
+          return '<input type="number" inputmode="numeric" min="0" class="form-input" id="pt-'+side+'-'+esc(g.gid)+'" value="'+esc(d[side]!=null?d[side]:'')+'" oninput="ptDraftSet(\''+esc(g.gid)+'\',\''+side+'\',this.value)" style="width:64px;padding:6px;font-size:16px;text-align:center;box-sizing:border-box;">';
+        };
+        box+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;"><span style="font-size:13px;color:var(--charcoal);">'+t1+'</span>'+inp('s1')+'</div>'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0;"><span style="font-size:13px;color:var(--charcoal);">'+t2+'</span>'+inp('s2')+'</div>'
+          +'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">'
+          +(editing?btn('Cancel','ptCancelEdit()','var(--gray-light)','var(--charcoal)','padding:5px 10px;font-size:11px;'):'')
+          +btn(editing?'Save change':'Save score','ptSaveScore(\''+pool+'\',\''+esc(g.gid)+'\')','#217F7F','#fff','padding:5px 12px;font-size:12px;')
+          +'</div>';
+      }
+      return box+'</div>';
+    }).join('');
+    if(rd.sitOut.length) html+=gray('Sitting out round '+(ri+1)+': '+rd.sitOut.map(function(id){ return esc(ptPlayerName(id)); }).join(', '));
+  }
+  // Standings for the pool on screen.
+  var st=ptStandings(pool);
+  html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;letter-spacing:1px;color:var(--charcoal);margin:10px 0 4px;">'+(pools.length>1?ptPoolLabel(pool).toUpperCase()+' ':'')+'STANDINGS</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;"><thead><tr style="color:var(--gray);text-align:left;">'
+    +'<th style="padding:4px 2px;font-weight:600;">#</th><th style="padding:4px 2px;font-weight:600;">Player</th><th style="padding:4px 2px;font-weight:600;text-align:center;">W</th><th style="padding:4px 2px;font-weight:600;text-align:center;">L</th><th style="padding:4px 2px;font-weight:600;text-align:center;">+/-</th><th style="padding:4px 2px;font-weight:600;text-align:center;">GP</th></tr></thead><tbody>'
+    +st.map(function(x,i){
+      return '<tr style="border-top:1px solid var(--gray-lighter);color:var(--charcoal);">'
+        +'<td style="padding:5px 2px;color:var(--gray);">'+(i+1)+'</td>'
+        +'<td style="padding:5px 2px;">'+esc(x.name)+(x.dropped?' <span style="font-size:10px;color:var(--gray);">(left)</span>':'')+'</td>'
+        +'<td style="padding:5px 2px;text-align:center;font-weight:700;">'+x.w+'</td>'
+        +'<td style="padding:5px 2px;text-align:center;">'+x.l+'</td>'
+        +'<td style="padding:5px 2px;text-align:center;color:'+(x.pd>0?'#217F7F':x.pd<0?'var(--red)':'var(--gray)')+';">'+(x.gp?((x.pd>0?'+':'')+x.pd):'-')+'</td>'
+        +'<td style="padding:5px 2px;text-align:center;">'+x.gp+'</td></tr>';
+    }).join('')
+    +'</tbody></table>';
+  if(isFinal) return html;
+  // Late add and early drop.
+  var inIds=Object.keys(pl).filter(function(id){ return pl[id]&&!pl[id].droppedAt; });
+  var addable=present.filter(function(id){ return inIds.indexOf(id)<0; }).sort(function(a,b){ return ptPlayerName(a).localeCompare(ptPlayerName(b)); });
+  if(_ptUi.add&&addable.indexOf(_ptUi.add)<0) _ptUi.add='';
+  if(_ptUi.drop&&inIds.indexOf(_ptUi.drop)<0) _ptUi.drop='';
+  var sel=function(field,opts,placeholder){
+    return '<select class="form-select" onchange="ptUiSet(\''+field+'\',this.value)" style="flex:1;min-width:140px;padding:6px;font-size:12px;">'
+      +'<option value="">'+placeholder+'</option>'+opts+'</select>';
+  };
+  var addOpts=addable.map(function(id){ return '<option value="'+esc(id)+'"'+(_ptUi.add===id?' selected':'')+'>'+esc(ptPlayerName(id))+'</option>'; }).join('');
+  var needPool=false;
+  if(m.format==='kq'&&_ptUi.add){
+    var ap=gP(_ptUi.add), prevPool=pl[_ptUi.add]&&pl[_ptUi.add].pool;
+    needPool=!prevPool&&!ptGenderPool(ap&&ap.gender);
+  }
+  var dropOpts=inIds.slice().sort(function(a,b){ return ptPlayerName(a).localeCompare(ptPlayerName(b)); }).map(function(id){
+    return '<option value="'+esc(id)+'"'+(_ptUi.drop===id?' selected':'')+'>'+esc(ptPlayerName(id))+(pools.length>1?' ('+ptPoolLabel(pl[id].pool)+')':'')+'</option>';
+  }).join('');
+  html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;letter-spacing:1px;color:var(--charcoal);margin:6px 0 4px;">ROSTER CHANGES</div>'
+    +(addable.length
+      ?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">'+sel('add',addOpts,'Add a late arrival')
+        +(needPool?'<select class="form-select" onchange="ptUiSet(\'addPool\',this.value)" style="padding:6px;font-size:12px;border-color:var(--red);"><option value="">Kings or Queens</option><option value="kings"'+(_ptUi.addPool==='kings'?' selected':'')+'>Kings</option><option value="queens"'+(_ptUi.addPool==='queens'?' selected':'')+'>Queens</option></select>':'')
+        +btn('Add','ptLateAdd()','#217F7F','#fff')+'</div>'
+      :gray('Everyone checked in is already playing.'))
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'+sel('drop',dropOpts,'Drop an early leaver')+btn('Drop','ptDrop()','var(--gray-light)','var(--charcoal)')+'</div>';
+  // Before the first score the night can be redrawn or removed; after it, only ended.
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    +(ptHasResults()
+      ?btn('End Night','ptEndNight()','#782F40','#fff','flex:1;min-width:140px;')
+      :btn('Regenerate rounds','ptRegenerate()','#082A4F','#fff','flex:1;min-width:140px;')+btn('Delete','ptDelete()','var(--gray-light)','var(--charcoal)'))
+    +'</div>';
+  return html;
+}
 function practiceCheckinHtml(){
   if(!tsFeatureOn()||currentRole!=='coach') return '';
   return '<div class="card" id="pc-mount"></div>';
 }
 function renderPracticeCheckin(){
   var mount=document.getElementById('pc-mount'); if(!mount) return;
-  if(!tsFeatureOn()||currentRole!=='coach'){ mount.innerHTML=''; return; }
+  if(!tsFeatureOn()||currentRole!=='coach'){ ptDetach(); mount.innerHTML=''; return; }
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
   var today=td();
   var sess=_pcOpenSid?((D.tryoutSessions||{})[_pcOpenSid]||null):null;
   if(_pcOpenSid&&(!sess||tsSessionType(sess)!=='practice')){ _pcOpenSid=null; sess=null; }
-  var searchFocused=document.activeElement&&document.activeElement.id==='pc-search';
+  // The tournament listener follows the open practice: attached for it, detached when it is
+  // hidden or another practice opens. A first value that arrives synchronously is read below.
+  _pcRendering=true; ptAttach(sess?_pcOpenSid:null); _pcRendering=false;
+  // A live redraw puts the exec back where they were typing: the search box or a score box.
+  var ae=document.activeElement, focusId=(ae&&ae.id&&(ae.id==='pc-search'||ae.id.indexOf('pt-')===0))?ae.id:null;
 
   var startBtn=function(squad,bg,fg){
     var has=!!pcFindPractice(squad,today);
@@ -12882,6 +13550,7 @@ function renderPracticeCheckin(){
       +'<div style="font-size:11px;color:var(--gray);text-align:center;">Members scan this code or open the link while logged in.</div>'
       +'<a href="'+esc(url)+'" target="_blank" rel="noopener" style="font-size:11px;color:var(--red);word-break:break-all;text-align:center;">'+esc(url)+'</a>'
       +'</div>'
+      +ptHtml(sid,esc)
       +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">ATTENDANCE</div>'
       +'<div style="display:flex;gap:6px;margin-bottom:6px;">'+pill('gold','Gold')+pill('garnet','Garnet')+pill('all','All')+'</div>'
       +'<input class="form-input" id="pc-search" value="'+esc(_pcQuery)+'" oninput="pcSearch()" placeholder="Search by name" style="padding:8px;font-size:13px;width:100%;box-sizing:border-box;margin-bottom:4px;">'
@@ -12906,10 +13575,9 @@ function renderPracticeCheckin(){
       }
     }
     if(_pcQuery) pcSearch();
-    // A live check-in redraws this panel; put the exec back in the search box mid-word.
-    if(searchFocused){
-      var box=document.getElementById('pc-search');
-      if(box){ box.focus(); var n=box.value.length; try{ box.setSelectionRange(n,n); }catch(e){} }
+    if(focusId){
+      var box=document.getElementById(focusId);
+      if(box){ box.focus(); var n=String(box.value||'').length; try{ box.setSelectionRange(n,n); }catch(e){} }
     }
   }
 }
