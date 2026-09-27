@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.160';
+const APP_VERSION='1.1.161';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12654,6 +12654,7 @@ function pcStartPractice(squad){
   var label=TS_SQUAD_LABELS[squad]+' practice';
   var found=pcFindPractice(squad,today);
   _pcFilter=squad; _pcQuery='';
+  pcLoadRatings(); // fresh read each time a practice is opened
   if(found){
     _pcOpenSid=found.sid;
     renderPracticeCheckin();
@@ -12692,6 +12693,95 @@ function pcSearch(){
 function pcPresentCount(sid){
   var a=(D.tryoutAttendance||{})[sid]||{};
   return Object.keys(a).filter(function(pid){ return practiceEligibleId(pid)&&a[pid]&&a[pid].present; }).length;
+}
+// ---- Rating identity (read only) -------------------------------------------
+// Maps a club roster member to their platform rating record at tally_kotb_pickup/ratings/{nameKey}.
+// Read once per practice open, never listened to and never written here. Account first, name
+// second, the same order pickup's ratingRecordFor uses: a record's key and the account's key differ
+// on almost every live record, so the playerId tag is the only reliable bridge and a name match is
+// the weaker fallback. The key rule is Ratings.nameKey from /ratings.js, never a copy of it.
+var _pcRatings=null;        // snapshot of tally_kotb_pickup/ratings, or null when not loaded
+var _pcRatingsIndex=null;   // { byAcct, untaggedByName } built from the snapshot on first use
+var _pcRatingsTicket=0;     // a newer load wins over an older one still in flight
+function pcRatingsReady(){
+  return !!(_pcRatings&&window.Ratings&&typeof Ratings.nameKey==='function');
+}
+function pcLoadRatings(){
+  if(!db||!window.Ratings||typeof Ratings.nameKey!=='function') return;
+  var ticket=++_pcRatingsTicket;
+  // Account ratings ride along so a 'new' member's seed matches the number the club already shows.
+  Promise.all([
+    db.ref('tally_kotb_pickup/ratings').once('value'),
+    ensureCommunityPlayers()
+  ]).then(function(res){
+    if(ticket!==_pcRatingsTicket) return;
+    _pcRatings=res[0].val()||{};
+    _pcRatingsIndex=null;
+    renderPracticeCheckin();
+  }).catch(function(e){
+    if(ticket!==_pcRatingsTicket) return;
+    console.warn('practice ratings read failed', e);
+    _pcRatings=null; _pcRatingsIndex=null;
+    renderPracticeCheckin();
+  });
+}
+function pcRatingsIdx(){
+  if(_pcRatingsIndex) return _pcRatingsIndex;
+  var byAcct={}, untaggedByName={};
+  Object.keys(_pcRatings||{}).forEach(function(k){
+    var rec=_pcRatings[k];
+    if(!rec||typeof rec!=='object') return;
+    if(typeof rec.playerId==='string'&&rec.playerId){
+      (byAcct[rec.playerId]=byAcct[rec.playerId]||[]).push(k);
+      return;
+    }
+    // An untagged record answers to its own key and to the key of the name it stores, so a
+    // record whose key drifted from its name is still found. Each record counts once per name.
+    var names=[k];
+    if(rec.name){ var nk=Ratings.nameKey(rec.name); if(nk&&nk!==k) names.push(nk); }
+    names.forEach(function(nk){ (untaggedByName[nk]=untaggedByName[nk]||[]).push(k); });
+  });
+  _pcRatingsIndex={byAcct:byAcct, untaggedByName:untaggedByName};
+  return _pcRatingsIndex;
+}
+// The name to hand Ratings.applyGame for a record key. applyGame keys by Ratings.nameKey(name), so
+// the stored name is used only when it maps back to this exact key; otherwise the key itself, which
+// nameKey leaves unchanged.
+function pcNameForKey(key,preferred){
+  return (preferred&&Ratings.nameKey(preferred)===key)?preferred:key;
+}
+// One member's rating identity. Null when ratings are not loaded, the member is unknown, or the id
+// is excluded from practices. Otherwise one of:
+//   linked     exactly one record tagged with the member's accountId
+//   name       no tagged record, exactly one untagged record with the member's name (weaker)
+//   ambiguous  two or more tagged to the account, or two or more untagged name matches
+//   collision  no record, and the member's key belongs to a record tagged to another account
+//   new        no record and the key is free; seed is the rating the club already shows
+function resolveClubRating(clubRosterId){
+  if(!pcRatingsReady()||!practiceEligibleId(clubRosterId)) return null;
+  var p=gP(clubRosterId); if(!p) return null;
+  var idx=pcRatingsIdx(), R=_pcRatings;
+  var acct=(typeof p.accountId==='string'&&p.accountId)?p.accountId:'';
+  var tagged=acct?(idx.byAcct[acct]||[]):[];
+  if(tagged.length===1){
+    var tk=tagged[0];
+    return {status:'linked', key:tk, name:pcNameForKey(tk,R[tk].name), record:R[tk]};
+  }
+  if(tagged.length>1) return {status:'ambiguous', candidates:tagged.slice()};
+  var display=((p.firstName||'')+' '+(p.lastName||'')).trim()||String(p.name||'').trim();
+  var key=Ratings.nameKey(display);
+  // No usable name means no safe key to rate under, so an exec has to sort it out.
+  if(!key) return {status:'ambiguous', candidates:[]};
+  var byName=(idx.untaggedByName[key]||[]).filter(function(k,i,a){ return a.indexOf(k)===i; });
+  if(byName.length===1){
+    var nk=byName[0];
+    return {status:'name', key:nk, name:pcNameForKey(nk,R[nk].name), record:R[nk]};
+  }
+  if(byName.length>1) return {status:'ambiguous', candidates:byName};
+  // Nothing of theirs matched. If the key is already held it is tagged to someone else (an untagged
+  // or own-account record would have matched above), and it is never taken over automatically.
+  if(R[key]) return {status:'collision', key:key};
+  return {status:'new', key:key, name:display, seed:csRankFor(p)};
 }
 function practiceCheckinHtml(){
   if(!tsFeatureOn()||currentRole!=='coach') return '';
@@ -12738,6 +12828,22 @@ function renderPracticeCheckin(){
     var list=Object.keys(byId).map(function(k){ return byId[k]; }).sort(function(a,b){
       return String(a.lastName||'').localeCompare(String(b.lastName||''))||String(a.firstName||'').localeCompare(String(b.firstName||''));
     });
+    // Rating identity for present players only. With ratings unavailable this stays empty, the
+    // line below is left out, and the panel reads exactly as it did before.
+    var rateById={}, rLinked=0, rNew=0, rExec=0;
+    if(pcRatingsReady()){
+      Object.keys(att).forEach(function(pid){
+        if(!att[pid]||!att[pid].present) return;
+        var r=resolveClubRating(pid); if(!r) return;
+        rateById[pid]=r;
+        if(r.status==='linked'||r.status==='name') rLinked++;
+        else if(r.status==='new') rNew++;
+        else rExec++;
+      });
+    }
+    var ratingsLine=pcRatingsReady()
+      ?'<div style="font-size:11px;color:var(--gray);margin:-4px 0 8px;">Ratings: '+rLinked+' linked, '+rNew+' new'+(rExec?', '+rExec+' need an '+esc(COACH_LABEL.toLowerCase()):'')+'</div>'
+      :'';
     var rows=list.map(function(p){
       var pid=p.id;
       var nm=((p.firstName||'')+' '+(p.lastName||'')).trim()||pid;
@@ -12745,6 +12851,9 @@ function renderPracticeCheckin(){
       var tag='';
       if(p.status==='prospect') tag=' <span style="font-size:10px;color:var(--gray);">prospect</span>';
       else if(p.tier&&p.tier!==sess.squad) tag=' <span class="tier-badge tier-'+esc(p.tier)+'">'+esc(TS_SQUAD_LABELS[p.tier]||p.tier)+'</span>';
+      var rs=(a&&a.present)?rateById[pid]:null;
+      if(rs&&rs.status==='name') tag+=' <span style="font-size:10px;color:var(--gray);">name match</span>';
+      else if(rs&&(rs.status==='ambiguous'||rs.status==='collision')) tag+=' <span style="font-size:10px;color:var(--red);font-weight:700;">needs link</span>';
       var state=a?(a.present
           ?'<span style="font-size:11px;color:#217F7F;font-weight:700;">Present</span> <span style="font-size:10px;color:var(--gray);">('+(a.method==='qr'?'scanned':'by hand')+')</span>'
           :'<span style="font-size:11px;color:var(--red);font-weight:700;">Absent</span>')
@@ -12767,6 +12876,7 @@ function renderPracticeCheckin(){
       +'<button class="btn btn-small btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="pcClose()">Hide</button>'
       +'</div>'
       +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:1px;color:var(--red);margin:6px 0 8px;">'+pcPresentCount(sid)+' checked in</div>'
+      +ratingsLine
       +'<div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:10px;">'
       +'<div id="pc-qr-slot"></div>'
       +'<div style="font-size:11px;color:var(--gray);text-align:center;">Members scan this code or open the link while logged in.</div>'
