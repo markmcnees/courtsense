@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.159';
+const APP_VERSION='1.1.160';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2769,6 +2769,7 @@ function listenData(){if(!db)return;
     if(typeof tryoutLoginPrompt==='function')tryoutLoginPrompt();
     if(typeof tsDoorRestore==='function')tsDoorRestore();
     _maybeRenderRecruiting();
+    if(typeof renderPracticeCheckin==='function')renderPracticeCheckin();
   });
   db.ref(DB_ROOT+'/tryoutAttendance').on('value',s=>{
     D.tryoutAttendance=s.val()||{};
@@ -2776,6 +2777,7 @@ function listenData(){if(!db)return;
     // is what made the code unreadable during a rush, so the overlay itself is left alone.
     if(typeof tsDoorUpdateCount==='function')tsDoorUpdateCount();
     _maybeRenderRecruiting();
+    if(typeof renderPracticeCheckin==='function')renderPracticeCheckin();
   });
   // Club dues (exec only). Re-render Accounting live, but never while the exec is typing the amount.
   db.ref(DB_ROOT+'/dues').on('value',s=>{
@@ -10371,9 +10373,14 @@ function renderPracticeGroups(){
 // library fails, the same check-in link is shown as text and the exec takes attendance by hand.
 //
 // Firebase paths (all under DB_ROOT):
-//   tryoutSessions/{sid}                      = { name, date, time, location, createdAt }
+//   tryoutSessions/{sid}                      = { name, date, time, location, createdAt, type?, squad? }
 //   tryoutSessions/{sid}/invited/{prospectId} = invitedAt (ms epoch)
 //   tryoutAttendance/{sid}/{prospectId}       = { present:bool, at:ms, method:'qr'|'manual' }
+//
+// Practice check-in rides on the same two nodes. A session with type 'practice' carries a squad
+// ('gold' or 'garnet') and is one squad's practice on one date; a missing type means 'tryout', so
+// every session written before practices existed reads exactly as it always has. Attendance for a
+// practice uses the identical path and record shape, so "who is present tonight" is one read.
 // ============================================================
 
 // Pinned QR generator. jsDelivr serves the exact npm-published file for this version, so the
@@ -10487,6 +10494,10 @@ function captureTryoutParam(){
 function tryoutApplyUrl(){
   var u=SC.applyUrl||'';
   var sid=tryoutHoldGet();
+  // A practice code never rides along: signup checks a walk-up in to whatever session it is
+  // handed, and a brand-new applicant is not on a squad's practice list.
+  var held=sid?((D.tryoutSessions||{})[sid]||null):null;
+  if(held&&tsSessionType(held)==='practice') sid=null;
   if(u&&sid) u+=(u.indexOf('?')>=0?'&':'?')+'tryout='+encodeURIComponent(sid);
   return u;
 }
@@ -10540,9 +10551,13 @@ function tryoutLoginPrompt(){
   var sess=sid?((D.tryoutSessions||{})[sid]||null):null;
   if(!sid||!sess||!ov||ov.classList.contains('hidden')){ note.innerHTML=''; return; }
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  // Practice codes are for squad members, so the apply line (a tryout walk-up path) is left off.
+  var isPractice=tsSessionType(sess)==='practice';
   note.innerHTML='<div style="background:var(--primary-bg,#f3e9eb);border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin:10px 0 4px;font-family:\'Barlow\',sans-serif;font-size:13px;color:var(--charcoal);line-height:1.45;">'
-    +'<strong>Log in to check in to '+esc(sess.name||'this session')+'.</strong>'
-    +'<div style="margin-top:3px;color:var(--gray);">New to the club? Use the application button below and you are checked in when you finish.</div>'
+    +(isPractice
+      ?'<strong>Log in to check in to '+esc(practiceSessionLabel(sess))+'.</strong>'
+      :'<strong>Log in to check in to '+esc(sess.name||'this session')+'.</strong>'
+        +'<div style="margin-top:3px;color:var(--gray);">New to the club? Use the application button below and you are checked in when you finish.</div>')
     +'</div>';
   if(!_tryoutLoginTabSwitched){
     _tryoutLoginTabSwitched=true;
@@ -10571,10 +10586,13 @@ function processPendingTryout(){
   if(currentRole!=='player'||!currentPlayerId) return;
   var sess=(D.tryoutSessions||{})[sid];
   if(!sess){ tryoutHoldClear(); tryoutNotice('error','That check-in link is no longer active. Ask an '+COACH_LABEL.toLowerCase()+' for the current code.'); return; }
+  var isPractice=tsSessionType(sess)==='practice';
+  var pid=currentPlayerId;
+  // The club test account never lands on a practice list, so a scan from it is dropped, not written.
+  if(isPractice&&!practiceEligibleId(pid)){ tryoutHoldClear(); tryoutNotice('error','This is the club test account, so it is not checked in to practices.'); return; }
   if(_tryoutWriteBusy) return;
   _tryoutWriteBusy=true;
-  var nm=sess.name||'this session';
-  var pid=currentPlayerId;
+  var nm=isPractice?practiceSessionLabel(sess):(sess.name||'this session');
   fbSet('tryoutAttendance/'+sid+'/'+pid,{present:true,at:Date.now(),method:'qr'}).then(function(ok){
     _tryoutWriteBusy=false;
     if(ok){ tryoutHoldClear(); tryoutNotice('ok','You are checked in to '+nm+'.'); }
@@ -10587,6 +10605,20 @@ function tsSessionsArr(){
   var o=D.tryoutSessions||{};
   return Object.keys(o).map(function(sid){ return Object.assign({sid:sid},o[sid]); })
     .sort(function(a,b){ return (a.createdAt||0)-(b.createdAt||0); });
+}
+// 'practice' or 'tryout'. A missing or unknown type is a tryout, which is every legacy session.
+function tsSessionType(sess){ return (sess&&sess.type==='practice')?'practice':'tryout'; }
+// Recruiting, door mode, and invitations only ever see tryouts, so practices never leak into them.
+function tsTryoutSessionsArr(){
+  return tsSessionsArr().filter(function(s){ return tsSessionType(s)==='tryout'; });
+}
+// Roster ids that never appear in practice check-in lists or practice attendance views, and are
+// never checked in to a practice by a scan. The club's shared test login lives here.
+var PRACTICE_EXCLUDED_IDS=['pmua5780y55e']; // "Exec Exec" club test account
+function practiceEligibleId(pid){ return PRACTICE_EXCLUDED_IDS.indexOf(pid)<0; }
+// Player-facing name for a practice session: "Gold practice".
+function practiceSessionLabel(sess){
+  return ((sess&&TS_SQUAD_LABELS[sess.squad])||'Squad')+' practice';
 }
 function tsProspects(){
   // Active prospects only. Inactive ones (applied, never came) are held in tsInactiveProspects.
@@ -10604,7 +10636,7 @@ function tsAttendance(sid,pid){
   return a?(a[pid]||null):null;
 }
 function tsInvitesForProspect(pid){
-  return tsSessionsArr().filter(function(sess){ return tsInvitedTo(sess.sid,pid); });
+  return tsTryoutSessionsArr().filter(function(sess){ return tsInvitedTo(sess.sid,pid); });
 }
 // Re-render Recruiting on a live data change, but never while the exec is typing in one of its
 // fields (a Firebase echo must not clobber an edit in progress).
@@ -10715,7 +10747,7 @@ function tsNowMinutes(){ var d=new Date(); return d.getHours()*60+d.getMinutes()
 // Today's sessions, earliest start first.
 function tsTodaySessions(){
   var today=td();
-  return tsSessionsArr().filter(function(s){ return String(s.date||'')===today; })
+  return tsTryoutSessionsArr().filter(function(s){ return String(s.date||'')===today; })
     .sort(function(a,b){
       var am=tsStartMinutes(a.time), bm=tsStartMinutes(b.time);
       if(am==null&&bm==null) return (a.createdAt||0)-(b.createdAt||0);
@@ -10963,7 +10995,7 @@ function avatarHtml(person, size){
 function renderRecruiting(){
   var pane=document.getElementById('tab-recruiting'); if(!pane) return;
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
-  var sessions=tsSessionsArr();
+  var sessions=tsTryoutSessionsArr();
   var prospects=tsProspects();
   var pName=function(p){ return ((p.firstName||'')+' '+(p.lastName||'')).trim(); };
   var tierBadge=function(t){ return t==='gold'?'<span class="tier-badge tier-gold">Gold</span>':t==='garnet'?'<span class="tier-badge tier-garnet">Garnet</span>':'<span style="font-size:11px;color:var(--gray);">No request</span>'; };
@@ -12600,6 +12632,177 @@ function psScheduleText(sched){
   if(sched.location) s+=(s?', ':'')+sched.location;
   return s.trim();
 }
+// ---- Practice check-in (club, exec only) ----------------------------------
+// One session per squad per date, stored as a type 'practice' record under tryoutSessions so the
+// door QR, the member scan, and manual marks all reuse the tryout machinery above unchanged. A new
+// session gets the key pr-{squad}-{date}, so two execs tapping Start at once land on one record
+// instead of two. The panel lives in its own mount inside the Practice tab and is redrawn on every
+// session or attendance change without touching the schedule editor or Team Analysis around it.
+var _pcOpenSid=null;       // the practice session whose QR and attendance are showing
+var _pcFilter='gold';      // roster filter in the attendance view: 'gold' | 'garnet' | 'all'
+var _pcQuery='';           // live name search, kept across redraws
+var _pcQrNode=null;        // { sid, el } the drawn code, reused so a redraw never repaints it
+function pcFindPractice(squad,date){
+  return tsSessionsArr().filter(function(s){
+    return tsSessionType(s)==='practice'&&s.squad===squad&&String(s.date||'')===date;
+  })[0]||null;
+}
+function pcStartPractice(squad){
+  if(!tsFeatureOn()||currentRole!=='coach') return;
+  if(squad!=='gold'&&squad!=='garnet') return;
+  var today=td();
+  var label=TS_SQUAD_LABELS[squad]+' practice';
+  var found=pcFindPractice(squad,today);
+  _pcFilter=squad; _pcQuery='';
+  if(found){
+    _pcOpenSid=found.sid;
+    renderPracticeCheckin();
+    toast(label+' reopened');
+    return;
+  }
+  var sid='pr-'+squad+'-'+today;
+  var sched=psSchedule(squad);
+  var rec={type:'practice',squad:squad,name:TS_SQUAD_LABELS[squad]+' Practice',date:today,
+    time:sched.time||'',location:sched.location||PS_LOC_DEFAULT,createdAt:Date.now()};
+  // Mirror into D so the QR shows now; the Firebase echo replaces it with the same record.
+  if(!D.tryoutSessions)D.tryoutSessions={};
+  D.tryoutSessions[sid]=rec;
+  _pcOpenSid=sid;
+  renderPracticeCheckin();
+  fbSet('tryoutSessions/'+sid,rec).then(function(ok){
+    if(ok){ toast(label+' started'); return; }
+    // The write did not land, so there is no session to scan into. Take the code down.
+    if(D.tryoutSessions&&D.tryoutSessions[sid]===rec) delete D.tryoutSessions[sid];
+    if(_pcOpenSid===sid) _pcOpenSid=null;
+    renderPracticeCheckin();
+  });
+}
+function pcClose(){ _pcOpenSid=null; _pcQuery=''; renderPracticeCheckin(); }
+function pcSetFilter(f){ _pcFilter=(f==='gold'||f==='garnet')?f:'all'; renderPracticeCheckin(); }
+// Filter rows in place on each keystroke: no read, no redraw, focus stays in the box.
+function pcSearch(){
+  var box=document.getElementById('pc-search'); if(!box) return;
+  _pcQuery=box.value;
+  var q=String(box.value||'').trim().toLowerCase();
+  Array.prototype.forEach.call(document.querySelectorAll('.pc-row'),function(r){
+    var n=r.getAttribute('data-name')||'';
+    r.style.display=(!q||n.indexOf(q)>=0)?'':'none';
+  });
+}
+function pcPresentCount(sid){
+  var a=(D.tryoutAttendance||{})[sid]||{};
+  return Object.keys(a).filter(function(pid){ return practiceEligibleId(pid)&&a[pid]&&a[pid].present; }).length;
+}
+function practiceCheckinHtml(){
+  if(!tsFeatureOn()||currentRole!=='coach') return '';
+  return '<div class="card" id="pc-mount"></div>';
+}
+function renderPracticeCheckin(){
+  var mount=document.getElementById('pc-mount'); if(!mount) return;
+  if(!tsFeatureOn()||currentRole!=='coach'){ mount.innerHTML=''; return; }
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  var today=td();
+  var sess=_pcOpenSid?((D.tryoutSessions||{})[_pcOpenSid]||null):null;
+  if(_pcOpenSid&&(!sess||tsSessionType(sess)!=='practice')){ _pcOpenSid=null; sess=null; }
+  var searchFocused=document.activeElement&&document.activeElement.id==='pc-search';
+
+  var startBtn=function(squad,bg,fg){
+    var has=!!pcFindPractice(squad,today);
+    var on=sess&&sess.squad===squad&&sess.date===today;
+    return '<button class="btn btn-small" style="flex:1;min-width:150px;padding:10px 12px;font-size:13px;background:'+bg+';color:'+fg+';border:none;'
+      +(on?'box-shadow:0 0 0 2px var(--charcoal);':'')+'" onclick="pcStartPractice(\''+squad+'\')">'
+      +(has?'Reopen ':'Start ')+TS_SQUAD_LABELS[squad]+' Practice</button>';
+  };
+  var html='<div class="card-title"><span class="bar"></span> ✅ Practice Check-in</div>'
+    +'<p style="font-size:11px;color:var(--gray);margin-bottom:10px;">Start today\'s practice for a squad to show its check-in code. Members scan it while logged in. Mark anyone present or absent by hand below.</p>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
+    +startBtn('gold','#CEB888','#2d2d2d')+startBtn('garnet','#782F40','#fff')
+    +'</div>';
+
+  if(sess){
+    var sid=_pcOpenSid;
+    var url=tryoutAttendUrl(sid);
+    var att=(D.tryoutAttendance||{})[sid]||{};
+    var sub=[tsReadableDate(sess.date),sess.time||'',sess.location||''].filter(Boolean).join(' · ');
+    // Roster for this view: active, eligible, and in the chosen squad. Anyone already marked on
+    // this session stays listed whatever the filter, so a scan from outside the squad is visible.
+    var byId={};
+    (Array.isArray(D.players)?D.players:[]).forEach(function(p){
+      if(!p||!p.id||p.active===false||!practiceEligibleId(p.id)) return;
+      if(_pcFilter==='all'||p.tier===_pcFilter) byId[p.id]=p;
+    });
+    Object.keys(att).forEach(function(pid){
+      if(!practiceEligibleId(pid)||byId[pid]) return;
+      byId[pid]=gP(pid)||{id:pid};
+    });
+    var list=Object.keys(byId).map(function(k){ return byId[k]; }).sort(function(a,b){
+      return String(a.lastName||'').localeCompare(String(b.lastName||''))||String(a.firstName||'').localeCompare(String(b.firstName||''));
+    });
+    var rows=list.map(function(p){
+      var pid=p.id;
+      var nm=((p.firstName||'')+' '+(p.lastName||'')).trim()||pid;
+      var a=att[pid]||null;
+      var tag='';
+      if(p.status==='prospect') tag=' <span style="font-size:10px;color:var(--gray);">prospect</span>';
+      else if(p.tier&&p.tier!==sess.squad) tag=' <span class="tier-badge tier-'+esc(p.tier)+'">'+esc(TS_SQUAD_LABELS[p.tier]||p.tier)+'</span>';
+      var state=a?(a.present
+          ?'<span style="font-size:11px;color:#217F7F;font-weight:700;">Present</span> <span style="font-size:10px;color:var(--gray);">('+(a.method==='qr'?'scanned':'by hand')+')</span>'
+          :'<span style="font-size:11px;color:var(--red);font-weight:700;">Absent</span>')
+        :'';
+      return '<div class="pc-row" data-name="'+esc(nm.toLowerCase())+'" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--gray-lighter);flex-wrap:wrap;">'
+        +'<span style="font-size:13px;color:var(--charcoal);">'+esc(nm)+tag+'</span>'
+        +'<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+state
+        +'<button class="btn btn-small" style="padding:5px 10px;font-size:11px;background:#217F7F;color:#fff;border:none;" onclick="tsMarkAttendance(\''+esc(sid)+'\',\''+esc(pid)+'\',true)">Present</button>'
+        +'<button class="btn btn-small" style="padding:5px 10px;font-size:11px;background:var(--gray-light);color:var(--charcoal);border:none;" onclick="tsMarkAttendance(\''+esc(sid)+'\',\''+esc(pid)+'\',false)">Absent</button>'
+        +(a?'<button class="btn btn-small" style="padding:5px 10px;font-size:11px;" onclick="tsClearAttendance(\''+esc(sid)+'\',\''+esc(pid)+'\')">Clear</button>':'')
+        +'</span></div>';
+    }).join('');
+    var pill=function(v,lbl){
+      return '<button class="filter-btn'+(_pcFilter===v?' active':'')+'" style="flex:1;text-align:center;" onclick="pcSetFilter(\''+v+'\')">'+lbl+'</button>';
+    };
+    html+='<div style="border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;margin-top:10px;">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">'
+      +'<div><div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;color:var(--charcoal);line-height:1.1;">'+esc(sess.name||practiceSessionLabel(sess))+'</div>'
+      +(sub?'<div style="font-size:11px;color:var(--gray);margin-top:2px;">'+esc(sub)+'</div>':'')+'</div>'
+      +'<button class="btn btn-small btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="pcClose()">Hide</button>'
+      +'</div>'
+      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:1px;color:var(--red);margin:6px 0 8px;">'+pcPresentCount(sid)+' checked in</div>'
+      +'<div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:10px;">'
+      +'<div id="pc-qr-slot"></div>'
+      +'<div style="font-size:11px;color:var(--gray);text-align:center;">Members scan this code or open the link while logged in.</div>'
+      +'<a href="'+esc(url)+'" target="_blank" rel="noopener" style="font-size:11px;color:var(--red);word-break:break-all;text-align:center;">'+esc(url)+'</a>'
+      +'</div>'
+      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">ATTENDANCE</div>'
+      +'<div style="display:flex;gap:6px;margin-bottom:6px;">'+pill('gold','Gold')+pill('garnet','Garnet')+pill('all','All')+'</div>'
+      +'<input class="form-input" id="pc-search" value="'+esc(_pcQuery)+'" oninput="pcSearch()" placeholder="Search by name" style="padding:8px;font-size:13px;width:100%;box-sizing:border-box;margin-bottom:4px;">'
+      +(rows||'<div style="font-size:12px;color:var(--gray);padding:6px 0;">No members in this view yet.</div>')
+      +'</div>';
+  }
+
+  mount.innerHTML=html;
+  if(sess){
+    // The code element is built once per session and moved back in on every redraw. Redrawing a
+    // QR under a phone mid scan made it unreadable at the tryout door, so a check-in never does.
+    var slot=document.getElementById('pc-qr-slot');
+    if(slot){
+      if(_pcQrNode&&_pcQrNode.sid===_pcOpenSid){ slot.parentNode.replaceChild(_pcQrNode.el,slot); }
+      else{
+        var qel=document.createElement('div');
+        qel.id='pc-qr';
+        qel.style.cssText='width:min(70vw,240px);height:min(70vw,240px);display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--gray-lighter);border-radius:8px;padding:6px;box-sizing:border-box;';
+        slot.parentNode.replaceChild(qel,slot);
+        _pcQrNode={sid:_pcOpenSid,el:qel};
+        renderQrInto('pc-qr',tryoutAttendUrl(_pcOpenSid));
+      }
+    }
+    if(_pcQuery) pcSearch();
+    // A live check-in redraws this panel; put the exec back in the search box mid-word.
+    if(searchFocused){
+      var box=document.getElementById('pc-search');
+      if(box){ box.focus(); var n=box.value.length; try{ box.setSelectionRange(n,n); }catch(e){} }
+    }
+  }
+}
 // Exec editor for both squads, shown at the top of the Practice tab (club only).
 function practiceScheduleEditorHtml(){
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
@@ -12679,13 +12882,14 @@ function renderTeamAnalysis(){
       <div id="ta-plan-output" style="margin-top:14px;">${analysisPlanText}</div>
       <div id="ta-builder" style="margin-top:14px;"></div>`;
   }
-  pane.innerHTML=(SC.tiersEnabled?practiceScheduleEditorHtml():'')+`<div class="card"><div class="card-title"><span class="bar"></span> 📋 Team Analysis</div>
+  pane.innerHTML=(SC.tiersEnabled?practiceCheckinHtml()+practiceScheduleEditorHtml():'')+`<div class="card"><div class="card-title"><span class="bar"></span> 📋 Team Analysis</div>
     <p style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">Pick a team to see its collective skill averages, then generate a practice session aimed at the weakest spots. Assessment scores of zero mean unassessed and are left out of the averages.</p>
     ${picker}
     ${body}
   </div>`;
   // Repaint the drill-picker from state so it survives tier switches and plan re-renders. Club and HS both.
   renderBuilder();
+  if(SC.tiersEnabled) renderPracticeCheckin();
 }
 
 // Demo + live, mirroring generateAIPlan. Ephemeral: result is held in
