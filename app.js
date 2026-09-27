@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.162';
+const APP_VERSION='1.1.163';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12706,23 +12706,26 @@ var _pcRatingsTicket=0;     // a newer load wins over an older one still in flig
 function pcRatingsReady(){
   return !!(_pcRatings&&window.Ratings&&typeof Ratings.nameKey==='function');
 }
+// Resolves true when this call's snapshot is the one in memory, false when unavailable or failed.
 function pcLoadRatings(){
-  if(!db||!window.Ratings||typeof Ratings.nameKey!=='function') return;
+  if(!db||!window.Ratings||typeof Ratings.nameKey!=='function') return Promise.resolve(false);
   var ticket=++_pcRatingsTicket;
   // Account ratings ride along so a 'new' member's seed matches the number the club already shows.
-  Promise.all([
+  return Promise.all([
     db.ref('tally_kotb_pickup/ratings').once('value'),
     ensureCommunityPlayers()
   ]).then(function(res){
-    if(ticket!==_pcRatingsTicket) return;
+    if(ticket!==_pcRatingsTicket) return false;
     _pcRatings=res[0].val()||{};
     _pcRatingsIndex=null;
     renderPracticeCheckin();
+    return true;
   }).catch(function(e){
-    if(ticket!==_pcRatingsTicket) return;
+    if(ticket!==_pcRatingsTicket) return false;
     console.warn('practice ratings read failed', e);
     _pcRatings=null; _pcRatingsIndex=null;
     renderPracticeCheckin();
+    return false;
   });
 }
 function pcRatingsIdx(){
@@ -13189,13 +13192,311 @@ function ptDelete(){
     renderPracticeCheckin();
   });
 }
-function ptEndNight(){
-  if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
-  var open=0, res=ptResultsObj();
-  ptPools().forEach(function(pool){ ptRoundsFor(pool).forEach(function(rd){ rd.games.forEach(function(g){ if(!res[g.gid]) open++; }); }); });
-  if(!window.confirm('End tonight\'s Kings Night?'+(open?(' '+open+' unscored game'+(open===1?'':'s')+' will not count.'):'')+' Scores are locked after this.')) return;
+// ---- Rating a night into the platform rating -------------------------------
+// End Night locks the night and then rates every scored game into tally_kotb_pickup/ratings at full
+// weight, source 'club_practice', through Ratings.applyGame, one game at a time in the order the
+// scores were entered, each awaited so ratings chain. ratings.js has no guard against applying the
+// same game twice (and applyGame swallows its own write errors), so this adds one:
+//   - One run per night at a time, held by a lock at meta/ratingRun (a transaction on this night's
+//     own node) that lapses after PT_RATE_LOCK_MS without a heartbeat.
+//   - Each game has the stable id {tid}_{gid}. Before applying, the four players' records are read:
+//     a player counts as already rated for the game when history/{id} exists or lastUpdated equals
+//     the game's time, both of which applyGame writes. All four means it landed; none means it is
+//     safe to apply; some means a run was cut off inside the write, and the game is marked
+//     'partial' for an exec instead of being applied again.
+//   - A result goes false to 'pending' before applyGame and to true only once that check finds all
+//     four, so a retry re-checks anything left pending instead of trusting it.
+// A 'new' member's record is created right before their first game by a transaction that writes only
+// when the key is empty, tagged with their accountId and started from the rating the club already
+// shows. It never overwrites a record. Nothing is ever un-rated: a final night is locked.
+var PT_RATE_SOURCE='club_practice';
+var PT_RATINGS_ROOT='tally_kotb_pickup';
+var PT_RATE_LOCK_MS=3*60*1000;
+var _ptPreview=null;     // { tid, loading, info } the End Night preview on screen
+var _ptRateRunning={};   // tid -> true while this device is rating it
+var _ptStale=[];         // earlier nights never ended, or final with games still to rate
+var _ptStaleAt=0;        // when the stale scan last ran
+function ptNodePath(tid){ return DB_ROOT+'/practiceTournaments/'+tid; }
+function ptReadTid(tid){
+  if(!db) return Promise.resolve(tid===_ptTid?_ptData:null);
+  return db.ref(ptNodePath(tid)).once('value').then(function(s){ return s.val(); }).catch(function(){ return null; });
+}
+// Multi-path write under one night's node, any night (the open one or one from the banner).
+function ptWriteTid(tid,updates){
+  var clean=JSON.parse(JSON.stringify(updates));
+  if(!db){ if(tid===_ptTid){ ptMirror(clean); renderPracticeCheckin(); } return Promise.resolve(true); }
+  return fbUpdateAt(ptNodePath(tid),clean);
+}
+function ptResultNeedsRating(r){ return !!r&&(r.rated===false||r.rated==null||r.rated==='pending'||r.rated==='skipped'); }
+// Results still to rate, in the order their scores were entered.
+function ptRateQueue(results){
+  return Object.keys(results||{}).filter(function(gid){ return ptResultNeedsRating(results[gid]); })
+    .sort(function(a,b){ return ((results[a].at||0)-(results[b].at||0))||(a<b?-1:a>b?1:0); });
+}
+function ptGameLabel(data,gid){
+  var rounds=(data&&data.rounds)||{}, out='';
+  Object.keys(rounds).forEach(function(pool){
+    ptArr(rounds[pool]).forEach(function(rd,i){ ptArr(rd.games).forEach(function(g){ if(g.gid===gid) out='Round '+(i+1)+', court '+g.court; }); });
+  });
+  return out||'A game';
+}
+// The four players of a result resolved against the ratings snapshot in memory. blocker names the
+// first player who cannot be rated safely; nothing is guessed for them.
+function ptResolveResult(r){
+  var t1=ptArr(r.t1), t2=ptArr(r.t2), ids=t1.concat(t2), out={ids:ids, byId:{}, blocker:null, reason:''};
+  for(var i=0;i<ids.length;i++){
+    var id=ids[i], res=resolveClubRating(id);
+    if(!res){ out.blocker=id; out.reason='is not on the club roster'; break; }
+    if(res.status==='ambiguous'||res.status==='collision'){ out.blocker=id; out.reason='needs a rating link'; break; }
+    var twin=Object.keys(out.byId).filter(function(o){ return out.byId[o].key===res.key; })[0];
+    if(twin){ out.blocker=id; out.reason='shares a rating record with another player in this game'; break; }
+    out.byId[id]=res;
+  }
+  if(!out.blocker&&(t1.length<1||t2.length<1)){ out.blocker=ids[0]||''; out.reason='is missing a partner'; }
+  return out;
+}
+function ptNameOf(data,id){
+  var pl=(data&&data.players&&data.players[id])||null;
+  return (pl&&pl.name)||ptPlayerName(id);
+}
+// Starting point for a new record: the same sources, in the same order, as csRankFor (account
+// rating, then the TruVolley seed signup wrote to the roster, then legacy csRank), unrounded, with
+// that source's rd. Nothing there means the same default ratings.js gives any new player.
+function ptSeedFor(p,accounts){
+  var a=(accounts&&p&&p.accountId)?accounts[p.accountId]:null;
+  var clamp=function(v,lo,hi){ return Math.min(hi,Math.max(lo,v)); };
+  var rdOr=function(v){ return (typeof v==='number'&&v>=0&&v<=400)?v:Ratings.DEFAULT_RD; };
+  if(a&&typeof a.rating==='number') return {rating:clamp(a.rating,100,3000), rd:rdOr(a.rd), tv:null};
+  if(p&&typeof p.rating==='number') return {rating:clamp(p.rating,100,3000), rd:rdOr(p.rd), tv:(typeof p.truVolley==='number'?p.truVolley:null)};
+  if(p&&p.csRank!=null&&p.csRank!==0&&isFinite(+p.csRank)) return {rating:clamp(+p.csRank,100,3000), rd:Ratings.DEFAULT_RD, tv:null};
+  return {rating:Ratings.DEFAULT_RATING, rd:Ratings.DEFAULT_RD, tv:null};
+}
+// Create-if-absent for a 'new' member. Resolves 'ok' when the key now holds this member's record
+// (made here, or already tagged to them), 'taken' when someone else holds it, 'fail' on error.
+// The record matches newPlayerState in ratings.js plus the account tag and, for a TruVolley seed,
+// the same seededFromTruVolley marker the admin seeding writes.
+function ptCreateRating(res,p,accounts){
+  var acct=(p&&typeof p.accountId==='string'&&p.accountId)?p.accountId:'';
+  var seed=ptSeedFor(p,accounts);
+  var rec={name:res.name, rating:seed.rating, rd:seed.rd, volatility:Ratings.DEFAULT_VOL, gamesPlayed:0, peakRating:seed.rating};
+  if(acct) rec.playerId=acct;
+  if(seed.tv!=null) rec.seededFromTruVolley=seed.tv;
+  return db.ref(PT_RATINGS_ROOT+'/ratings/'+res.key).transaction(function(cur){
+    if(cur===null) return rec;
+    return; // anything already there is left exactly as it is
+  }).then(function(r){
+    var v=r&&r.snapshot?r.snapshot.val():null;
+    if(r&&r.committed){ if(_pcRatings){ _pcRatings[res.key]=v||rec; _pcRatingsIndex=null; } return 'ok'; }
+    if(v&&acct&&v.playerId===acct){ if(_pcRatings){ _pcRatings[res.key]=v; _pcRatingsIndex=null; } return 'ok'; }
+    return 'taken';
+  }).catch(function(e){ console.warn('rating record create failed',e); return 'fail'; });
+}
+// How many of these keys already carry this game. null when the read fails.
+function ptAppliedCount(keys,gameId,ts){
+  var uniq=keys.filter(function(k,i){ return keys.indexOf(k)===i; });
+  return Promise.all(uniq.map(function(k){
+    var base=PT_RATINGS_ROOT+'/ratings/'+k;
+    return Promise.all([db.ref(base+'/history/'+gameId).once('value'), db.ref(base+'/lastUpdated').once('value')])
+      .then(function(s){ return (s[0].val()!=null||s[1].val()===ts)?1:0; });
+  })).then(function(a){ return a.reduce(function(x,y){ return x+y; },0); }).catch(function(){ return null; });
+}
+function ptLock(tid,token,mode){
+  if(!db) return Promise.resolve(true);
   var now=Date.now();
-  ptUpdate({'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now}).then(function(ok){ if(ok) toast('Kings Night final'); });
+  return db.ref(ptNodePath(tid)+'/meta/ratingRun').transaction(function(cur){
+    if(mode==='claim'){
+      if(cur&&cur.token!==token&&typeof cur.at==='number'&&now-cur.at<PT_RATE_LOCK_MS) return;
+      return {token:token, by:ptBy(), at:now};
+    }
+    if(!cur||cur.token!==token) return;
+    return mode==='beat'?{token:token, by:cur.by||'', at:now}:null;
+  }).then(function(r){ return !!(r&&r.committed); }).catch(function(){ return false; });
+}
+// Rate one result. 'next' moves on, 'stop' ends the run so a retry picks up from here.
+async function ptRateOne(tid,data,gid,accounts){
+  var r=data.results[gid], gameId=tid+'_'+gid, path='results/'+gid+'/', upd={};
+  var rv=ptResolveResult(r);
+  if(rv.blocker!==null){
+    upd[path+'rated']='skipped';
+    upd[path+'ratedNote']=(ptNameOf(data,rv.blocker)||'A player')+' '+rv.reason;
+    return (await ptWriteTid(tid,upd))?'next':'stop';
+  }
+  var keys=rv.ids.map(function(id){ return rv.byId[id].key; }).filter(function(k,i,a){ return a.indexOf(k)===i; });
+  var ts=+r.at||0;
+  var before=await ptAppliedCount(keys,gameId,ts);
+  if(before===null) return 'stop';
+  if(before>0){
+    upd[path+'rated']=(before===keys.length)?true:'partial';
+    upd[path+'ratedGameId']=gameId;
+    upd[path+'ratedNote']=(before===keys.length)?null:'Rated for some players only. An exec should check this game.';
+    if(before===keys.length) upd[path+'ratedAt']=Date.now();
+    return (await ptWriteTid(tid,upd))?'next':'stop';
+  }
+  for(var i=0;i<rv.ids.length;i++){
+    var id=rv.ids[i], res=rv.byId[id];
+    if(res.status!=='new') continue;
+    var made=await ptCreateRating(res,gP(id),accounts);
+    if(made==='fail') return 'stop';
+    if(made==='taken'){
+      upd[path+'rated']='skipped';
+      upd[path+'ratedNote']=(ptNameOf(data,id)||'A player')+' needs a rating link';
+      return (await ptWriteTid(tid,upd))?'next':'stop';
+    }
+  }
+  upd[path+'rated']='pending'; upd[path+'ratedGameId']=gameId; upd[path+'ratedNote']=null;
+  if(!(await ptWriteTid(tid,upd))) return 'stop';
+  var names=function(side){ return ptArr(side).map(function(id){ return rv.byId[id].name; }); };
+  await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gameId, source:PT_RATE_SOURCE, ts:ts,
+    team1Names:names(r.t1), team2Names:names(r.t2), s1:+r.s1, s2:+r.s2});
+  var after=await ptAppliedCount(keys,gameId,ts);
+  if(!after) return 'stop'; // nothing landed (or unreadable): stays pending and a retry re-checks it
+  var done={};
+  done[path+'rated']=(after===keys.length)?true:'partial';
+  if(after===keys.length) done[path+'ratedAt']=Date.now();
+  else done[path+'ratedNote']='Rated for some players only. An exec should check this game.';
+  return (await ptWriteTid(tid,done))?'next':'stop';
+}
+// Lock the night, then rate what is left. Safe to run again at any point: see the header above.
+async function ptRateNight(tid){
+  var token=gi('run');
+  if(!(await ptLock(tid,token,'claim'))){ toast('Another '+COACH_LABEL.toLowerCase()+' is rating this night. Try again in a few minutes.'); return false; }
+  try{
+    var data=await ptReadTid(tid);
+    if(!data||!data.meta){ toast('That Kings Night could not be loaded'); return false; }
+    if(data.meta.status!=='final'){
+      var now=Date.now();
+      if(!(await ptWriteTid(tid,{'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now}))) return false;
+      data.meta.status='final';
+    }
+    if(!db||!window.Ratings||typeof Ratings.applyGame!=='function'){ toast('Night ended. Ratings are unavailable right now, so use Retry later.'); return false; }
+    var fresh=await pcLoadRatings(); if(!fresh) fresh=await pcLoadRatings();
+    if(!fresh){ toast('Night ended. Ratings could not be read, so use Retry later.'); return false; }
+    var accounts=communityPlayersNow();
+    data.results=data.results||{};
+    var queue=ptRateQueue(data.results);
+    for(var i=0;i<queue.length;i++){
+      if((await ptRateOne(tid,data,queue[i],accounts))==='stop'){ toast('Ratings stopped partway. Tap Retry to finish.'); return false; }
+      await ptLock(tid,token,'beat');
+    }
+    return true;
+  } finally {
+    await ptLock(tid,token,'release');
+  }
+}
+// End Night, step one: a preview with no writes. Works for the open night or one from the banner.
+function ptEndNightStart(tid){
+  if(!tsFeatureOn()||currentRole!=='coach'||!tid) return;
+  if(_ptRateRunning[tid]){ toast('Already rating this night'); return; }
+  _ptPreview={tid:tid, loading:true, info:null};
+  renderPracticeCheckin();
+  ptBuildPreview(tid).then(function(info){
+    if(!_ptPreview||_ptPreview.tid!==tid) return;
+    _ptPreview.loading=false; _ptPreview.info=info;
+    renderPracticeCheckin();
+  });
+}
+async function ptBuildPreview(tid){
+  var ratingsOk=await pcLoadRatings();
+  var data=await ptReadTid(tid);
+  var info={ok:!!(data&&data.meta), status:data&&data.meta?data.meta.status:'', ratingsOk:ratingsOk, games:0, players:0, fresh:0, skipped:[], unscored:0};
+  if(!info.ok) return info;
+  var results=data.results||{}, seen={}, freshSeen={};
+  Object.keys(data.rounds||{}).forEach(function(pool){ ptArr(data.rounds[pool]).forEach(function(rd){ ptArr(rd.games).forEach(function(g){ if(!results[g.gid]) info.unscored++; }); }); });
+  if(!ratingsOk) return info;
+  ptRateQueue(results).forEach(function(gid){
+    var rv=ptResolveResult(results[gid]);
+    if(rv.blocker!==null){ info.skipped.push(ptGameLabel(data,gid)+': '+ptNameOf(data,rv.blocker)+' '+rv.reason); return; }
+    info.games++;
+    rv.ids.forEach(function(id){ seen[id]=1; if(rv.byId[id].status==='new') freshSeen[id]=1; });
+  });
+  info.players=Object.keys(seen).length; info.fresh=Object.keys(freshSeen).length;
+  return info;
+}
+function ptCancelPreview(){ _ptPreview=null; renderPracticeCheckin(); }
+// End Night, step two: lock the night, then rate.
+function ptConfirmEnd(){
+  if(!_ptPreview||_ptPreview.loading) return;
+  var tid=_ptPreview.tid;
+  if(_ptRateRunning[tid]) return;
+  _ptPreview=null; _ptRateRunning[tid]=true;
+  renderPracticeCheckin();
+  ptRateNight(tid).then(function(ok){
+    delete _ptRateRunning[tid];
+    if(ok) toast('Night ended and ratings updated');
+    _ptStaleAt=0; ptScanStale();
+    renderPracticeCheckin();
+  });
+}
+// Earlier nights that need an exec: still active from a past date, or final with games unrated.
+// Read once per Practice tab visit (at most every 30 seconds), never listened to.
+function ptScanStale(){
+  if(!db||!tsFeatureOn()||currentRole!=='coach') return;
+  if(Date.now()-_ptStaleAt<30000) return;
+  _ptStaleAt=Date.now();
+  db.ref(DB_ROOT+'/practiceTournaments').once('value').then(function(s){
+    var all=s.val()||{}, today=td(), out=[];
+    Object.keys(all).forEach(function(tid){
+      var t=all[tid]||{}, m=t.meta||{}, res=t.results||{};
+      var left=Object.keys(res).filter(function(g){ var v=res[g]&&res[g].rated; return v===false||v==null||v==='pending'; }).length;
+      if(m.status==='active'&&String(m.date||'')<today) out.push({tid:tid, kind:'open', date:m.date||'', squad:m.squad||''});
+      else if(m.status==='final'&&left) out.push({tid:tid, kind:'retry', date:m.date||'', squad:m.squad||'', left:left});
+    });
+    _ptStale=out;
+    renderPracticeCheckin();
+  }).catch(function(e){ console.warn('practice tournament scan failed',e); });
+}
+// The preview box: what End Night will do, and Confirm or Cancel.
+function ptPreviewHtml(tid,esc){
+  if(!_ptPreview||_ptPreview.tid!==tid) return '';
+  var box='<div style="border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin:6px 0 10px;background:var(--primary-bg,#f3e9eb);font-size:12px;color:var(--charcoal);line-height:1.5;">';
+  if(_ptPreview.loading) return box+'Checking ratings...</div>';
+  var i=_ptPreview.info||{};
+  if(!i.ok) return box+'That Kings Night could not be loaded. <button class="btn btn-small btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="ptCancelPreview()">Close</button></div>';
+  var lines=[];
+  if(i.status!=='final') lines.push('<strong>End Night locks every score.</strong>'+(i.unscored?' '+i.unscored+' unscored game'+(i.unscored===1?'':'s')+' will not count.':''));
+  if(!i.ratingsOk) lines.push('Ratings are unavailable right now. The night can end now and be rated later with Retry.');
+  else {
+    lines.push(i.games+' game'+(i.games===1?'':'s')+' will update ratings for '+i.players+' player'+(i.players===1?'':'s')+' ('+i.fresh+' new rating'+(i.fresh===1?'':'s')+').');
+    if(i.skipped.length) lines.push(i.skipped.length+' game'+(i.skipped.length===1?'':'s')+' skipped:<br>'+i.skipped.map(esc).join('<br>'));
+  }
+  return box+lines.join('<div style="height:6px;"></div>')
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+    +'<button class="btn btn-small" style="flex:1;min-width:140px;padding:8px 12px;font-size:12px;background:#782F40;color:#fff;border:none;" onclick="ptConfirmEnd()">'+(i.status==='final'?'Rate now':'End Night and rate')+'</button>'
+    +'<button class="btn btn-small" style="padding:8px 12px;font-size:12px;background:var(--gray-light);color:var(--charcoal);border:none;" onclick="ptCancelPreview()">Cancel</button>'
+    +'</div></div>';
+}
+// Banner at the top of the Practice Check-in card for nights that still need an exec.
+function ptStaleHtml(esc){
+  return _ptStale.filter(function(x){ return x.tid!==_ptTid; }).map(function(x){
+    var when=esc(tsReadableDate(x.date)||x.date)+(x.squad?' ('+esc(TS_SQUAD_LABELS[x.squad]||x.squad)+')':'');
+    var running=!!_ptRateRunning[x.tid];
+    var msg=x.kind==='open'?'Kings Night from '+when+' was never ended.':'Kings Night from '+when+' has '+x.left+' game'+(x.left===1?'':'s')+' still to rate.';
+    return '<div style="border:1px solid var(--red);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:var(--charcoal);">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>'+msg+'</span>'
+      +(running?'<span style="font-size:11px;color:var(--gray);">Rating...</span>'
+        :'<button class="btn btn-small" style="padding:5px 12px;font-size:12px;background:#782F40;color:#fff;border:none;" onclick="ptEndNightStart(\''+esc(x.tid)+'\')">'+(x.kind==='open'?'End Night':'Retry')+'</button>')
+      +'</div>'+ptPreviewHtml(x.tid,esc)+'</div>';
+  }).join('');
+}
+// One line on a final night: how its ratings went.
+function ptRatingStatusHtml(esc){
+  var res=ptResultsObj(), players={}, left=0, skipped=0, partial=0;
+  Object.keys(res).forEach(function(gid){
+    var r=res[gid]; if(!r) return;
+    if(r.rated===true) ptArr(r.t1).concat(ptArr(r.t2)).forEach(function(id){ players[id]=1; });
+    else if(r.rated==='skipped') skipped++;
+    else if(r.rated==='partial') partial++;
+    else left++;
+  });
+  var running=!!_ptRateRunning[_ptTid];
+  var line=running?'Rating games... keep this page open.'
+    :left?'Ratings pending: tap Retry.'
+    :'Ratings updated for '+Object.keys(players).length+' player'+(Object.keys(players).length===1?'':'s')+'.';
+  if(skipped) line+=' '+skipped+' game'+(skipped===1?'':'s')+' skipped.';
+  if(partial) line+=' '+partial+' game'+(partial===1?'':'s')+' need an '+esc(COACH_LABEL.toLowerCase())+' to check.';
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--gray);margin-bottom:6px;"><span>'+line+'</span>'
+    +(left&&!running?'<button class="btn btn-small" style="padding:4px 10px;font-size:11px;background:#782F40;color:#fff;border:none;" onclick="ptEndNightStart(\''+esc(_ptTid)+'\')">Retry</button>':'')
+    +'</div>'+ptPreviewHtml(_ptTid,esc);
 }
 function ptLateAdd(){
   if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
@@ -13351,6 +13652,7 @@ function ptNightHtml(sid,esc,btn,gray,present){
     return t;
   };
   var html=gray((m.format==='kq'?'Kings and Queens':'Mixed')+' · play to '+esc(m.scoreTo||PT_DEFAULTS.scoreTo)+' · '+esc(m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer)+' games each'+(isFinal?' · <strong style="color:var(--charcoal);">Final</strong>':''));
+  if(isFinal) html+=ptRatingStatusHtml(esc);
   if(pools.length>1){
     html+='<div style="display:flex;gap:6px;margin-bottom:8px;">'+pools.map(function(p){
       return '<button class="filter-btn'+(p===pool?' active':'')+'" style="flex:1;text-align:center;" onclick="ptPickPool(\''+p+'\')">'+ptPoolLabel(p)+'</button>';
@@ -13440,9 +13742,12 @@ function ptNightHtml(sid,esc,btn,gray,present){
       :gray('Everyone checked in is already playing.'))
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'+sel('drop',dropOpts,'Drop an early leaver')+btn('Drop','ptDrop()','var(--gray-light)','var(--charcoal)')+'</div>';
   // Before the first score the night can be redrawn or removed; after it, only ended.
+  // End Night opens its preview in place of the buttons.
+  if(_ptRateRunning[_ptTid]) return html+gray('Ending the night...');
+  if(_ptPreview&&_ptPreview.tid===_ptTid) return html+ptPreviewHtml(_ptTid,esc);
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     +(ptHasResults()
-      ?btn('End Night','ptEndNight()','#782F40','#fff','flex:1;min-width:140px;')
+      ?btn('End Night','ptEndNightStart(\''+esc(_ptTid)+'\')','#782F40','#fff','flex:1;min-width:140px;')
       :btn('Regenerate rounds','ptRegenerate()','#082A4F','#fff','flex:1;min-width:140px;')+btn('Delete','ptDelete()','var(--gray-light)','var(--charcoal)'))
     +'</div>';
   return html;
@@ -13475,7 +13780,8 @@ function renderPracticeCheckin(){
     +'<p style="font-size:11px;color:var(--gray);margin-bottom:10px;">Start today\'s practice for a squad to show its check-in code. Members scan it while logged in. Mark anyone present or absent by hand below.</p>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
     +startBtn('gold','#CEB888','#2d2d2d')+startBtn('garnet','#782F40','#fff')
-    +'</div>';
+    +'</div>'
+    +ptStaleHtml(esc);
 
   if(sess){
     var sid=_pcOpenSid;
@@ -13667,7 +13973,7 @@ function renderTeamAnalysis(){
   </div>`;
   // Repaint the drill-picker from state so it survives tier switches and plan re-renders. Club and HS both.
   renderBuilder();
-  if(SC.tiersEnabled) renderPracticeCheckin();
+  if(SC.tiersEnabled){ renderPracticeCheckin(); ptScanStale(); }
 }
 
 // Demo + live, mirroring generateAIPlan. Ephemeral: result is held in
