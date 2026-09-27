@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.163';
+const APP_VERSION='1.1.164';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1587,7 +1587,9 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
 
   ${SC.tiersEnabled
     ? `<!-- Pinned announcement (club): one exec-pinned message, empty when nothing is pinned -->
-  <div id="pp-pinned"></div>`
+  <div id="pp-pinned"></div>
+  <!-- Kings Night (club): the member's games and standings on a practice night, empty otherwise -->
+  <div id="pp-kings"></div>`
     : `<!-- Notification banner -->
   <div id="pp-notif-banner"></div>
 
@@ -2770,6 +2772,7 @@ function listenData(){if(!db)return;
     if(typeof tsDoorRestore==='function')tsDoorRestore();
     _maybeRenderRecruiting();
     if(typeof renderPracticeCheckin==='function')renderPracticeCheckin();
+    if(currentRole==='player'&&typeof ptpSync==='function')ptpSync(); // today's Kings Night on the member's phone
   });
   db.ref(DB_ROOT+'/tryoutAttendance').on('value',s=>{
     D.tryoutAttendance=s.val()||{};
@@ -4712,6 +4715,9 @@ function logout(){
   currentRole=null;currentPlayerId=null;pinEntry='';
   // Door mode is a full-screen layer above the app; signing out has to take it down with them.
   if(typeof tsDoorClose==='function')tsDoorClose();
+  // Kings Night listeners belong to the session that is ending.
+  if(typeof ptpDetachAll==='function'){ ptpDetachAll(); var _ppk=document.getElementById('pp-kings'); if(_ppk)_ppk.innerHTML=''; }
+  if(typeof ptDetach==='function')ptDetach();
   sessionStorage.removeItem('leonAuth');
   sessionStorage.removeItem('csCoachSession');
   updatePinDots();
@@ -4817,6 +4823,7 @@ function renderPlayerPortal(){
   processPendingTryout(); // record a pending door check-in once the member is logged in
   renderPlayerBroadcasts();
   if(SC.tiersEnabled&&typeof renderPlayerPinned==='function')renderPlayerPinned();
+  if(SC.tiersEnabled&&typeof ptpSync==='function')ptpSync();
   if(SC.tiersEnabled&&typeof updateMemberMsgBadge==='function')updateMemberMsgBadge();
 
   document.getElementById('pp-name').textContent=p.firstName+' '+p.lastName;
@@ -12851,8 +12858,11 @@ function ptResultsObj(){ return (_ptData&&_ptData.results)||{}; }
 function ptHasResults(){ return Object.keys(ptResultsObj()).length>0; }
 function ptPools(){ return ptMeta().format==='kq'?['kings','queens']:['mixed']; }
 function ptPoolLabel(pool){ return pool==='kings'?'Kings':pool==='queens'?'Queens':'Mixed'; }
-function ptRoundsFor(pool){
-  var raw=_ptData&&_ptData.rounds?_ptData.rounds[pool]:null;
+// The read helpers take the tournament node as data, so the exec view (_ptData) and the player card
+// (their own listener) share one copy of the logic. The exec wrappers pass _ptData.
+function ptRoundsFor(pool){ return ptRoundsIn(_ptData,pool); }
+function ptRoundsIn(data,pool){
+  var raw=data&&data.rounds?data.rounds[pool]:null;
   return ptArr(raw).map(function(rd){
     return {
       roundIndex:rd.roundIndex,
@@ -12866,8 +12876,9 @@ function ptCourtsFor(pool){
   return pc.length?pc:ptRange(1,ptMeta().courts||PT_DEFAULTS.courts);
 }
 function ptRange(a,b){ var out=[]; for(var i=a;i<=b;i++) out.push(i); return out; }
-function ptPlayerName(pid){
-  var pl=ptPlayersObj()[pid]; if(pl&&pl.name) return pl.name;
+function ptPlayerName(pid){ return ptNameIn(_ptData,pid); }
+function ptNameIn(data,pid){
+  var pl=((data&&data.players)||{})[pid]; if(pl&&pl.name) return pl.name;
   var p=gP(pid); return p?(((p.firstName||'')+' '+(p.lastName||'')).trim()||pid):pid;
 }
 // Checked-in, eligible, and still on the roster (a name and gender come from the roster record).
@@ -13003,8 +13014,9 @@ function ptAllocCourts(format,courts,counts){
   return {kings:ptRange(1,kc), queens:ptRange(kc+1,kc+qc)};
 }
 // Where scored play stops in a pool. A round counts as started once any game in it has a score.
-function ptPoolProgress(pool){
-  var rounds=ptRoundsFor(pool), res=ptResultsObj(), firstOpen=-1, lastScored=-1;
+function ptPoolProgress(pool){ return ptPoolProgressIn(_ptData,pool); }
+function ptPoolProgressIn(data,pool){
+  var rounds=ptRoundsIn(data,pool), res=(data&&data.results)||{}, firstOpen=-1, lastScored=-1;
   rounds.forEach(function(rd,i){
     var any=false, all=rd.games.length>0;
     rd.games.forEach(function(g){ if(res[g.gid]) any=true; else all=false; });
@@ -13054,10 +13066,11 @@ function ptRebuildPool(pool,players,lateAddPid){
 }
 // Standings for one pool: wins, then point differential, then name. Anyone who played keeps their
 // games after a drop.
-function ptStandings(pool){
-  var pl=ptPlayersObj(), res=ptResultsObj(), rows={};
+function ptStandings(pool){ return ptStandingsIn(_ptData,pool); }
+function ptStandingsIn(data,pool){
+  var pl=(data&&data.players)||{}, res=(data&&data.results)||{}, rows={};
   var row=function(id){
-    if(!rows[id]){ var p=pl[id]||{}; rows[id]={id:id, name:p.name||ptPlayerName(id), w:0, l:0, pd:0, gp:0, dropped:!!p.droppedAt}; }
+    if(!rows[id]){ var p=pl[id]||{}; rows[id]={id:id, name:p.name||ptNameIn(data,id), w:0, l:0, pd:0, gp:0, dropped:!!p.droppedAt}; }
     return rows[id];
   };
   Object.keys(pl).forEach(function(id){ if(pl[id]&&pl[id].pool===pool) row(id); });
@@ -13555,7 +13568,8 @@ function ptSaveScore(pool,gid){
   var prev=ptResultsObj()[gid], now=Date.now(), rec;
   if(prev){
     // An edit changes only the score. rated is carried as is, so a rated game can be un-rated first.
-    rec=Object.assign({},prev,{s1:s1, s2:s2, editedAt:now, by:ptBy()});
+    // byRole goes with by: an exec edit of a player's score is now the exec's entry.
+    rec=Object.assign({},prev,{s1:s1, s2:s2, editedAt:now, by:ptBy(), byRole:null});
   } else {
     rec={pool:pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:ptBy(), rated:false};
   }
@@ -13679,6 +13693,7 @@ function ptNightHtml(sid,esc,btn,gray,present){
         var w1=(+r.s1)>(+r.s2);
         box+='<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;'+(w1?'font-weight:700;color:#217F7F;':'color:var(--charcoal);')+'"><span>'+t1+'</span><span>'+esc(r.s1)+'</span></div>'
           +'<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;'+(!w1?'font-weight:700;color:#217F7F;':'color:var(--charcoal);')+'"><span>'+t2+'</span><span>'+esc(r.s2)+'</span></div>'
+          +(r.by?'<div style="font-size:10px;color:var(--gray);margin-top:2px;">by '+esc(r.by)+'</div>':'')
           +(isFinal?'':'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">'
             +btn('Edit','ptEditScore(\''+esc(g.gid)+'\')','var(--gray-light)','var(--charcoal)','padding:4px 10px;font-size:11px;')
             +btn('Clear','ptClearScore(\''+esc(g.gid)+'\')','var(--gray-light)','var(--charcoal)','padding:4px 10px;font-size:11px;')+'</div>');
@@ -13750,6 +13765,251 @@ function ptNightHtml(sid,esc,btn,gray,present){
       ?btn('End Night','ptEndNightStart(\''+esc(_ptTid)+'\')','#782F40','#fff','flex:1;min-width:140px;')
       :btn('Regenerate rounds','ptRegenerate()','#082A4F','#fff','flex:1;min-width:140px;')+btn('Delete','ptDelete()','var(--gray-light)','var(--charcoal)'))
     +'</div>';
+  return html;
+}
+// ---- Kings Night on the player's phone ---------------------------------------
+// A member in tonight's tournament (in players, not dropped) sees their own games and their pool's
+// standings in a card above the portal tabs, and can score any game they are in. Player state is
+// kept apart from the exec state. The card listens only to the tournaments for today's practice
+// sessions (pt-{sessionId}, at most one per squad), only while a member is logged in with the card
+// on screen, and lets go on logout or when today's sessions change.
+// A player's score has the exec's shape plus byRole:'player', so the rating step reads it the same:
+//   first entry  a transaction on results/{gid} that commits only into an empty slot
+//   edit         a transaction that keeps rated and sets editedAt, as the exec edit does
+//   clear        a transaction that removes the result, as the exec clear does
+// Each write first re-reads meta/status and goes ahead only while it is 'active'.
+var _ptpRefs={};        // tid -> { ref, handler }
+var _ptpData={};        // tid -> node (undefined while loading, null when none)
+var _ptpDraft={};       // gid -> { s1, s2 } typed but not saved
+var _ptpEditGid=null;   // the result this player is editing
+var _ptpNotice=null;    // { tid, gid, text } a refused first entry, with an Edit option
+var _ptpBusy=false;
+function ptpActive(){
+  return tsFeatureOn()&&!!db&&currentRole==='player'&&!!currentPlayerId&&practiceEligibleId(currentPlayerId)&&!!document.getElementById('pp-kings');
+}
+function ptpTodayTids(){
+  var today=td();
+  return tsSessionsArr().filter(function(s){ return tsSessionType(s)==='practice'&&String(s.date||'')===today; })
+    .map(function(s){ return 'pt-'+s.sid; });
+}
+// Attach to today's tournaments and drop anything else. Safe to call on every render.
+function ptpSync(){
+  var want=ptpActive()?ptpTodayTids():[];
+  Object.keys(_ptpRefs).forEach(function(tid){
+    if(want.indexOf(tid)>=0) return;
+    _ptpRefs[tid].ref.off('value',_ptpRefs[tid].handler);
+    delete _ptpRefs[tid]; delete _ptpData[tid];
+  });
+  want.forEach(function(tid){
+    if(_ptpRefs[tid]) return;
+    var ref=db.ref(DB_ROOT+'/practiceTournaments/'+tid);
+    var handler=function(s){ if(!_ptpRefs[tid]) return; _ptpData[tid]=s.val(); ptpRender(); };
+    _ptpRefs[tid]={ref:ref, handler:handler};
+    ref.on('value',handler,function(err){ console.warn('kings night read failed',err); });
+  });
+  if(!want.length){ _ptpDraft={}; _ptpEditGid=null; _ptpNotice=null; }
+  ptpRender();
+}
+function ptpDetachAll(){
+  Object.keys(_ptpRefs).forEach(function(tid){ _ptpRefs[tid].ref.off('value',_ptpRefs[tid].handler); });
+  _ptpRefs={}; _ptpData={}; _ptpDraft={}; _ptpEditGid=null; _ptpNotice=null; _ptpBusy=false;
+}
+// This player's night: their pool, the game to play now, whether they sit the open round, the
+// games they have scores in, and the standings. Null when they are not playing tonight.
+function ptpMyView(data,pid){
+  var pl=((data&&data.players)||{})[pid];
+  if(!data||!data.meta||!pl||pl.droppedAt) return null;
+  var status=data.meta.status;
+  if(status!=='active'&&status!=='final') return null;
+  var pool=pl.pool, rounds=ptRoundsIn(data,pool), res=data.results||{};
+  var firstOpen=-1, mine=null, scored=[];
+  rounds.forEach(function(rd,i){
+    rd.games.forEach(function(g){
+      var inG=g.t1.concat(g.t2).indexOf(pid)>=0;
+      if(!res[g.gid]){
+        if(firstOpen<0) firstOpen=i;
+        if(inG&&!mine) mine={ri:i, g:g};
+      } else if(inG) scored.push({ri:i, g:g, r:res[g.gid]});
+    });
+  });
+  var sitting=(firstOpen>=0&&mine&&mine.ri!==firstOpen&&rounds[firstOpen].sitOut.indexOf(pid)>=0)?firstOpen:null;
+  return {pool:pool, status:status, meta:data.meta, current:mine, sittingRound:sitting, scored:scored, standings:ptStandingsIn(data,pool)};
+}
+// The first of today's tournaments this player is in.
+function ptpPick(){
+  var tids=Object.keys(_ptpRefs);
+  for(var i=0;i<tids.length;i++){
+    var v=ptpMyView(_ptpData[tids[i]],currentPlayerId);
+    if(v) return {tid:tids[i], data:_ptpData[tids[i]], view:v};
+  }
+  return null;
+}
+function ptpFindGame(data,gid){
+  var found=null;
+  Object.keys((data&&data.rounds)||{}).forEach(function(pool){
+    ptRoundsIn(data,pool).forEach(function(rd){ rd.games.forEach(function(g){ if(g.gid===gid) found={pool:pool, g:g}; }); });
+  });
+  return found;
+}
+function ptpMyName(){ var p=gP(currentPlayerId); return p?(((p.firstName||'')+' '+(p.lastName||'')).trim()||currentPlayerId):currentPlayerId; }
+function ptpStatusIsActive(tid){
+  return db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/meta/status').once('value')
+    .then(function(s){ return s.val()==='active'; }).catch(function(){ return false; });
+}
+function ptpDraftSet(gid,side,val){ (_ptpDraft[gid]=_ptpDraft[gid]||{})[side]=val; }
+// Save a first entry or an edit for a game this player is in.
+async function ptpSave(tid,gid){
+  if(!ptpActive()||_ptpBusy) return;
+  var pid=currentPlayerId, data=_ptpData[tid], hit=ptpFindGame(data,gid);
+  if(!hit||hit.g.t1.concat(hit.g.t2).indexOf(pid)<0){ toast('You can only score games you are playing in'); return; }
+  var d=_ptpDraft[gid]||{}, s1=ptScoreVal(d.s1), s2=ptScoreVal(d.s2);
+  if(s1==null||s2==null){ toast('Enter both scores as whole numbers'); return; }
+  if(s1===s2){ toast('Scores cannot be tied. Someone has to win.'); return; }
+  var editing=(_ptpEditGid===gid), by=ptpMyName(), now=Date.now(), g=hit.g;
+  _ptpBusy=true;
+  try{
+    if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
+    var tx=await db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/results/'+gid).transaction(function(cur){
+      if(!editing){
+        if(cur!==null) return; // someone already entered it; never overwrite
+        return {pool:hit.pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:by, byRole:'player', rated:false};
+      }
+      if(cur===null||ptArr(cur.t1).concat(ptArr(cur.t2)).indexOf(pid)<0) return;
+      return Object.assign({},cur,{s1:s1, s2:s2, editedAt:now, by:by, byRole:'player'});
+    });
+    var v=tx&&tx.snapshot?tx.snapshot.val():null;
+    if(tx&&tx.committed){
+      delete _ptpDraft[gid]; _ptpEditGid=null; _ptpNotice=null;
+      toast(editing?'Score updated':'Score saved');
+    } else if(!editing&&v){
+      _ptpNotice={tid:tid, gid:gid, text:'Score already entered: '+v.s1+' to '+v.s2};
+      delete _ptpDraft[gid];
+    } else {
+      toast('That score was cleared. Enter it again.');
+      _ptpEditGid=null;
+    }
+  }catch(e){
+    console.warn('player score save failed',e);
+    toast('Your score did not save. Check your connection and try again.');
+  }finally{
+    _ptpBusy=false;
+    ptpRender();
+  }
+}
+function ptpEdit(tid,gid){
+  var r=((_ptpData[tid]||{}).results||{})[gid]; if(!r) return;
+  _ptpEditGid=gid; _ptpNotice=null; _ptpDraft[gid]={s1:String(r.s1), s2:String(r.s2)};
+  ptpRender();
+}
+function ptpCancelEdit(){ if(_ptpEditGid) delete _ptpDraft[_ptpEditGid]; _ptpEditGid=null; ptpRender(); }
+async function ptpClear(tid,gid){
+  if(!ptpActive()||_ptpBusy) return;
+  if(!window.confirm('Clear this score? The game goes back to unplayed.')) return;
+  var pid=currentPlayerId;
+  _ptpBusy=true;
+  try{
+    if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
+    var tx=await db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/results/'+gid).transaction(function(cur){
+      if(cur===null||ptArr(cur.t1).concat(ptArr(cur.t2)).indexOf(pid)<0) return;
+      return null;
+    });
+    if(tx&&tx.committed){ if(_ptpEditGid===gid) _ptpEditGid=null; delete _ptpDraft[gid]; toast('Score cleared'); }
+  }catch(e){
+    console.warn('player score clear failed',e);
+    toast('The score was not cleared. Check your connection and try again.');
+  }finally{
+    _ptpBusy=false;
+    ptpRender();
+  }
+}
+function ptpRender(){
+  var el=document.getElementById('pp-kings'); if(!el) return;
+  var ae=document.activeElement, focusId=(ae&&ae.id&&ae.id.indexOf('ptp-')===0)?ae.id:null;
+  el.innerHTML=ptpActive()?ptpHtml():'';
+  if(focusId){ var box=document.getElementById(focusId); if(box){ box.focus(); try{ var n=String(box.value||'').length; box.setSelectionRange(n,n); }catch(e){} } }
+}
+function ptpHtml(){
+  var pick=ptpPick(); if(!pick) return '';
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  var tid=pick.tid, data=pick.data, v=pick.view, pid=currentPlayerId, isFinal=v.status==='final';
+  if(_ptpEditGid&&!(data.results||{})[_ptpEditGid]) _ptpEditGid=null; // cleared from another phone
+  var nm=function(id){ return esc(ptNameIn(data,id)); };
+  var bigBtn=function(label,onclick,bg,fg){
+    return '<button class="btn" style="flex:1;min-width:120px;padding:12px 14px;font-size:15px;background:'+bg+';color:'+fg+';border:none;border-radius:8px;" onclick="'+onclick+'">'+label+'</button>';
+  };
+  var inputs=function(g){
+    var d=_ptpDraft[g.gid]||{};
+    var inp=function(side){
+      return '<input type="number" inputmode="numeric" pattern="[0-9]*" min="0" class="form-input" id="ptp-'+side+'-'+esc(g.gid)+'" value="'+esc(d[side]!=null?d[side]:'')+'" oninput="ptpDraftSet(\''+esc(g.gid)+'\',\''+side+'\',this.value)" style="width:84px;padding:10px 6px;font-size:22px;font-weight:700;text-align:center;box-sizing:border-box;">';
+    };
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;"><span style="font-size:15px;color:var(--charcoal);">'+g.t1.map(nm).join(' &amp; ')+'</span>'+inp('s1')+'</div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;"><span style="font-size:15px;color:var(--charcoal);">'+g.t2.map(nm).join(' &amp; ')+'</span>'+inp('s2')+'</div>';
+  };
+  var matchup=function(g){
+    var mine=g.t1.indexOf(pid)>=0?g.t1:g.t2, theirs=mine===g.t1?g.t2:g.t1;
+    var partner=mine.filter(function(x){ return x!==pid; })[0];
+    return '<div style="font-size:15px;color:var(--charcoal);line-height:1.5;">You'+(partner?' and <strong>'+nm(partner)+'</strong>':'')+'</div>'
+      +'<div style="font-size:15px;color:var(--charcoal);line-height:1.5;">vs <strong>'+theirs.map(nm).join(' &amp; ')+'</strong></div>';
+  };
+  var squad=(TS_SQUAD_LABELS[v.meta.squad]||'')+(v.meta.squad?' practice':'');
+  var html='<div class="card" style="border:2px solid var(--red);">'
+    +'<div class="card-title"><span class="bar"></span> \u{1F451} Kings Night</div>'
+    +'<div style="font-size:12px;color:var(--gray);margin-bottom:10px;">'+esc(squad)+(squad?' · ':'')+esc(ptPoolLabel(v.pool))+' · play to '+esc(v.meta.scoreTo||PT_DEFAULTS.scoreTo)
+    +(isFinal?' · <strong style="color:var(--charcoal);">Final</strong>':'')+'</div>';
+  if(!isFinal){
+    if(_ptpNotice&&_ptpNotice.tid===tid){
+      html+='<div style="border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;color:var(--charcoal);">'+esc(_ptpNotice.text)
+        +'<div style="display:flex;gap:8px;margin-top:8px;">'+bigBtn('Edit','ptpEdit(\''+esc(tid)+'\',\''+esc(_ptpNotice.gid)+'\')','#217F7F','#fff')+'</div></div>';
+    }
+    if(v.sittingRound!=null){
+      html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">Sitting out round '+(v.sittingRound+1)+'</div>';
+    }
+    if(v.current&&_ptpEditGid!==v.current.g.gid){
+      var g=v.current.g;
+      html+='<div style="border:1px solid var(--gray-lighter);border-radius:10px;padding:12px;margin-bottom:10px;">'
+        +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:1px;color:var(--red);margin-bottom:4px;">'+(v.sittingRound!=null?'Next: ':'')+'Round '+(v.current.ri+1)+' · Court '+esc(g.court)+'</div>'
+        +matchup(g)
+        +'<div style="border-top:1px dashed var(--gray-lighter);margin-top:10px;padding-top:6px;">'+inputs(g)+'</div>'
+        +'<div style="display:flex;gap:8px;margin-top:8px;">'+bigBtn('Save score','ptpSave(\''+esc(tid)+'\',\''+esc(g.gid)+'\')','#217F7F','#fff')+'</div>'
+        +'</div>';
+    } else if(!v.current){
+      html+='<div style="font-size:14px;color:var(--charcoal);margin-bottom:10px;">You have played all your games tonight.</div>';
+    }
+  }
+  // Scores for this player's games, newest first. Editable while the night is active.
+  if(v.scored.length){
+    html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:6px 0 4px;">YOUR SCORES</div>';
+    html+=v.scored.slice().reverse().map(function(x){
+      var r=x.r, onT1=ptArr(r.t1).indexOf(pid)>=0, mineS=onT1?r.s1:r.s2, theirS=onT1?r.s2:r.s1, won=(+mineS)>(+theirS);
+      if(!isFinal&&_ptpEditGid===x.g.gid){
+        return '<div style="border:1px solid var(--gray-lighter);border-radius:10px;padding:12px;margin-bottom:8px;">'
+          +'<div style="font-size:12px;color:var(--gray);margin-bottom:4px;">Round '+(x.ri+1)+' · Court '+esc(x.g.court)+'</div>'
+          +inputs(x.g)
+          +'<div style="display:flex;gap:8px;margin-top:8px;">'+bigBtn('Save change','ptpSave(\''+esc(tid)+'\',\''+esc(x.g.gid)+'\')','#217F7F','#fff')+bigBtn('Cancel','ptpCancelEdit()','var(--gray-light)','var(--charcoal)')+'</div></div>';
+      }
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--gray-lighter);flex-wrap:wrap;">'
+        +'<span style="font-size:14px;color:var(--charcoal);">R'+(x.ri+1)+' <strong style="color:'+(won?'#217F7F':'var(--red)')+';">'+(won?'W':'L')+' '+esc(mineS)+' to '+esc(theirS)+'</strong></span>'
+        +(isFinal?'':'<span style="display:flex;gap:6px;">'
+          +'<button class="btn btn-small" style="padding:8px 14px;font-size:13px;background:var(--gray-light);color:var(--charcoal);border:none;" onclick="ptpEdit(\''+esc(tid)+'\',\''+esc(x.g.gid)+'\')">Edit</button>'
+          +'<button class="btn btn-small" style="padding:8px 14px;font-size:13px;background:var(--gray-light);color:var(--charcoal);border:none;" onclick="ptpClear(\''+esc(tid)+'\',\''+esc(x.g.gid)+'\')">Clear</button></span>')
+        +'</div>';
+    }).join('');
+  }
+  // Standings for this player's pool, sorted as the exec view sorts them.
+  html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:10px 0 4px;">'+esc(ptPoolLabel(v.pool)).toUpperCase()+' STANDINGS</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--gray);text-align:left;">'
+    +'<th style="padding:4px 2px;font-weight:600;">#</th><th style="padding:4px 2px;font-weight:600;">Player</th><th style="padding:4px 2px;font-weight:600;text-align:center;">W</th><th style="padding:4px 2px;font-weight:600;text-align:center;">L</th><th style="padding:4px 2px;font-weight:600;text-align:center;">+/-</th><th style="padding:4px 2px;font-weight:600;text-align:center;">GP</th></tr></thead><tbody>'
+    +v.standings.map(function(x,i){
+      var me=x.id===pid;
+      return '<tr style="border-top:1px solid var(--gray-lighter);color:var(--charcoal);'+(me?'font-weight:700;background:var(--primary-bg,#f3e9eb);':'')+'">'
+        +'<td style="padding:6px 2px;color:var(--gray);">'+(i+1)+'</td>'
+        +'<td style="padding:6px 2px;">'+esc(x.name)+(x.dropped?' <span style="font-size:10px;color:var(--gray);">(left)</span>':'')+'</td>'
+        +'<td style="padding:6px 2px;text-align:center;">'+x.w+'</td>'
+        +'<td style="padding:6px 2px;text-align:center;">'+x.l+'</td>'
+        +'<td style="padding:6px 2px;text-align:center;">'+(x.gp?((x.pd>0?'+':'')+x.pd):'-')+'</td>'
+        +'<td style="padding:6px 2px;text-align:center;">'+x.gp+'</td></tr>';
+    }).join('')
+    +'</tbody></table></div>';
   return html;
 }
 function practiceCheckinHtml(){
