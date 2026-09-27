@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.165';
+const APP_VERSION='1.1.166';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1602,6 +1602,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
     ${SC.tiersEnabled ? `
     <button class="pp-tab-btn active" onclick="switchPPTab('stats',this)">📋 My Info</button>
     <button class="pp-tab-btn" onclick="switchPPTab('clublife',this)">🏖️ Club Life</button>
+    <button class="pp-tab-btn" onclick="switchPPTab('kings',this)">👑 Kings Night</button>
     <button class="pp-tab-btn" onclick="switchPPTab('messages',this)">✉️ Messages <span id="pp-msg-unread" style="color:var(--red);font-weight:700;"></span></button>
     <button class="pp-tab-btn" onclick="switchPPTab('live',this)">🏐 Live Scoring</button>
     ${SC.pickupEnabled?`<button class="pp-tab-btn" onclick="window.open('https://courtsense.app/pickup/','_blank')">🏖️ Pickup</button>`:''}
@@ -1819,6 +1820,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
     <div id="pp-panel-travel"></div>
     <div id="pp-partner"></div>
   </div>`:''}
+  ${SC.tiersEnabled?'<div class="pp-panel" id="pp-panel-kings"></div>':''}
   ${SC.tiersEnabled?'<div class="pp-panel" id="pp-panel-messages"></div>':''}
 
 </div><!-- end player-portal -->
@@ -2732,7 +2734,10 @@ function listenData(){if(!db)return;
       D.planned=[];D.gamedays=[];D.scrimmages=[];D.duals=[];D.chat={};
       seedDB();
     }
+    // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
+    D.practiceTournaments=(val&&val.practiceTournaments)||{};
     refreshCurrent();
+    if(typeof knRefreshPlayer==='function')knRefreshPlayer();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();}
   },err=>{console.error(err);setSS(false);});
   db.ref(SC.dbRoots.passwords).on('value',s=>{passwords=s.val()||{};});
@@ -3532,6 +3537,8 @@ let playersTierFilter='all', playersGenderFilter='all';
 function setPlayersTierFilter(v,btn){ playersTierFilter=v; if(v==='all')playersGenderFilter='all'; renderPlayers(); }
 function setPlayersGenderFilter(v,btn){ playersGenderFilter=v; renderPlayers(); }
 function renderPlayers(){
+  // Club: the Stats tab is the Kings Night leaderboard. High schools keep the view below unchanged.
+  if(SC.tiersEnabled){ knRender(document.getElementById('tab-players'),'exec'); return; }
   csRankWarm(renderPlayers); // account ratings for the CS rank pills
   // Club (Grass Club) shows a tier filter (and a gender sub-filter when a tier is picked) instead of the stat-view pills,
   // and uses the combined stat view. Non-club configs are untouched and keep their stat-view pills.
@@ -4828,25 +4835,29 @@ function playerRequestTier(choice){
 // failed read shows nothing. Read once per login and cached.
 var _ppRating=null;       // { pid, text } once resolved; text '' after a failed read
 var _ppRatingLoading=null;
-function ppRatingText(p,ratings){
-  if(!window.Ratings||typeof Ratings.nameKey!=='function'||typeof Ratings.isRated!=='function') return '';
-  var R=ratings||{}, acct=(typeof p.accountId==='string'&&p.accountId)?p.accountId:'', rec=null;
+// A member's own rating record: the one tagged with their accountId, else the single untagged
+// record for their name. Returns the record, null when there is none, or 'ambiguous' when more
+// than one could be theirs (never guessed).
+function ppFindRatingRecord(p,R){
+  var acct=(typeof p.accountId==='string'&&p.accountId)?p.accountId:'';
   if(acct){
     var tagged=Object.keys(R).filter(function(k){ return R[k]&&R[k].playerId===acct; });
-    if(tagged.length>1) return 'Unrated'; // more than one record claims this account: never guess
-    if(tagged.length===1) rec=R[tagged[0]];
+    if(tagged.length>1) return 'ambiguous';
+    if(tagged.length===1) return R[tagged[0]];
   }
-  if(!rec){
-    var nk=Ratings.nameKey(((p.firstName||'')+' '+(p.lastName||'')).trim()||String(p.name||''));
-    if(nk){
-      var byName=Object.keys(R).filter(function(k){
-        var r=R[k]; if(!r||typeof r!=='object'||(typeof r.playerId==='string'&&r.playerId)) return false;
-        return k===nk||(r.name&&Ratings.nameKey(r.name)===nk);
-      });
-      if(byName.length>1) return 'Unrated';
-      if(byName.length===1) rec=R[byName[0]];
-    }
-  }
+  var nk=Ratings.nameKey(((p.firstName||'')+' '+(p.lastName||'')).trim()||String(p.name||''));
+  if(!nk) return null;
+  var byName=Object.keys(R).filter(function(k){
+    var r=R[k]; if(!r||typeof r!=='object'||(typeof r.playerId==='string'&&r.playerId)) return false;
+    return k===nk||(r.name&&Ratings.nameKey(r.name)===nk);
+  });
+  if(byName.length>1) return 'ambiguous';
+  return byName.length===1?R[byName[0]]:null;
+}
+function ppRatingText(p,ratings){
+  if(!window.Ratings||typeof Ratings.nameKey!=='function'||typeof Ratings.isRated!=='function') return '';
+  var rec=ppFindRatingRecord(p,ratings||{});
+  if(rec==='ambiguous') return 'Unrated';
   if(rec) return (Ratings.isRated(rec)&&typeof rec.rating==='number')?'Rating '+Math.round(rec.rating):'Unrated';
   if(typeof p.truVolley==='number'&&typeof p.rating==='number') return 'Rating '+Math.round(p.rating);
   return 'Unrated';
@@ -4878,6 +4889,265 @@ function ppAfterLogin(){
   if(!SC.tiersEnabled) return;
   var btn=document.querySelector('.pp-tab-btn[onclick*="clublife"]');
   if(btn) switchPPTab('clublife',btn);
+}
+// ---- Kings Night season leaderboard and nightly results (club) ------------------------
+// Execs (Manage > Stats) and members (the portal's Kings Night tab) get the same two views, built
+// only from the practice tournaments already in the club snapshot (D.practiceTournaments). No
+// writes and no rating numbers. Season totals count final nights only; one night's standings come
+// from ptStandingsIn, the helper the live night uses.
+// Periods are academic semesters taken from each night's date, never the app's seasonId: Spring is
+// January 1 to May 31, Fall is June 1 to December 31 (a June or July onboarding night counts toward
+// that year's Fall; there is no Summer). "All time" covers every final night. Ratings are not
+// involved and never reset.
+// Who shows on the leaderboard to members: anyone with 5 Kings Night games ALL TIME (final nights,
+// every pool and squad), or a TruVolley player from their first night (a signup seed on the roster
+// record, or seededFromTruVolley on their rating record), so a returning player never drops off a new
+// semester's board. Members always see their own totals; execs see every row, marked when it is
+// under that line.
+var KN_MIN_GAMES=5;
+var KN_POOL_LABELS={kings:'Kings', queens:'Queens', mixed:'Coed', all:'All'};
+var _knState={
+  exec:{view:'season', period:null, pool:'all', squad:'all', sortKey:null, sortDir:-1, night:null},
+  player:{view:'season', period:null, pool:'all', squad:'all', sortKey:null, sortDir:-1, night:null}
+};
+var _knSeeded=null;        // { rosterId: true } for rating records carrying seededFromTruVolley
+var _knSeededLoading=false;
+function knPoolsOf(m){ return (m&&m.format==='kq')?['kings','queens']:['mixed']; }
+// The semester a YYYY-MM-DD date falls in: { key:'2026-fall', label:'Fall 2026', order } or null.
+function knSemesterOf(date){
+  var m=/^(\d{4})-(\d{2})/.exec(String(date||''));
+  if(!m) return null;
+  var y=parseInt(m[1],10), mo=parseInt(m[2],10);
+  return mo<=5?{key:y+'-spring', label:'Spring '+y, order:y*10+1}:{key:y+'-fall', label:'Fall '+y, order:y*10+2};
+}
+function knCurrentSemester(){ return knSemesterOf(td()); }
+// The period a view shows: a semester key, or 'all'. Null in the state means the current semester.
+function knPeriodOf(st){ return st.period||knCurrentSemester().key; }
+// Every final night, newest first, optionally limited to one semester key ('all' for every night).
+function knFinalNights(period){
+  var T=D.practiceTournaments||{};
+  return Object.keys(T).map(function(tid){ return {tid:tid, data:T[tid], meta:(T[tid]&&T[tid].meta)||{}}; })
+    .filter(function(n){
+      if(n.meta.status!=='final') return false;
+      if(!period||period==='all') return true;
+      var s=knSemesterOf(n.meta.date); return !!s&&s.key===period;
+    })
+    .sort(function(a,b){ return String(b.meta.date||'').localeCompare(String(a.meta.date||''))||(a.tid<b.tid?1:a.tid>b.tid?-1:0); });
+}
+// The period choices: the current semester, each earlier semester with a final night (newest
+// first), then All time.
+function knPeriods(){
+  var cur=knCurrentSemester(), seen={}, list=[cur];
+  seen[cur.key]=1;
+  knFinalNights('all').forEach(function(n){
+    var s=knSemesterOf(n.meta.date);
+    if(s&&!seen[s.key]){ seen[s.key]=1; list.push(s); }
+  });
+  list.sort(function(a,b){ return b.order-a.order; });
+  return list.map(function(s){ return {key:s.key, label:s.label}; }).concat([{key:'all', label:'All time'}]);
+}
+// All-time games per player (final nights, every pool and squad): the public-visibility line.
+function knAllTimeGames(){
+  var out={};
+  knFinalNights('all').forEach(function(n){
+    knPoolsOf(n.meta).forEach(function(pool){
+      ptStandingsIn(n.data,pool).forEach(function(r){ if(r.gp&&practiceEligibleId(r.id)) out[r.id]=(out[r.id]||0)+r.gp; });
+    });
+  });
+  return out;
+}
+function knTonightActive(){
+  var T=D.practiceTournaments||{}, today=td();
+  return Object.keys(T).some(function(tid){ var m=(T[tid]&&T[tid].meta)||{}; return m.status==='active'&&m.date===today; });
+}
+// Totals per player, per pool and for All, over the period's final nights in the chosen squad.
+// periodGames counts every pool and squad in the period and drives the default sort grouping.
+function knTotals(squad,period){
+  var out={};
+  knFinalNights(period||'all').forEach(function(n){
+    var inSquad=(squad==='all'||n.meta.squad===squad);
+    knPoolsOf(n.meta).forEach(function(pool){
+      ptStandingsIn(n.data,pool).forEach(function(r){
+        if(!r.gp||!practiceEligibleId(r.id)) return;
+        var t=out[r.id]||(out[r.id]={id:r.id, name:r.name, byPool:{}, all:{nights:0,games:0,w:0,l:0,pd:0}, seen:{}, periodGames:0});
+        t.periodGames+=r.gp;
+        if(!inSquad) return;
+        var b=t.byPool[pool]||(t.byPool[pool]={nights:0,games:0,w:0,l:0,pd:0});
+        b.nights++; b.games+=r.gp; b.w+=r.w; b.l+=r.l; b.pd+=r.pd;
+        if(!t.seen[n.tid]){ t.seen[n.tid]=1; t.all.nights++; }
+        t.all.games+=r.gp; t.all.w+=r.w; t.all.l+=r.l; t.all.pd+=r.pd;
+      });
+    });
+  });
+  return out;
+}
+function knIsTruVolley(id){
+  var p=gP(id);
+  if(p&&typeof p.truVolley==='number'&&typeof p.rating==='number') return true;
+  return !!(_knSeeded&&_knSeeded[id]);
+}
+// One read of the rating records per page load, only to learn who carries a TruVolley seed there.
+function knLoadSeeded(after){
+  if(_knSeeded||_knSeededLoading||!db||!window.Ratings||typeof Ratings.nameKey!=='function') return;
+  _knSeededLoading=true;
+  db.ref('tally_kotb_pickup/ratings').once('value').then(function(s){
+    var R=s.val()||{}, seeded={};
+    (Array.isArray(D.players)?D.players:[]).forEach(function(p){
+      if(!p||!p.id) return;
+      var rec=ppFindRatingRecord(p,R);
+      if(rec&&rec!=='ambiguous'&&rec.seededFromTruVolley!=null) seeded[p.id]=true;
+    });
+    _knSeeded=seeded;
+  }).catch(function(e){ console.warn('kings night seed read failed',e); _knSeeded={}; })
+    .then(function(){ _knSeededLoading=false; if(typeof after==='function') after(); });
+}
+// regular (5+ games in the period) drives the default sort grouping; isPublic (5+ games all time,
+// or a TruVolley player) decides who other members can see.
+function knRows(totals,pool,allTime){
+  var at=allTime||{};
+  return Object.keys(totals).map(function(id){
+    var t=totals[id], s=(pool==='all')?t.all:t.byPool[pool];
+    if(!s||!s.games) return null;
+    return {id:id, name:t.name, nights:s.nights, games:s.games, w:s.w, l:s.l, pd:s.pd,
+      pct:s.w/s.games*100, regular:t.periodGames>=KN_MIN_GAMES,
+      isPublic:(at[id]||0)>=KN_MIN_GAMES||knIsTruVolley(id)};
+  }).filter(Boolean);
+}
+// Default order: players with 5 or more games first, each group by win %, then +/-, then name.
+// A header tap sorts everyone by that column alone, ties broken by +/- then name.
+function knSortRows(rows,st){
+  var tie=function(a,b){ return (b.pd-a.pd)||String(a.name).localeCompare(String(b.name)); };
+  if(!st.sortKey) return rows.sort(function(a,b){ return ((b.regular?1:0)-(a.regular?1:0))||(b.pct-a.pct)||tie(a,b); });
+  var k=st.sortKey, d=st.sortDir;
+  return rows.sort(function(a,b){
+    var c=(k==='name')?String(a.name).localeCompare(String(b.name)):(a[k]-b[k]);
+    return (c*d)||tie(a,b);
+  });
+}
+function knSortBy(ctx,key){
+  var st=_knState[ctx];
+  if(st.sortKey===key) st.sortDir=-st.sortDir;
+  else { st.sortKey=key; st.sortDir=(key==='name')?1:-1; }
+  knRerender(ctx);
+}
+function knSet(ctx,field,val){
+  var st=_knState[ctx]; st[field]=val;
+  if(field==='squad'||field==='period') st.night=null;
+  knRerender(ctx);
+}
+function knRerender(ctx){
+  knRender(document.getElementById(ctx==='exec'?'tab-players':'pp-panel-kings'),ctx);
+}
+function knRefreshPlayer(){
+  if(currentRole!=='player'||!SC.tiersEnabled) return;
+  var el=document.getElementById('pp-panel-kings');
+  if(el&&el.classList.contains('active')) knRender(el,'player');
+}
+function knGoPractice(){
+  var t=document.querySelector('.tab[data-tab="teamanalysis"]'); if(t) t.click();
+}
+function knRender(el,ctx){
+  if(!el||!SC.tiersEnabled) return;
+  var st=_knState[ctx];
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  knLoadSeeded(function(){ knRerender(ctx); });
+  var pill=function(field,v,lbl){
+    return '<button class="filter-btn'+(st[field]===v?' active':'')+'" style="flex:1;text-align:center;padding:6px 4px;" onclick="knSet(\''+ctx+'\',\''+field+'\',\''+v+'\')">'+lbl+'</button>';
+  };
+  var me=(ctx==='player')?currentPlayerId:null;
+  var html='<div class="card"><div class="card-title"><span class="bar"></span> \u{1F451} Kings Night</div>';
+  if(knTonightActive()){
+    html+='<div style="font-size:12px;color:var(--charcoal);background:var(--primary-bg,#f3e9eb);border-radius:8px;padding:8px 10px;margin-bottom:10px;">Tonight in progress. '
+      +(ctx==='exec'?'<a href="javascript:void(0)" onclick="knGoPractice()" style="color:var(--red);font-weight:700;">Open the Practice tab</a> for live scores.':'Your live games are on the Kings Night card above.')+'</div>';
+  }
+  var period=knPeriodOf(st), periods=knPeriods();
+  if(!periods.some(function(p){ return p.key===period; })){ st.period=null; period=knPeriodOf(st); }
+  var periodLabel=periods.filter(function(p){ return p.key===period; })[0].label;
+  var anyNights=knFinalNights('all').length>0;
+  var nights=knFinalNights(period);
+  var totals=knTotals(st.squad,period);
+  var allTime=knAllTimeGames();
+  if(me){
+    var mine=knTotals('all',period)[me];
+    html+='<div style="border:1px solid var(--gray-lighter);border-radius:10px;padding:10px 12px;margin-bottom:10px;">'
+      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:1px;color:var(--charcoal);margin-bottom:4px;">YOUR KINGS NIGHTS</div>';
+    if(mine&&mine.all.games){
+      var a=mine.all;
+      html+='<div style="font-size:14px;color:var(--charcoal);">'+a.nights+' night'+(a.nights===1?'':'s')+' · '+a.games+' games · '
+        +a.w+'-'+a.l+' · '+(a.pd>0?'+':'')+a.pd+' · '+Math.round(a.w/a.games*100)+'%</div>';
+      if((allTime[me]||0)<KN_MIN_GAMES&&!knIsTruVolley(me)) html+='<div style="font-size:11px;color:var(--gray);margin-top:4px;">Only you can see this. You join the club leaderboard after '+KN_MIN_GAMES+' games.</div>';
+    } else html+='<div style="font-size:13px;color:var(--gray);">No finished Kings Nights for you in '+esc(periodLabel)+'.</div>';
+    html+='</div>';
+  }
+  html+='<select class="form-select" onchange="knSet(\''+ctx+'\',\'period\',this.value)" style="width:100%;padding:8px;font-size:13px;margin-bottom:8px;">'
+    +periods.map(function(p){ return '<option value="'+esc(p.key)+'"'+(p.key===period?' selected':'')+'>'+esc(p.label)+'</option>'; }).join('')+'</select>'
+    +'<div style="display:flex;gap:6px;margin-bottom:8px;">'+pill('view','season','Season')+pill('view','nights','Nights')+'</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:8px;">'+pill('squad','gold','Gold')+pill('squad','garnet','Garnet')+pill('squad','all','All')+'</div>';
+  if(!anyNights){
+    el.innerHTML=html+'<div style="font-size:13px;color:var(--gray);padding:10px 0;">No Kings Nights finished yet.</div></div>';
+    return;
+  }
+  if(!nights.length){
+    el.innerHTML=html+'<div style="font-size:13px;color:var(--gray);padding:10px 0;">No finished Kings Nights in '+esc(periodLabel)+' yet.</div></div>';
+    return;
+  }
+  var th='padding:6px 4px;font-weight:600;white-space:nowrap;', td2='padding:7px 4px;text-align:center;';
+  if(st.view==='season'){
+    html+='<div style="display:flex;gap:6px;margin-bottom:10px;">'+pill('pool','kings','Kings')+pill('pool','queens','Queens')+pill('pool','mixed','Coed')+pill('pool','all','All')+'</div>';
+    var rows=knRows(totals,st.pool,allTime);
+    if(ctx==='player') rows=rows.filter(function(r){ return r.isPublic||r.id===me; });
+    knSortRows(rows,st);
+    var cols=[['name','Player'],['nights','Nights'],['games','Games'],['w','W'],['l','L'],['pd','+/-'],['pct','Win %']];
+    var arrow=function(k){
+      var on=st.sortKey?st.sortKey===k:k==='pct';
+      if(!on) return '';
+      var d=st.sortKey?st.sortDir:-1;
+      return d>0?' ▲':' ▼';
+    };
+    if(!rows.length){ html+='<div style="font-size:13px;color:var(--gray);padding:10px 0;">No games in this view yet.</div></div>'; el.innerHTML=html; return; }
+    html+='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table style="width:100%;min-width:420px;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--gray);text-align:left;">'
+      +'<th style="'+th+'">#</th>'
+      +cols.map(function(c){ return '<th style="'+th+(c[0]==='name'?'':'text-align:center;')+'cursor:pointer;" onclick="knSortBy(\''+ctx+'\',\''+c[0]+'\')">'+c[1]+arrow(c[0])+'</th>'; }).join('')
+      +'</tr></thead><tbody>'
+      +rows.map(function(r,i){
+        var mark=(ctx==='exec'&&!r.isPublic)?' <span style="font-size:10px;color:var(--gray);">under '+KN_MIN_GAMES+' games</span>':'';
+        return '<tr style="border-top:1px solid var(--gray-lighter);color:var(--charcoal);'+(r.id===me?'font-weight:700;background:var(--primary-bg,#f3e9eb);':'')+'">'
+          +'<td style="padding:7px 4px;color:var(--gray);">'+(i+1)+'</td>'
+          +'<td style="padding:7px 4px;">'+esc(r.name)+mark+'</td>'
+          +'<td style="'+td2+'">'+r.nights+'</td><td style="'+td2+'">'+r.games+'</td>'
+          +'<td style="'+td2+'">'+r.w+'</td><td style="'+td2+'">'+r.l+'</td>'
+          +'<td style="'+td2+'color:'+(r.pd>0?'#217F7F':r.pd<0?'var(--red)':'var(--gray)')+';">'+(r.pd>0?'+':'')+r.pd+'</td>'
+          +'<td style="'+td2+'">'+Math.round(r.pct)+'%</td></tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  } else {
+    var list=nights.filter(function(n){ return st.squad==='all'||n.meta.squad===st.squad; });
+    if(!list.length){ el.innerHTML=html+'<div style="font-size:13px;color:var(--gray);padding:10px 0;">No finished Kings Nights for this squad yet.</div></div>'; return; }
+    var pick=list.filter(function(n){ return n.tid===st.night; })[0]||list[0];
+    st.night=pick.tid;
+    html+='<select class="form-select" onchange="knSet(\''+ctx+'\',\'night\',this.value)" style="width:100%;padding:8px;font-size:13px;margin-bottom:10px;">'
+      +list.map(function(n){
+        var label=(tsReadableDate(n.meta.date)||n.meta.date||'')+(n.meta.squad?' · '+(TS_SQUAD_LABELS[n.meta.squad]||n.meta.squad):'');
+        return '<option value="'+esc(n.tid)+'"'+(n.tid===pick.tid?' selected':'')+'>'+esc(label)+'</option>';
+      }).join('')+'</select>';
+    knPoolsOf(pick.meta).forEach(function(pool){
+      var st2=ptStandingsIn(pick.data,pool).filter(function(r){ return r.gp>0&&practiceEligibleId(r.id); });
+      html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:6px 0 4px;">'+esc(KN_POOL_LABELS[pool].toUpperCase())+'</div>';
+      if(!st2.length){ html+='<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">No games scored.</div>'; return; }
+      html+='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;"><thead><tr style="color:var(--gray);text-align:left;">'
+        +'<th style="'+th+'">#</th><th style="'+th+'">Player</th><th style="'+th+'text-align:center;">W</th><th style="'+th+'text-align:center;">L</th><th style="'+th+'text-align:center;">+/-</th><th style="'+th+'text-align:center;">GP</th></tr></thead><tbody>'
+        +st2.map(function(x,i){
+          return '<tr style="border-top:1px solid var(--gray-lighter);color:var(--charcoal);'+(x.id===me?'font-weight:700;background:var(--primary-bg,#f3e9eb);':'')+'">'
+            +'<td style="padding:6px 4px;color:var(--gray);">'+(i+1)+'</td>'
+            +'<td style="padding:6px 4px;">'+esc(x.name)+(x.dropped?' <span style="font-size:10px;color:var(--gray);">(left)</span>':'')+'</td>'
+            +'<td style="'+td2+'">'+x.w+'</td><td style="'+td2+'">'+x.l+'</td>'
+            +'<td style="'+td2+'color:'+(x.pd>0?'#217F7F':x.pd<0?'var(--red)':'var(--gray)')+';">'+(x.pd>0?'+':'')+x.pd+'</td>'
+            +'<td style="'+td2+'">'+x.gp+'</td></tr>';
+        }).join('')
+        +'</tbody></table></div>';
+    });
+  }
+  el.innerHTML=html+'</div>';
 }
 function renderPlayerPortal(){
   if(!currentPlayerId)return;
@@ -9459,6 +9729,7 @@ function switchPPTab(tab,btn){
   document.getElementById('pp-panel-'+tab).classList.add('active');
   if(tab==='live')renderPlayerLiveScoring();
   if(tab==='matches')renderPlayerMatches();
+  if(tab==='kings')knRender(document.getElementById('pp-panel-kings'),'player');
 }
 
 // ── CLUB CHAT (Grass Club, player portal) ───────────────────────────────────
