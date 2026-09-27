@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.164';
+const APP_VERSION='1.1.165';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1052,7 +1052,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="login-email" placeholder="Email you signed up with" autocomplete="email" autocapitalize="none" spellcheck="false">
       <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="login-pw" placeholder="Password" autocomplete="current-password">
       <div class="login-error" id="pw-error"></div>
-      <button class="login-btn" id="player-login-btn" onclick="playerLoginEmail()">View My Stats</button>
+      <button class="login-btn" id="player-login-btn" onclick="playerLoginEmail()">Log in</button>
       <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it.</a></div>
       `:`
       <div id="hs-pick-block">
@@ -1062,14 +1062,14 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <div id="hs-legacy-block">
         <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="login-pw" placeholder="Enter Password">
         <div class="login-error" id="pw-error"></div>
-        <button class="login-btn" id="player-login-btn" onclick="playerLogin()">View My Stats</button>
+        <button class="login-btn" id="player-login-btn" onclick="playerLogin()">Log in</button>
       </div>
       <div id="hs-acct-block" style="display:none;">
         <div id="hs-acct-note" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);line-height:1.5;margin:8px 0;"></div>
         <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="hs-login-email" placeholder="Email you claimed with" autocomplete="email" autocapitalize="none" spellcheck="false">
         <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="hs-login-pw" placeholder="Password" autocomplete="current-password">
         <div class="login-error" id="hs-pw-error"></div>
-        <button class="login-btn" id="hs-player-login-btn" onclick="playerLoginEmail()">View My Stats</button>
+        <button class="login-btn" id="hs-player-login-btn" onclick="playerLoginEmail()">Log in</button>
         <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it.</a></div>
       </div>
       <div style="text-align:center;padding:12px 8px 0;"><a href="javascript:void(0)" id="hs-login-toggle" onclick="hsToggleLoginMode()" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);font-weight:600;text-decoration:underline;">I have a CourtSense account</a></div>
@@ -1581,6 +1581,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
        tabs, and the space above the tabs holds only a pinned announcement. HS is unchanged. -->
   <div class="card">
     <div class="pp-name" id="pp-name"></div>
+    ${SC.tiersEnabled?'<div id="pp-rating" style="font-size:13px;font-weight:700;color:var(--charcoal);margin:0 0 4px;"></div>':''}
     <div class="pp-meta" id="pp-meta"></div>
     ${!SC.tiersEnabled?'<div id="pp-tier-request"></div><div id="pp-practice"></div>':''}
   </div>
@@ -4593,6 +4594,7 @@ function playerLogin(){
   const p=gP(pid);
   document.getElementById('header-username').textContent=p?p.firstName+' '+p.lastName:'Player';
   renderPlayerPortal();
+  ppAfterLogin();
 }
 // Email + password player login (SC.emailLogin schools only, e.g. FSU Grass). Verifies
 // the CourtSense account server-side via the worker (same fetch/error convention as the
@@ -4664,6 +4666,7 @@ async function playerLoginEmail(){
   document.querySelector('.tabs').style.display='none';
   document.getElementById('header-username').textContent=rec.firstName+' '+rec.lastName;
   renderPlayerPortal();
+  ppAfterLogin();
 }
 // Exec email + password login (SC.emailLogin schools only). Verifies the CourtSense
 // account against the school's exec list SERVER-SIDE via /auth/exec-session and, on
@@ -4759,6 +4762,7 @@ async function autoLogin(){
       const p=gP(auth.pid);
       document.getElementById('header-username').textContent=p?p.firstName+' '+p.lastName:'Player';
       renderPlayerPortal();
+      ppAfterLogin();
     }
   }catch(e){}
 }
@@ -4815,6 +4819,66 @@ function playerRequestTier(choice){
   toast('Requested '+(TIER_LABELS[choice]||choice)+'. Your coach will review it.');
   renderPlayerPortal();
 }
+// ---- Club member: rating under the name, and the tab they land on -----------------
+// The member's own platform rating record in tally_kotb_pickup/ratings, found the way
+// resolveClubRating finds it: the one record tagged with their accountId, else the single
+// untagged record for their name. A number shows only when Ratings.isRated says so (5 rated
+// games or a TruVolley seed on the record), the same test pickup uses. With no record at all, a
+// TruVolley seed from club signup shows its seed rating. Anything else is "Unrated", and a
+// failed read shows nothing. Read once per login and cached.
+var _ppRating=null;       // { pid, text } once resolved; text '' after a failed read
+var _ppRatingLoading=null;
+function ppRatingText(p,ratings){
+  if(!window.Ratings||typeof Ratings.nameKey!=='function'||typeof Ratings.isRated!=='function') return '';
+  var R=ratings||{}, acct=(typeof p.accountId==='string'&&p.accountId)?p.accountId:'', rec=null;
+  if(acct){
+    var tagged=Object.keys(R).filter(function(k){ return R[k]&&R[k].playerId===acct; });
+    if(tagged.length>1) return 'Unrated'; // more than one record claims this account: never guess
+    if(tagged.length===1) rec=R[tagged[0]];
+  }
+  if(!rec){
+    var nk=Ratings.nameKey(((p.firstName||'')+' '+(p.lastName||'')).trim()||String(p.name||''));
+    if(nk){
+      var byName=Object.keys(R).filter(function(k){
+        var r=R[k]; if(!r||typeof r!=='object'||(typeof r.playerId==='string'&&r.playerId)) return false;
+        return k===nk||(r.name&&Ratings.nameKey(r.name)===nk);
+      });
+      if(byName.length>1) return 'Unrated';
+      if(byName.length===1) rec=R[byName[0]];
+    }
+  }
+  if(rec) return (Ratings.isRated(rec)&&typeof rec.rating==='number')?'Rating '+Math.round(rec.rating):'Unrated';
+  if(typeof p.truVolley==='number'&&typeof p.rating==='number') return 'Rating '+Math.round(p.rating);
+  return 'Unrated';
+}
+function ppRenderRating(){
+  var el=document.getElementById('pp-rating'); if(!el) return;
+  if(!SC.tiersEnabled||currentRole!=='player'||!currentPlayerId){ el.textContent=''; return; }
+  var pid=currentPlayerId;
+  if(_ppRating&&_ppRating.pid===pid){ el.textContent=_ppRating.text; return; }
+  el.textContent='';
+  if(!db||_ppRatingLoading===pid) return;
+  _ppRatingLoading=pid;
+  db.ref('tally_kotb_pickup/ratings').once('value').then(function(s){
+    var p=gP(pid); if(!p) throw new Error('member not found');
+    _ppRating={pid:pid, text:ppRatingText(p,s.val()||{})};
+  }).catch(function(e){
+    console.warn('member rating read failed',e);
+    _ppRating={pid:pid, text:''};
+  }).then(function(){
+    if(_ppRatingLoading===pid) _ppRatingLoading=null;
+    if(currentPlayerId===pid) ppRenderRating();
+  });
+}
+// After a member logs in or a session is restored: re-read their rating, and on the club open
+// Club Life (the club chats) instead of My Info. Every other shell keeps its default tab.
+function ppAfterLogin(){
+  // A read the portal render just started for this member is already fresh; do not start another.
+  if(_ppRatingLoading!==currentPlayerId){ _ppRating=null; ppRenderRating(); }
+  if(!SC.tiersEnabled) return;
+  var btn=document.querySelector('.pp-tab-btn[onclick*="clublife"]');
+  if(btn) switchPPTab('clublife',btn);
+}
 function renderPlayerPortal(){
   if(!currentPlayerId)return;
   const p=gP(currentPlayerId);
@@ -4824,6 +4888,7 @@ function renderPlayerPortal(){
   renderPlayerBroadcasts();
   if(SC.tiersEnabled&&typeof renderPlayerPinned==='function')renderPlayerPinned();
   if(SC.tiersEnabled&&typeof ptpSync==='function')ptpSync();
+  if(SC.tiersEnabled)ppRenderRating();
   if(SC.tiersEnabled&&typeof updateMemberMsgBadge==='function')updateMemberMsgBadge();
 
   document.getElementById('pp-name').textContent=p.firstName+' '+p.lastName;
@@ -12927,19 +12992,45 @@ function ptBump(M,a,b){
   (M[b]=M[b]||{})[a]=(M[b][a]||0)+1;
 }
 // Repeat cost of one game given the pairings so far. A repeated partner weighs 3x a repeated
-// opponent, the same balance the league generator uses.
-function ptGameCost(pC,oC,g){
+// opponent, the same balance the league generator uses. gen (Mixed pools only) adds the coed
+// rule: two men against two women carries a penalty no repeat cost can outweigh.
+function ptGameCost(pC,oC,g,gen){
   var c=0;
   [g.t1,g.t2].forEach(function(t){ var p=ptPv(pC,t[0],t[1]); c+=3*p*p; });
   g.t1.forEach(function(a){ g.t2.forEach(function(b){ var o=ptPv(oC,a,b); c+=o*o; }); });
+  if(gen&&ptCoedBad(g.t1,g.t2,gen)) c+=PT_COED_PENALTY;
   return c;
+}
+// Coed rule for Mixed nights: never two known men against two known women. A player with no
+// gender counts as either, so a team with one never counts as MM or FF.
+var PT_COED_PENALTY=1000000;
+function ptTeamSex(t,gen){
+  var a=gen[t[0]], b=gen[t[1]];
+  return (a==='M'&&b==='M')?'MM':(a==='F'&&b==='F')?'FF':'';
+}
+function ptCoedBad(t1,t2,gen){
+  var x=ptTeamSex(t1,gen), y=ptTeamSex(t2,gen);
+  return (x==='MM'&&y==='FF')||(x==='FF'&&y==='MM');
+}
+// Gender for each player in a pool, from the snapshot taken at start or late add, falling back
+// to the live roster for nights started before snapshots existed. Only Mixed pools get a map.
+function ptGenderNorm(g){ return (g==='M'||g==='F')?g:null; }
+function ptGenderMap(players,ids){
+  var gen={};
+  ids.forEach(function(id){
+    var p=players&&players[id];
+    if(p&&(p.gender==='M'||p.gender==='F')) gen[id]=p.gender;
+    else { var r=gP(id); gen[id]=ptGenderNorm(r&&r.gender); }
+  });
+  return gen;
 }
 // Rounds for one pool. ids play toward targets[id] games each. Each round seats up to one court of
 // four per court number, fewer when only a handful still need games (at most three players then
 // play an extra game to fill a court). Most games still owed plays first, then whoever has sat
 // the most, then a rotating order so ties do not always fall the same way. pC and oC carry the
-// partner and opponent counts so far and are updated in place.
-function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex){
+// partner and opponent counts so far and are updated in place. gen is passed for Mixed pools
+// only; without it the build is exactly what it was before the coed rule.
+function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
   var n=ids.length, courtsMax=Math.min(courtNums.length,Math.floor(n/4));
   if(courtsMax<1) return [];
   var rem={}, sat={}, ord={};
@@ -12967,6 +13058,7 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex){
       var ti=0,tj=1,tc=Infinity;
       for(var x=0;x<teams.length;x++) for(var y=x+1;y<teams.length;y++){
         var oc=0; teams[x].forEach(function(a){ teams[y].forEach(function(b){ oc+=ptPv(oC,a,b); }); });
+        if(gen&&ptCoedBad(teams[x],teams[y],gen)) oc+=PT_COED_PENALTY;
         if(oc<tc){tc=oc;ti=x;tj=y;}
       }
       games.push({t1:teams[ti],t2:teams[tj]}); teams.splice(tj,1); teams.splice(ti,1);
@@ -12981,13 +13073,21 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex){
         var P=slots[s1], Q=slots[s2];
         if(P.g===Q.g&&P.tk===Q.tk) continue;
         var gP1=games[P.g], gQ1=games[Q.g];
-        var before=ptGameCost(pC,oC,gP1)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1));
+        var before=ptGameCost(pC,oC,gP1,gen)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1,gen));
         var a1=gP1[P.tk][P.si], b1=gQ1[Q.tk][Q.si];
         gP1[P.tk][P.si]=b1; gQ1[Q.tk][Q.si]=a1;
-        var after=ptGameCost(pC,oC,gP1)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1));
+        var after=ptGameCost(pC,oC,gP1,gen)+(P.g===Q.g?0:ptGameCost(pC,oC,gQ1,gen));
         if(after<before){ better=true; } else { gP1[P.tk][P.si]=a1; gQ1[Q.tk][Q.si]=b1; }
       }
     }
+    // Coed guard. The penalty above should already have removed every MM vs FF game; if one ever
+    // slips through, its four players (two men, two women) are re-paired as MF vs MF.
+    if(gen) games.forEach(function(g){
+      if(!ptCoedBad(g.t1,g.t2,gen)) return;
+      var four=g.t1.concat(g.t2);
+      var men=four.filter(function(id){ return gen[id]==='M'; }), women=four.filter(function(id){ return gen[id]==='F'; });
+      g.t1=[men[0],women[0]]; g.t2=[men[1],women[1]];
+    });
     games.forEach(function(g,ci){
       g.gid=gi('g'); g.court=courtNums[ci];
       ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
@@ -13061,7 +13161,8 @@ function ptRebuildPool(pool,players,lateAddPid){
     ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
     g.t1.forEach(function(a){ g.t2.forEach(function(b){ ptBump(oC,a,b); }); });
   }); });
-  var fresh=ptBuildRounds(ids,targets,ptCourtsFor(pool),pC,oC,keep);
+  // Only the rounds after the kept ones are built; kept rounds are never re-paired.
+  var fresh=ptBuildRounds(ids,targets,ptCourtsFor(pool),pC,oC,keep,pool==='mixed'?ptGenderMap(players,ids):null);
   return {rounds:kept.concat(fresh), short:false, lateTarget:lateTarget};
 }
 // Standings for one pool: wins, then point differential, then name. Anyone who played keeps their
@@ -13157,13 +13258,14 @@ function ptStart(){
   var now=Date.now(), players={}, rounds={};
   Object.keys(plan.players).forEach(function(id){
     var p=gP(id);
-    players[id]={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||id, pool:plan.players[id], addedAt:now, gameTarget:s.gamesPerPlayer};
+    // gender is snapshotted so a mid-night rebuild follows the same coed rule the start did.
+    players[id]={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||id, pool:plan.players[id], addedAt:now, gameTarget:s.gamesPerPlayer, gender:ptGenderNorm(p.gender)};
   });
   var poolCourts=ptAllocCourts(s.format,s.courts,plan.counts);
   Object.keys(poolCourts).forEach(function(pool){
     var ids=Object.keys(players).filter(function(id){ return players[id].pool===pool; });
     var targets={}; ids.forEach(function(id){ targets[id]=s.gamesPerPlayer; });
-    rounds[pool]=ptBuildRounds(ids,targets,poolCourts[pool],{},{},0);
+    rounds[pool]=ptBuildRounds(ids,targets,poolCourts[pool],{},{},0,pool==='mixed'?ptGenderMap(players,ids):null);
   });
   var m=ptMeta();
   _ptBusy=true;
@@ -13186,7 +13288,7 @@ function ptRegenerate(){
   ptPools().forEach(function(pool){
     var ids=Object.keys(pl).filter(function(id){ return pl[id]&&pl[id].pool===pool&&!pl[id].droppedAt; });
     var targets={}; ids.forEach(function(id){ targets[id]=gpp; upd['players/'+id+'/gameTarget']=gpp; });
-    upd['rounds/'+pool]=ids.length>=4?ptBuildRounds(ids,targets,ptCourtsFor(pool),{},{},0):[];
+    upd['rounds/'+pool]=ids.length>=4?ptBuildRounds(ids,targets,ptCourtsFor(pool),{},{},0,pool==='mixed'?ptGenderMap(pl,ids):null):[];
   });
   upd['meta/updatedAt']=now;
   _ptBusy=true;
@@ -13326,7 +13428,7 @@ function ptLock(tid,token,mode){
   }).then(function(r){ return !!(r&&r.committed); }).catch(function(){ return false; });
 }
 // Rate one result. 'next' moves on, 'stop' ends the run so a retry picks up from here.
-async function ptRateOne(tid,data,gid,accounts){
+async function ptRateOne(tid,data,gid,accounts,tsFor){
   var r=data.results[gid], gameId=tid+'_'+gid, path='results/'+gid+'/', upd={};
   var rv=ptResolveResult(r);
   if(rv.blocker!==null){
@@ -13335,7 +13437,9 @@ async function ptRateOne(tid,data,gid,accounts){
     return (await ptWriteTid(tid,upd))?'next':'stop';
   }
   var keys=rv.ids.map(function(id){ return rv.byId[id].key; }).filter(function(k,i,a){ return a.indexOf(k)===i; });
-  var ts=+r.at||0;
+  // The rating time: the one saved when this game went pending, else r.at for a game left pending
+  // before ratedTs existed (exactly as before), else the night's strictly increasing time.
+  var ts=(typeof r.ratedTs==='number')?r.ratedTs:(r.rated==='pending'||tsFor==null)?(+r.at||0):tsFor;
   var before=await ptAppliedCount(keys,gameId,ts);
   if(before===null) return 'stop';
   if(before>0){
@@ -13356,7 +13460,7 @@ async function ptRateOne(tid,data,gid,accounts){
       return (await ptWriteTid(tid,upd))?'next':'stop';
     }
   }
-  upd[path+'rated']='pending'; upd[path+'ratedGameId']=gameId; upd[path+'ratedNote']=null;
+  upd[path+'rated']='pending'; upd[path+'ratedGameId']=gameId; upd[path+'ratedNote']=null; upd[path+'ratedTs']=ts;
   if(!(await ptWriteTid(tid,upd))) return 'stop';
   var names=function(side){ return ptArr(side).map(function(id){ return rv.byId[id].name; }); };
   await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gameId, source:PT_RATE_SOURCE, ts:ts,
@@ -13368,6 +13472,17 @@ async function ptRateOne(tid,data,gid,accounts){
   if(after===keys.length) done[path+'ratedAt']=Date.now();
   else done[path+'ratedNote']='Rated for some players only. An exec should check this game.';
   return (await ptWriteTid(tid,done))?'next':'stop';
+}
+// A strictly increasing rating time for every result of the night, in score order: the first
+// game keeps its entry time, and a tie moves the later game 1 ms on. Two games sharing a player
+// can then never share a lastUpdated value, which the already-applied check relies on. A final
+// night is locked, so the same results give the same times on every retry.
+function ptRateTimes(results){
+  var out={}, prev=-Infinity;
+  Object.keys(results||{}).filter(function(gid){ return !!results[gid]; })
+    .sort(function(a,b){ return ((+results[a].at||0)-(+results[b].at||0))||(a<b?-1:a>b?1:0); })
+    .forEach(function(gid){ var t=Math.max(+results[gid].at||0, prev+1); out[gid]=t; prev=t; });
+  return out;
 }
 // Lock the night, then rate what is left. Safe to run again at any point: see the header above.
 async function ptRateNight(tid){
@@ -13386,9 +13501,9 @@ async function ptRateNight(tid){
     if(!fresh){ toast('Night ended. Ratings could not be read, so use Retry later.'); return false; }
     var accounts=communityPlayersNow();
     data.results=data.results||{};
-    var queue=ptRateQueue(data.results);
+    var queue=ptRateQueue(data.results), tsMap=ptRateTimes(data.results);
     for(var i=0;i<queue.length;i++){
-      if((await ptRateOne(tid,data,queue[i],accounts))==='stop'){ toast('Ratings stopped partway. Tap Retry to finish.'); return false; }
+      if((await ptRateOne(tid,data,queue[i],accounts,tsMap[queue[i]]))==='stop'){ toast('Ratings stopped partway. Tap Retry to finish.'); return false; }
       await ptLock(tid,token,'beat');
     }
     return true;
@@ -13522,7 +13637,7 @@ function ptLateAdd(){
     pool=_ptUi.addPool||(cur&&cur.pool)||ptGenderPool(p.gender);
     if(pool!=='kings'&&pool!=='queens'){ toast('Pick Kings or Queens for this player'); return; }
   }
-  var rec={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||pid, pool:pool, addedAt:Date.now(), gameTarget:0};
+  var rec={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||pid, pool:pool, addedAt:Date.now(), gameTarget:0, gender:ptGenderNorm(p.gender)};
   var next=Object.assign({},pl); next[pid]=rec;
   var rb=ptRebuildPool(pool,next,pid);
   rec.gameTarget=rb.lateTarget!=null?rb.lateTarget:0;
