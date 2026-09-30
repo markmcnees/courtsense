@@ -782,8 +782,7 @@ footer{
 
       <div class="section-divider">Security</div>
       <div class="fg">
-        <label class="lbl" for="ef-newPin">Change League PIN (leave blank to keep current)</label>
-        <input class="inp" id="ef-newPin" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="4 to 8 digits" autocomplete="off" maxlength="8">
+        <p style="font-size:14px;line-height:1.5;color:var(--navy-deep);margin:0;">League PINs are managed by CourtSense. Contact Mark to change yours.</p>
       </div>
 
     </div>
@@ -822,10 +821,63 @@ function initFB(){
 }
 
 // STATE
-const MASTER_PIN = '1969';
 const LEAGUE_ADMIN_SESSION_MS = 60 * 60 * 1000;
 let isAdmin = false;
-let _leaguePin = '';
+// This page's admin scope on the worker: the league PIN or the master PIN opens it.
+const LA_SCOPE = 'league:' + SLUG;
+// LEAGUE ADMIN SESSION (PIN verified by the worker)
+// The PIN is posted to /auth/league-admin-session and nothing unlocks unless the worker
+// says ok. The session {token, scope, expiresAt} lives in sessionStorage, keyed per
+// scope, and is re-checked with /auth/league-admin-check on load. The page keeps its
+// one-hour admin window, so a stored session never outlives LEAGUE_ADMIN_SESSION_MS.
+const LA_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const LA_KEY = 'cs_admin_session:';
+const LA_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const LA_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+function laClear(scope){ try{ sessionStorage.removeItem(LA_KEY+scope); }catch(e){} }
+function laGet(scope){
+  let s = null;
+  try{ s = JSON.parse(sessionStorage.getItem(LA_KEY+scope) || 'null'); }catch(e){ s = null; }
+  if(s && typeof s.token === 'string' && typeof s.expiresAt === 'number' && s.expiresAt > Date.now()) return s;
+  laClear(scope);
+  return null;
+}
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' stores a session.
+async function laVerifyPin(scope, pin){
+  let r, res;
+  try{
+    r = await fetch(LA_WORKER+'/auth/league-admin-session', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ scope: scope, pin: pin })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 429) return 'rate';
+  if(r.status >= 500) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  if(res && res.ok === true && typeof res.token === 'string' && typeof res.expiresAt === 'number'){
+    const expiresAt = Math.min(res.expiresAt, Date.now() + LEAGUE_ADMIN_SESSION_MS);
+    try{ sessionStorage.setItem(LA_KEY+scope, JSON.stringify({ token: res.token, scope: res.scope || scope, expiresAt: expiresAt })); }catch(e){}
+    return 'ok';
+  }
+  return 'bad';
+}
+// True only when the worker confirms the stored session still covers this scope.
+// A rejected session is cleared; a network failure keeps it and stays locked.
+async function laRestore(scope){
+  const s = laGet(scope);
+  if(!s) return false;
+  let res;
+  try{
+    const r = await fetch(LA_WORKER+'/auth/league-admin-check', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: s.token, scope: scope })
+    });
+    res = await r.json();
+  }catch(e){ return false; }
+  if(res && res.ok === true) return true;
+  laClear(scope);
+  return false;
+}
 let _snapshotLoaded = false;
 let _lastVal = null;
 
@@ -862,17 +914,13 @@ function safeUrl(u){
 }
 
 // SESSION CHECK ON LOAD
+// Admin mode comes back only when the worker confirms the stored session. Until it
+// answers, the page stays in its public view.
 function loadSession(){
-  try{
-    const raw = sessionStorage.getItem('cs_league_admin_' + SLUG);
-    if(!raw) return;
-    const expiry = parseInt(raw, 10);
-    if(isNaN(expiry) || expiry <= Date.now()){
-      sessionStorage.removeItem('cs_league_admin_' + SLUG);
-      return;
-    }
-    isAdmin = true;
-  }catch(e){}
+  laRestore(LA_SCOPE).then(function(ok){
+    isAdmin = ok;
+    applyAdminState();
+  });
 }
 function applyAdminState(){
   const b = $('admin-badge');
@@ -1045,7 +1093,6 @@ function renderSeason(cfg){
 function renderPage(val){
   _snapshotLoaded = true;
   _lastVal = val;
-  _leaguePin = (val && val.leaguePin != null) ? String(val.leaguePin) : '';
   const cfg = val && val.config;
   if(!val || !cfg){
     showCalm();
@@ -1075,22 +1122,10 @@ function closeAdminLogin(){
   if(ov) ov.classList.remove('on');
 }
 function _adminSuccess(){
-  try{
-    sessionStorage.setItem('cs_league_admin_' + SLUG, String(Date.now() + LEAGUE_ADMIN_SESSION_MS));
-  }catch(e){}
   isAdmin = true;
   applyAdminState();
   closeAdminLogin();
   toast('Admin mode active.');
-}
-function _checkPin(pin, leaguePin, errEl, btn){
-  if(pin !== MASTER_PIN && pin !== leaguePin){
-    errEl.textContent = 'Incorrect PIN.';
-    btn.disabled = false;
-    btn.textContent = 'Open Admin';
-    return;
-  }
-  _adminSuccess();
 }
 function submitAdminLogin(){
   const pin = ($('lg-pin').value || '').trim();
@@ -1099,22 +1134,16 @@ function submitAdminLogin(){
   errEl.textContent = '';
   if(!pin){ errEl.textContent = 'Enter the admin PIN.'; return; }
 
-  if(_snapshotLoaded){
-    _checkPin(pin, _leaguePin, errEl, btn);
-    return;
-  }
-  // Snapshot not yet loaded; re-read leaguePin directly via callback form.
-  if(!db){ errEl.textContent = 'Could not connect. Try again in a moment.'; return; }
   btn.disabled = true;
   btn.textContent = 'Checking...';
-  db.ref('courtsense_leagues/' + SLUG + '/leaguePin').once('value', function(snap){
-    const lp = (snap && snap.val() != null) ? String(snap.val()) : '';
-    _leaguePin = lp;
-    _checkPin(pin, lp, errEl, btn);
-  }, function(){
-    errEl.textContent = 'Could not connect. Try again in a moment.';
+  // The worker accepts this league's PIN or the master PIN for the league scope.
+  laVerifyPin(LA_SCOPE, pin).then(function(result){
     btn.disabled = false;
     btn.textContent = 'Open Admin';
+    if(result === 'ok'){ _adminSuccess(); return; }
+    errEl.textContent = (result === 'rate') ? LA_MSG_RATE
+      : (result === 'net') ? LA_MSG_NET
+      : 'Incorrect PIN.';
   });
 }
 
@@ -1153,7 +1182,6 @@ function populateEditForm(){
   $('ef-regUrl').value = cfg.registrationUrl || '';
   $('ef-contactEmail').value = cfg.contactEmail || '';
   $('ef-contactPhone').value = cfg.contactPhone || '';
-  $('ef-newPin').value = '';
 
   // Cards: sorted by order, rebuilt fresh each time the modal opens.
   const cards = val.cards || {};
@@ -1237,13 +1265,6 @@ function saveEdits(){
   errEl.textContent = '';
   const saveBtn = $('ef-save');
 
-  const newPinRaw = ($('ef-newPin').value || '').trim();
-  if(newPinRaw && !/^\d{4,8}$/.test(newPinRaw)){
-    errEl.textContent = 'New PIN must be 4 to 8 digits.';
-    $('ef-newPin').focus();
-    return;
-  }
-
   if(!db){
     errEl.textContent = 'Could not connect. Try again in a moment.';
     return;
@@ -1284,12 +1305,10 @@ function saveEdits(){
     };
   });
 
-  // Fire-and-forget writes scoped only to this league's config, cards, and (optionally) leaguePin.
+  // Fire-and-forget writes scoped only to this league's config and cards. The league PIN
+  // is never read or written here; it lives with the worker.
   db.ref('courtsense_leagues/' + SLUG + '/config').set(cfg);
   db.ref('courtsense_leagues/' + SLUG + '/cards').set(Object.keys(cards).length ? cards : null);
-  if(newPinRaw){
-    db.ref('courtsense_leagues/' + SLUG + '/leaguePin').set(newPinRaw);
-  }
 
   // The .on listener will repaint the public view automatically.
   setTimeout(function(){

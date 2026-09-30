@@ -64,10 +64,10 @@ tr:last-child td{border-bottom:none;}
 <div class="wrap" id="pin-screen">
   <h1>Manage Ratings <span id="sync" class="sync"></span></h1>
   <div class="card">
-    <p style="margin-bottom:14px;">Admin tool. Enter PIN to continue.</p>
-    <input class="inp" id="pin-input" type="password" placeholder="PIN" autocomplete="off" onkeypress="if(event.key==='Enter')checkPin()">
+    <p style="margin-bottom:14px;">Admin tool. Enter the admin key to continue.</p>
+    <input class="inp" id="pin-input" type="password" placeholder="Admin key" autocomplete="off" autocapitalize="off" spellcheck="false" onkeypress="if(event.key==='Enter')unlockAdmin()">
     <div id="pin-err" style="color:var(--loss);font-size:13px;font-weight:700;margin-top:8px;min-height:18px;"></div>
-    <button class="btn btn-p btn-lg btn-w" style="margin-top:10px;" onclick="checkPin()">Unlock</button>
+    <button class="btn btn-p btn-lg btn-w" style="margin-top:10px;" onclick="unlockAdmin()">Unlock</button>
   </div>
 </div>
 
@@ -147,7 +147,62 @@ tr:last-child td{border-bottom:none;}
 <div class="toast" id="toast"></div>
 
 <script>
-const ADMIN_PIN = '8675';
+// ADMIN KEY GATE
+// Nothing on this page shows until the worker confirms the admin key through
+// /auth/admin-key-check. The key sits in localStorage['courtsenseAdminKey'], the same
+// slot the other admin tools use. A rejected key is cleared and the prompt comes back.
+const AK_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const AK_STORE = 'courtsenseAdminKey';
+const AK_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const AK_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+let _akBusy = false;
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' opens the page.
+async function akVerify(key){
+  let r, res;
+  try{
+    r = await fetch(AK_WORKER + '/auth/admin-key-check', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminKey: key })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 401) return 'bad';
+  if(r.status === 429) return 'rate';
+  if(r.status !== 200) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  return (res && res.ok === true) ? 'ok' : 'net';
+}
+function akStored(){ try{ return (localStorage.getItem(AK_STORE) || '').trim(); }catch(e){ return ''; } }
+function akForget(){ try{ localStorage.removeItem(AK_STORE); }catch(e){} }
+function akMessage(result){ return result === 'rate' ? AK_MSG_RATE : result === 'net' ? AK_MSG_NET : 'Wrong admin key'; }
+// Typed key: verify, remember, open.
+async function unlockAdmin(){
+  if(_akBusy) return;
+  const typed = ($('pin-input').value || '').trim();
+  if(!typed){ $('pin-err').textContent = 'Enter the admin key.'; return; }
+  $('pin-err').textContent = '';
+  _akBusy = true;
+  const result = await akVerify(typed);
+  _akBusy = false;
+  if(result === 'ok'){
+    try{ localStorage.setItem(AK_STORE, typed); }catch(e){}
+    $('pin-input').value = '';
+    akOpen(typed);
+    return;
+  }
+  if(result === 'bad') akForget();
+  $('pin-err').textContent = akMessage(result);
+}
+// Stored key: verify silently on load. A rejected key is cleared and the prompt shows.
+async function akAutoUnlock(){
+  const stored = akStored();
+  if(!stored) return;
+  _akBusy = true;
+  const result = await akVerify(stored);
+  _akBusy = false;
+  if(result === 'ok'){ akOpen(stored); return; }
+  if(result === 'bad'){ akForget(); $('pin-err').textContent = 'The saved admin key was rejected. Enter the current key.'; return; }
+  $('pin-err').textContent = akMessage(result);
+}
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -177,16 +232,13 @@ function logLine(m){ const el=$('log'); el.textContent = (el.textContent==='Idle
     $('sync').classList.toggle('on', on);
     $('sync2').classList.toggle('on', on);
   });
-  // Auto-focus PIN input
+  // Auto-focus the key input, then open silently if a saved key still checks out.
   setTimeout(()=>{ const i=$('pin-input'); if(i)i.focus(); }, 100);
+  akAutoUnlock();
 })();
 
-function checkPin(){
-  const v = ($('pin-input').value||'').trim();
-  if(v !== ADMIN_PIN){
-    $('pin-err').textContent = 'Wrong PIN';
-    return;
-  }
+// Opens the tool once the worker has confirmed the key.
+function akOpen(key){
   $('pin-err').textContent = '';
   $('pin-screen').style.display = 'none';
   $('main-screen').style.display = 'block';

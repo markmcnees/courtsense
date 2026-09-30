@@ -594,7 +594,9 @@ const FB_CFG = {
 };
 const DB_ROOT = 'tally_4v4';
 const GAMES_PER_TEAM = 8;   // Rule A: every team plays exactly this many matches per season, regardless of week count.
-const ADMIN_PIN = '8675';
+// The admin PIN is checked by the worker, never in the page. The scope names this
+// league's PIN on the server (courtsense_coach_pins/league_admin/tally_4v4).
+const LA_SCOPE = 'tally_4v4';
 const AI_URL = 'https://leon-beach-ai.markmcnees-479.workers.dev';
 
 // STATE
@@ -3815,30 +3817,100 @@ function openTeamDetail(teamId){
   $('team-modal').classList.add('on');
 }
 
+// LEAGUE ADMIN SESSION (PIN verified by the worker)
+// The pad posts the PIN to /auth/league-admin-session and unlocks only on ok. The
+// session {token, scope, expiresAt} lives in sessionStorage, keyed per scope, and is
+// re-checked with /auth/league-admin-check on load before anything unlocks.
+const LA_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const LA_KEY = 'cs_admin_session:';
+const LA_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const LA_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+function laClear(scope){ try{ sessionStorage.removeItem(LA_KEY+scope); }catch(e){} }
+function laGet(scope){
+  let s = null;
+  try{ s = JSON.parse(sessionStorage.getItem(LA_KEY+scope) || 'null'); }catch(e){ s = null; }
+  if(s && typeof s.token === 'string' && typeof s.expiresAt === 'number' && s.expiresAt > Date.now()) return s;
+  laClear(scope);
+  return null;
+}
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' stores a session.
+async function laVerifyPin(scope, pin){
+  let r, res;
+  try{
+    r = await fetch(LA_WORKER+'/auth/league-admin-session', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ scope: scope, pin: pin })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 429) return 'rate';
+  if(r.status >= 500) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  if(res && res.ok === true && typeof res.token === 'string' && typeof res.expiresAt === 'number'){
+    try{ sessionStorage.setItem(LA_KEY+scope, JSON.stringify({ token: res.token, scope: res.scope || scope, expiresAt: res.expiresAt })); }catch(e){}
+    return 'ok';
+  }
+  return 'bad';
+}
+// True only when the worker confirms the stored session still covers this scope.
+// A rejected session is cleared; a network failure keeps it and stays locked.
+async function laRestore(scope){
+  const s = laGet(scope);
+  if(!s) return false;
+  let res;
+  try{
+    const r = await fetch(LA_WORKER+'/auth/league-admin-check', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: s.token, scope: scope })
+    });
+    res = await r.json();
+  }catch(e){ return false; }
+  if(res && res.ok === true) return true;
+  laClear(scope);
+  return false;
+}
+// The admin window stays one hour from unlock, as before, and never outlives the
+// worker session behind it.
+function _adminWindowFromSession(){
+  const s = laGet(LA_SCOPE);
+  _pinAdminUntil = s ? Math.min(Date.now() + SESSION_PIN_MS, s.expiresAt) : 0;
+  applyAdminLock();
+}
+
 // PIN
-let _pinEntry = '', _pinAction = null;
+let _pinEntry = '', _pinAction = null, _pinBusy = false;
 function pinTap(v){
+  if(_pinBusy) return;
   if(v==='back') _pinEntry = _pinEntry.slice(0,-1);
   else if(v==='clear') _pinEntry = '';
   else if(_pinEntry.length < 4) _pinEntry += v;
   updatePinDots();
   $('pin-error').textContent = '';
   if(_pinEntry.length === 4){
-    if(_pinEntry === ADMIN_PIN){
-      $('pin-modal').classList.remove('on');
+    _pinBusy = true;
+    laVerifyPin(LA_SCOPE, _pinEntry).then(function(result){
+      _pinBusy = false;
+      if(result === 'ok'){
+        $('pin-modal').classList.remove('on');
+        _pinEntry = '';
+        updatePinDots();
+        _adminWindowFromSession();
+        if(_pinAction === 'admin'){
+          const t = window._pendingTab;
+          if(t) activateTab(t);
+          window._pendingTab = null;
+        }
+        return;
+      }
+      if(result === 'bad'){
+        $('pin-error').textContent = 'Incorrect PIN';
+        setTimeout(()=>{ _pinEntry=''; updatePinDots(); $('pin-error').textContent=''; }, 700);
+        return;
+      }
+      // Rate limit or no connection: say so, clear the dots, stay locked.
+      $('pin-error').textContent = (result === 'rate') ? LA_MSG_RATE : LA_MSG_NET;
       _pinEntry = '';
       updatePinDots();
-      _pinAdminUntil = Date.now() + SESSION_PIN_MS;
-      applyAdminLock();
-      if(_pinAction === 'admin'){
-        const t = window._pendingTab;
-        if(t) activateTab(t);
-        window._pendingTab = null;
-      }
-    }else{
-      $('pin-error').textContent = 'Incorrect PIN';
-      setTimeout(()=>{ _pinEntry=''; updatePinDots(); $('pin-error').textContent=''; }, 700);
-    }
+    });
   }
 }
 function updatePinDots(){
@@ -3974,7 +4046,7 @@ function postBoardMsg(){
   .finally(()=>{ if(btn) btn.disabled = false; });
 }
 // Delete: a player's own post deletes without a PIN; anyone else's post requires the
-// existing ADMIN_PIN session (requireAdmin pops the PIN modal and returns when the
+// existing admin PIN session (requireAdmin pops the PIN modal and returns when the
 // session is expired -> tap Delete again once authed). All deletes are client-side;
 // <div>/messages is open-write per the chosen tier.
 function delBoardMsg(id){
@@ -4001,6 +4073,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   renderSwatches();
   renderIcons();
   initFB();
+  // A session the worker still honors reopens the admin window silently.
+  laRestore(LA_SCOPE).then(function(ok){ if(ok) _adminWindowFromSession(); });
   // Flush the open score form to its localStorage draft the moment the tab is hidden,
   // so the latest typed values are durable before the OS can discard a backgrounded
   // tab. No-op when no score form is open. Guarded; never throws.

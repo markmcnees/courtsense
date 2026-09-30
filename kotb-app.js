@@ -5,8 +5,10 @@ const LC = window.LEAGUE_CONFIG;
 // Future enhancement: inject from LC.colors at boot for true config-driven theming.
 const FB_CFG    = LC.fbConfig;
 const DB_ROOT   = LC.dbRoot;
-const ADMIN_PIN = LC.adminPin;
 const AI_URL    = LC.aiProxyUrl;
+// The admin PIN is checked by the worker, never in the page. The scope names this
+// league's PIN on the server (courtsense_coach_pins/league_admin/tally_kotb).
+const LA_SCOPE  = DB_ROOT;
 
 // ─── STATE ───
 let db = null;
@@ -2913,40 +2915,105 @@ function _scoreGate(replay){
   return false;
 }
 function promptCancelNight(){_pinAction='cancel';_pinEntry='';updatePinDots();$('pin-error').textContent='';$('pin-modal-title').textContent='Admin PIN — Cancel Night';$('pin-modal').classList.add('on');}
+// ─── LEAGUE ADMIN SESSION (PIN verified by the worker) ───
+// The pad posts the PIN to /auth/league-admin-session and unlocks only on ok. The
+// session {token, scope, expiresAt} lives in sessionStorage, keyed per scope, and is
+// re-checked with /auth/league-admin-check on load before anything unlocks.
+const LA_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const LA_KEY = 'cs_admin_session:';
+const LA_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const LA_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+function laClear(scope){ try{ sessionStorage.removeItem(LA_KEY+scope); }catch(e){} }
+function laGet(scope){
+  let s = null;
+  try{ s = JSON.parse(sessionStorage.getItem(LA_KEY+scope) || 'null'); }catch(e){ s = null; }
+  if(s && typeof s.token === 'string' && typeof s.expiresAt === 'number' && s.expiresAt > Date.now()) return s;
+  laClear(scope);
+  return null;
+}
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' stores a session.
+async function laVerifyPin(scope, pin){
+  let r, res;
+  try{
+    r = await fetch(LA_WORKER+'/auth/league-admin-session', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ scope: scope, pin: pin })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 429) return 'rate';
+  if(r.status >= 500) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  if(res && res.ok === true && typeof res.token === 'string' && typeof res.expiresAt === 'number'){
+    try{ sessionStorage.setItem(LA_KEY+scope, JSON.stringify({ token: res.token, scope: res.scope || scope, expiresAt: res.expiresAt })); }catch(e){}
+    return 'ok';
+  }
+  return 'bad';
+}
+// True only when the worker confirms the stored session still covers this scope.
+// A rejected session is cleared; a network failure keeps it and stays locked.
+async function laRestore(scope){
+  const s = laGet(scope);
+  if(!s) return false;
+  let res;
+  try{
+    const r = await fetch(LA_WORKER+'/auth/league-admin-check', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: s.token, scope: scope })
+    });
+    res = await r.json();
+  }catch(e){ return false; }
+  if(res && res.ok === true) return true;
+  laClear(scope);
+  return false;
+}
+
+let _pinBusy=false;
 function pinTap(v){
+  if(_pinBusy)return;
   if(v==='back')_pinEntry=_pinEntry.slice(0,-1);
   else if(v==='clear')_pinEntry='';
   else if(_pinEntry.length<4)_pinEntry+=v;
   updatePinDots();$('pin-error').textContent='';
   if(_pinEntry.length===4){
-    if(_pinEntry===ADMIN_PIN){
-      $('pin-modal').classList.remove('on');
-      _pinEntry='';updatePinDots();
-      if(_pinAction==='clearschedule'){ doClearSchedule(_editCourtCtx.wid); }
-      else if(_pinAction==='genschedule') doGenScheduleAction();
-      else if(_pinAction==='genseason') doGenSeasonAction();
-      else if(_pinAction==='editcourt'){ openEditCourtModal(); }
-      else if(_pinAction==='cancel') doCancelNight();
-      else if(_pinAction==='uncancel') doUncancelNight();
-      else if(_pinAction==='closeseason') doCloseSeason();
-      else if(_pinAction==='unlockweek') doUnlockWeek();
-      else if(_pinAction==='addplayer') _doAddPlayer();
-      else if(_pinAction==='planner') _openPlanner();
-      else if(_pinAction==='score'){
-        // Unlock first, so the replayed call passes the gate instead of reopening it.
-        _scoreUnlocked=true;
-        const replay=_pendingScoreAction; _pendingScoreAction=null;
-        // A replayed action reports its own outcome, so the coach sees the real save
-        // feedback rather than an unlock message that reads like a save confirmation.
-        if(replay) replay();
-        else toast('Scoring unlocked for this session');
+    _pinBusy=true;
+    laVerifyPin(LA_SCOPE,_pinEntry).then(function(result){
+      _pinBusy=false;
+      if(result==='ok'){ _pinUnlocked(); return; }
+      if(result==='bad'){
+        $('pin-error').textContent='Incorrect PIN';
+        setTimeout(()=>{_pinEntry='';updatePinDots();$('pin-error').textContent='';},700);
+        return;
       }
-      else if(_pinAction==='boarddelete'){ doBoardDelete(); }
-    }else{
-      $('pin-error').textContent='Incorrect PIN';
-      setTimeout(()=>{_pinEntry='';updatePinDots();$('pin-error').textContent='';},700);
-    }
+      // Rate limit or no connection: say so, clear the dots, stay locked.
+      $('pin-error').textContent=(result==='rate')?LA_MSG_RATE:LA_MSG_NET;
+      _pinEntry='';updatePinDots();
+    });
   }
+}
+// Runs the action the pad was opened for, exactly as the old in-page check did.
+function _pinUnlocked(){
+  $('pin-modal').classList.remove('on');
+  _pinEntry='';updatePinDots();
+  if(_pinAction==='clearschedule'){ doClearSchedule(_editCourtCtx.wid); }
+  else if(_pinAction==='genschedule') doGenScheduleAction();
+  else if(_pinAction==='genseason') doGenSeasonAction();
+  else if(_pinAction==='editcourt'){ openEditCourtModal(); }
+  else if(_pinAction==='cancel') doCancelNight();
+  else if(_pinAction==='uncancel') doUncancelNight();
+  else if(_pinAction==='closeseason') doCloseSeason();
+  else if(_pinAction==='unlockweek') doUnlockWeek();
+  else if(_pinAction==='addplayer') _doAddPlayer();
+  else if(_pinAction==='planner') _openPlanner();
+  else if(_pinAction==='score'){
+    // Unlock first, so the replayed call passes the gate instead of reopening it.
+    _scoreUnlocked=true;
+    const replay=_pendingScoreAction; _pendingScoreAction=null;
+    // A replayed action reports its own outcome, so the coach sees the real save
+    // feedback rather than an unlock message that reads like a save confirmation.
+    if(replay) replay();
+    else toast('Scoring unlocked for this session');
+  }
+  else if(_pinAction==='boarddelete'){ doBoardDelete(); }
 }
 function _openPlanner(){
   const t=window._pendingTab;
@@ -3126,7 +3193,7 @@ function postBoardMsg(){
   .finally(()=>{ if(btn) btn.disabled = false; });
 }
 // Delete: a player's own post deletes without a PIN; anyone else's post routes
-// through the existing ADMIN_PIN flow (_pinAction='boarddelete'). All deletes are
+// through the existing admin PIN flow (_pinAction='boarddelete'). All deletes are
 // client-side; <side>/messages is open-write per the chosen tier.
 function delBoardMsg(id){
   const m = (_lcMsgs||{})[id];
@@ -3155,4 +3222,7 @@ function doBoardDeleteById(id){
 document.addEventListener('DOMContentLoaded',()=>{
   initTabs();
   initFB();
+  // A session the worker still honors restores the scoring unlock silently. Every other
+  // admin action keeps its own PIN prompt, as before.
+  laRestore(LA_SCOPE).then(function(ok){ if(ok) _scoreUnlocked=true; });
 });

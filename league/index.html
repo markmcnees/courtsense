@@ -752,8 +752,60 @@ function toast(m){
   setTimeout(()=>t.classList.remove('on'), 2800);
 }
 // ADMIN LOGIN MODAL
-const MASTER_PIN = '1969';
 const LEAGUE_ADMIN_SESSION_MS = 60 * 60 * 1000;
+// LEAGUE ADMIN SESSION (PIN verified by the worker)
+// The PIN is posted to /auth/league-admin-session and nothing unlocks unless the worker
+// says ok. The session {token, scope, expiresAt} lives in sessionStorage, keyed per
+// scope, and is re-checked with /auth/league-admin-check on load. The page keeps its
+// one-hour admin window, so a stored session never outlives LEAGUE_ADMIN_SESSION_MS.
+const LA_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const LA_KEY = 'cs_admin_session:';
+const LA_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const LA_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+function laClear(scope){ try{ sessionStorage.removeItem(LA_KEY+scope); }catch(e){} }
+function laGet(scope){
+  let s = null;
+  try{ s = JSON.parse(sessionStorage.getItem(LA_KEY+scope) || 'null'); }catch(e){ s = null; }
+  if(s && typeof s.token === 'string' && typeof s.expiresAt === 'number' && s.expiresAt > Date.now()) return s;
+  laClear(scope);
+  return null;
+}
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' stores a session.
+async function laVerifyPin(scope, pin){
+  let r, res;
+  try{
+    r = await fetch(LA_WORKER+'/auth/league-admin-session', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ scope: scope, pin: pin })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 429) return 'rate';
+  if(r.status >= 500) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  if(res && res.ok === true && typeof res.token === 'string' && typeof res.expiresAt === 'number'){
+    const expiresAt = Math.min(res.expiresAt, Date.now() + LEAGUE_ADMIN_SESSION_MS);
+    try{ sessionStorage.setItem(LA_KEY+scope, JSON.stringify({ token: res.token, scope: res.scope || scope, expiresAt: expiresAt })); }catch(e){}
+    return 'ok';
+  }
+  return 'bad';
+}
+// True only when the worker confirms the stored session still covers this scope.
+// A rejected session is cleared; a network failure keeps it and stays locked.
+async function laRestore(scope){
+  const s = laGet(scope);
+  if(!s) return false;
+  let res;
+  try{
+    const r = await fetch(LA_WORKER+'/auth/league-admin-check', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: s.token, scope: scope })
+    });
+    res = await r.json();
+  }catch(e){ return false; }
+  if(res && res.ok === true) return true;
+  laClear(scope);
+  return false;
+}
 
 function openAdminLogin(){
   const ov = document.getElementById('login-overlay');
@@ -785,34 +837,21 @@ function submitAdminLogin(){
   const slug = kebab(slugRaw);
   if(!slug){ errEl.textContent = 'Enter a league name.'; return; }
   if(!pin){ errEl.textContent = 'Enter the admin PIN.'; return; }
-  if(!db){ errEl.textContent = 'Could not connect. Try again in a moment.'; return; }
 
   btn.disabled = true;
   btn.textContent = 'Checking...';
 
-  // Callback form; promises do not resolve reliably in this deployment context.
-  db.ref('courtsense_leagues/' + slug).once('value', function(snap){
-    const val = snap && snap.val();
-    if(!val){
-      errEl.textContent = 'League not found or incorrect PIN.';
-      btn.disabled = false;
-      btn.textContent = 'Open League';
+  // The worker checks the league's own PIN and the master PIN for this scope, and
+  // answers the same way for an unknown league as for a wrong PIN.
+  laVerifyPin('league:' + slug, pin).then(function(result){
+    if(result === 'ok'){
+      // Relative redirect so it resolves correctly both locally and in production.
+      window.location.href = slug + '/';
       return;
     }
-    const leaguePin = (val.leaguePin == null ? '' : String(val.leaguePin));
-    if(pin !== MASTER_PIN && pin !== leaguePin){
-      errEl.textContent = 'League not found or incorrect PIN.';
-      btn.disabled = false;
-      btn.textContent = 'Open League';
-      return;
-    }
-    try{
-      sessionStorage.setItem('cs_league_admin_' + slug, String(Date.now() + LEAGUE_ADMIN_SESSION_MS));
-    }catch(e){}
-    // Relative redirect so it resolves correctly both locally and in production.
-    window.location.href = slug + '/';
-  }, function(){
-    errEl.textContent = 'Could not connect. Try again in a moment.';
+    errEl.textContent = (result === 'rate') ? LA_MSG_RATE
+      : (result === 'net') ? LA_MSG_NET
+      : 'League not found or incorrect PIN.';
     btn.disabled = false;
     btn.textContent = 'Open League';
   });

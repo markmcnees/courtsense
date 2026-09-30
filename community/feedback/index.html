@@ -79,16 +79,16 @@ main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
 </header>
 
 <main>
-  <!-- PIN gate (matches admin-ratings / admin-players convention) -->
+  <!-- Admin key gate (matches admin-ratings / admin-players convention) -->
   <div class="card" id="gate">
     <h2>Feedback</h2>
-    <p class="gate-sub">Admin tool. Enter PIN to view submissions.</p>
-    <input class="inp" id="pin-input" type="password" inputmode="numeric" placeholder="PIN" autocomplete="off" onkeypress="if(event.key==='Enter')checkPin()">
+    <p class="gate-sub">Admin tool. Enter the admin key to view submissions.</p>
+    <input class="inp" id="pin-input" type="password" placeholder="Admin key" autocomplete="off" autocapitalize="off" spellcheck="false" onkeypress="if(event.key==='Enter')unlockAdmin()">
     <div class="err" id="pin-err"></div>
-    <button class="btn" id="unlock-btn" onclick="checkPin()">Unlock</button>
+    <button class="btn" id="unlock-btn" onclick="unlockAdmin()">Unlock</button>
   </div>
 
-  <!-- Content (revealed after correct PIN) -->
+  <!-- Content (revealed after the admin key checks out) -->
   <div id="content" style="display:none;">
     <div class="count" id="count"></div>
     <div id="list"></div>
@@ -97,7 +97,7 @@ main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
 
 <script>
 // READ-ONLY feedback viewer. Reads courtsense_leads once and filters to type === 'feedback'.
-// No writes anywhere. PIN gate mirrors the existing admin-ratings / admin-players convention.
+// No writes anywhere. The admin key gate mirrors admin-ratings / admin-players.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -107,7 +107,6 @@ const FB_CFG = {
   messagingSenderId: "937804799976",
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
-const ADMIN_PIN = '8675';
 
 let db = null;
 const $ = id => document.getElementById(id);
@@ -136,14 +135,64 @@ function typeClass(t){
   return 't-Other';
 }
 
-function checkPin(){
-  const v = ($('pin-input').value || '').trim();
-  if(v !== ADMIN_PIN){
-    $('pin-err').textContent = 'Wrong PIN';
+// ADMIN KEY GATE
+// Nothing on this page shows until the worker confirms the admin key through
+// /auth/admin-key-check. The key sits in localStorage['courtsenseAdminKey'], the same
+// slot the other admin tools use. A rejected key is cleared and the prompt comes back.
+const AK_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const AK_STORE = 'courtsenseAdminKey';
+const AK_MSG_RATE = 'Too many attempts. Try again in 15 minutes.';
+const AK_MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+let _akBusy = false;
+// Resolves 'ok', 'bad', 'rate' or 'net'. Only 'ok' opens the page.
+async function akVerify(key){
+  let r, res;
+  try{
+    r = await fetch(AK_WORKER + '/auth/admin-key-check', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminKey: key })
+    });
+  }catch(e){ return 'net'; }
+  if(r.status === 401) return 'bad';
+  if(r.status === 429) return 'rate';
+  if(r.status !== 200) return 'net';
+  try{ res = await r.json(); }catch(e){ return 'net'; }
+  return (res && res.ok === true) ? 'ok' : 'net';
+}
+function akStored(){ try{ return (localStorage.getItem(AK_STORE) || '').trim(); }catch(e){ return ''; } }
+function akForget(){ try{ localStorage.removeItem(AK_STORE); }catch(e){} }
+function akMessage(result){ return result === 'rate' ? AK_MSG_RATE : result === 'net' ? AK_MSG_NET : 'Wrong admin key'; }
+// Typed key: verify, remember, open.
+async function unlockAdmin(){
+  if(_akBusy) return;
+  const typed = ($('pin-input').value || '').trim();
+  if(!typed){ $('pin-err').textContent = 'Enter the admin key.'; return; }
+  $('pin-err').textContent = '';
+  _akBusy = true;
+  const result = await akVerify(typed);
+  _akBusy = false;
+  if(result === 'ok'){
+    try{ localStorage.setItem(AK_STORE, typed); }catch(e){}
     $('pin-input').value = '';
-    $('pin-input').focus();
+    akOpen(typed);
     return;
   }
+  if(result === 'bad') akForget();
+  $('pin-err').textContent = akMessage(result);
+}
+// Stored key: verify silently on load. A rejected key is cleared and the prompt shows.
+async function akAutoUnlock(){
+  const stored = akStored();
+  if(!stored) return;
+  _akBusy = true;
+  const result = await akVerify(stored);
+  _akBusy = false;
+  if(result === 'ok'){ akOpen(stored); return; }
+  if(result === 'bad'){ akForget(); $('pin-err').textContent = 'The saved admin key was rejected. Enter the current key.'; return; }
+  $('pin-err').textContent = akMessage(result);
+}
+// Opens the list once the worker has confirmed the key.
+function akOpen(key){
   $('pin-err').textContent = '';
   $('gate').style.display = 'none';
   $('content').style.display = 'block';
@@ -192,6 +241,7 @@ function loadFeedback(){
 document.addEventListener('DOMContentLoaded', function(){
   initFB();
   $('pin-input').focus();
+  akAutoUnlock();
 });
 </script>
 </body>

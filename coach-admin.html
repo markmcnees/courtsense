@@ -353,7 +353,7 @@
       '<p class="fnote">Confirm the slug and set a unique coach PIN, then generate the config. The slug is permanent once the school saves data.</p>'+
       '<div class="frow">'+
         '<div class="ff" data-f="slug"><label>URL slug</label><input class="f-slug" value="'+esc(slugGuess||'school')+'"><div class="ferr">Enter a slug (lowercase, dashes ok).</div></div>'+
-        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="8" placeholder="4+ digits"><div class="ferr">Set a unique PIN, 4 to 8 digits. Not 8675.</div></div>'+
+        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="8" placeholder="4+ digits"><div class="ferr">Set a unique PIN, 4 to 8 digits.</div></div>'+
         '<div class="ff" data-f="emoji"><label>Team emoji</label><input class="f-emoji" maxlength="4" value="\uD83C\uDFD0"></div>'+
       '</div>'+
       '<button class="genbtn">Create their app</button>'+
@@ -639,7 +639,7 @@
     var ok=true;
     slugFF.classList.remove('bad'); pinFF.classList.remove('bad');
     if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); ok=false; }
-    if(!/^\d{4,8}$/.test(pin) || pin==='8675'){ pinFF.classList.add('bad'); ok=false; }
+    if(!/^\d{4,8}$/.test(pin)){ pinFF.classList.add('bad'); ok=false; }
     if(!ok) return;
 
     var key=ensureAdminKey();
