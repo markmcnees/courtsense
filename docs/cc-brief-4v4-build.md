@@ -133,7 +133,7 @@ App must enforce these caps during score entry. If admin types 24, clamp to 23. 
 
 ## Admin
 
-- PIN: `8675` (same as KotB).
+- PIN: the admin PIN, stored separately (same as KotB).
 - PIN required once per session for admin actions; subsequent admin actions in the same session do not re-prompt.
 - Admin can: add/edit/delete teams, generate schedule, enter scores, edit/delete past results, archive season.
 

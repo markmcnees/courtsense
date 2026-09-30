@@ -166,7 +166,7 @@ Admin can reassign Team A, Team B, court, or round on any single matchup via a p
 
 ### Admin session
 
-Admin actions are PIN-gated (PIN `8675`). After successful entry, a 60-minute session is granted via the `_pinAdminUntil` timestamp. The admin tab shows a lock screen if the session has expired, with an "Enter PIN" button that re-prompts. All write paths additionally check the session via `requireAdmin()` and re-prompt if expired.
+Admin actions are PIN-gated (the admin PIN, stored separately). After successful entry, a 60-minute session is granted via the `_pinAdminUntil` timestamp. The admin tab shows a lock screen if the session has expired, with an "Enter PIN" button that re-prompts. All write paths additionally check the session via `requireAdmin()` and re-prompt if expired.
 
 ### Client-side data sync
 

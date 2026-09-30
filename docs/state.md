@@ -33,7 +33,7 @@ Built and maintained by Mark McNees. Single-developer project with Claude Code a
 - **courtsense.app/leon/** Leon Queens beach volleyball app (school team app, has its own auth pattern that we're porting)
 - **markmcnees.github.io/leon-beach/kotb.html** Kings/Queens league app (Tallahassee KotB/QotB season in flight)
 - **Glicko-2 ratings** spanning league + pickup, single shared rating record per player
-- **Admin tools** at `/admin-players.html` and `/admin-ratings.html`, both PIN-gated (PIN: 8675)
+- **Admin tools** at `/admin-players.html` and `/admin-ratings.html`, both PIN-gated (the admin PIN, stored separately)
 - **Email queue infrastructure** at `tally_kotb_pickup/email_queue/`. Existing dispatch path (admin_new_registration / welcome / decline) being migrated to the new Worker on first deploy.
 
 ---
@@ -108,7 +108,7 @@ In rough priority order:
 - **HTML apps:** single-file pattern (vanilla JS + Firebase SDK from CDN, no build tools, no frameworks). Pickup app, league app, /leon/ all follow this. /community will too.
 - **Firebase pattern:** fire-and-forget `fbSet` writes (Firebase promises don't reliably resolve in this deployment context).
 - **Patches:** always work from the currently uploaded file as ground truth, never from a cached prior version. Version drift is a real risk.
-- **Admin PIN:** 8675, used across league app and admin tools.
+- **Admin PIN:** stored separately (never in the repo), used across league app and admin tools.
 - **Auth (incoming):** per-player password generated at admin approval, hashed with bcrypt, plaintext only in welcome email. sessionStorage for session persistence. No password reset email flow in v1; admin resets and texts new password to player.
 
 ---
