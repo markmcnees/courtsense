@@ -2768,12 +2768,12 @@ function showPlayerRatingDetail(name){
 let ratingSort = { key:'rating', dir:'desc' };
 function renderRatingsHeader(){
   const cont = $('ratings-header'); if(!cont) return;
-  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
-  const total = all.length;
-  // Average across rated players only, so provisional records do not drag it.
-  const ratedOnly = all.filter(r=>Ratings.isRated(r));
+  // Only rated players are listed, so the count, average and last update all come
+  // from that same set. Ratings.isRated is the one rule for who is rated.
+  const ratedOnly = Object.values(D.ratings||{}).filter(r=>r&&r.name&&Ratings.isRated(r));
+  const total = ratedOnly.length;
   const avg = ratedOnly.length ? Math.round(ratedOnly.reduce((s,r)=>s+r.rating,0)/ratedOnly.length) : 0;
-  const lastTs = all.reduce((m,r)=>Math.max(m, r.lastUpdated||0), 0);
+  const lastTs = ratedOnly.reduce((m,r)=>Math.max(m, r.lastUpdated||0), 0);
   const ago = lastTs ? timeAgo(lastTs) : 'never';
   cont.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
     <div style="flex:1;min-width:160px;">
@@ -2799,9 +2799,11 @@ function timeAgo(ts){
 }
 function renderRatings(){
   const tbody = $('rbody'); if(!tbody) return;
-  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name);
+  // Unrated players are not listed at all. A hidden seed number must never decide
+  // where anyone sits on the public board.
+  const all = Object.values(D.ratings||{}).filter(r=>r&&r.name&&Ratings.isRated(r));
   if(!all.length){
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--gray);">No ratings yet. Score a game to get started.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--gray);">No rated players yet. A rating shows after '+Ratings.RATED_MIN_GAMES+' rated games.</td></tr>';
     return;
   }
   const k = ratingSort.key;
