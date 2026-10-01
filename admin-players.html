@@ -308,6 +308,8 @@ function akOpen(key){
   $('pin-err').textContent = '';
   $('pin-screen').style.display = 'none';
   $('main-screen').style.display = 'block';
+  // A browser can autofill the filter box; a stale filter would hide every profile.
+  if($('search')) $('search').value = '';
   loadPlayers();
   loadContacts();
 }
@@ -480,13 +482,32 @@ function checkPendingStatus(id){
   }).catch(err => { console.error(err); return null; });
 }
 
+// The profile list needs both this Firebase listener and /auth/admin-list. Each
+// side re-renders when it lands, so arrival order does not matter. The listener
+// reports itself in the Activity Log (count, error code, or a stall) so a list
+// stuck at 0 always says why. Attached once, even if the page is opened twice.
+let _playersRef = null;
 function loadPlayers(){
-  db.ref(ROOT).on('value', snap=>{
+  if(_playersRef) return;
+  _playersRef = db.ref(ROOT);
+  let firstLoad = true;
+  const stall = setTimeout(()=>{
+    if(firstLoad) logLine('Player records have not arrived from Firebase yet. Check the sync dot and reload.');
+  }, 10000);
+  _playersRef.on('value', snap=>{
     PLAYERS = snap.val()||{};
-    renderList();
-    renderPending();
-    renderVbQueue();
-  }, err=>{ console.error(err); toast("Couldn't read player profiles"); });
+    if(firstLoad){ firstLoad = false; clearTimeout(stall); logLine('Loaded '+Object.keys(PLAYERS).length+' player records.'); }
+    // Each render runs on its own so a failure in one cannot leave the others stale.
+    [renderList, renderPending, renderVbQueue].forEach(fn=>{
+      try{ fn(); }catch(e){ console.error(e); logLine(fn.name+' failed: '+(e && e.message || e)); }
+    });
+  }, err=>{
+    clearTimeout(stall);
+    _playersRef = null;
+    console.error(err);
+    logLine("Couldn't read player profiles: "+((err && (err.code || err.message)) || 'unknown error'));
+    toast("Couldn't read player profiles");
+  });
   // Pending registrations are fetched (admin-gated), not live-listened. See loadPending().
   loadPending();
   db.ref(RATINGS_ROOT).once('value').then(snap=>{
@@ -519,9 +540,14 @@ function nameKey(n){ return String(n||'').toLowerCase().trim().replace(/[.#$/[\]
 //   sand_sharks/signup.html       same pattern as fsu_grass
 // The community/profile copy was deleted when verification moved to this page.
 // This cannot live in ratings.js today without editing that file.
+// Anything that is not a plain number from 0 to 20 returns null, so a stray
+// entry like 1500 (a rating, not a TruVolley number) can never seed anyone.
+const TV_MSG_INVALID = "Enter the TruVolley number from the player's Volleyball Life page, for example 5.14.";
 function truvolleySeed(raw){
-  const v = parseFloat(raw);
-  if(!isFinite(v)) return null;
+  const s = String(raw == null ? '' : raw).trim();
+  if(!s) return null;
+  const v = Number(s);
+  if(!isFinite(v) || v < 0 || v > 20) return null;
   if(v < 2)  return { rating: 1300, rd: 300 };
   if(v < 4)  return { rating: 1450, rd: 250 };
   if(v < 6)  return { rating: 1600, rd: 200 };
@@ -647,8 +673,9 @@ function vbPreview(pid){
   const raw = ($('vb-tv-'+pid) || {}).value;
   const seed = truvolleySeed(raw);
   if(!seed){
-    el.style.color = 'var(--gray)';
-    el.textContent = 'Enter the TruVolley number to see what Approve will do.';
+    // Blank stays gray; a value that was typed but cannot be used shows red.
+    el.style.color = String(raw == null ? '' : raw).trim() ? 'var(--loss)' : 'var(--gray)';
+    el.textContent = TV_MSG_INVALID;
     return;
   }
   const o = vbRatingOutcome(k, seed);
@@ -677,7 +704,7 @@ async function doVbApprove(pid){
   if(!req || req.status !== 'pending'){ toast('That request is no longer pending'); renderVbQueue(); return; }
   const tvRaw = ($('vb-tv-'+pid) || {}).value;
   const seed = truvolleySeed(tvRaw);
-  if(!seed){ toast('Enter the TruVolley number from the page'); return; }
+  if(!seed){ toast(TV_MSG_INVALID); vbPreview(pid); return; }
   const tv = parseFloat(tvRaw);
   const name = recordName(p, pid);
   const k = nameKey(name);
