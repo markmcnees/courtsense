@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.168';
+const APP_VERSION='1.1.169';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1815,6 +1815,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   ${(SC.chatEnabled && !SC.tiersEnabled)?'<div class="pp-panel" id="pp-panel-chat"></div>':''}
   ${SC.tiersEnabled?`<!-- ══ CLUB LIFE PANEL (group-facing: practice schedule, club chat, travel, partner posts) ══ -->
   <div class="pp-panel" id="pp-panel-clublife">
+    <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
     ${SC.chatEnabled?'<div id="pp-panel-chat"></div>':''}
     <div id="pp-panel-travel"></div>
@@ -1840,7 +1841,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
 </div>
 <div class="modal-overlay" id="coach-player-overlay" onclick="if(event.target===this)coachClosePlayer()">
   <div id="coach-player-modal" style="background:var(--white);border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;padding:0;">
-    <div style="background:var(--primary);color:#fff;padding:16px 20px;border-radius:16px 16px 0 0;display:flex;justify-content:space-between;align-items:center;">
+    <div style="background:var(--primary, var(--red));color:#fff;padding:16px 20px;border-radius:16px 16px 0 0;display:flex;justify-content:space-between;align-items:center;">
       ${SC.tiersEnabled?`<div style="display:flex;align-items:center;gap:12px;">
         <div id="cpm-photo"></div>
         <div>
@@ -11675,7 +11676,7 @@ function renderInfo(){
   const pane=document.getElementById('tab-info'); if(!pane) return;
   const picked=infoPicked();
   const box=(f)=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;cursor:pointer;">
-      <input type="checkbox" id="info-f-${f.key}" ${picked[f.key]?'checked':''} onchange="infoToggle('${f.key}')" style="width:17px;height:17px;accent-color:var(--primary);cursor:pointer;">
+      <input type="checkbox" id="info-f-${f.key}" ${picked[f.key]?'checked':''} onchange="infoToggle('${f.key}')" style="width:17px;height:17px;accent-color:var(--primary, var(--red));cursor:pointer;">
       <span>${f.label}</span>
     </label>`;
   const group=(name)=>INFO_FIELDS.filter(f=>f.group===name).map(box).join('');
@@ -11690,7 +11691,7 @@ function renderInfo(){
       <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--gray);margin:14px 0 2px;">OPTIONAL</div>
       ${group('optional')}
       <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:14px 0 0;">Phone, email and emergency contact are not available here. They live on the private account record, which the app cannot read from a browser.</p>
-      <button class="btn btn-small btn-w" style="background:var(--primary);color:#fff;border:none;margin-top:14px;" onclick="exportInfo()">📄 Download spreadsheet</button>
+      <button class="btn btn-small btn-w" style="background:var(--primary, var(--red));color:#fff;border:none;margin-top:14px;" onclick="exportInfo()">📄 Download spreadsheet</button>
     </div>
     <div class="card">
       <div class="card-title"><span class="bar"></span> Shirt order</div>
@@ -11774,7 +11775,7 @@ var TN_REG_PAGE='https://courtsense.app/fsu_grass/tournament.html';
 var TN_CATEGORIES=[['coed','Coed'],['mens',"Men's"],['womens',"Women's"],['open','Open']];
 var _tnList=null;          // { tid: tournament node } from the scoped listener, null until first read
 var _tnRef=null, _tnHandler=null;
-var _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false};
+var _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false, onlyLooking:false};
 
 function tnCardEnabled(){ return DB_ROOT==='grass_club_matches'&&currentRole==='coach'; }
 
@@ -11790,7 +11791,7 @@ function tnAttach(){
 function tnDetach(){
   if(_tnRef&&_tnHandler) _tnRef.off('value',_tnHandler);
   _tnRef=null; _tnHandler=null; _tnList=null;
-  _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false};
+  _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false, onlyLooking:false};
 }
 
 // ---- Write guard ----------------------------------------------------------
@@ -11847,6 +11848,7 @@ function tnRegRows(t){
       division:(divs[r.divId]&&divs[r.divId].name)||'(removed division)',
       teamName:String(r.teamName||''), teammates:String(r.teammates||''),
       status:r.status==='withdrawn'?'withdrawn':'registered', source:r.source==='new'?'new':'existing',
+      looking:r.lookingForTeam===true,
       at:typeof r.createdAt==='number'?r.createdAt:0};
   }).sort(function(a,b){ return a.division.localeCompare(b.division)||(a.status===b.status?0:(a.status==='registered'?-1:1))||a.name.localeCompare(b.name); });
 }
@@ -11856,6 +11858,7 @@ function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
 function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.newOpen=false; tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
+function tnSetOnlyLooking(on){ _tnUi.onlyLooking=!!on; tnCardRender(); }
 
 // Default coed minimums by team size: 2s and 3s need one of each, 4s need two of each.
 function tnCoedDefault(size){ return +size===4?{minGuys:2, minGirls:2}:{minGuys:1, minGirls:1}; }
@@ -12003,10 +12006,10 @@ async function tnExport(){
   await ensureCommunityPlayers(); // full names; a failed read falls back to the stored First L.
   var rows=tnRegRows(t);
   // Hard-coded columns, built key by key. No registration object is ever spread in.
-  var header=['Full name','Gender','Division','Team name','Teammates','Status','Source','Registered'];
+  var header=['Full name','Gender','Division','Team name','Teammates','Looking','Status','Source','Registered'];
   var out=rows.map(function(r){
     return {'Full name':r.name, 'Gender':r.gender, 'Division':r.division, 'Team name':r.teamName,
-      'Teammates':r.teammates, 'Status':r.status, 'Source':r.source,
+      'Teammates':r.teammates, 'Looking':r.looking?'Yes':'', 'Status':r.status, 'Source':r.source,
       'Registered':r.at?new Date(r.at).toISOString().slice(0,10):''};
   });
   var sumHeader=['Division','M','F','Not set','Total'], byDiv={}, order=[];
@@ -12167,16 +12170,27 @@ function tnCardRender(){
         +divIds.map(function(id){
           var r=rows.filter(function(x){ return x.divId===id; });
           var on=r.filter(function(x){ return x.status==='registered'; }).length;
-          return esc(divs[id].name||id)+': '+on+' registered'+(r.length-on?', '+(r.length-on)+' withdrawn':'');
+          var lk=r.filter(function(x){ return x.status==='registered'&&x.looking; }).length;
+          return esc(divs[id].name||id)+': '+on+' registered'+(lk?', '+lk+' looking':'')+(r.length-on?', '+(r.length-on)+' withdrawn':'');
         }).join('<br>')+'</div>';
     }
+    // "Only looking" narrows the list to registered players still looking for teammates.
+    var shown=_tnUi.onlyLooking?rows.filter(function(r){ return r.status==='registered'&&r.looking; }):rows;
+    if(rows.length){
+      html+='<label style="display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px;cursor:pointer;margin-bottom:4px;">'
+        +'<input type="checkbox" id="tn-only-looking" '+(_tnUi.onlyLooking?'checked ':'')+'onchange="tnSetOnlyLooking(this.checked)" style="width:20px;height:20px;accent-color:var(--red);">'
+        +'Only looking for teammates</label>';
+    }
+    var lookBadge='<span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:1px 5px;vertical-align:middle;">Looking</span>';
     if(!rows.length){
       html+='<div style="font-size:13px;color:var(--gray);">No registrations yet.</div>';
+    } else if(!shown.length){
+      html+='<div style="font-size:13px;color:var(--gray);">Nobody is looking for teammates right now.</div>';
     } else {
-      html+=rows.map(function(r){
+      html+=shown.map(function(r){
         var team=[r.teamName?'Team: '+esc(r.teamName):'', r.teammates?'With: '+esc(r.teammates):''].filter(Boolean).join('<br>');
         return '<div style="padding:9px 0;border-bottom:1px solid var(--border,#f0f0f0);'+(r.status==='withdrawn'?'opacity:.55;':'')+'">'
-          +'<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;font-size:14px;">'+esc(r.name)+'</span>'
+          +'<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;font-size:14px;">'+esc(r.name)+(r.looking&&r.status==='registered'?lookBadge:'')+'</span>'
           +'<span style="font-size:12px;color:var(--gray);white-space:nowrap;">'+esc(r.gender)+' &middot; '+esc(r.status)+'</span></div>'
           +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)+' &middot; '+(r.source==='new'?'new to CourtSense':'existing account')
           +(r.at?' &middot; '+esc(new Date(r.at).toLocaleDateString()):'')+(team?'<br>'+team:'')+'</div></div>';
@@ -13111,6 +13125,49 @@ function renderClubLife(){
   if(SC.chatEnabled && typeof renderClubChat==='function') renderClubChat();
   if(typeof renderMemberTravel==='function') renderMemberTravel();
   if(typeof renderMemberPartnerPosts==='function') renderMemberPartnerPosts();
+  if(typeof clTnRender==='function') clTnRender();
+}
+
+// ---- Club Life: open tournament registration (grass only) -------------------------
+// A card at the top of Club Life for every club tournament whose registration is open
+// (meta.status 'registration', date today or later), linking to the public page and its
+// Looking for teammates view. One read of DB_ROOT/tournaments, kept for 60 seconds and
+// deliberately not mapped into D. Read only, and nothing personal is shown: just the
+// tournament name, date, and two links.
+var _clTn={ts:0, data:null, loading:false};
+function clTnRender(){
+  var el=document.getElementById('pp-club-tn'); if(!el) return;
+  if(DB_ROOT!=='grass_club_matches'||!db||currentRole!=='player'){ el.innerHTML=''; return; }
+  var fresh=_clTn.data&&(Date.now()-_clTn.ts<60000);
+  if(!fresh&&!_clTn.loading){
+    _clTn.loading=true;
+    db.ref(DB_ROOT+'/tournaments').once('value').then(function(s){
+      _clTn.data=s.val()||{}; _clTn.ts=Date.now(); _clTn.loading=false; clTnRender();
+    }).catch(function(e){
+      console.warn('club tournaments read failed',e);
+      _clTn.data=_clTn.data||{}; _clTn.ts=Date.now(); _clTn.loading=false; clTnRender();
+    });
+  }
+  var T=_clTn.data||{}, today=td();
+  var open=Object.keys(T).filter(function(tid){
+    var m=T[tid]&&T[tid].meta;
+    return m&&m.status==='registration'&&/^[A-Za-z0-9_-]{1,64}$/.test(tid)&&(!m.date||String(m.date)>=today);
+  }).sort(function(a,b){ return String(T[a].meta.date||'').localeCompare(String(T[b].meta.date||'')); });
+  if(!open.length){ el.innerHTML=''; return; }
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  var when=function(d){
+    var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));
+    return m?new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}):'';
+  };
+  el.innerHTML=open.map(function(tid){
+    var m=T[tid].meta, link=TN_REG_PAGE+'?t='+encodeURIComponent(tid), w=when(m.date);
+    return '<div class="card" style="border:2px solid var(--red);">'
+      +'<div class="card-title"><span class="bar"></span> \u{1F3C6} Tournament registration is open</div>'
+      +'<div style="font-size:16px;font-weight:700;color:var(--charcoal);">'+esc(m.name||'Club tournament')+(w?', '+esc(w):'')+'</div>'
+      +'<a href="'+esc(link)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:15px;text-decoration:none;">Register</a>'
+      +'<a href="'+esc(link+'&looking=1')+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px 0 2px;color:var(--red);font-weight:700;font-size:14px;text-decoration:underline;">See who\'s looking for teammates</a>'
+      +'</div>';
+  }).join('');
 }
 
 // ---- Shared community players cache ---------------------------------------
