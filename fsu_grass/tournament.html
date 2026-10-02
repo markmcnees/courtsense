@@ -94,10 +94,24 @@
   .link-btn{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;text-decoration:underline;padding:14px 8px;min-height:48px;cursor:pointer;display:block;margin:6px auto 0;}
   .spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite;display:none;}
   .btn.busy .spin{display:inline-block;}
+  .btn.ghost .spin{border-color:rgba(120,47,64,.3);border-top-color:var(--garnet);}
   @keyframes sp{to{transform:rotate(360deg);}}
   .fld-err{display:none;font-size:13px;font-weight:600;color:var(--garnet);}
   .form-err{color:var(--garnet);font-size:14.5px;font-weight:600;text-align:center;margin-top:12px;min-height:20px;line-height:1.4;}
   .who{font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,7vw,38px);color:var(--ink);letter-spacing:0.8px;text-align:center;margin:6px 0 18px;}
+  .check-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 12px;margin-bottom:16px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);cursor:pointer;}
+  .check-row input{width:24px;height:24px;flex-shrink:0;accent-color:var(--garnet);}
+  .check-row span{font-size:16px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;}
+  .div-block{border-top:1px solid var(--line);padding:14px 0 6px;}
+  .div-block:first-child{border-top:none;padding-top:0;}
+  .div-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;}
+  .div-name{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--garnet);letter-spacing:0.6px;}
+  .div-count{font-size:13px;color:var(--slate);white-space:nowrap;}
+  .looker{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:16px;}
+  .looker:last-child{border-bottom:none;}
+  .looker .g{color:var(--slate);font-size:14px;}
+  .empty{font-size:14.5px;color:var(--slate);padding:4px 0 8px;}
+  .wd-note{font-size:15px;font-weight:600;color:var(--green);text-align:center;margin-top:12px;min-height:20px;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:13px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -140,6 +154,7 @@
       </div>
       <button class="btn" id="email-btn" type="button" onclick="doLookup()"><span class="spin" aria-hidden="true"></span><span class="lbl">Continue</span></button>
       <div class="form-err" id="email-form-err" role="alert"></div>
+      <button class="link-btn" type="button" onclick="showLooking()">See who's looking for teammates</button>
     </section>
 
     <section class="view" id="v-found">
@@ -159,6 +174,7 @@
         <textarea id="f-mates" maxlength="160" rows="2"></textarea>
         <span class="hint">Names of players you want on your team</span>
       </div>
+      <label class="check-row" for="f-looking"><input type="checkbox" id="f-looking"><span>I'm looking for teammates</span></label>
       <button class="btn" id="found-btn" type="button" onclick="doRegister('found')"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, register me</span></button>
       <div class="form-err" id="found-form-err" role="alert"></div>
       <button class="link-btn" type="button" onclick="backToEmail()">Not you? Use a different email</button>
@@ -210,6 +226,7 @@
         <textarea id="n-mates" maxlength="160" rows="2"></textarea>
         <span class="hint">Names of players you want on your team</span>
       </div>
+      <label class="check-row" for="n-looking"><input type="checkbox" id="n-looking"><span>I'm looking for teammates</span></label>
       <button class="btn" id="new-btn" type="button" onclick="doRegister('new')"><span class="spin" aria-hidden="true"></span><span class="lbl">Register</span></button>
       <div class="form-err" id="new-form-err" role="alert"></div>
       <button class="link-btn" type="button" onclick="backToEmail()">Use a different email</button>
@@ -227,7 +244,16 @@
       <h2 id="done-title">You're in</h2>
       <p id="done-msg"></p>
       <p class="muted">The exec team puts the teams together and will be in touch before play starts.</p>
+      <button class="btn ghost" type="button" onclick="showLooking()">See who's looking for teammates</button>
       <button class="link-btn" type="button" onclick="backToEmail()">Register someone else</button>
+    </section>
+
+    <section class="view" id="v-looking" aria-live="polite">
+      <h2>Looking for teammates</h2>
+      <p class="muted">Players who registered and said they are looking, by division.</p>
+      <div id="looking-list"><p class="empty">Loading...</p></div>
+      <p class="muted" style="margin-top:14px;">The exec team builds the teams and will reach out.</p>
+      <button class="link-btn" type="button" id="looking-back" onclick="lookingBack()">Back to registration</button>
     </section>
 
     <section class="view center" id="v-withdraw">
@@ -235,6 +261,10 @@
       <p>This takes you off the list. If plans change again, you can register with the same link.</p>
       <button class="btn" id="wd-btn" type="button" onclick="doWithdraw()"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, withdraw me</span></button>
       <div class="form-err" id="wd-form-err" role="alert"></div>
+      <p class="muted" style="margin-top:22px;">Staying in? You can also join or leave the Looking for teammates list.</p>
+      <button class="btn ghost" id="lf-btn" type="button" onclick="doLookingToggle()"><span class="spin" aria-hidden="true"></span><span class="lbl">Add me to the Looking for teammates list</span></button>
+      <div class="wd-note" id="lf-note" role="status"></div>
+      <button class="link-btn" type="button" onclick="showLooking()">See who's looking for teammates</button>
     </section>
 
     <section class="view center" id="v-withdrawn" aria-live="polite">
@@ -263,13 +293,16 @@
 //   /club/tournament-lookup     { slug, tid, email }
 //   /club/tournament-register   { slug, tid, email, divId, teamName?, teammates?, newPlayer? }
 //   /club/tournament-withdraw   { slug, tid, a, w }
-// Nothing this page shows ever echoes an email or a phone back.
+//   /club/tournament-looking    { slug, tid, a, w, lookingForTeam }
+// Nothing this page shows ever echoes an email or a phone back. The Looking for teammates
+// view renders only the stored 'First L.' and gender; no record key or account id is
+// ever put on the page.
 var SLUG = 'fsu_grass';
 var DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
 var AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-var state = { tid:'', meta:null, divisions:{}, email:'', a:'', w:'', busy:false };
+var state = { tid:'', meta:null, divisions:{}, email:'', a:'', w:'', busy:false, looking:null };
 
 function $(id){ return document.getElementById(id); }
 function val(id){ var el = $(id); return el ? String(el.value || '').trim() : ''; }
@@ -410,6 +443,7 @@ function backToEmail(){
   state.email = '';
   ['email','f-team','f-mates','n-first','n-last','n-cell','n-team','n-mates'].forEach(function(id){ if($(id)) $(id).value = '';});
   if($('n-gender')) $('n-gender').value = '';
+  ['f-looking','n-looking'].forEach(function(id){ if($(id)) $(id).checked = false; });
   clearErrors(['email'], 'email-form-err');
   show('v-email');
   setTimeout(function(){ if($('email')) $('email').focus(); }, 300);
@@ -427,6 +461,7 @@ async function doRegister(kind){
   var team = val(p + 'team'), mates = val(p + 'mates');
   if(team) body.teamName = team.slice(0, 60);
   if(mates) body.teammates = mates.slice(0, 160);
+  if($(p + 'looking') && $(p + 'looking').checked) body.lookingForTeam = true;
   if(isNew){
     var first = val('n-first'), last = val('n-last'), gender = val('n-gender');
     var coed = !!(state.divisions[divId] && state.divisions[divId].category === 'coed');
@@ -477,6 +512,91 @@ async function doWithdraw(){
   $('wd-form-err').textContent = genericErr(res.r, j);
 }
 
+// ---- Looking for teammates ----
+function genderWord(g){ return g === 'M' ? 'Guy' : g === 'F' ? 'Girl' : ''; }
+function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
+
+// Read fresh each time it opens, so the list is never stale. Read only.
+async function showLooking(){
+  show('v-looking');
+  $('looking-back').textContent = (state.a && state.w) ? 'Back' : 'Back to registration';
+  var box = $('looking-list');
+  box.innerHTML = '';
+  box.appendChild(el('p', 'empty', 'Loading...'));
+  var base = 'grass_club_matches/tournaments/' + encodeURIComponent(state.tid);
+  var regs, divs;
+  try {
+    var got = await Promise.all([getJson(base + '/registrations'), getJson(base + '/divisions')]);
+    regs = (got[0] && typeof got[0] === 'object') ? got[0] : {};
+    divs = (got[1] && typeof got[1] === 'object') ? got[1] : {};
+    state.divisions = divs;
+  } catch(e){
+    box.innerHTML = '';
+    box.appendChild(el('p', 'empty', 'We could not load the list. Check your connection and try again.'));
+    return;
+  }
+  // Values only. The registration keys never leave this function.
+  var lookers = Object.keys(regs).map(function(k){ return regs[k]; })
+    .filter(function(r){ return r && r.status === 'registered' && r.lookingForTeam === true; });
+  box.innerHTML = '';
+  var ids = divIds();
+  if(!ids.length){ box.appendChild(el('p', 'empty', 'No divisions are set up yet.')); return; }
+  var total = 0;
+  ids.forEach(function(id){
+    var d = divs[id];
+    var list = lookers.filter(function(r){ return r.divId === id; })
+      .map(function(r){ return { name: String(r.displayName || 'A player').slice(0, 40), g: genderWord(r.gender) }; })
+      .sort(function(a, b){ return a.name.localeCompare(b.name); });
+    total += list.length;
+    var block = el('div', 'div-block');
+    var head = el('div', 'div-head');
+    head.appendChild(el('span', 'div-name', String(d.name || 'Division')));
+    head.appendChild(el('span', 'div-count', list.length + ' looking'));
+    block.appendChild(head);
+    if(!list.length) block.appendChild(el('p', 'empty', 'Nobody in this division yet.'));
+    list.forEach(function(x){
+      var row = el('div', 'looker');
+      row.appendChild(el('span', null, x.name));
+      row.appendChild(el('span', 'g', x.g));
+      block.appendChild(row);
+    });
+    box.appendChild(block);
+  });
+  if(!total){
+    box.insertBefore(el('p', 'empty', 'Nobody has said they are looking yet. Register and tick "I\'m looking for teammates" to be the first.'), box.firstChild);
+  }
+}
+function lookingBack(){
+  if(state.a && state.w){ show('v-withdraw'); return; }
+  if(state.meta && state.meta.status === 'registration' && divIds().length){ show('v-email'); return; }
+  showClosed();
+}
+
+// Withdraw mode only: the same emailed link turns the flag on or off.
+function setLookingLabel(){
+  var on = state.looking === true;
+  $('lf-btn').querySelector('.lbl').textContent = on ? 'Take me off the Looking for teammates list' : 'Add me to the Looking for teammates list';
+}
+async function doLookingToggle(){
+  if(state.busy) return;
+  $('lf-note').textContent = '';
+  var want = state.looking !== true;
+  state.busy = true; setBusy('lf-btn', true, 'Saving...');
+  var res = await post('/club/tournament-looking', { slug:SLUG, tid:state.tid, a:state.a, w:state.w, lookingForTeam:want });
+  state.busy = false; setBusy('lf-btn', false); setLookingLabel();
+  if(res.net){ $('lf-note').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(j && j.ok === true){
+    state.looking = j.lookingForTeam === true;
+    setLookingLabel();
+    $('lf-note').textContent = state.looking ? "You're on the Looking for teammates list." : "You're off the Looking for teammates list.";
+    return;
+  }
+  if(j && j.error === 'invalid_link'){ show('v-wd-invalid'); return; }
+  if(j && j.error === 'not_registered'){ $('lf-note').textContent = "You're withdrawn, so you're not on the list. Register again to join it."; return; }
+  $('lf-note').textContent = genericErr(res.r, j);
+}
+
 // ---- Boot ----
 async function getJson(path){
   var r = await fetch(DB_URL + '/' + path + '.json');
@@ -511,9 +631,17 @@ async function boot(){
   if(state.a || state.w){
     if(!state.a || !state.w){ show('v-wd-invalid'); return; }
     $('wd-title').textContent = 'Withdraw from ' + m.name + '?';
+    // Current flag for the toggle label, read from the public registration. Best effort:
+    // the button still works if this read fails, it just starts as "Add me".
+    if(/^[A-Za-z0-9_-]{1,200}$/.test(state.a)){
+      try { var mine = await getJson(base + '/registrations/' + encodeURIComponent(state.a)); state.looking = !!(mine && mine.lookingForTeam === true); }
+      catch(e){ state.looking = null; }
+    }
+    setLookingLabel();
     show('v-withdraw');
     return;
   }
+  if(q.get('looking') === '1'){ showLooking(); return; }
   if(m.status !== 'registration'){ showClosed(); return; }
   if(!divIds().length){ showClosed(); return; }
   show('v-email');
