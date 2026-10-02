@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.167';
+const APP_VERSION='1.1.168';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12037,7 +12037,10 @@ function tnCardRender(){
   var lbl='display:block;font-size:12px;font-weight:700;color:var(--charcoal);margin:10px 0 4px;';
   var btn=function(label,onclick,primary,extra){
     return '<button class="btn btn-small" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;'
-      +(primary?'background:var(--primary);color:#fff;border:none;':'background:#fff;color:var(--primary);border:1px solid var(--primary);')
+      // One readable style for every card button: white with the club color (--red is the
+      // shell's primary; --primary is not defined, which left white text on the pink panels).
+      // A primary action gets a heavier border so it still leads.
+      +'background:#fff;color:var(--red);border:'+(primary?'2px':'1px')+' solid var(--red);font-weight:700;'
       +(extra||'')+'"'+(_tnUi.busy?' disabled':'')+' onclick="'+onclick+'">'+label+'</button>';
   };
   var txt=function(id,val,oninput,extra){ return '<input class="form-input" id="'+id+'" value="'+esc(val)+'" oninput="'+oninput+'" style="'+inp+'"'+(extra||'')+'>'; };
