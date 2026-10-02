@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>FSU Grass Club Tournament</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --garnet:#782F40;
+    --garnet-dark:#5A2331;
+    --garnet-deep:#471a26;
+    --gold:#CEB888;
+    --gold-dark:#A8894C;
+    --cream:#F4EFE7;
+    --paper:#FBF7F0;
+    --ink:#2B1A20;
+    --slate:#6E5A60;
+    --white:#FFFFFF;
+    --line:#E4DACE;
+    --green:#2E5D32;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Barlow',system-ui,sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .hero{
+    background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);
+    color:var(--white);
+    padding:36px 20px 104px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+  .hero::after{
+    content:"";
+    position:absolute;left:0;right:0;bottom:0;height:6px;
+    background:linear-gradient(90deg,var(--gold) 0%,var(--gold-dark) 100%);
+  }
+  .crest{width:88px;height:88px;object-fit:contain;margin:0 auto 12px;display:block;filter:drop-shadow(0 6px 16px rgba(0,0,0,0.35));}
+  .eyebrow{font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
+  .hero h1{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(36px,8vw,56px);
+    letter-spacing:1.5px;line-height:1;font-weight:400;margin-top:6px;
+  }
+  .hero .when{font-style:italic;color:var(--cream);font-size:clamp(16px,4vw,19px);margin-top:10px;}
+  .wrap{max-width:560px;margin:-72px auto 40px;padding:0 16px;position:relative;z-index:2;}
+  .card{background:var(--white);border-radius:16px;box-shadow:0 12px 40px rgba(71,26,38,0.16);overflow:hidden;}
+  .view{display:none;padding:28px 22px 26px;}
+  .view.on{display:block;}
+  .view h2{font-family:'Bebas Neue',sans-serif;font-size:clamp(28px,6vw,34px);color:var(--garnet);letter-spacing:0.8px;line-height:1.05;margin-bottom:10px;}
+  .view p{font-size:16px;margin-bottom:12px;}
+  .view p.muted{color:var(--slate);font-size:14.5px;}
+  .center{text-align:center;}
+  .cico{font-size:48px;line-height:1;margin-bottom:10px;}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+  label{font-size:13px;font-weight:700;color:var(--garnet);text-transform:uppercase;letter-spacing:0.7px;}
+  label .opt{color:var(--slate);font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;}
+  input[type=text],input[type=email],input[type=tel],select,textarea{
+    font-family:'Barlow',sans-serif;
+    font-size:16px;
+    min-height:50px;
+    padding:12px 14px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    background:var(--paper);
+    color:var(--ink);
+    width:100%;
+  }
+  textarea{resize:vertical;min-height:72px;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);background:var(--white);}
+  .hint{font-size:13px;color:var(--slate);}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+  @media (max-width:480px){ .grid{grid-template-columns:1fr;} }
+  .btn{
+    width:100%;min-height:56px;
+    font-family:'Bebas Neue',sans-serif;font-size:23px;letter-spacing:1.2px;
+    padding:14px;background:var(--garnet);color:var(--white);
+    border:none;border-radius:11px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn:disabled{opacity:.65;cursor:not-allowed;}
+  .btn.ghost{background:var(--white);color:var(--garnet);border:2px solid var(--garnet);}
+  .btn + .btn{margin-top:12px;}
+  .link-btn{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;text-decoration:underline;padding:14px 8px;min-height:48px;cursor:pointer;display:block;margin:6px auto 0;}
+  .spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite;display:none;}
+  .btn.busy .spin{display:inline-block;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .fld-err{display:none;font-size:13px;font-weight:600;color:var(--garnet);}
+  .form-err{color:var(--garnet);font-size:14.5px;font-weight:600;text-align:center;margin-top:12px;min-height:20px;line-height:1.4;}
+  .who{font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,7vw,38px);color:var(--ink);letter-spacing:0.8px;text-align:center;margin:6px 0 18px;}
+  .foot{text-align:center;padding:4px 16px 36px;font-size:13px;color:var(--slate);}
+  .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img class="crest" src="fsu%20grass%20logo.png" alt="FSU Grass Club">
+  <div class="eyebrow">FSU Grass Club</div>
+  <h1 id="t-name">Tournament</h1>
+  <div class="when" id="t-when"></div>
+</header>
+
+<main class="wrap">
+  <div class="card">
+
+    <section class="view on" id="v-loading" aria-live="polite">
+      <p class="muted center">Loading the tournament...</p>
+    </section>
+
+    <section class="view center" id="v-invalid">
+      <div class="cico" aria-hidden="true">🔗</div>
+      <h2>This registration link is not valid</h2>
+      <p id="invalid-msg">Double check the link, or ask the exec team for a fresh one.</p>
+    </section>
+
+    <section class="view center" id="v-closed">
+      <div class="cico" aria-hidden="true">🔒</div>
+      <h2>Registration is closed</h2>
+      <p>Registration for <strong id="closed-name">this tournament</strong> is not open right now. Reach out to the exec team if you have questions.</p>
+    </section>
+
+    <section class="view" id="v-email">
+      <h2>Register</h2>
+      <p class="muted">Start with your email. If you already have a CourtSense account, we will find it and you are in with one tap.</p>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false">
+        <span class="fld-err" id="err-email" role="alert"></span>
+      </div>
+      <button class="btn" id="email-btn" type="button" onclick="doLookup()"><span class="spin" aria-hidden="true"></span><span class="lbl">Continue</span></button>
+      <div class="form-err" id="email-form-err" role="alert"></div>
+    </section>
+
+    <section class="view" id="v-found">
+      <p class="center muted">Is this you?</p>
+      <div class="who" id="found-who"></div>
+      <div class="field">
+        <label for="f-div">Division</label>
+        <select id="f-div"></select>
+        <span class="fld-err" id="err-f-div" role="alert"></span>
+      </div>
+      <div class="field">
+        <label for="f-team">Team name <span class="opt">(optional)</span></label>
+        <input type="text" id="f-team" maxlength="60" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-mates">Teammates <span class="opt">(optional)</span></label>
+        <textarea id="f-mates" maxlength="160" rows="2"></textarea>
+        <span class="hint">Names of players you want on your team</span>
+      </div>
+      <button class="btn" id="found-btn" type="button" onclick="doRegister('found')"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, register me</span></button>
+      <div class="form-err" id="found-form-err" role="alert"></div>
+      <button class="link-btn" type="button" onclick="backToEmail()">Not you? Use a different email</button>
+    </section>
+
+    <section class="view" id="v-new">
+      <h2>Welcome</h2>
+      <p class="muted">We did not find a CourtSense account for that email, so we will make one for you. It takes a minute.</p>
+      <div class="grid">
+        <div class="field">
+          <label for="n-first">First name</label>
+          <input type="text" id="n-first" maxlength="40" autocomplete="given-name">
+          <span class="fld-err" id="err-n-first" role="alert"></span>
+        </div>
+        <div class="field">
+          <label for="n-last">Last name</label>
+          <input type="text" id="n-last" maxlength="40" autocomplete="family-name">
+          <span class="fld-err" id="err-n-last" role="alert"></span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="n-cell">Cell phone</label>
+        <input type="tel" id="n-cell" autocomplete="tel" inputmode="tel">
+        <span class="hint">For tournament day updates. Never shown to other players.</span>
+        <span class="fld-err" id="err-n-cell" role="alert"></span>
+      </div>
+      <div class="field">
+        <label for="n-div">Division</label>
+        <select id="n-div" onchange="updateGenderRule()"></select>
+        <span class="fld-err" id="err-n-div" role="alert"></span>
+      </div>
+      <div class="field">
+        <label for="n-gender">Gender <span class="opt" id="n-gender-opt">(optional)</span></label>
+        <select id="n-gender">
+          <option value="">Select</option>
+          <option value="M">Guy</option>
+          <option value="F">Girl</option>
+          <option value="unspecified" id="n-gender-unspec">Prefer not to say</option>
+        </select>
+        <span class="hint" id="n-gender-hint"></span>
+        <span class="fld-err" id="err-n-gender" role="alert"></span>
+      </div>
+      <div class="field">
+        <label for="n-team">Team name <span class="opt">(optional)</span></label>
+        <input type="text" id="n-team" maxlength="60" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="n-mates">Teammates <span class="opt">(optional)</span></label>
+        <textarea id="n-mates" maxlength="160" rows="2"></textarea>
+        <span class="hint">Names of players you want on your team</span>
+      </div>
+      <button class="btn" id="new-btn" type="button" onclick="doRegister('new')"><span class="spin" aria-hidden="true"></span><span class="lbl">Register</span></button>
+      <div class="form-err" id="new-form-err" role="alert"></div>
+      <button class="link-btn" type="button" onclick="backToEmail()">Use a different email</button>
+    </section>
+
+    <section class="view center" id="v-already">
+      <div class="cico" aria-hidden="true">✅</div>
+      <h2>You're already registered</h2>
+      <p id="already-msg">You are on the list. Check your email for your confirmation and the link to withdraw if plans change.</p>
+      <button class="link-btn" type="button" onclick="backToEmail()">Register someone else</button>
+    </section>
+
+    <section class="view center" id="v-done" aria-live="polite">
+      <div class="cico" aria-hidden="true">🌱</div>
+      <h2 id="done-title">You're in</h2>
+      <p id="done-msg"></p>
+      <p class="muted">The exec team puts the teams together and will be in touch before play starts.</p>
+      <button class="link-btn" type="button" onclick="backToEmail()">Register someone else</button>
+    </section>
+
+    <section class="view center" id="v-withdraw">
+      <h2 id="wd-title">Withdraw?</h2>
+      <p>This takes you off the list. If plans change again, you can register with the same link.</p>
+      <button class="btn" id="wd-btn" type="button" onclick="doWithdraw()"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, withdraw me</span></button>
+      <div class="form-err" id="wd-form-err" role="alert"></div>
+    </section>
+
+    <section class="view center" id="v-withdrawn" aria-live="polite">
+      <div class="cico" aria-hidden="true">👋</div>
+      <h2>You're withdrawn</h2>
+      <p>Thanks for letting us know.</p>
+    </section>
+
+    <section class="view center" id="v-wd-invalid">
+      <div class="cico" aria-hidden="true">🔗</div>
+      <h2>This withdraw link is no longer valid</h2>
+      <p>If you registered again after withdrawing, use the link in your newest confirmation email, or reach out to the exec team.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer class="foot">
+  <a href="https://courtsense.app">Powered by CourtSense</a>
+</footer>
+
+<script>
+// FSU Grass Club tournament registration. Reads the tournament's meta and divisions
+// over Firebase REST (the club node is world readable) and never writes to Firebase.
+// Every write goes through the CourtSense worker, which owns registrations:
+//   /club/tournament-lookup     { slug, tid, email }
+//   /club/tournament-register   { slug, tid, email, divId, teamName?, teammates?, newPlayer? }
+//   /club/tournament-withdraw   { slug, tid, a, w }
+// Nothing this page shows ever echoes an email or a phone back.
+var SLUG = 'fsu_grass';
+var DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
+var AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+var state = { tid:'', meta:null, divisions:{}, email:'', a:'', w:'', busy:false };
+
+function $(id){ return document.getElementById(id); }
+function val(id){ var el = $(id); return el ? String(el.value || '').trim() : ''; }
+function show(view){
+  var views = document.querySelectorAll('.view');
+  for(var i = 0; i < views.length; i++) views[i].classList.toggle('on', views[i].id === view);
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ---- Field helpers, the same ones signup.html uses ----
+function emailValid(e){ return /^\S+@\S+\.\S+$/.test(e); }
+function setFieldErr(id, msg){
+  var el = $('err-' + id), inp = $(id);
+  if(el){ el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+  if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; if(msg) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid'); }
+}
+function clearErrors(ids, formErrId){
+  ids.forEach(function(f){ setFieldErr(f, ''); });
+  if(formErrId && $(formErrId)) $(formErrId).textContent = '';
+}
+// Mirrors the worker's normalizePhone (src/auth.ts), like signup.html does. This one only
+// decides whether to warn before submitting; the worker decides what is stored.
+function normalizePhoneLocal(input){
+  var raw = String(input == null ? '' : input).trim();
+  if(!raw) return { primary:null, raw:'', malformed:false };
+  var digits = raw.replace(/\D/g, '');
+  if(raw.charAt(0) === '+'){
+    if(digits.length >= 8 && digits.length <= 15) return { primary:'+' + digits, raw:raw, malformed:false };
+    return { primary:null, raw:raw, malformed:true };
+  }
+  if(digits.length === 10) return { primary:'+1' + digits, raw:raw, malformed:false };
+  if(digits.length === 11 && digits.charAt(0) === '1') return { primary:'+1' + digits.slice(1), raw:raw, malformed:false };
+  return { primary:null, raw:raw, malformed:true };
+}
+// Unlike signup, the cell is required here: the worker stores it on the new account.
+function validatePhoneField(id, label){
+  var v = val(id);
+  if(!v){ setFieldErr(id, 'Your ' + label + ' is required.'); return false; }
+  var ok = !normalizePhoneLocal(v).malformed;
+  setFieldErr(id, ok ? '' : 'That ' + label + ' does not look right. Use a 10 digit number, or a plus sign and the full number.');
+  return ok;
+}
+
+function setBusy(btnId, busy, label){
+  var b = $(btnId); if(!b) return;
+  b.disabled = !!busy;
+  b.classList.toggle('busy', !!busy);
+  if(label) b.querySelector('.lbl').textContent = label;
+}
+
+// 'YYYY-MM-DD' read in local time: 'Saturday, October 11'.
+function dateLabel(d){
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d || ''));
+  if(!m) return '';
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+}
+
+function catLabel(c){ return c === 'coed' ? 'coed' : c === 'mens' ? "men's" : c === 'womens' ? "women's" : 'open'; }
+function divIds(){
+  var D = state.divisions || {};
+  return Object.keys(D).filter(function(k){ return D[k] && ID_RE.test(k); })
+    .sort(function(a, b){ return String(D[a].name || '').localeCompare(String(D[b].name || '')); });
+}
+function fillDivisions(selId){
+  var sel = $(selId), D = state.divisions, ids = divIds();
+  sel.innerHTML = '';
+  if(ids.length > 1){
+    var ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Pick a division'; sel.appendChild(ph);
+  }
+  ids.forEach(function(id){
+    var d = D[id], o = document.createElement('option');
+    o.value = id;
+    o.textContent = String(d.name || id) + ' (' + (d.teamSize || '?') + 'v' + (d.teamSize || '?') + ', ' + catLabel(d.category) + ')';
+    sel.appendChild(o);
+  });
+}
+
+// Coed divisions need a gender for the team minimums, so Prefer not to say is set aside
+// there. Anywhere else gender stays optional and blank goes to the worker as unspecified.
+function updateGenderRule(){
+  var d = state.divisions[val('n-div')], coed = !!(d && d.category === 'coed');
+  var unspec = $('n-gender-unspec'), sel = $('n-gender');
+  unspec.disabled = coed;
+  unspec.hidden = coed;
+  if(coed && sel.value === 'unspecified') sel.value = '';
+  $('n-gender-opt').textContent = coed ? '' : '(optional)';
+  $('n-gender-hint').textContent = coed ? 'Coed teams need a mix of guys and girls, so we ask here.' : '';
+}
+
+function showClosed(){
+  $('closed-name').textContent = (state.meta && state.meta.name) ? state.meta.name : 'this tournament';
+  show('v-closed');
+}
+function genericErr(r, j){
+  if(r && r.status === 429) return 'Too many tries in a short time. Wait a few minutes and try again.';
+  if(j && j.error && j.code !== 'server_error') return j.error;
+  return 'Something went wrong on our end. Please try again in a moment.';
+}
+
+async function post(path, body){
+  var r = null, j = null;
+  try {
+    r = await fetch(AUTH_WORKER + path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    j = await r.json().catch(function(){ return null; });
+  } catch(e){ return { net:true, r:null, j:null }; }
+  return { net:false, r:r, j:j };
+}
+
+// ---- Register flow ----
+async function doLookup(){
+  if(state.busy) return;
+  clearErrors(['email'], 'email-form-err');
+  var email = val('email').toLowerCase();
+  if(!email){ setFieldErr('email', 'Enter your email.'); return; }
+  if(!emailValid(email)){ setFieldErr('email', "That email doesn't look right."); return; }
+  state.busy = true; setBusy('email-btn', true, 'Checking...');
+  var res = await post('/club/tournament-lookup', { slug:SLUG, tid:state.tid, email:email });
+  state.busy = false; setBusy('email-btn', false, 'Continue');
+  if(res.net){ $('email-form-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(!j || j.ok !== true){ $('email-form-err').textContent = genericErr(res.r, j); return; }
+  if(j.closed){ showClosed(); return; }
+  state.email = email;
+  if(!j.found){
+    clearErrors(['n-first','n-last','n-cell','n-div','n-gender'], 'new-form-err');
+    fillDivisions('n-div'); updateGenderRule();
+    show('v-new');
+    return;
+  }
+  if(j.alreadyRegistered){ show('v-already'); return; }
+  $('found-who').textContent = String(j.firstName || '') + (j.lastInitial ? ' ' + j.lastInitial + '.' : '');
+  clearErrors(['f-div'], 'found-form-err');
+  fillDivisions('f-div');
+  show('v-found');
+}
+
+function backToEmail(){
+  state.email = '';
+  ['email','f-team','f-mates','n-first','n-last','n-cell','n-team','n-mates'].forEach(function(id){ if($(id)) $(id).value = '';});
+  if($('n-gender')) $('n-gender').value = '';
+  clearErrors(['email'], 'email-form-err');
+  show('v-email');
+  setTimeout(function(){ if($('email')) $('email').focus(); }, 300);
+}
+
+async function doRegister(kind){
+  if(state.busy) return;
+  var isNew = kind === 'new';
+  var p = isNew ? 'n-' : 'f-', btnId = isNew ? 'new-btn' : 'found-btn', errId = isNew ? 'new-form-err' : 'found-form-err';
+  clearErrors(isNew ? ['n-first','n-last','n-cell','n-div','n-gender'] : ['f-div'], errId);
+  var ok = true;
+  var divId = val(p + 'div');
+  if(!divId || !state.divisions[divId]){ setFieldErr(p + 'div', 'Pick a division.'); ok = false; }
+  var body = { slug:SLUG, tid:state.tid, email:state.email, divId:divId };
+  var team = val(p + 'team'), mates = val(p + 'mates');
+  if(team) body.teamName = team.slice(0, 60);
+  if(mates) body.teammates = mates.slice(0, 160);
+  if(isNew){
+    var first = val('n-first'), last = val('n-last'), gender = val('n-gender');
+    var coed = !!(state.divisions[divId] && state.divisions[divId].category === 'coed');
+    if(!first){ setFieldErr('n-first', 'First name is required.'); ok = false; }
+    if(!last){ setFieldErr('n-last', 'Last name is required.'); ok = false; }
+    if(!validatePhoneField('n-cell', 'cell phone')) ok = false;
+    if(coed && gender !== 'M' && gender !== 'F'){ setFieldErr('n-gender', 'Pick Guy or Girl for a coed division.'); ok = false; }
+    body.newPlayer = { firstName:first, lastName:last, cell:val('n-cell'), gender: gender || 'unspecified' };
+  }
+  if(!ok){
+    var firstErr = document.querySelector('.view.on .fld-err[style*="block"]');
+    if(firstErr) firstErr.scrollIntoView({ block:'center', behavior:'smooth' });
+    return;
+  }
+  // One request in flight at a time, so a double tap can never send two confirmation emails.
+  state.busy = true; setBusy(btnId, true, 'Registering...');
+  var res = await post('/club/tournament-register', body);
+  state.busy = false; setBusy(btnId, false, isNew ? 'Register' : 'Yes, register me');
+  if(res.net){ $(errId).textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(j && j.ok === true && j.closed){ showClosed(); return; }
+  if(j && j.ok === true && j.status === 'already_registered'){ show('v-already'); return; }
+  if(j && j.ok === true && j.status === 'registered'){
+    $('done-title').textContent = j.displayName ? "You're in, " + String(j.displayName) + '.' : "You're in.";
+    $('done-msg').textContent = 'Check your email for your confirmation' + (isNew ? ' and a link to finish your CourtSense account.' : '.');
+    show('v-done');
+    return;
+  }
+  if(j && j.code === 'new_player_required'){
+    fillDivisions('n-div'); $('n-div').value = divId; updateGenderRule();
+    show('v-new');
+    return;
+  }
+  $(errId).textContent = genericErr(res.r, j);
+}
+
+// ---- Withdraw flow ----
+async function doWithdraw(){
+  if(state.busy) return;
+  $('wd-form-err').textContent = '';
+  state.busy = true; setBusy('wd-btn', true, 'Withdrawing...');
+  var res = await post('/club/tournament-withdraw', { slug:SLUG, tid:state.tid, a:state.a, w:state.w });
+  state.busy = false; setBusy('wd-btn', false, 'Yes, withdraw me');
+  if(res.net){ $('wd-form-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(j && j.ok === true && j.status === 'withdrawn'){ show('v-withdrawn'); return; }
+  if(j && j.error === 'invalid_link'){ show('v-wd-invalid'); return; }
+  $('wd-form-err').textContent = genericErr(res.r, j);
+}
+
+// ---- Boot ----
+async function getJson(path){
+  var r = await fetch(DB_URL + '/' + path + '.json');
+  if(!r.ok) throw new Error('read ' + r.status);
+  return r.json();
+}
+function invalid(msg){
+  if(msg) $('invalid-msg').textContent = msg;
+  show('v-invalid');
+}
+async function boot(){
+  var q = new URLSearchParams(location.search);
+  state.tid = String(q.get('t') || '').trim();
+  state.a = String(q.get('a') || '').trim();
+  state.w = String(q.get('w') || '').trim();
+  if(!ID_RE.test(state.tid)){ invalid(); return; }
+  var base = 'grass_club_matches/tournaments/' + encodeURIComponent(state.tid);
+  try {
+    var got = await Promise.all([getJson(base + '/meta'), getJson(base + '/divisions')]);
+    state.meta = got[0];
+    state.divisions = (got[1] && typeof got[1] === 'object') ? got[1] : {};
+  } catch(e){
+    invalid('We could not load this tournament. Check your connection and refresh the page.');
+    return;
+  }
+  var m = state.meta;
+  if(!m || typeof m !== 'object' || !m.name){ invalid(); return; }
+  $('t-name').textContent = m.name;
+  $('t-when').textContent = dateLabel(m.date);
+  document.title = m.name + ' | FSU Grass Club';
+
+  if(state.a || state.w){
+    if(!state.a || !state.w){ show('v-wd-invalid'); return; }
+    $('wd-title').textContent = 'Withdraw from ' + m.name + '?';
+    show('v-withdraw');
+    return;
+  }
+  if(m.status !== 'registration'){ showClosed(); return; }
+  if(!divIds().length){ showClosed(); return; }
+  show('v-email');
+}
+
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
+  var on = document.querySelector('.view.on'); if(!on) return;
+  if(on.id === 'v-email'){ e.preventDefault(); doLookup(); }
+});
+boot();
+</script>
+</body>
+</html>
