@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.173';
+const APP_VERSION='1.1.174';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -11847,6 +11847,9 @@ function tnWritePaths(tid,paths){
         ||/^pools\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,16}(\/[A-Za-z0-9_\/-]+)?$/.test(rest)) return true;
       var mr=/^results\/([A-Za-z0-9_-]{1,160})$/.exec(rest);
       if(mr) return divIds.some(function(d){ return mr[1].indexOf(d+'-')===0; });
+      // The worker owns live scoring; the app may only clear a match's live record (exec override).
+      var ml=/^live\/([A-Za-z0-9_-]{1,160})$/.exec(rest);
+      if(ml) return isMap&&paths[p]===null&&divIds.some(function(d){ return ml[1].indexOf(d+'-')===0; });
       return false;
     }
     if(p.indexOf(lbase)===0){
@@ -12046,15 +12049,18 @@ function tnCoedDefault(size){ return +size===4?{minGuys:2, minGirls:2}:{minGuys:
 function tnNewDivDraft(){
   return {divId:'', name:'', category:'coed', teamSize:'4', rosterMax:'4', minGuys:'2', minGirls:'2',
     courts:'1, 2', poolCount:'2', advancePerPool:'2',
-    pBestOf:'1', pScoreTo:'21', pCap:'0', pThird:'15', oBestOf:'1', oScoreTo:'21', oCap:'0', oThird:'15'};
+    pBestOf:'1', pScoreTo:'21', pCap:'0', pThird:'15', oBestOf:'1', oScoreTo:'21', oCap:'0', oThird:'15',
+    pSwitch:'7', pSwitch3:'5', pTto:'1', pTtoAt:'21', oSwitch:'7', oSwitch3:'5', oTto:'1', oTtoAt:'21'};
 }
 function tnDivDraftFrom(divId,d){
-  var p=d.pool||{}, o=d.playoff||{}, c=d.coed||tnCoedDefault(d.teamSize);
+  var p=d.pool||{}, o=d.playoff||{}, c=d.coed||tnCoedDefault(d.teamSize), pl=tnLiveRules(p), ol=tnLiveRules(o);
   return {divId:divId, name:String(d.name||''), category:d.category||'open', teamSize:String(d.teamSize||2),
     rosterMax:String(d.rosterMax!=null?d.rosterMax:(d.teamSize||2)), minGuys:String(c.minGuys), minGirls:String(c.minGirls),
     courts:(Array.isArray(d.courts)?d.courts:tnArr(d.courts)).join(', '), poolCount:String(d.poolCount||1), advancePerPool:String(d.advancePerPool||2),
     pBestOf:String(p.bestOf||1), pScoreTo:String(p.scoreTo||21), pCap:String(p.cap||0), pThird:String(p.thirdSetTo||15),
-    oBestOf:String(o.bestOf||1), oScoreTo:String(o.scoreTo||21), oCap:String(o.cap||0), oThird:String(o.thirdSetTo||15)};
+    oBestOf:String(o.bestOf||1), oScoreTo:String(o.scoreTo||21), oCap:String(o.cap||0), oThird:String(o.thirdSetTo||15),
+    pSwitch:String(pl.switchEvery), pSwitch3:String(pl.thirdSetSwitchEvery), pTto:pl.tto?'1':'0', pTtoAt:String(pl.ttoAt),
+    oSwitch:String(ol.switchEvery), oSwitch3:String(ol.thirdSetSwitchEvery), oTto:ol.tto?'1':'0', oTtoAt:String(ol.ttoAt)};
 }
 function tnEditDiv(divId){
   var t=tnCur(); if(!t) return;
@@ -12191,7 +12197,10 @@ function tnSaveDiv(){
     var bo=d[pre+'BestOf']==='3'?3:1, to=tnIntIn(d[pre+'ScoreTo'],1,50), cap=tnIntIn(d[pre+'Cap'],0,99), third=tnIntIn(d[pre+'Third'],1,50);
     if(!to||cap==null||!third){ toast(label+' scoring needs whole numbers'); return null; }
     if(cap&&cap<to){ toast(label+' cap must be 0 (no cap) or at least the score to '+to); return null; }
-    return {bestOf:bo, scoreTo:to, cap:cap, thirdSetTo:third};
+    var sw=tnIntIn(d[pre+'Switch'],1,50), sw3=tnIntIn(d[pre+'Switch3'],1,50), ttoAt=tnIntIn(d[pre+'TtoAt'],1,99);
+    if(!sw||!sw3){ toast(label+' side switches need a whole number of points, 1 or more'); return null; }
+    if(!ttoAt){ toast(label+' technical timeout needs a whole number of combined points'); return null; }
+    return {bestOf:bo, scoreTo:to, cap:cap, thirdSetTo:third, switchEvery:sw, thirdSetSwitchEvery:sw3, tto:d[pre+'Tto']!=='0', ttoAt:ttoAt};
   };
   var pool=fmt('p','Pool'); if(!pool) return;
   var playoff=fmt('o','Playoff'); if(!playoff) return;
@@ -12302,7 +12311,9 @@ async function tnExport(){
 //   teams/{teamId}/seed and /pool       written here; the worker owns everything else on a team
 //   pools/{divId}/{poolKey}             { teamIds, courts, matches:[ { mid, round, wave, court, t1, t2, ref } ] }
 //   results/{mid}                       { t1, t2, sets:[ {a,b} ], winner, at, by, byRole:'exec' }
-//                                       (the worker writes player and ref scores: byRole 'player'|'ref', byTeam)
+//                                       (the worker writes player and ref scores: byRole 'player'|'ref', byTeam, live?)
+//   live/{mid}                          worker only: { sets, set, seq, byTeam, byRole, ... } while a ref scores
+//                                       point by point. The app only ever clears it (exec override).
 // Mids carry the divId prefix (tnSchedulePool idPrefix), which is how a result is tied to its
 // division. Pools cannot be regenerated once any result for the division exists.
 // The live data arrives on the card's existing listener on DB_ROOT/tournaments, which already
@@ -12500,9 +12511,13 @@ function tnGdSaveScore(){
   var t=tnCur(); if(!t||_tnUi.busy) return;
   if(t.meta.status!=='pools'&&t.meta.status!=='playoffs'){ toast('Start pool play to enter scores'); return; }
   var c=tnGdCheck(t); if(!c.ok){ toast(c.msg); return; }
-  var tid=_tnUi.tid, u={};
-  u[DB_ROOT+'/tournaments/'+tid+'/results/'+_tnGd.edit.mid]={t1:c.hit.m.t1, t2:c.hit.m.t2,
+  var tid=_tnUi.tid, u={}, mid=_tnGd.edit.mid;
+  // A match being scored live from a ref's phone: the exec score replaces it.
+  var live=t.live&&t.live[mid];
+  if(live&&!window.confirm('This match is being scored live right now. Save your score instead? It replaces the live score.')) return;
+  u[DB_ROOT+'/tournaments/'+tid+'/results/'+mid]={t1:c.hit.m.t1, t2:c.hit.m.t2,
     sets:c.sets.map(function(s){ return {a:+s.a, b:+s.b}; }), winner:c.winner, at:Date.now(), by:ptBy(), byRole:'exec'};
+  if(live) u[DB_ROOT+'/tournaments/'+tid+'/live/'+mid]=null;
   _tnUi.busy=true;
   tnWrite(tid,u).then(function(ok){ _tnUi.busy=false; if(ok){ _tnGd.edit=null; toast('Score saved'); } tnCardRender(); });
 }
@@ -12637,7 +12652,10 @@ function tnGdMatchHtml(t,m,R,esc,nm,scoring,btn){
     +'<span style="'+(r&&r.winner===m.t1?'font-weight:700;':'')+'">'+nm(m.t1)+'</span> vs '
     +'<span style="'+(r&&r.winner===m.t2?'font-weight:700;':'')+'">'+nm(m.t2)+'</span>'
     +(m.ref?'<span style="color:var(--gray);font-size:12px;"> &middot; Ref '+nm(m.ref)+'</span>':'');
+  var lv=(!r&&t&&t.live&&t.live[m.mid])||null, lvSets=lv?tnArr(lv.sets):[], lvCur=lvSets[Math.min(Number(lv&&lv.set)||0,Math.max(0,lvSets.length-1))];
   var right=r?'<span style="font-size:13px;font-weight:700;color:#1e7e34;white-space:nowrap;">'+esc(score)+'</span>'
+    :lv?'<span style="font-size:12px;font-weight:700;white-space:nowrap;"><span style="background:#c81e1e;color:#fff;border-radius:4px;padding:1px 5px;margin-right:4px;">LIVE</span>'
+      +'Set '+((Number(lv.set)||0)+1)+': '+esc(lvCur?(tnNum(lvCur.a)||0)+'-'+(tnNum(lvCur.b)||0):'0-0')+'</span>'
     :'<span style="font-size:12px;color:var(--gray);white-space:nowrap;">Not played</span>';
   var h='<div style="border-bottom:1px solid var(--border,#eee);">';
   h+=(scoring&&btn
@@ -12834,7 +12852,12 @@ function tnCardRender(){
           +'<div><label style="'+lbl+'" for="tn-d-'+pre+'to">Score to</label>'+txt('tn-d-'+pre+'to',d[pre+'ScoreTo'],"tnDivSet('"+pre+"ScoreTo',this.value)",' inputmode="numeric"')+'</div>'
           +'<div><label style="'+lbl+'" for="tn-d-'+pre+'cap">Cap (0 is none)</label>'+txt('tn-d-'+pre+'cap',d[pre+'Cap'],"tnDivSet('"+pre+"Cap',this.value)",' inputmode="numeric"')+'</div>'
           +'<div><label style="'+lbl+'" for="tn-d-'+pre+'third">Third set to</label>'+txt('tn-d-'+pre+'third',d[pre+'Third'],"tnDivSet('"+pre+"Third',this.value)",' inputmode="numeric"')+'</div>'
-          +'</div>';
+          +'<div><label style="'+lbl+'" for="tn-d-'+pre+'sw">Switch sides every __ points</label>'+txt('tn-d-'+pre+'sw',d[pre+'Switch'],"tnDivSet('"+pre+"Switch',this.value)",' inputmode="numeric"')+'</div>'
+          +'<div><label style="'+lbl+'" for="tn-d-'+pre+'sw3">Third set: switch sides every __ points</label>'+txt('tn-d-'+pre+'sw3',d[pre+'Switch3'],"tnDivSet('"+pre+"Switch3',this.value)",' inputmode="numeric"')+'</div>'
+          +'<div><label style="'+lbl+'" for="tn-d-'+pre+'tto">Technical timeout</label>'+sel('tn-d-'+pre+'tto',d[pre+'Tto'],[['1','On'],['0','Off']],"tnDivSet('"+pre+"Tto',this.value)")+'</div>'
+          +'<div><label style="'+lbl+'" for="tn-d-'+pre+'ttoat">Technical timeout at __ combined points</label>'+txt('tn-d-'+pre+'ttoat',d[pre+'TtoAt'],"tnDivSet('"+pre+"TtoAt',this.value)",' inputmode="numeric"')+'</div>'
+          +'</div>'
+          +'<div style="font-size:12px;color:var(--gray);line-height:1.5;margin-top:4px;">Live scorers get a switch sides prompt at each multiple. The technical timeout is for sets 1 and 2 only, never the deciding set.</div>';
       };
       html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:12px;margin-top:12px;">'
         +'<div style="font-weight:700;font-size:14px;">'+(d.divId?'Edit division':'New division')+'</div>'
@@ -14920,6 +14943,38 @@ function tnSortByRating(rows){
     return String(a.name||'').localeCompare(String(b.name||''));
   });
 }
+// ---- Live point scoring --------------------------------------------------------------
+// Side switches and the technical timeout for one format (a division's pool or playoff).
+// Missing settings take the defaults: switch every 7 points when sets go to 21 or more (5
+// otherwise), every 5 in the third set, and a technical timeout at scoreTo combined points
+// in sets 1 and 2 only, never in the third (deciding) set. tto is on unless set to false.
+function tnLiveRules(fmt){
+  var f=fmt||{}, to=Number(f.scoreTo)||21;
+  var sw=tnNum(f.switchEvery), sw3=tnNum(f.thirdSetSwitchEvery), at=tnNum(f.ttoAt);
+  return {switchEvery:(sw&&sw>0)?sw:(to>=21?7:5), thirdSetSwitchEvery:(sw3&&sw3>0)?sw3:5,
+    tto:f.tto!==false, ttoAt:(at&&at>0)?at:to};
+}
+// The target and cap for set i (0 based), as tnMatchWinner reads them: the third set plays
+// to thirdSetTo with no cap when thirdSetTo is set.
+function tnSetTarget(fmt,i){
+  var f=fmt||{}, third=Number(f.thirdSetTo)||0;
+  if(i===2&&third>0) return {target:third, cap:0};
+  return {target:Number(f.scoreTo)||21, cap:Number(f.cap)||0};
+}
+// What to tell the scorer after a live action. sets are the live sets so far, i the current
+// set index, point true when this action just added a point. setOver: set i is finished and
+// valid. matchOver: the sets through i decide the match. switchSides and tto only follow a
+// point that did not end the set.
+function tnLivePrompts(fmt,sets,i,point){
+  var list=tnArr(sets), s=list[i]||{}, a=tnNum(s.a)||0, b=tnNum(s.b)||0, total=a+b;
+  var r=tnLiveRules(fmt), tg=tnSetTarget(fmt,i);
+  var setOver=a!==b&&tnSetError({a:a, b:b},tg.target,tg.cap)==='';
+  var mw=tnMatchWinner({sets:list.slice(0,i+1)},fmt);
+  var third=(i===2), every=third?r.thirdSetSwitchEvery:r.switchEvery, live=!!point&&!setOver&&total>0;
+  return {switchSides:live&&total%every===0, tto:live&&r.tto&&!third&&total===r.ttoAt,
+    setOver:setOver, matchOver:mw.valid&&!!mw.winner};
+}
+
 // ===== TN ENGINE END =====
 
 // ---- Practice tournament (club, exec only) ---------------------------------
