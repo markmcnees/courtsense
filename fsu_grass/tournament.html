@@ -44,7 +44,7 @@
   .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
   label{font-size:13px;font-weight:700;color:var(--garnet);text-transform:uppercase;letter-spacing:0.7px;}
   label .opt{color:var(--slate);font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;}
-  input[type=text],input[type=email],input[type=tel],select{font-family:'Barlow',sans-serif;font-size:16px;min-height:50px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);width:100%;}
+  input[type=text],input[type=email],input[type=tel],input[type=search],select{font-family:'Barlow',sans-serif;font-size:16px;min-height:50px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);width:100%;}
   input:focus,select:focus{outline:none;border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);background:var(--white);}
   .hint{font-size:13.5px;color:var(--slate);}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
@@ -57,22 +57,24 @@
   .btn.small{min-height:48px;font-size:19px;padding:10px 14px;}
   .btn + .btn, .btn + a.btn, a.btn + .btn{margin-top:12px;}
   .link-btn{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;text-decoration:underline;padding:12px 8px;min-height:48px;cursor:pointer;display:block;margin:6px auto 0;}
+  .text-link{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:15px;font-weight:700;text-decoration:underline;min-height:44px;padding:0 4px;cursor:pointer;}
   .spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite;display:none;}
   .btn.busy .spin{display:inline-block;}
   .btn.ghost .spin,.btn.danger .spin{border-color:rgba(120,47,64,.3);border-top-color:var(--garnet);}
   @keyframes sp{to{transform:rotate(360deg);}}
   .form-err{color:var(--garnet);font-size:14.5px;font-weight:600;text-align:center;margin-top:12px;min-height:20px;line-height:1.4;}
   .divinfo{font-size:14.5px;color:var(--slate);margin-top:-6px;margin-bottom:14px;}
-  .slot{border:1.5px solid var(--line);border-radius:12px;padding:14px 14px 4px;margin-bottom:12px;background:var(--paper);}
+  .slot{border:1.5px solid var(--line);border-radius:12px;padding:14px 14px 6px;margin-bottom:12px;background:var(--paper);}
   .slot.bad{border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);}
   .slot-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
   .slot-title{font-family:'Bebas Neue',sans-serif;font-size:21px;color:var(--garnet);letter-spacing:0.6px;}
-  .slot-row{display:flex;gap:8px;align-items:stretch;margin-bottom:10px;}
-  .slot-row input{flex:1;min-width:0;}
-  .slot-row .btn{width:auto;min-width:96px;}
-  .found{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;color:var(--green);margin-bottom:10px;}
-  .slot-err{font-size:14px;font-weight:600;color:var(--garnet);margin-bottom:10px;}
-  .onteam{font-size:15px;font-weight:600;color:var(--red);margin-bottom:10px;}
+  .results{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px;}
+  .result{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:52px;padding:10px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--white);font-family:'Barlow',sans-serif;font-size:17px;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;}
+  .result:active{background:#f6f1ea;}
+  .club-badge{font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--garnet);background:#f3e9eb;border-radius:6px;padding:3px 7px;white-space:nowrap;}
+  .search-note{font-size:14px;color:var(--slate);padding:6px 2px;}
+  .picked{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:17px;font-weight:700;color:var(--green);min-height:48px;margin-bottom:6px;}
+  .slot-err{font-size:14px;font-weight:600;color:var(--garnet);margin:4px 0 10px;}
   .rm{background:none;border:none;color:var(--slate);font-size:14px;font-weight:700;text-decoration:underline;min-height:44px;padding:0 6px;cursor:pointer;}
   .checklist{background:#f6f1ea;border-radius:10px;padding:12px 14px;font-size:15px;margin:6px 0 16px;line-height:1.6;}
   .checklist strong{color:var(--garnet);}
@@ -134,7 +136,7 @@
 
     <section class="view" id="v-register">
       <h2>Register your team</h2>
-      <p class="muted">Teams register together. Add every player by email. Anyone new to CourtSense gets an account and an email to finish it.</p>
+      <p class="muted">Teams register together. Find each player by name. Anyone new to CourtSense gets an account and an email to finish it.</p>
       <div class="field">
         <label for="r-div">Division</label>
         <select id="r-div" onchange="onDivisionChange()"></select>
@@ -172,7 +174,7 @@
       <div class="note" id="m-note" role="status"></div>
       <div class="section" id="m-add-sec">
         <h3>Add a player</h3>
-        <p class="muted">Someone can't make it, or you want a sub? Add them by email.</p>
+        <p class="muted">Someone can't make it, or you want a sub? Find them by name.</p>
         <div id="m-slots"></div>
         <button class="btn" id="m-add-btn" type="button" onclick="doAdd()"><span class="spin" aria-hidden="true"></span><span class="lbl">Add to team</span></button>
         <div class="form-err" id="m-add-err" role="alert"></div>
@@ -207,20 +209,20 @@
 // FSU Grass Club tournament: TEAM registration and team management.
 // Reads the tournament's meta and divisions over Firebase REST (the club node is world
 // readable) and never writes to Firebase. Every write goes through the CourtSense worker:
-//   /club/tournament-lookup         { slug, tid, email, divId }
-//   /club/tournament-register-team  { slug, tid, divId, teamName?, members:[ { email, gender?, newPlayer? } ] }
+//   /club/tournament-search         { slug, tid, divId, q }            -> { results:[ { ref, name, club } ] }
+//   /club/tournament-register-team  { slug, tid, divId, teamName?, members:[ { ref, gender? } | { email, newPlayer } ] }
 //   /club/tournament-manage-info    { slug, tid, a, m }
 //   /club/tournament-team-add       { slug, tid, a, m, member }
 //   /club/tournament-withdraw       { slug, tid, a, m }
 //   /club/tournament-team-drop      { slug, tid, a, m }
-// Names shown are only ever the 'First L.' the worker returns. Nothing echoes an email or
-// a phone back, and no account id is ever put on the page.
+// A picked player is shown by the name search returned; nothing on this page ever shows an
+// email or a phone that the person did not just type.
 var SLUG = 'fsu_grass';
 var DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
 var AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-var state = { tid:'', meta:null, divisions:{}, divId:'', slots:[], addSlots:[], busy:false, a:'', m:'', manage:null };
+var state = { tid:'', meta:null, divisions:{}, divId:'', slots:[], addSlots:[], busy:false, a:'', m:'', manage:null, manageRules:null };
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
@@ -293,48 +295,54 @@ function divText(r){
 function curRules(){ return divRules(state.divisions[state.divId]); }
 
 // ---- Player slots ----
-// A slot is one player: their email, then what a lookup found. Statuses:
-//   empty    not checked yet          found    has an account ("First L.")
-//   onTeam   already on a team here   new      no account; fill in the short form
-//   manual   lookup unavailable (registration closed while adding); the worker decides
-function newSlot(){ return { email:'', st:'empty', first:'', li:'', gNeeded:false, g:'', nf:'', nl:'', nc:'', ng:'', err:'' }; }
+// A slot is one player, in one of three modes:
+//   search  type a name, pick from the results
+//   picked  a CourtSense player chosen from search (ref plus the name search returned)
+//   new     not on CourtSense yet: first, last, email, cell, gender
+// gNeeded is set only when the worker says a picked player's profile has no gender for a
+// coed division; the Guy/Girl choice is stored on the team only.
+function newSlot(){ return { mode:'search', q:'', results:null, note:'', ref:'', name:'', club:false, gNeeded:false, g:'', ne:'', nf:'', nl:'', nc:'', ng:'', err:'' }; }
 function slotsOf(p){ return p === 'm' ? state.addSlots : state.slots; }
+function rulesOf(p){ return p === 'm' ? state.manageRules : curRules(); }
+function divOf(p){ return p === 'm' ? (state.manage && state.manage.divId) : state.divId; }
+var _timers = {}, _seq = {};
 
 function slotHtml(p, i, s, title, removable, coed){
   var id = function(f){ return p + '-' + i + '-' + f; };
   var on = function(f){ return 'slotSet(\'' + p + '\',' + i + ',\'' + f + '\',this.value)'; };
   var h = '<div class="slot' + (s.err ? ' bad' : '') + '"><div class="slot-head"><span class="slot-title">' + esc(title) + '</span>'
-    + (removable ? '<button class="rm" type="button" onclick="removeSub(' + i + ')">Remove</button>' : '') + '</div>'
-    + '<label for="' + id('email') + '">Email</label>'
-    + '<div class="slot-row"><input type="email" id="' + id('email') + '" value="' + esc(s.email) + '" autocomplete="' + (p === 'r' && i === 0 ? 'email' : 'off') + '" autocapitalize="off" spellcheck="false" inputmode="email" oninput="slotEmail(\'' + p + '\',' + i + ',this.value)">'
-    + '<button class="btn ghost small" type="button" onclick="slotCheck(\'' + p + '\',' + i + ')">' + (s.st === 'empty' || s.st === 'manual' ? 'Check' : 'Recheck') + '</button></div>';
-  if(s.st === 'found'){
-    h += '<div class="found">✓ ' + esc(s.first) + (s.li ? ' ' + esc(s.li) + '.' : '') + '</div>';
+    + (removable ? '<button class="rm" type="button" onclick="removeSub(' + i + ')">Remove</button>' : '') + '</div>';
+  if(s.mode === 'picked'){
+    h += '<div class="picked"><span>✓ ' + esc(s.name) + (s.club ? ' <span class="club-badge">FSU Grass</span>' : '') + '</span>'
+      + '<button class="text-link" type="button" onclick="slotChange(\'' + p + '\',' + i + ')">Change</button></div>';
     if(s.gNeeded){
       h += '<div class="field"><label for="' + id('g') + '">Guy or girl, for the coed count</label><select id="' + id('g') + '" onchange="' + on('g') + '">'
         + '<option value="">Select</option><option value="M"' + (s.g === 'M' ? ' selected' : '') + '>Guy</option><option value="F"' + (s.g === 'F' ? ' selected' : '') + '>Girl</option></select>'
         + '<span class="hint">Used for this tournament only.</span></div>';
     }
-  } else if(s.st === 'onTeam'){
-    h += '<div class="onteam">Already on a team in this division.</div>';
-  } else if(s.st === 'new'){
-    h += '<p class="hint" style="margin-bottom:10px;">No CourtSense account yet. Add a few details and we will set one up and email them.</p>'
+  } else if(s.mode === 'new'){
+    h += '<p class="hint" style="margin-bottom:10px;">We will set up a CourtSense account and email them. If this email already has one, we link it instead.</p>'
       + '<div class="grid"><div class="field"><label for="' + id('nf') + '">First name</label><input type="text" id="' + id('nf') + '" maxlength="40" value="' + esc(s.nf) + '" oninput="' + on('nf') + '"></div>'
       + '<div class="field"><label for="' + id('nl') + '">Last name</label><input type="text" id="' + id('nl') + '" maxlength="40" value="' + esc(s.nl) + '" oninput="' + on('nl') + '"></div></div>'
+      + '<div class="field"><label for="' + id('ne') + '">Email</label><input type="email" id="' + id('ne') + '" inputmode="email" autocapitalize="off" spellcheck="false" value="' + esc(s.ne) + '" oninput="' + on('ne') + '"></div>'
       + '<div class="field"><label for="' + id('nc') + '">Cell phone</label><input type="tel" id="' + id('nc') + '" inputmode="tel" value="' + esc(s.nc) + '" oninput="' + on('nc') + '"><span class="hint">Never shown to other players.</span></div>'
       + '<div class="field"><label for="' + id('ng') + '">Gender</label><select id="' + id('ng') + '" onchange="' + on('ng') + '">'
       + '<option value="">Select</option><option value="M"' + (s.ng === 'M' ? ' selected' : '') + '>Guy</option><option value="F"' + (s.ng === 'F' ? ' selected' : '') + '>Girl</option>'
       + (coed ? '' : '<option value="unspecified"' + (s.ng === 'unspecified' ? ' selected' : '') + '>Prefer not to say</option>')
-      + '</select></div>';
-  } else if(s.st === 'manual'){
-    h += '<p class="hint" style="margin-bottom:10px;">We will look this player up when you add them.</p>';
+      + '</select></div>'
+      + '<button class="text-link" type="button" onclick="slotMode(\'' + p + '\',' + i + ',\'search\')">Search by name instead</button>';
+  } else {
+    h += '<label for="' + id('q') + '">Find a player</label>'
+      + '<input type="search" id="' + id('q') + '" placeholder="Type a name" autocomplete="off" autocapitalize="words" spellcheck="false" value="' + esc(s.q) + '" oninput="slotQuery(\'' + p + '\',' + i + ',this.value)">'
+      + '<div class="results" id="' + id('res') + '"></div>'
+      + '<button class="text-link" type="button" onclick="slotMode(\'' + p + '\',' + i + ',\'new\')">Not on CourtSense yet? Add them</button>';
   }
   if(s.err) h += '<div class="slot-err" role="alert">' + esc(s.err) + '</div>';
   return h + '</div>';
 }
 
 function renderSlots(p){
-  var r = p === 'm' ? state.manageRules : curRules();
+  var r = rulesOf(p);
   var coed = !!(r && r.coed);
   var list = slotsOf(p);
   var box = $(p === 'm' ? 'm-slots' : 'r-slots');
@@ -344,81 +352,126 @@ function renderSlots(p){
     var title = i === 0 ? 'Player 1 (you)' : i < size ? 'Player ' + (i + 1) : 'Sub ' + (i - size + 1);
     return slotHtml(p, i, s, title, i >= size, coed);
   }).join('');
+  list.forEach(function(s, i){ if(s.mode === 'search') renderResults(p, i); });
   if(p === 'r') renderChecklist();
 }
 
-function slotEmail(p, i, v){
+// Results are drawn into their own box, so typing never loses focus.
+function renderResults(p, i){
+  var s = slotsOf(p)[i], box = $(p + '-' + i + '-res'); if(!s || !box) return;
+  box.innerHTML = '';
+  if(s.note){ var n = document.createElement('div'); n.className = 'search-note'; n.textContent = s.note; box.appendChild(n); return; }
+  if(!s.results) return;
+  // A player already picked in another slot is not offered again.
+  var taken = {};
+  slotsOf(p).forEach(function(o, k){ if(k !== i && o.mode === 'picked') taken[o.ref] = true; });
+  var list = s.results.filter(function(x){ return !taken[x.ref]; });
+  if(!list.length){
+    var e = document.createElement('div'); e.className = 'search-note';
+    e.textContent = 'No one by that name is available for this division. Try another spelling, or add them as new.';
+    box.appendChild(e); return;
+  }
+  list.forEach(function(x){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'result';
+    var nm = document.createElement('span'); nm.textContent = String(x.name); b.appendChild(nm);
+    if(x.club){ var c = document.createElement('span'); c.className = 'club-badge'; c.textContent = 'FSU Grass'; b.appendChild(c); }
+    b.onclick = function(){ slotPick(p, i, x); };
+    box.appendChild(b);
+  });
+}
+
+function slotQuery(p, i, v){
   var s = slotsOf(p)[i]; if(!s) return;
-  var changed = s.email.trim().toLowerCase() !== String(v).trim().toLowerCase();
-  s.email = v;
-  if(changed && s.st !== 'empty'){ s.st = 'empty'; s.err = ''; renderSlots(p); var el = $(p + '-' + i + '-email'); if(el){ el.focus(); var n = el.value.length; try{ el.setSelectionRange(n, n); }catch(e){} } }
-  else if(p === 'r') renderChecklist();
+  s.q = v; s.err = '';
+  var key = p + i;
+  clearTimeout(_timers[key]);
+  var q = v.trim();
+  if(q.length < 2){ s.results = null; s.note = q.length ? 'Keep typing...' : ''; renderResults(p, i); return; }
+  if(!divOf(p)){ s.results = null; s.note = 'Pick a division first.'; renderResults(p, i); return; }
+  _timers[key] = setTimeout(function(){ runSearch(p, i, q); }, 300);
+}
+async function runSearch(p, i, q){
+  var key = p + i, seq = (_seq[key] = (_seq[key] || 0) + 1);
+  var s = slotsOf(p)[i]; if(!s) return;
+  s.note = 'Searching...'; renderResults(p, i);
+  var res = await post('/club/tournament-search', { slug:SLUG, tid:state.tid, divId:divOf(p), q:q });
+  if(seq !== _seq[key]) return; // a newer search is on its way
+  s = slotsOf(p)[i]; if(!s || s.mode !== 'search') return;
+  var j = res.j;
+  s.note = ''; s.results = null;
+  if(res.net) s.note = 'We could not reach the server. Check your connection and try again.';
+  else if(j && j.ok === true && j.closed){
+    if(p === 'r'){ showClosed(); return; }
+    s.note = 'Name search is only open during registration. Add them as new with their email below, and we link their account if they have one.';
+  }
+  else if(j && j.ok === true) s.results = Array.isArray(j.results) ? j.results : [];
+  else s.note = genericErr(res.r, j);
+  renderResults(p, i);
+}
+function slotPick(p, i, x){
+  var s = slotsOf(p)[i]; if(!s) return;
+  s.mode = 'picked'; s.ref = String(x.ref); s.name = String(x.name); s.club = !!x.club;
+  s.gNeeded = false; s.g = ''; s.err = ''; s.results = null; s.note = '';
+  renderSlots(p);
+}
+function slotChange(p, i){
+  var s = slotsOf(p)[i]; if(!s) return;
+  var keepQ = s.name;
+  slotsOf(p)[i] = newSlot(); slotsOf(p)[i].q = keepQ;
+  renderSlots(p);
+  var el = $(p + '-' + i + '-q'); if(el){ el.focus(); slotQuery(p, i, el.value); }
+}
+function slotMode(p, i, mode){
+  var s = slotsOf(p)[i]; if(!s) return;
+  s.mode = mode; s.err = '';
+  if(mode === 'search'){ s.results = null; s.note = ''; }
+  renderSlots(p);
+  var el = $(p + '-' + i + (mode === 'new' ? '-nf' : '-q')); if(el) el.focus();
 }
 function slotSet(p, i, f, v){ var s = slotsOf(p)[i]; if(!s) return; s[f] = v; if(p === 'r') renderChecklist(); }
 
-async function slotCheck(p, i){
-  if(state.busy) return;
-  var list = slotsOf(p), s = list[i]; if(!s) return;
-  var email = s.email.trim().toLowerCase();
-  s.err = '';
-  if(!emailValid(email)){ s.err = "That email doesn't look right."; renderSlots(p); return; }
-  var dupe = list.some(function(o, k){ return k !== i && o.email.trim().toLowerCase() === email; });
-  if(dupe){ s.err = 'That email is already on this team.'; renderSlots(p); return; }
-  var divId = p === 'm' ? state.manage.divId : state.divId;
-  state.busy = true;
-  var res = await post('/club/tournament-lookup', { slug:SLUG, tid:state.tid, email:email, divId:divId });
-  state.busy = false;
-  var j = res.j;
-  if(res.net){ s.err = 'We could not reach the server. Check your connection and try again.'; }
-  else if(j && j.ok === true && j.closed){
-    if(p === 'm'){ s.st = 'manual'; }
-    else { showClosed(); return; }
-  }
-  else if(j && j.ok === true && j.found){
-    s.first = String(j.firstName || ''); s.li = String(j.lastInitial || '');
-    s.gNeeded = !!j.genderNeeded;
-    s.st = j.onTeam ? 'onTeam' : 'found';
-  }
-  else if(j && j.ok === true){ s.st = 'new'; }
-  else { s.err = genericErr(res.r, j); }
-  renderSlots(p);
-}
-
+function slotFilled(s){ return s.mode === 'picked' || (s.mode === 'new' && !!(s.nf.trim() || s.nl.trim() || s.ne.trim() || s.nc.trim())); }
 function slotReady(s, coed){
-  if(s.st === 'found') return !s.gNeeded || s.g === 'M' || s.g === 'F';
-  if(s.st === 'new') return !!(s.nf.trim() && s.nl.trim() && phoneOk(s.nc) && (coed ? (s.ng === 'M' || s.ng === 'F') : !!s.ng));
-  return s.st === 'manual' && emailValid(s.email.trim());
+  if(s.mode === 'picked') return !s.gNeeded || s.g === 'M' || s.g === 'F';
+  if(s.mode === 'new') return !!(s.nf.trim() && s.nl.trim() && emailValid(s.ne.trim()) && phoneOk(s.nc) && (coed ? (s.ng === 'M' || s.ng === 'F') : !!s.ng));
+  return false;
 }
 function slotProblem(s, coed){
-  if(s.st === 'empty') return 'Tap Check to look this player up.';
-  if(s.st === 'onTeam') return 'This player is already on a team in this division.';
-  if(s.st === 'found') return 'Pick Guy or Girl for this player.';
-  if(s.st === 'new'){
-    if(!s.nf.trim() || !s.nl.trim()) return 'Add their first and last name.';
-    if(!phoneOk(s.nc)) return 'Add a cell number we can reach, 10 digits or a plus sign and the full number.';
-    return coed ? 'Pick Guy or Girl for a coed division.' : 'Pick an option for gender.';
-  }
-  return 'Check this player.';
+  if(s.mode === 'search') return 'Find this player by name, or add them as new.';
+  if(s.mode === 'picked') return 'Pick Guy or Girl for this player.';
+  if(!s.nf.trim() || !s.nl.trim()) return 'Add their first and last name.';
+  if(!emailValid(s.ne.trim())) return "That email doesn't look right.";
+  if(!phoneOk(s.nc)) return 'Add a cell number we can reach, 10 digits or a plus sign and the full number.';
+  return coed ? 'Pick Guy or Girl for a coed division.' : 'Pick an option for gender.';
 }
 function memberOf(s){
-  var m = { email: s.email.trim().toLowerCase() };
-  if(s.st === 'found' && s.gNeeded) m.gender = s.g;
-  if(s.st === 'new') m.newPlayer = { firstName: s.nf.trim(), lastName: s.nl.trim(), cell: s.nc.trim(), gender: s.ng || 'unspecified' };
-  return m;
+  if(s.mode === 'picked'){ var m = { ref: s.ref }; if(s.gNeeded && s.g) m.gender = s.g; return m; }
+  return { email: s.ne.trim().toLowerCase(), newPlayer: { firstName: s.nf.trim(), lastName: s.nl.trim(), cell: s.nc.trim(), gender: s.ng || 'unspecified' } };
+}
+// The same player, or the same new-player email, in two slots: only the later slot is
+// flagged, so the first one stays as it is.
+function flagDuplicates(list){
+  var refs = {}, emails = {}, bad = false;
+  list.forEach(function(s){
+    if(s.mode === 'picked'){ if(refs[s.ref]){ s.err = 'This player is already in an earlier slot.'; bad = true; } refs[s.ref] = true; }
+    if(s.mode === 'new'){ var e = s.ne.trim().toLowerCase(); if(e){ if(emails[e]){ s.err = 'That email is already in an earlier slot.'; bad = true; } emails[e] = true; } }
+  });
+  return bad;
 }
 
 function renderChecklist(){
   var r = curRules(), box = $('r-check');
   if(!r){ box.textContent = ''; return; }
   var coed = !!r.coed;
-  var filled = state.slots.filter(function(s){ return s.email.trim(); });
+  var filled = state.slots.filter(slotFilled);
   var ready = filled.filter(function(s){ return slotReady(s, coed); }).length;
   var html = 'Players ready: <strong>' + ready + '</strong> of ' + r.size + (r.max > r.size ? ' (up to ' + r.max + ' with subs)' : '');
   if(coed){
     var guys = 0, girls = 0, onFile = 0;
     filled.forEach(function(s){
-      var g = s.st === 'new' ? s.ng : (s.st === 'found' && s.gNeeded) ? s.g : '';
-      if(g === 'M') guys++; else if(g === 'F') girls++; else if(s.st === 'found') onFile++;
+      var g = s.mode === 'new' ? s.ng : (s.gNeeded ? s.g : '');
+      if(g === 'M') guys++; else if(g === 'F') girls++; else if(s.mode === 'picked') onFile++;
     });
     html += '<br>Coed: at least ' + r.coed.guys + ' guys and ' + r.coed.girls + ' girls. So far ' + guys + ' guy' + (guys === 1 ? '' : 's') + ' and ' + girls + ' girl' + (girls === 1 ? '' : 's')
       + (onFile ? ', plus ' + onFile + ' from their profile' : '') + '. We confirm the mix when you register.';
@@ -442,6 +495,8 @@ function startRegister(){
   onDivisionChange(true);
   show('v-register');
 }
+// Who is available depends on the division, so a division change clears every picked
+// player. New-player forms are kept: nothing in them depends on the division.
 function onDivisionChange(fresh){
   state.divId = $('r-div').value;
   var r = curRules();
@@ -450,9 +505,8 @@ function onDivisionChange(fresh){
   var old = fresh === true ? [] : state.slots;
   var next = [];
   for(var i = 0; i < Math.max(size, Math.min(old.length, max)); i++){
-    var s = old[i] || newSlot();
-    // A lookup depends on the division (on a team here? gender needed?), so recheck.
-    if(s.st !== 'new'){ s.st = 'empty'; s.gNeeded = false; s.g = ''; }
+    var s = old[i];
+    if(!s || s.mode !== 'new') s = newSlot();
     s.err = '';
     next.push(s);
   }
@@ -474,13 +528,11 @@ async function doRegister(){
   var idx = [];
   var ok = true;
   state.slots.forEach(function(s, i){
-    var filled = !!s.email.trim();
-    if(!filled){ if(i < r.size){ s.err = 'Add this player.'; ok = false; } return; }
+    if(!slotFilled(s)){ if(i < r.size){ s.err = 'Add this player.'; ok = false; } return; }
     if(!slotReady(s, coed)){ s.err = slotProblem(s, coed); ok = false; return; }
     idx.push(i);
   });
-  var seen = {};
-  idx.forEach(function(i){ var e = state.slots[i].email.trim().toLowerCase(); if(seen[e]){ state.slots[i].err = 'That email is already on this team.'; ok = false; } seen[e] = true; });
+  if(flagDuplicates(idx.map(function(i){ return state.slots[i]; }))) ok = false;
   if(!ok){ renderSlots('r'); $('r-err').textContent = 'Check the highlighted players.'; return; }
   if(idx.length < r.size || idx.length > r.max){ $('r-err').textContent = divText(r) + '.'; return; }
 
@@ -501,9 +553,7 @@ async function doRegister(){
   }
   if(j && typeof j.memberIndex === 'number' && idx[j.memberIndex] != null){
     var s = state.slots[idx[j.memberIndex]];
-    if(j.code === 'new_player_required') s.st = 'new';
-    if(j.code === 'gender_needed'){ s.st = 'found'; s.gNeeded = true; }
-    if(j.code === 'already_on_team') s.st = 'onTeam';
+    if(j.code === 'gender_needed' && s.mode === 'picked') s.gNeeded = true;
     s.err = j.error || 'Check this player.';
     renderSlots('r');
     $('r-err').textContent = 'Check the highlighted player.';
@@ -557,8 +607,7 @@ async function doAdd(){
   $('m-add-err').textContent = '';
   var s = state.addSlots[0]; var coed = !!(state.manageRules && state.manageRules.coed);
   s.err = '';
-  if(!s.email.trim()){ s.err = 'Add their email.'; renderSlots('m'); return; }
-  if(!slotReady(s, coed)){ s.err = slotProblem(s, coed); renderSlots('m'); return; }
+  if(!slotFilled(s) || !slotReady(s, coed)){ s.err = slotProblem(s, coed); renderSlots('m'); return; }
   state.busy = true; setBusy('m-add-btn', true, 'Adding...');
   var res = await post('/club/tournament-team-add', Object.assign(linkBody(), { member: memberOf(s) }));
   state.busy = false; setBusy('m-add-btn', false, 'Add to team');
@@ -568,9 +617,7 @@ async function doAdd(){
   if(j && j.ok === true){ await loadManage('Added. Everyone on the team got an email.'); return; }
   if(j && j.error === 'invalid_link'){ show('v-link-invalid'); return; }
   if(j && j.memberIndex === 0){
-    if(j.code === 'new_player_required') s.st = 'new';
-    if(j.code === 'gender_needed'){ s.st = 'found'; s.gNeeded = true; s.first = s.first || 'This player'; }
-    if(j.code === 'already_on_team') s.st = 'onTeam';
+    if(j.code === 'gender_needed' && s.mode === 'picked') s.gNeeded = true;
     s.err = j.error || 'Check this player.';
     renderSlots('m');
     return;
