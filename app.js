@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.175';
+const APP_VERSION='1.1.176';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -11855,6 +11855,10 @@ function tnWritePaths(tid,paths){
       if(mo) return divIds.indexOf(mo[1])>=0&&mo[2].indexOf(mo[1]+'-')===0;
       var mp=/^divisions\/([A-Za-z0-9_-]{1,64})\/playoff(\/[A-Za-z]{1,32})?$/.exec(rest);
       if(mp) return divIds.indexOf(mp[1])>=0;
+      // End tournament: the rating run lock, and the rating marks on each result.
+      if(rest==='meta/ratingRun'||rest.indexOf('meta/ratingRun/')===0) return /^meta\/ratingRun(\/[A-Za-z]{1,16})?$/.test(rest);
+      var mr2=/^results\/([A-Za-z0-9_-]{1,160})\/(rated|ratedAt|ratedNote|ratedGameIds|ratedTs)$/.exec(rest);
+      if(mr2) return divIds.some(function(d){ return mr2[1].indexOf(d+'-')===0; });
       // The worker owns live scoring; the app may only clear a match's live record (exec override).
       var ml=/^live\/([A-Za-z0-9_-]{1,160})$/.exec(rest);
       if(ml) return isMap&&paths[p]===null&&divIds.some(function(d){ return ml[1].indexOf(d+'-')===0; });
@@ -12643,6 +12647,7 @@ function tnGdHtml(t,h){
     html+=tnGdPoolsHtml(t,pools,R,esc,rowsById,scoring,btn,div);
   }
   if(hasPools&&status!=='setup') html+=tnPoHtml(t,h);
+  if(status!=='setup'&&ids.some(function(d){ return tnGdHasPools(t,d); })) html+=tnEndHtml(t,h);
   return html+'</div>';
 }
 
@@ -12934,6 +12939,313 @@ function tnPoHtml(t,h){
   return html+'</div>';
 }
 
+// ---- End tournament and ratings (game day step 4) ------------------------------------
+// The Kings Night End Night pipeline (ptRateNight) applied to a club tournament:
+//   - A preview first, with no writes: games to rate, results deferred, results skipped and why.
+//   - Confirm claims a lock at meta/ratingRun (the ptLock pattern, renewed after every result and
+//     released at the end), sets meta/status 'final', then rates results in score order.
+//   - Every completed SET is one rated game: gameId {tid}_{mid}_s{n}, source 'club_tournament',
+//     into tally_kotb_pickup through Ratings.applyGame, full weight, at a strictly increasing
+//     time across the whole tournament (ptRateTimes over every set).
+//   - A result goes to 'pending' (with its game ids and times) before applyGame and to true only
+//     once ptAppliedCount finds every player's record carries every set; partly applied means
+//     'partial'. A retry re-checks pending results and never rates a set twice.
+//   - Players are accounts. A record is found the way resolveClubRating finds a member's: exactly
+//     one record tagged with the account, else exactly one untagged record under the account's
+//     name, else a new tagged record made with ptCreateRating (seeded from the account's rating).
+//     Ambiguity or a key held by someone else skips the result with the reason.
+//   - Only team sizes in TN_RATED_TEAM_SIZES are rated. Ratings.applyGame blends each player with
+//     one teammate, so 3 and 4 player teams are 'deferred' (kept, not rated) until it rates whole
+//     teams; adding 3 and 4 here then rates them on the next run.
+var TN_RATED_TEAM_SIZES=[2];
+var TN_RATE_SOURCE='club_tournament';
+var _tnEnd={preview:null, running:false, summary:null};
+function tnRateSizeOk(n){ return TN_RATED_TEAM_SIZES.indexOf(+n)>=0; }
+function tnNodePath(tid){ return DB_ROOT+'/tournaments/'+tid; }
+function tnDivOfMid(t,mid){
+  var divs=tnDivs(t);
+  return Object.keys(divs).filter(function(d){ return mid.indexOf(d+'-')===0; }).sort(function(a,b){ return b.length-a.length; })[0]||'';
+}
+// Results still to rate, in score order. Deferred results come back once their team size is rated.
+function tnRateQueue(t){
+  var R=tnGdResults(t), divs=tnDivs(t);
+  return Object.keys(R).filter(function(mid){
+    var r=R[mid]; if(!r) return false;
+    var v=r.rated;
+    if(v===false||v==null||v==='pending'||v==='skipped') return true;
+    if(v==='deferred'){ var d=divs[tnDivOfMid(t,mid)]; return !!d&&tnRateSizeOk(d.teamSize||2); }
+    return false;
+  }).sort(function(a,b){ return ((+R[a].at||0)-(+R[b].at||0))||(a<b?-1:a>b?1:0); });
+}
+// One strictly increasing time per set across the tournament: the result's time plus its set
+// index, through ptRateTimes, so the same results give the same times on every retry.
+function tnRateTimes(t){
+  var R=tnGdResults(t), items={};
+  Object.keys(R).forEach(function(mid){
+    var r=R[mid]; if(!r) return;
+    tnArr(r.sets).forEach(function(s,i){ items[mid+'_s'+(i+1)]={at:(+r.at||0)+i}; });
+  });
+  return ptRateTimes(items);
+}
+// Can this result be rated at all? Pure, before any rating record is looked at.
+function tnRateCheck(t,mid){
+  var r=tnGdResults(t)[mid], T=tnTeams(t), divId=tnDivOfMid(t,mid), skip=function(n){ return {kind:'skip', note:n}; };
+  if(!r) return skip('No score');
+  if(!divId) return skip('Not in a division');
+  var div=tnDivs(t)[divId]||{}, size=+div.teamSize||2, rest=mid.slice(divId.length+1);
+  var fmt=tnGdFmt(t,divId,/^(po|de|si)-/.test(rest)?'playoff':'pool');
+  if(r.forfeit) return skip('Forfeit, not rated');
+  var w=tnMatchWinner(r,fmt);
+  if(!w.valid||!w.winner) return skip('The score is not a finished match');
+  var a=T[r.t1], b=T[r.t2];
+  if(!a||!b) return skip('A team is no longer in the tournament');
+  var pa=tnArr(a.players).filter(function(p){ return p&&p.accountId; }), pb=tnArr(b.players).filter(function(p){ return p&&p.accountId; });
+  var demo=function(x,ps){ return x.demo===true||ps.some(function(p){ return String(p.accountId).indexOf('demo_')===0; }); };
+  if(demo(a,pa)||demo(b,pb)) return skip('Practice team, not rated');
+  if(!tnRateSizeOk(size)) return {kind:'defer', note:'Team size not supported for ratings yet'};
+  var roster=function(x,ps){
+    if(ps.length<size) return String(x.name||'A team')+' has fewer than '+size+' players on record';
+    if(ps.length>size) return String(x.name||'A team')+' has a sub on its roster, so who played is not known';
+    return '';
+  };
+  var bad=roster(a,pa)||roster(b,pb);
+  if(bad) return skip(bad);
+  return {kind:'rate', divId:divId, t1:pa, t2:pb, sets:tnArr(r.sets)};
+}
+// One account's rating record, by the same rules as resolveClubRating. null when ratings are not
+// loaded. Otherwise { status:'linked'|'name'|'new'|'ambiguous'|'collision', key, name }.
+function tnRateResolve(acct,accounts){
+  if(!pcRatingsReady()) return null;
+  var idx=pcRatingsIdx(), R=_pcRatings, tagged=idx.byAcct[acct]||[];
+  if(tagged.length===1) return {status:'linked', key:tagged[0], name:pcNameForKey(tagged[0],R[tagged[0]].name)};
+  if(tagged.length>1) return {status:'ambiguous'};
+  var a=accounts&&accounts[acct], display=a?String(a.displayName||a.name||'').trim():'';
+  var key=display?Ratings.nameKey(display):'';
+  if(!key) return {status:'ambiguous'};
+  var byName=(idx.untaggedByName[key]||[]).filter(function(k,i,arr){ return arr.indexOf(k)===i; });
+  if(byName.length===1) return {status:'name', key:byName[0], name:pcNameForKey(byName[0],R[byName[0]].name)};
+  if(byName.length>1) return {status:'ambiguous'};
+  if(R[key]) return {status:'collision', key:key};
+  return {status:'new', key:key, name:display};
+}
+// Every player of a ratable result resolved. blocker names the first player who cannot be rated.
+function tnRateResolveAll(ck,accounts){
+  var out={byAcct:{}, blocker:'', reason:''}, all=ck.t1.concat(ck.t2);
+  for(var i=0;i<all.length;i++){
+    var p=all[i], res=tnRateResolve(p.accountId,accounts), nm=String(p.name||'A player');
+    if(!res) return null;
+    if(res.status==='ambiguous'||res.status==='collision'){ out.blocker=nm; out.reason='needs a rating link'; return out; }
+    var twin=Object.keys(out.byAcct).filter(function(o){ return out.byAcct[o].key===res.key; })[0];
+    if(twin){ out.blocker=nm; out.reason='shares a rating record with another player in this match'; return out; }
+    out.byAcct[p.accountId]=res;
+  }
+  return out;
+}
+function tnRateLock(tid,token,mode){
+  if(!db) return Promise.resolve(true);
+  var now=Date.now();
+  return db.ref(tnNodePath(tid)+'/meta/ratingRun').transaction(function(cur){
+    if(mode==='claim'){
+      if(cur&&cur.token!==token&&typeof cur.at==='number'&&now-cur.at<PT_RATE_LOCK_MS) return;
+      return {token:token, by:ptBy(), at:now};
+    }
+    if(!cur||cur.token!==token) return;
+    return mode==='beat'?{token:token, by:cur.by||'', at:now}:null;
+  }).then(function(r){ return !!(r&&r.committed); }).catch(function(){ return false; });
+}
+function tnMatchLabel(t,mid){
+  var r=tnGdResults(t)[mid]||{}, T=tnTeams(t);
+  var n=function(id){ return String((T[id]&&T[id].name)||'Team'); };
+  return n(r.t1)+' vs '+n(r.t2);
+}
+// Rate one result. 'next' moves on, 'stop' ends the run so a retry picks up from here.
+async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
+  var r=tnGdResults(t)[mid], path=tnNodePath(tid)+'/results/'+mid+'/', upd={};
+  var ck=tnRateCheck(t,mid);
+  if(ck.kind!=='rate'){
+    upd[path+'rated']=ck.kind==='defer'?'deferred':'skipped'; upd[path+'ratedNote']=ck.note;
+    if(ck.kind==='defer') sum.deferred++; else sum.skipped.push(tnMatchLabel(t,mid)+': '+ck.note);
+    return (await tnWrite(tid,upd))?'next':'stop';
+  }
+  var rv=tnRateResolveAll(ck,accounts);
+  if(!rv) return 'stop';
+  if(rv.blocker){
+    upd[path+'rated']='skipped'; upd[path+'ratedNote']=rv.blocker+' '+rv.reason;
+    sum.skipped.push(tnMatchLabel(t,mid)+': '+rv.blocker+' '+rv.reason);
+    return (await tnWrite(tid,upd))?'next':'stop';
+  }
+  var players=ck.t1.concat(ck.t2);
+  var keys=players.map(function(p){ return rv.byAcct[p.accountId].key; }).filter(function(k,i,a){ return a.indexOf(k)===i; });
+  var gids=ck.sets.map(function(s,i){ return tid+'_'+mid+'_s'+(i+1); });
+  // Times: the ones saved when this result went pending, else the tournament's increasing times.
+  var saved=tnArr(r.ratedTs);
+  var ts=(r.rated==='pending'&&saved.length===gids.length)?saved.map(Number):ck.sets.map(function(s,i){ return tsMap[mid+'_s'+(i+1)]; });
+  var before=[];
+  for(var i=0;i<gids.length;i++){ var n=await ptAppliedCount(keys,gids[i],ts[i]); if(n===null) return 'stop'; before.push(n); }
+  if(before.every(function(n){ return n===keys.length; })){
+    upd[path+'rated']=true; upd[path+'ratedAt']=Date.now(); upd[path+'ratedGameIds']=gids; upd[path+'ratedNote']=null;
+    sum.rated++;
+    return (await tnWrite(tid,upd))?'next':'stop';
+  }
+  for(var j=0;j<players.length;j++){
+    var p=players[j], res=rv.byAcct[p.accountId];
+    if(res.status!=='new') continue;
+    var made=await ptCreateRating(res,{accountId:p.accountId},accounts);
+    if(made==='fail') return 'stop';
+    if(made==='taken'){
+      upd[path+'rated']='skipped'; upd[path+'ratedNote']=String(p.name||'A player')+' needs a rating link';
+      sum.skipped.push(tnMatchLabel(t,mid)+': '+String(p.name||'A player')+' needs a rating link');
+      return (await tnWrite(tid,upd))?'next':'stop';
+    }
+  }
+  upd[path+'rated']='pending'; upd[path+'ratedGameIds']=gids; upd[path+'ratedTs']=ts; upd[path+'ratedNote']=null;
+  if(!(await tnWrite(tid,upd))) return 'stop';
+  var names=function(side){ return side.map(function(p){ return rv.byAcct[p.accountId].name; }); };
+  var partial=false;
+  for(var k=0;k<gids.length;k++){
+    if(before[k]===keys.length) continue;
+    if(before[k]>0){ partial=true; continue; }
+    await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gids[k], source:TN_RATE_SOURCE, ts:ts[k],
+      team1Names:names(ck.t1), team2Names:names(ck.t2), s1:+ck.sets[k].a, s2:+ck.sets[k].b});
+    var after=await ptAppliedCount(keys,gids[k],ts[k]);
+    if(!after) return 'stop'; // nothing landed (or unreadable): stays pending and a retry re-checks it
+    if(after<keys.length) partial=true;
+    sum.games++;
+  }
+  var done={};
+  done[path+'rated']=partial?'partial':true;
+  done[path+'ratedAt']=Date.now();
+  done[path+'ratedNote']=partial?'Rated for some players only. An exec should check this match.':null;
+  if(partial) sum.partial++; else sum.rated++;
+  return (await tnWrite(tid,done))?'next':'stop';
+}
+// Lock, set final, then rate what is left. Safe to run again at any point.
+async function tnRateTournament(tid){
+  var sum={rated:0, partial:0, games:0, deferred:0, skipped:[], errors:[]};
+  var token=gi('run');
+  if(!(await tnRateLock(tid,token,'claim'))){ sum.errors.push('Another exec is ending this tournament right now. Try again in a few minutes.'); return sum; }
+  try{
+    var t=db?await db.ref(tnNodePath(tid)).once('value').then(function(s){ return s.val(); }).catch(function(){ return null; }):tnCur();
+    if(!t||!t.meta){ sum.errors.push('The tournament could not be loaded.'); return sum; }
+    if(t.meta.status!=='final'){
+      var u={}; u[tnNodePath(tid)+'/meta/status']='final'; u[tnNodePath(tid)+'/meta/updatedAt']=Date.now();
+      if(!(await tnWrite(tid,u))){ sum.errors.push('The tournament could not be set to final.'); return sum; }
+      t.meta.status='final';
+    }
+    if(!db||!window.Ratings||typeof Ratings.applyGame!=='function'){ sum.errors.push('Tournament ended. Ratings are unavailable right now, so use Retry ratings later.'); return sum; }
+    var fresh=await pcLoadRatings(); if(!fresh) fresh=await pcLoadRatings();
+    if(!fresh){ sum.errors.push('Tournament ended. Ratings could not be read, so use Retry ratings later.'); return sum; }
+    var accounts=communityPlayersNow()||{};
+    var queue=tnRateQueue(t), tsMap=tnRateTimes(t);
+    for(var i=0;i<queue.length;i++){
+      if((await tnRateOne(tid,t,queue[i],accounts,tsMap,sum))==='stop'){ sum.errors.push('Ratings stopped partway at '+tnMatchLabel(t,queue[i])+'. Tap Retry ratings to finish.'); return sum; }
+      await tnRateLock(tid,token,'beat');
+    }
+    return sum;
+  } finally {
+    await tnRateLock(tid,token,'release');
+  }
+}
+// Brackets that are not finished: each division with pools needs a champion, and its Silver
+// bracket too when there is one.
+function tnEndOpenBrackets(t){
+  var out=[], R=tnGdResults(t);
+  tnGdDivIds(t).forEach(function(d){
+    if(!tnGdHasPools(t,d)) return;
+    var name=tnDivs(t)[d].name||d, f=tnPoFmt(t,d), b=tnPoBracket(t,d), s=tnPoSilver(t,d);
+    if(!b) out.push(name+': no playoffs saved');
+    else if(!tnBracketView(b,R,f).champion) out.push(name+': playoffs have no champion yet');
+    if(s&&!tnBracketView(s,R,f).champion) out.push(name+': Silver bracket has no champion yet');
+  });
+  return out;
+}
+// End tournament, step one: a preview with no writes.
+function tnEndStart(){
+  var t=tnCur(); if(!t||_tnEnd.running) return;
+  _tnEnd.preview={loading:true}; _tnEnd.summary=null; tnCardRender();
+  tnEndPreview(t).then(function(info){ if(_tnEnd.preview) _tnEnd.preview=info; tnCardRender(); });
+}
+async function tnEndPreview(t){
+  var ok=await pcLoadRatings(), accounts=communityPlayersNow()||{};
+  var info={loading:false, ratingsOk:ok, results:0, games:0, fresh:0, deferred:0, skipped:[], open:tnEndOpenBrackets(t), unscored:0};
+  var R=tnGdResults(t);
+  tnGdDivIds(t).forEach(function(d){
+    Object.keys(tnGdPools(t,d)).forEach(function(k){ tnArr(tnGdPools(t,d)[k].matches).forEach(function(m){ if(!R[m.mid]) info.unscored++; }); });
+  });
+  if(!ok) return info;
+  var freshSeen={};
+  tnRateQueue(t).forEach(function(mid){
+    var ck=tnRateCheck(t,mid);
+    if(ck.kind==='defer'){ info.deferred++; return; }
+    if(ck.kind==='skip'){ info.skipped.push(tnMatchLabel(t,mid)+': '+ck.note); return; }
+    var rv=tnRateResolveAll(ck,accounts);
+    if(!rv||rv.blocker){ info.skipped.push(tnMatchLabel(t,mid)+': '+(rv?rv.blocker+' '+rv.reason:'ratings not loaded')); return; }
+    info.results++; info.games+=ck.sets.length;
+    Object.keys(rv.byAcct).forEach(function(a){ if(rv.byAcct[a].status==='new') freshSeen[a]=1; });
+  });
+  info.fresh=Object.keys(freshSeen).length;
+  return info;
+}
+function tnEndCancel(){ _tnEnd.preview=null; tnCardRender(); }
+// End tournament, step two: lock, final, rate. A strong confirm when brackets are unfinished.
+function tnEndConfirm(){
+  var t=tnCur(), pv=_tnEnd.preview; if(!t||!pv||pv.loading||_tnEnd.running) return;
+  if(pv.open.length&&!window.confirm('Not every bracket is finished:\n'+pv.open.join('\n')+'\n\nEnd the tournament anyway? Scoring closes for everyone and this cannot be undone.')) return;
+  if(!pv.open.length&&!window.confirm('End the tournament and rate '+pv.games+' game'+(pv.games===1?'':'s')+'? Scoring closes for everyone.')) return;
+  var tid=_tnUi.tid;
+  _tnEnd.preview=null; _tnEnd.running=true; tnCardRender();
+  tnRateTournament(tid).then(function(sum){
+    _tnEnd.running=false; _tnEnd.summary=sum;
+    if(!sum.errors.length) toast('Tournament ended and ratings updated');
+    tnCardRender();
+  });
+}
+// Results by rating state, for the panel after the tournament ends.
+function tnRateCounts(t){
+  var R=tnGdResults(t), c={rated:0, partial:0, deferred:0, skipped:0, left:0};
+  Object.keys(R).forEach(function(mid){
+    var v=R[mid]&&R[mid].rated;
+    if(v===true) c.rated++; else if(v==='partial') c.partial++; else if(v==='deferred') c.deferred++; else if(v==='skipped') c.skipped++; else c.left++;
+  });
+  return c;
+}
+function tnEndHtml(t,h){
+  var esc=h.esc, btn=h.btn, st=t.meta.status, html='<div style="border-top:1px solid var(--border,#eee);margin-top:16px;padding-top:12px;"><div style="font-weight:700;font-size:15px;">End tournament</div>';
+  if(_tnEnd.running) return html+'<div style="font-size:13px;margin-top:6px;">Rating games now. Keep this page open until it finishes.</div></div>';
+  if(st!=='final'){
+    html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Closes scoring for everyone, shows final results on the live page, and rates every finished set for 2 player teams. Exec only.</div>';
+    var pv=_tnEnd.preview;
+    if(!pv) return html+btn('End tournament','tnEndStart()',true)+'</div>';
+    if(pv.loading) return html+'<div style="font-size:13px;">Checking the games...</div></div>';
+    html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.6;">';
+    if(pv.open.length) html+='<div style="color:#8a4b08;font-weight:700;">Not finished: '+pv.open.map(esc).join('; ')+'</div>';
+    if(pv.unscored) html+='<div style="color:#8a4b08;">'+pv.unscored+' pool match'+(pv.unscored===1?' has':'es have')+' no score.</div>';
+    if(!pv.ratingsOk) html+='<div style="color:var(--red);">Ratings could not be read right now. Ending still works; use Retry ratings later.</div>';
+    html+='<div><strong>'+pv.games+'</strong> game'+(pv.games===1?'':'s')+' to rate from '+pv.results+' match'+(pv.results===1?'':'es')+(pv.fresh?', '+pv.fresh+' new rating record'+(pv.fresh===1?'':'s'):'')+'.</div>'
+      +(pv.deferred?'<div><strong>'+pv.deferred+'</strong> deferred: team size not supported for ratings yet. They are kept and rate later.</div>':'')
+      +(pv.skipped.length?'<div><strong>'+pv.skipped.length+'</strong> skipped:<br>'+pv.skipped.map(esc).join('<br>')+'</div>':'')
+      +'</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'+btn('Confirm: end and rate','tnEndConfirm()',true)+btn('Cancel','tnEndCancel()',false)+'</div>';
+    return html+'</div>';
+  }
+  var c=tnRateCounts(t), s=_tnEnd.summary;
+  html+='<div style="font-size:13px;margin:6px 0;line-height:1.6;">Final. Results: '+c.rated+' rated'+(c.partial?', '+c.partial+' partly rated':'')+(c.deferred?', '+c.deferred+' deferred':'')+(c.skipped?', '+c.skipped+' skipped':'')+(c.left?', <strong>'+c.left+' not rated yet</strong>':'')+'.</div>';
+  if(s){
+    html+='<div style="background:#f6f6f6;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.6;">'
+      +'<div><strong>This run:</strong> '+s.rated+' match'+(s.rated===1?'':'es')+' rated ('+s.games+' new game'+(s.games===1?'':'s')+')'+(s.partial?', '+s.partial+' partly':'')+', '+s.deferred+' deferred, '+s.skipped.length+' skipped.</div>'
+      +(s.skipped.length?'<div>'+s.skipped.map(esc).join('<br>')+'</div>':'')
+      +(s.errors.length?'<div style="color:var(--red);font-weight:700;">'+s.errors.map(esc).join('<br>')+'</div>':'')+'</div>';
+  }
+  if(c.left||tnRateQueue(t).some(function(mid){ var v=tnGdResults(t)[mid].rated; return v==null||v===false||v==='pending'||v==='deferred'; })){
+    html+='<div style="margin-top:8px;">'+btn('Retry ratings','tnEndRetry()',true)+'</div>';
+  }
+  return html+'</div>';
+}
+function tnEndRetry(){
+  if(_tnEnd.running) return;
+  var tid=_tnUi.tid; _tnEnd.running=true; tnCardRender();
+  tnRateTournament(tid).then(function(sum){ _tnEnd.running=false; _tnEnd.summary=sum; if(!sum.errors.length) toast('Ratings updated'); tnCardRender(); });
+}
+
 // ---- Exec live scoring -----------------------------------------------------------------
 // The same full-screen scorer the teams use, run with the exec session. It sits outside the
 // card (the card redraws on every score) and talks to the worker, which holds the score.
@@ -12960,27 +13272,86 @@ function tnScMount(){
     +'.tnsc-ov .big{font-family:"Bebas Neue",sans-serif;font-size:min(16vw,72px);letter-spacing:2px;line-height:1}.tnsc-ov .sub{font-size:19px;font-weight:600;line-height:1.4}'
     +'.tnsc-ov .cd{font-family:"Bebas Neue",sans-serif;font-size:min(30vw,140px);line-height:1}.tnsc-ov .sets{font-size:24px;font-weight:700;line-height:1.6}'
     +'.tnsc-ok{min-height:72px;min-width:220px;border-radius:16px;border:none;background:#fff;color:#111;font-family:"Bebas Neue",sans-serif;font-size:32px;padding:0 28px}'
-    +'.tnsc-back{min-height:56px;min-width:160px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-size:18px;font-weight:700}';
+    +'.tnsc-back{min-height:56px;min-width:160px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-size:18px;font-weight:700}'
+    +'.tnsc-colm{display:flex;flex-direction:column;gap:8px;min-height:0}.tnsc-colm .tnsc-team{flex:1;min-height:0}'
+    +'.tnsc-minus{min-height:58px;border:none;border-radius:12px;background:#d9d9d9;color:#333;font-family:"Bebas Neue",sans-serif;font-size:36px;line-height:1;touch-action:manipulation;user-select:none}'
+    +'.tnsc-fin{flex:1;min-height:64px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-size:17px;font-weight:700}'
+    +'.tnsc-ov .fin{width:100%;max-width:440px;display:flex;flex-direction:column;gap:10px}.tnsc-ov .fin-row{display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center}'
+    +'.tnsc-ov .fin input{font-size:28px;font-weight:700;text-align:center;min-height:58px;border:none;border-radius:10px;width:100%;color:#111}.tnsc-ov .fin-msg{font-size:17px;font-weight:700;min-height:24px;color:#ffd666}';
   document.head.appendChild(st);
   var d=document.createElement('div');
   d.innerHTML='<div class="tnsc" id="tnsc" hidden role="dialog" aria-modal="true" aria-label="Live scoring">'
     +'<div class="tnsc-top"><button class="tnsc-sm" type="button" onclick="tnScClose()">Close</button><div class="tnsc-set" id="tnsc-set">Set 1</div>'
     +'<button class="tnsc-sm" type="button" onclick="tnScFlip()">⇄ Switch display</button></div>'
     +'<div class="tnsc-prev" id="tnsc-prev"></div>'
-    +'<div class="tnsc-btns"><button class="tnsc-team a" id="tnsc-l" type="button" onclick="tnScTap(\'l\')"><span class="nm" id="tnsc-l-nm"></span><span class="pts" id="tnsc-l-pts">0</span><span class="tap">Tap for a point</span></button>'
-    +'<button class="tnsc-team b" id="tnsc-r" type="button" onclick="tnScTap(\'r\')"><span class="nm" id="tnsc-r-nm"></span><span class="pts" id="tnsc-r-pts">0</span><span class="tap">Tap for a point</span></button></div>'
-    +'<div class="tnsc-bot"><button class="tnsc-undo" type="button" onclick="tnScUndo()">Undo</button><div class="tnsc-msg" id="tnsc-msg" role="status"></div></div></div>'
+    +'<div class="tnsc-btns"><div class="tnsc-colm"><button class="tnsc-team a" id="tnsc-l" type="button" onclick="tnScTap(\'l\')"><span class="nm" id="tnsc-l-nm"></span><span class="pts" id="tnsc-l-pts">0</span><span class="tap">Tap for a point</span></button>'
+    +'<button class="tnsc-minus" type="button" onclick="tnScMinus(\'l\')" aria-label="Take a point away from this team">\u2212</button></div>'
+    +'<div class="tnsc-colm"><button class="tnsc-team b" id="tnsc-r" type="button" onclick="tnScTap(\'r\')"><span class="nm" id="tnsc-r-nm"></span><span class="pts" id="tnsc-r-pts">0</span><span class="tap">Tap for a point</span></button>'
+    +'<button class="tnsc-minus" type="button" onclick="tnScMinus(\'r\')" aria-label="Take a point away from this team">\u2212</button></div></div>'
+    +'<div class="tnsc-bot"><button class="tnsc-undo" type="button" onclick="tnScUndo()">Undo</button><button class="tnsc-fin" type="button" onclick="tnScFinalOpen()">Enter final score</button></div>'
+    +'<div class="tnsc-msg" id="tnsc-msg" role="status" style="min-height:20px;margin-top:6px;"></div></div>'
     +'<div class="tnsc-ov" id="tnsc-ov" hidden role="alertdialog" aria-modal="true"></div>';
   while(d.firstChild) document.body.appendChild(d.firstChild);
 }
 function tnScFmt(){ var t=tnCur(), x=_tnSc.x; return (t&&x)?tnGdFmt(t,x.divId,x.phase):null; }
 function tnScSetOver(){ return !!(_tnSc.live&&tnLivePrompts(tnScFmt(),_tnSc.live.sets,_tnSc.live.set,false).setOver); }
 function tnScSide(pos){ return (pos==='l')===!_tnSc.flipped?'a':'b'; }
+// The worker's score plus taps still on their way (points up, corrections down).
+function tnScShown(side){
+  var lv=_tnSc.live, c=lv?(lv.sets[lv.set]||{a:0,b:0}):{a:0,b:0}, n=c[side];
+  _tnSc.queue.forEach(function(q){ if(q.side===side){ if(q.action==='point') n++; if(q.action==='minus') n--; } });
+  return n;
+}
+// A correction: one point off that team in this set (the KotB and HS minus). Undo puts it back.
+function tnScMinus(pos){
+  if(!_tnSc.live||!tnScEl('tnsc-ov').hidden) return;
+  var side=tnScSide(pos);
+  if(tnScShown(side)<=0){ tnScMsg('That team has no points to take away in this set.'); return; }
+  _tnSc.queue.push({action:'minus', side:side}); tnScDraw(); tnScPump();
+}
+function tnScFinalOpen(err){
+  var x=_tnSc.x; if(!x) return;
+  var f=tnScFmt(), n=(f&&+f.bestOf===3)?3:1, sets=(_tnSc.live&&_tnSc.live.sets)||[], rows='';
+  for(var i=0;i<n;i++){
+    var s=sets[i];
+    rows+='<div class="fin-row"><span>Set '+(i+1)+'</span><input type="number" inputmode="numeric" id="tnsc-f'+i+'a" value="'+(s?s.a:'')+'" oninput="tnScFinalCheck()">'
+      +'<input type="number" inputmode="numeric" id="tnsc-f'+i+'b" value="'+(s?s.b:'')+'" oninput="tnScFinalCheck()"></div>';
+  }
+  tnScOv('match','<div class="big">Final score</div><div class="fin"><div class="fin-row" style="font-size:14px;font-weight:700;"><span></span><span>'+tnScEsc(x.n1)+'</span><span>'+tnScEsc(x.n2)+'</span></div>'
+    +rows+'<div class="fin-msg" id="tnsc-fmsg"></div></div>'
+    +'<button class="tnsc-ok" id="tnsc-fok" type="button" onclick="tnScFinalSave()">Save final score</button><button class="tnsc-back" type="button" onclick="tnScHideOv()">Back</button>');
+  tnScFinalCheck();
+  if(err) tnScEl('tnsc-fmsg').textContent=err;
+}
+function tnScFinalRead(){
+  var x=_tnSc.x, f=tnScFmt(), n=(f&&+f.bestOf===3)?3:1, sets=[];
+  for(var i=0;i<n;i++){
+    var a=String(tnScEl('tnsc-f'+i+'a').value||'').trim(), b=String(tnScEl('tnsc-f'+i+'b').value||'').trim();
+    if(!a&&!b) continue;
+    if(!a||!b) return {error:'Set '+(i+1)+' needs a score for both teams.'};
+    if(sets.length<i) return {error:'Fill in set '+i+' before set '+(i+1)+'.'};
+    sets.push({a:tnNum(a), b:tnNum(b)});
+  }
+  if(!sets.length) return {error:'Enter the score for each set.'};
+  var w=tnMatchWinner({sets:sets},f);
+  if(!w.valid) return {error:w.reason+'.'};
+  if(!w.winner) return {error:'Not finished yet. Add the next set.'};
+  return {sets:sets, who:w.winner==='t1'?x.n1:x.n2};
+}
+function tnScFinalCheck(){
+  var g=tnScFinalRead(), msg=tnScEl('tnsc-fmsg'), ok=tnScEl('tnsc-fok');
+  if(msg) msg.textContent=g.error||(g.who+' wins '+g.sets.map(function(s){ return s.a+'-'+s.b; }).join(', '));
+  if(ok) ok.disabled=!!g.error;
+}
+function tnScFinalSave(){
+  var g=tnScFinalRead(); if(g.error) return;
+  if(!window.confirm('Save this final score? '+g.who+' wins '+g.sets.map(function(s){ return s.a+'-'+s.b; }).join(', ')+'.')) return;
+  tnScHideOv(); _tnSc.queue=[{action:'final', sets:g.sets}]; tnScPump();
+}
 function tnScDraw(){
   var x=_tnSc.x; if(!x) return;
-  var lv=_tnSc.live, sets=lv?lv.sets:[{a:0,b:0}], i=lv?lv.set:0, c=sets[i]||{a:0,b:0}, pa=0, pb=0;
-  _tnSc.queue.forEach(function(q){ if(q.action==='point'){ if(q.side==='a') pa++; else pb++; } });
-  var A={nm:x.n1, pts:c.a+pa}, B={nm:x.n2, pts:c.b+pb}, L=_tnSc.flipped?B:A, R=_tnSc.flipped?A:B;
+  var lv=_tnSc.live, sets=lv?lv.sets:[{a:0,b:0}], i=lv?lv.set:0;
+  var A={nm:x.n1, pts:tnScShown('a')}, B={nm:x.n2, pts:tnScShown('b')}, L=_tnSc.flipped?B:A, R=_tnSc.flipped?A:B;
   tnScEl('tnsc-l').className='tnsc-team '+(_tnSc.flipped?'b':'a'); tnScEl('tnsc-r').className='tnsc-team '+(_tnSc.flipped?'a':'b');
   tnScEl('tnsc-l-nm').textContent=L.nm; tnScEl('tnsc-l-pts').textContent=L.pts;
   tnScEl('tnsc-r-nm').textContent=R.nm; tnScEl('tnsc-r-pts').textContent=R.pts;
@@ -13019,7 +13390,8 @@ function tnScTap(pos){
 function tnScUndo(){
   if(!_tnSc.live) return;
   var waiting=_tnSc.queue.length-(_tnSc.busy?1:0);
-  if(waiting>0&&_tnSc.queue[_tnSc.queue.length-1].action==='point'){ _tnSc.queue.pop(); tnScDraw(); return; }
+  var lastQ=waiting>0?_tnSc.queue[_tnSc.queue.length-1].action:'';
+  if(lastQ==='point'||lastQ==='minus'){ _tnSc.queue.pop(); tnScDraw(); return; }
   _tnSc.queue.push({action:'undo'}); tnScPump();
 }
 function tnScAction(a){ tnScHideOv(); _tnSc.queue.push({action:a}); tnScPump(); }
@@ -13031,7 +13403,7 @@ async function tnScPump(){
     var q=_tnSc.queue[0], mid=_tnSc.mid, r=null, j=null;
     try {
       r=await fetch(AUTH_WORKER+'/club/tournament-live',{method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({slug:TN_SLUG, tid:_tnUi.tid, exec:tnScToken(), by:ptBy(), mid:mid, action:q.action, side:q.side, seq:_tnSc.live?_tnSc.live.seq:0})});
+        body:JSON.stringify({slug:TN_SLUG, tid:_tnUi.tid, exec:tnScToken(), by:ptBy(), mid:mid, action:q.action, side:q.side, sets:q.sets, seq:_tnSc.live?_tnSc.live.seq:0})});
       j=await r.json().catch(function(){ return null; });
     } catch(e){ r=null; }
     if(_tnSc.mid!==mid) break;
@@ -13066,6 +13438,8 @@ function tnScHandle(r,j){
   if(code==='stale'){ if(j.live) _tnSc.live=j.live; _tnSc.resync=true; tnScMsg('Score refreshed.'); return true; }
   if(code==='set_over'){ if(j.live) _tnSc.live=j.live; tnScDraw(); tnScShowSet(); return true; }
   if(code==='nothing_to_undo'){ tnScMsg('Nothing to undo.'); return false; }
+  if(code==='at_zero'){ if(j.live) _tnSc.live=j.live; tnScMsg(j.error); return true; }
+  if(code==='invalid_score'){ tnScFinalOpen(j.error); return true; }
   if(code==='not_decided'||code==='set_not_over'||code==='match_over'){ if(j.live) _tnSc.live=j.live; tnScMsg(j.error); return true; }
   if(code==='forbidden'){ tnScClose(); toast('Your exec session has ended. Sign in again to score live.'); return true; }
   if(code==='already_scored'||code==='not_scoring'||code==='bad_match'||code==='not_ready'){ tnScClose(); toast(j.error); return true; }
