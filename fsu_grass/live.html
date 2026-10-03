@@ -1041,6 +1041,104 @@ function tnDivisionPlayoffRefs(o){
   return {playoff:playoff, silver:silver};
 }
 
+// ---- Approximate times -----------------------------------------------------------------
+// Estimates only; everything that shows one says "about". A day runs on minutes after
+// midnight. minutesPerMatch is set per format (pool and playoff); with none set it is 20 for
+// one game and 45 for best of 3.
+function tnHHMMToMin(s){ var m=/^(\d{2}):(\d{2})$/.exec(String(s||'')); return m?(+m[1]*60+(+m[2])):null; }
+function tnMinToHHMM(n){
+  var v=((Math.round(+n)%1440)+1440)%1440, h=Math.floor(v/60), mm=v%60;
+  return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;
+}
+function tnAboutLabel(min){ return (min==null||!isFinite(min))?'':'about '+tnTimeLabel(tnMinToHHMM(min)); }
+function tnMinutesPerMatch(fmt){
+  var f=fmt||{}, n=tnNum(f.minutesPerMatch);
+  return (n&&n>0)?n:((+f.bestOf===3)?45:20);
+}
+// Start times for one division. o: { startTime:'HH:MM', poolMpm, playoffMpm, pools, bracket,
+// silver }. Pool matches: wave w starts at startTime + (w - 1) slots; pools that share a court
+// take their waves in turn, so a slot there is one wave of each sharing pool. Playoff and
+// Silver matches follow pool play, court by court in play order (main bracket first when two
+// share an order number). Returns { times:{ mid: minutes }, poolEnd, end } (minutes after
+// midnight), or empty times when there is no start time.
+function tnApproxTimes(o){
+  var start=tnHHMMToMin(o&&o.startTime), out={times:{}, poolEnd:null, end:null};
+  if(start==null) return out;
+  var pm=+o.poolMpm||20, om=+o.playoffMpm||20, P=o.pools||{}, keys=Object.keys(P).filter(function(k){ return !!P[k]; }).sort();
+  var courtsOf={}, slots=0;
+  keys.forEach(function(k){ courtsOf[k]=tnArr(P[k].courts).map(String); });
+  keys.forEach(function(k){
+    var share=keys.filter(function(j){ return j===k||courtsOf[j].some(function(c){ return courtsOf[k].indexOf(c)>=0; }); });
+    var n=share.length, idx=share.indexOf(k);
+    tnArr(P[k].matches).forEach(function(m){
+      var w=Math.max(1,Math.floor(+m.wave)||1), slot=(w-1)*n+idx;
+      out.times[m.mid]=start+slot*pm;
+      slots=Math.max(slots,slot+1);
+    });
+  });
+  out.poolEnd=start+slots*pm;
+  var list=[];
+  [o.bracket,o.silver].forEach(function(b,bi){
+    if(!b) return;
+    tnBracketView(b,{},null).matches.forEach(function(m){
+      if(m.order==null||m.bye||m.void) return;
+      list.push({mid:m.mid, court:String(m.court), order:+m.order, b:bi});
+    });
+  });
+  list.sort(function(x,y){ return (x.order-y.order)||(x.b-y.b); });
+  var free={}, end=out.poolEnd;
+  list.forEach(function(x){
+    var at=(free[x.court]!=null)?free[x.court]:out.poolEnd;
+    out.times[x.mid]=at; free[x.court]=at+om; end=Math.max(end,at+om);
+  });
+  out.end=end;
+  return out;
+}
+// Day at a glance for one division before anyone registers. o: { teams (expected count),
+// poolSize, adv, courts, startTime, pool (format), playoff (format with format, thirdPlace,
+// finalReset, silver, silverThirdPlace) }. Builds the pools and brackets that many teams
+// would get and times them. Returns { poolCount, poolSizes, gamesPerTeam:{min,max},
+// advancing, silverTeams, poolMinutes, playoffMinutes, silverExtra, doubleExtra, poolEnd,
+// finish } (minutes; finish and poolEnd after midnight), or { error }.
+function tnEstimateDay(o){
+  var n=Math.floor(+o.teams)||0, size=Math.max(2,Math.floor(+o.poolSize)||4), adv=Math.max(1,Math.floor(+o.adv)||1);
+  if(n<2) return {error:'At least 2 teams are needed for an estimate'};
+  if(tnHHMMToMin(o.startTime)==null) return {error:'Add a play start time to see the estimate'};
+  var courts=tnArr(o.courts).filter(function(c){ return c!=null&&c!==''; });
+  if(!courts.length) return {error:'Add at least one court'};
+  var P=Math.max(1,Math.min(16,Math.round(n/size)||1));
+  var teams=[]; for(var i=0;i<n;i++) teams.push({id:'e'+(i+1), seed:i+1, name:'Team '+(i+1)});
+  var pv=tnBuildPoolsPreview('e',teams,P,courts), keys=Object.keys(pv.pools).sort();
+  var tier=function(from,to){
+    var out=[];
+    for(var k=from;k<to;k++) keys.forEach(function(pk){ var id=pv.pools[pk].teamIds[k]; if(id) out.push({seed:out.length+1, teamId:id, pool:pk, poolRank:k+1}); });
+    return out;
+  };
+  var maxSize=0; keys.forEach(function(k){ maxSize=Math.max(maxSize,pv.pools[k].teamIds.length); });
+  var f=o.playoff||{}, seeds=tier(0,adv), sil=f.silver?tier(adv,maxSize):[];
+  var useSil=sil.length>=2, split=(useSil&&courts.length>=2)?tnSplitCourts(courts,2):[courts,courts];
+  var build=function(fmt){
+    if(seeds.length<2) return null;
+    var b=fmt==='double'?tnBuildDoubleElim(seeds,'e',{finalReset:f.finalReset===undefined?true:!!f.finalReset})
+      :Object.assign({format:'single', opts:{thirdPlace:!!f.thirdPlace}},tnBuildBracket(seeds,'e',{thirdPlace:!!f.thirdPlace}));
+    return tnScheduleBracket(b,split[0]);
+  };
+  var main=build(f.format==='double'?'double':'single');
+  var silver=useSil?tnScheduleBracket(Object.assign({format:'single', opts:{thirdPlace:!!f.silverThirdPlace}},tnBuildBracket(sil,'e-si',{thirdPlace:!!f.silverThirdPlace})),split[1]):null;
+  var base={startTime:o.startTime, poolMpm:tnMinutesPerMatch(o.pool), playoffMpm:tnMinutesPerMatch(f), pools:pv.pools};
+  var all=tnApproxTimes(Object.assign({},base,{bracket:main, silver:silver}));
+  var noSil=tnApproxTimes(Object.assign({},base,{bracket:main}));
+  var start=tnHHMMToMin(o.startTime), sizes=keys.map(function(k){ return pv.pools[k].teamIds.length; });
+  var out={poolCount:keys.length, poolSizes:sizes, gamesPerTeam:{min:Math.min.apply(null,sizes)-1, max:Math.max.apply(null,sizes)-1},
+    advancing:seeds.length, silverTeams:useSil?sil.length:0, poolMinutes:all.poolEnd-start, playoffMinutes:noSil.end-noSil.poolEnd,
+    silverExtra:useSil?Math.max(0,all.end-noSil.end):0, doubleExtra:0, poolEnd:all.poolEnd, finish:all.end};
+  if(f.format==='double'&&main){
+    var single=tnApproxTimes(Object.assign({},base,{bracket:build('single')}));
+    out.doubleExtra=Math.max(0,noSil.end-single.end);
+  }
+  return out;
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -1115,6 +1213,18 @@ function poolsOf(divId){
 }
 
 // ---- Rendering ----
+// About times for every match, from the engine (tnApproxTimes), refreshed on each render.
+var TIMES = {};
+function computeTimes(){
+  var out = {}, D = (S.t && S.t.divisions) || {};
+  Object.keys(D).forEach(function(divId){
+    var d = D[divId] || {};
+    var r = tnApproxTimes({ startTime:S.t.meta.startTime, poolMpm:tnMinutesPerMatch(d.pool), playoffMpm:tnMinutesPerMatch(d.playoff),
+      pools:(S.t.pools || {})[divId] || {}, bracket:(S.t.bracket || {})[divId] || null, silver:(S.t.silver || {})[divId] || null });
+    Object.keys(r.times).forEach(function(k){ out[k] = r.times[k]; });
+  });
+  return out;
+}
 function matchCard(m, opts){
   var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), fmt = o.fmt, lv = r ? null : liveOf(m.mid);
   var win = null;
@@ -1122,6 +1232,7 @@ function matchCard(m, opts){
   var head = [];
   if(m.court != null && m.court !== '') head.push('Court ' + esc(m.court));
   if(o.extra) head.push(o.extra);
+  if(!r && TIMES[m.mid] != null) head.push(esc(tnAboutLabel(TIMES[m.mid])));
   var ref = m.ref ? 'Ref: ' + teamLabel(m.ref) : '';
   var side = function(id, key, seed){
     var sc = sets ? '<span class="sc">' + sets.map(function(s){ var mine = key === 't1' ? s.a : s.b, other = key === 't1' ? s.b : s.a; return '<span class="' + (mine > other ? 'w' : '') + '">' + esc(mine) + '</span>'; }).join('') + '</span>' : '';
@@ -1287,7 +1398,7 @@ function onCourtHtml(divId, div){
     return '<div class="cn' + (lv ? ' is-live' : '') + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
       + '<div class="cn-teams">' + teamLabel(m.t1) + '<span class="vs">vs</span>' + teamLabel(m.t2) + '</div>'
       + (lv ? liveLine(lv) : '')
-      + '<div class="cn-meta">' + c.label.split(' &middot; ').map(esc).join(' &middot; ') + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
+      + '<div class="cn-meta">' + c.label.split(' &middot; ').map(esc).join(' &middot; ') + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (TIMES[m.mid] != null ? ' &middot; ' + esc(tnAboutLabel(TIMES[m.mid])) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
   }).join('') + '</div>';
 }
 
@@ -1329,6 +1440,7 @@ function render(){
   if(divs.indexOf(S.div) < 0) S.div = divs[0];
   var div = D[S.div], teams = divTeams(S.div);
   if(S.mine && teams.indexOf(S.mine) < 0) S.mine = '';
+  TIMES = computeTimes();
   var h = S.t.meta.status === 'final' ? finalHtml(divs) : '';
   if(divs.length > 1){
     h += '<div class="tabs" role="tablist">' + divs.map(function(k){
