@@ -22,96 +22,74 @@
     --white:#FFFFFF;
     --line:#E4DACE;
     --green:#2E5D32;
+    --red:#a3261c;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{
-    font-family:'Barlow',system-ui,sans-serif;
-    color:var(--ink);
-    background:var(--paper);
-    line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-  }
-  .hero{
-    background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);
-    color:var(--white);
-    padding:36px 20px 104px;
-    text-align:center;
-    position:relative;
-    overflow:hidden;
-  }
-  .hero::after{
-    content:"";
-    position:absolute;left:0;right:0;bottom:0;height:6px;
-    background:linear-gradient(90deg,var(--gold) 0%,var(--gold-dark) 100%);
-  }
+  body{font-family:'Barlow',system-ui,sans-serif;color:var(--ink);background:var(--paper);line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .hero{background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);color:var(--white);padding:36px 20px 104px;text-align:center;position:relative;overflow:hidden;}
+  .hero::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-dark) 100%);}
   .crest{width:88px;height:88px;object-fit:contain;margin:0 auto 12px;display:block;filter:drop-shadow(0 6px 16px rgba(0,0,0,0.35));}
   .eyebrow{font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
-  .hero h1{
-    font-family:'Bebas Neue',sans-serif;
-    font-size:clamp(36px,8vw,56px);
-    letter-spacing:1.5px;line-height:1;font-weight:400;margin-top:6px;
-  }
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,8vw,56px);letter-spacing:1.5px;line-height:1;font-weight:400;margin-top:6px;}
   .hero .when{font-style:italic;color:var(--cream);font-size:clamp(16px,4vw,19px);margin-top:10px;}
   .wrap{max-width:560px;margin:-72px auto 40px;padding:0 16px;position:relative;z-index:2;}
   .card{background:var(--white);border-radius:16px;box-shadow:0 12px 40px rgba(71,26,38,0.16);overflow:hidden;}
-  .view{display:none;padding:28px 22px 26px;}
+  .view{display:none;padding:28px 20px 26px;}
   .view.on{display:block;}
   .view h2{font-family:'Bebas Neue',sans-serif;font-size:clamp(28px,6vw,34px);color:var(--garnet);letter-spacing:0.8px;line-height:1.05;margin-bottom:10px;}
   .view p{font-size:16px;margin-bottom:12px;}
   .view p.muted{color:var(--slate);font-size:14.5px;}
   .center{text-align:center;}
   .cico{font-size:48px;line-height:1;margin-bottom:10px;}
-  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
   label{font-size:13px;font-weight:700;color:var(--garnet);text-transform:uppercase;letter-spacing:0.7px;}
   label .opt{color:var(--slate);font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;}
-  input[type=text],input[type=email],input[type=tel],select,textarea{
-    font-family:'Barlow',sans-serif;
-    font-size:16px;
-    min-height:50px;
-    padding:12px 14px;
-    border:1.5px solid var(--line);
-    border-radius:10px;
-    background:var(--paper);
-    color:var(--ink);
-    width:100%;
-  }
-  textarea{resize:vertical;min-height:72px;}
-  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);background:var(--white);}
-  .hint{font-size:13px;color:var(--slate);}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+  input[type=text],input[type=email],input[type=tel],select{font-family:'Barlow',sans-serif;font-size:16px;min-height:50px;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);width:100%;}
+  input:focus,select:focus{outline:none;border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);background:var(--white);}
+  .hint{font-size:13.5px;color:var(--slate);}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
   @media (max-width:480px){ .grid{grid-template-columns:1fr;} }
-  .btn{
-    width:100%;min-height:56px;
-    font-family:'Bebas Neue',sans-serif;font-size:23px;letter-spacing:1.2px;
-    padding:14px;background:var(--garnet);color:var(--white);
-    border:none;border-radius:11px;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;gap:10px;
-  }
+  .btn{width:100%;min-height:56px;font-family:'Bebas Neue',sans-serif;font-size:23px;letter-spacing:1.2px;padding:14px;background:var(--garnet);color:var(--white);border:none;border-radius:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;}
   .btn:active{transform:translateY(1px);}
   .btn:disabled{opacity:.65;cursor:not-allowed;}
   .btn.ghost{background:var(--white);color:var(--garnet);border:2px solid var(--garnet);}
-  .btn + .btn{margin-top:12px;}
-  .link-btn{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;text-decoration:underline;padding:14px 8px;min-height:48px;cursor:pointer;display:block;margin:6px auto 0;}
+  .btn.danger{background:var(--white);color:var(--red);border:2px solid var(--red);}
+  .btn.small{min-height:48px;font-size:19px;padding:10px 14px;}
+  .btn + .btn, .btn + a.btn, a.btn + .btn{margin-top:12px;}
+  .link-btn{background:none;border:none;color:var(--garnet);font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;text-decoration:underline;padding:12px 8px;min-height:48px;cursor:pointer;display:block;margin:6px auto 0;}
   .spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite;display:none;}
   .btn.busy .spin{display:inline-block;}
-  .btn.ghost .spin{border-color:rgba(120,47,64,.3);border-top-color:var(--garnet);}
+  .btn.ghost .spin,.btn.danger .spin{border-color:rgba(120,47,64,.3);border-top-color:var(--garnet);}
   @keyframes sp{to{transform:rotate(360deg);}}
-  .fld-err{display:none;font-size:13px;font-weight:600;color:var(--garnet);}
   .form-err{color:var(--garnet);font-size:14.5px;font-weight:600;text-align:center;margin-top:12px;min-height:20px;line-height:1.4;}
-  .who{font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,7vw,38px);color:var(--ink);letter-spacing:0.8px;text-align:center;margin:6px 0 18px;}
-  .check-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 12px;margin-bottom:16px;border:1.5px solid var(--line);border-radius:10px;background:var(--paper);cursor:pointer;}
-  .check-row input{width:24px;height:24px;flex-shrink:0;accent-color:var(--garnet);}
-  .check-row span{font-size:16px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;}
-  .div-block{border-top:1px solid var(--line);padding:14px 0 6px;}
-  .div-block:first-child{border-top:none;padding-top:0;}
-  .div-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;}
-  .div-name{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--garnet);letter-spacing:0.6px;}
-  .div-count{font-size:13px;color:var(--slate);white-space:nowrap;}
-  .looker{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:16px;}
-  .looker:last-child{border-bottom:none;}
-  .looker .g{color:var(--slate);font-size:14px;}
-  .empty{font-size:14.5px;color:var(--slate);padding:4px 0 8px;}
-  .wd-note{font-size:15px;font-weight:600;color:var(--green);text-align:center;margin-top:12px;min-height:20px;}
+  .divinfo{font-size:14.5px;color:var(--slate);margin-top:-6px;margin-bottom:14px;}
+  .slot{border:1.5px solid var(--line);border-radius:12px;padding:14px 14px 4px;margin-bottom:12px;background:var(--paper);}
+  .slot.bad{border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);}
+  .slot-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .slot-title{font-family:'Bebas Neue',sans-serif;font-size:21px;color:var(--garnet);letter-spacing:0.6px;}
+  .slot-row{display:flex;gap:8px;align-items:stretch;margin-bottom:10px;}
+  .slot-row input{flex:1;min-width:0;}
+  .slot-row .btn{width:auto;min-width:96px;}
+  .found{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;color:var(--green);margin-bottom:10px;}
+  .slot-err{font-size:14px;font-weight:600;color:var(--garnet);margin-bottom:10px;}
+  .onteam{font-size:15px;font-weight:600;color:var(--red);margin-bottom:10px;}
+  .rm{background:none;border:none;color:var(--slate);font-size:14px;font-weight:700;text-decoration:underline;min-height:44px;padding:0 6px;cursor:pointer;}
+  .checklist{background:#f6f1ea;border-radius:10px;padding:12px 14px;font-size:15px;margin:6px 0 16px;line-height:1.6;}
+  .checklist strong{color:var(--garnet);}
+  .partner{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);}
+  .partner p{font-size:14.5px;color:var(--slate);text-align:center;margin-bottom:8px;}
+  .roster{list-style:none;margin:6px 0 14px;}
+  .roster li{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:17px;}
+  .roster li:last-child{border-bottom:none;}
+  .roster .you{color:var(--slate);font-size:14px;}
+  .badge{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:6px;padding:3px 8px;}
+  .badge.ok{background:#e7f1e8;color:var(--green);}
+  .badge.warn{background:#fbeee0;color:#8a4b08;}
+  .kv{font-size:15.5px;margin-bottom:6px;}
+  .kv b{color:var(--garnet);}
+  .note{font-size:15px;font-weight:600;color:var(--green);text-align:center;margin-top:10px;min-height:20px;}
+  .section{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);}
+  .section h3{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--garnet);letter-spacing:0.6px;margin-bottom:8px;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:13px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -138,145 +116,84 @@
       <p id="invalid-msg">Double check the link, or ask the exec team for a fresh one.</p>
     </section>
 
+    <section class="view center" id="v-link-invalid">
+      <div class="cico" aria-hidden="true">🔗</div>
+      <h2>This link is no longer valid</h2>
+      <p>Use the link in your newest CourtSense email.</p>
+    </section>
+
     <section class="view center" id="v-closed">
       <div class="cico" aria-hidden="true">🔒</div>
       <h2>Registration is closed</h2>
       <p>Registration for <strong id="closed-name">this tournament</strong> is not open right now. Reach out to the exec team if you have questions.</p>
+      <div class="partner">
+        <p>Want to play another tournament?</p>
+        <a class="btn ghost" href="https://courtsense.app/pickup/?view=tournaments">Don't have a team yet? Find a partner</a>
+      </div>
     </section>
 
-    <section class="view" id="v-email">
-      <h2>Register</h2>
-      <p class="muted">Start with your email. If you already have a CourtSense account, we will find it and you are in with one tap.</p>
+    <section class="view" id="v-register">
+      <h2>Register your team</h2>
+      <p class="muted">Teams register together. Add every player by email. Anyone new to CourtSense gets an account and an email to finish it.</p>
       <div class="field">
-        <label for="email">Email</label>
-        <input type="email" id="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false">
-        <span class="fld-err" id="err-email" role="alert"></span>
+        <label for="r-div">Division</label>
+        <select id="r-div" onchange="onDivisionChange()"></select>
       </div>
-      <button class="btn" id="email-btn" type="button" onclick="doLookup()"><span class="spin" aria-hidden="true"></span><span class="lbl">Continue</span></button>
-      <div class="form-err" id="email-form-err" role="alert"></div>
-      <button class="link-btn" type="button" onclick="showLooking()">See who's looking for teammates</button>
-    </section>
-
-    <section class="view" id="v-found">
-      <p class="center muted">Is this you?</p>
-      <div class="who" id="found-who"></div>
+      <div class="divinfo" id="r-divinfo"></div>
       <div class="field">
-        <label for="f-div">Division</label>
-        <select id="f-div"></select>
-        <span class="fld-err" id="err-f-div" role="alert"></span>
+        <label for="r-team">Team name <span class="opt">(optional)</span></label>
+        <input type="text" id="r-team" maxlength="40" autocomplete="off">
       </div>
-      <div class="field">
-        <label for="f-team">Team name <span class="opt">(optional)</span></label>
-        <input type="text" id="f-team" maxlength="60" autocomplete="off">
+      <div id="r-slots"></div>
+      <button class="btn ghost small" id="r-addsub" type="button" onclick="addSub()">+ Add a sub</button>
+      <div class="checklist" id="r-check" aria-live="polite"></div>
+      <button class="btn" id="r-btn" type="button" onclick="doRegister()"><span class="spin" aria-hidden="true"></span><span class="lbl">Register team</span></button>
+      <div class="form-err" id="r-err" role="alert"></div>
+      <div class="partner">
+        <p>Need players?</p>
+        <a class="btn ghost" href="https://courtsense.app/pickup/?view=tournaments">Don't have a team yet? Find a partner</a>
       </div>
-      <div class="field">
-        <label for="f-mates">Teammates <span class="opt">(optional)</span></label>
-        <textarea id="f-mates" maxlength="160" rows="2"></textarea>
-        <span class="hint">Names of players you want on your team</span>
-      </div>
-      <label class="check-row" for="f-looking"><input type="checkbox" id="f-looking"><span>I'm looking for teammates</span></label>
-      <button class="btn" id="found-btn" type="button" onclick="doRegister('found')"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, register me</span></button>
-      <div class="form-err" id="found-form-err" role="alert"></div>
-      <button class="link-btn" type="button" onclick="backToEmail()">Not you? Use a different email</button>
-    </section>
-
-    <section class="view" id="v-new">
-      <h2>Welcome</h2>
-      <p class="muted">We did not find a CourtSense account for that email, so we will make one for you. It takes a minute.</p>
-      <div class="grid">
-        <div class="field">
-          <label for="n-first">First name</label>
-          <input type="text" id="n-first" maxlength="40" autocomplete="given-name">
-          <span class="fld-err" id="err-n-first" role="alert"></span>
-        </div>
-        <div class="field">
-          <label for="n-last">Last name</label>
-          <input type="text" id="n-last" maxlength="40" autocomplete="family-name">
-          <span class="fld-err" id="err-n-last" role="alert"></span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="n-cell">Cell phone</label>
-        <input type="tel" id="n-cell" autocomplete="tel" inputmode="tel">
-        <span class="hint">For tournament day updates. Never shown to other players.</span>
-        <span class="fld-err" id="err-n-cell" role="alert"></span>
-      </div>
-      <div class="field">
-        <label for="n-div">Division</label>
-        <select id="n-div" onchange="updateGenderRule()"></select>
-        <span class="fld-err" id="err-n-div" role="alert"></span>
-      </div>
-      <div class="field">
-        <label for="n-gender">Gender <span class="opt" id="n-gender-opt">(optional)</span></label>
-        <select id="n-gender">
-          <option value="">Select</option>
-          <option value="M">Guy</option>
-          <option value="F">Girl</option>
-          <option value="unspecified" id="n-gender-unspec">Prefer not to say</option>
-        </select>
-        <span class="hint" id="n-gender-hint"></span>
-        <span class="fld-err" id="err-n-gender" role="alert"></span>
-      </div>
-      <div class="field">
-        <label for="n-team">Team name <span class="opt">(optional)</span></label>
-        <input type="text" id="n-team" maxlength="60" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="n-mates">Teammates <span class="opt">(optional)</span></label>
-        <textarea id="n-mates" maxlength="160" rows="2"></textarea>
-        <span class="hint">Names of players you want on your team</span>
-      </div>
-      <label class="check-row" for="n-looking"><input type="checkbox" id="n-looking"><span>I'm looking for teammates</span></label>
-      <button class="btn" id="new-btn" type="button" onclick="doRegister('new')"><span class="spin" aria-hidden="true"></span><span class="lbl">Register</span></button>
-      <div class="form-err" id="new-form-err" role="alert"></div>
-      <button class="link-btn" type="button" onclick="backToEmail()">Use a different email</button>
-    </section>
-
-    <section class="view center" id="v-already">
-      <div class="cico" aria-hidden="true">✅</div>
-      <h2>You're already registered</h2>
-      <p id="already-msg">You are on the list. Check your email for your confirmation and the link to withdraw if plans change.</p>
-      <button class="link-btn" type="button" onclick="backToEmail()">Register someone else</button>
     </section>
 
     <section class="view center" id="v-done" aria-live="polite">
       <div class="cico" aria-hidden="true">🌱</div>
-      <h2 id="done-title">You're in</h2>
-      <p id="done-msg"></p>
-      <p class="muted">The exec team puts the teams together and will be in touch before play starts.</p>
-      <button class="btn ghost" type="button" onclick="showLooking()">See who's looking for teammates</button>
-      <button class="link-btn" type="button" onclick="backToEmail()">Register someone else</button>
+      <h2 id="done-title">Your team is in</h2>
+      <ul class="roster" id="done-players" style="text-align:left;"></ul>
+      <p>Everyone on the team gets an email with their own link to manage the team.</p>
+      <button class="link-btn" type="button" onclick="startRegister()">Register another team</button>
     </section>
 
-    <section class="view" id="v-looking" aria-live="polite">
-      <h2>Looking for teammates</h2>
-      <p class="muted">Players who registered and said they are looking, by division.</p>
-      <div id="looking-list"><p class="empty">Loading...</p></div>
-      <p class="muted" style="margin-top:14px;">The exec team builds the teams and will reach out.</p>
-      <button class="link-btn" type="button" id="looking-back" onclick="lookingBack()">Back to registration</button>
+    <section class="view" id="v-manage">
+      <h2>Your team</h2>
+      <div class="kv">Division: <b id="m-div"></b></div>
+      <div class="kv">Team: <b id="m-team"></b></div>
+      <div class="kv">Status: <span id="m-status"></span></div>
+      <ul class="roster" id="m-players"></ul>
+      <div class="note" id="m-note" role="status"></div>
+      <div class="section" id="m-add-sec">
+        <h3>Add a player</h3>
+        <p class="muted">Someone can't make it, or you want a sub? Add them by email.</p>
+        <div id="m-slots"></div>
+        <button class="btn" id="m-add-btn" type="button" onclick="doAdd()"><span class="spin" aria-hidden="true"></span><span class="lbl">Add to team</span></button>
+        <div class="form-err" id="m-add-err" role="alert"></div>
+      </div>
+      <div class="partner" id="m-partner">
+        <p>Need another player?</p>
+        <a class="btn ghost" href="https://courtsense.app/pickup/?view=tournaments">Don't have a team yet? Find a partner</a>
+      </div>
+      <div class="section">
+        <h3>Change of plans</h3>
+        <button class="btn ghost" id="m-wd-btn" type="button" onclick="doWithdraw()"><span class="spin" aria-hidden="true"></span><span class="lbl">Withdraw me</span></button>
+        <button class="btn danger" id="m-drop-btn" type="button" onclick="doDrop()"><span class="spin" aria-hidden="true"></span><span class="lbl">Drop our team</span></button>
+        <p class="muted" style="margin-top:10px;">Withdraw takes only you off the team. Drop removes the whole team. Your teammates get an email either way.</p>
+        <div class="form-err" id="m-err" role="alert"></div>
+      </div>
     </section>
 
-    <section class="view center" id="v-withdraw">
-      <h2 id="wd-title">Withdraw?</h2>
-      <p>This takes you off the list. If plans change again, you can register with the same link.</p>
-      <button class="btn" id="wd-btn" type="button" onclick="doWithdraw()"><span class="spin" aria-hidden="true"></span><span class="lbl">Yes, withdraw me</span></button>
-      <div class="form-err" id="wd-form-err" role="alert"></div>
-      <p class="muted" style="margin-top:22px;">Staying in? You can also join or leave the Looking for teammates list.</p>
-      <button class="btn ghost" id="lf-btn" type="button" onclick="doLookingToggle()"><span class="spin" aria-hidden="true"></span><span class="lbl">Add me to the Looking for teammates list</span></button>
-      <div class="wd-note" id="lf-note" role="status"></div>
-      <button class="link-btn" type="button" onclick="showLooking()">See who's looking for teammates</button>
-    </section>
-
-    <section class="view center" id="v-withdrawn" aria-live="polite">
-      <div class="cico" aria-hidden="true">👋</div>
-      <h2>You're withdrawn</h2>
-      <p>Thanks for letting us know.</p>
-    </section>
-
-    <section class="view center" id="v-wd-invalid">
-      <div class="cico" aria-hidden="true">🔗</div>
-      <h2>This withdraw link is no longer valid</h2>
-      <p>If you registered again after withdrawing, use the link in your newest confirmation email, or reach out to the exec team.</p>
+    <section class="view center" id="v-result" aria-live="polite">
+      <div class="cico" aria-hidden="true" id="res-ico">👋</div>
+      <h2 id="res-title"></h2>
+      <p id="res-msg"></p>
     </section>
 
   </div>
@@ -287,121 +204,57 @@
 </footer>
 
 <script>
-// FSU Grass Club tournament registration. Reads the tournament's meta and divisions
-// over Firebase REST (the club node is world readable) and never writes to Firebase.
-// Every write goes through the CourtSense worker, which owns registrations:
-//   /club/tournament-lookup     { slug, tid, email }
-//   /club/tournament-register   { slug, tid, email, divId, teamName?, teammates?, newPlayer? }
-//   /club/tournament-withdraw   { slug, tid, a, w }
-//   /club/tournament-looking    { slug, tid, a, w, lookingForTeam }
-// Nothing this page shows ever echoes an email or a phone back. The Looking for teammates
-// view renders only the stored 'First L.' and gender; no record key or account id is
-// ever put on the page.
+// FSU Grass Club tournament: TEAM registration and team management.
+// Reads the tournament's meta and divisions over Firebase REST (the club node is world
+// readable) and never writes to Firebase. Every write goes through the CourtSense worker:
+//   /club/tournament-lookup         { slug, tid, email, divId }
+//   /club/tournament-register-team  { slug, tid, divId, teamName?, members:[ { email, gender?, newPlayer? } ] }
+//   /club/tournament-manage-info    { slug, tid, a, m }
+//   /club/tournament-team-add       { slug, tid, a, m, member }
+//   /club/tournament-withdraw       { slug, tid, a, m }
+//   /club/tournament-team-drop      { slug, tid, a, m }
+// Names shown are only ever the 'First L.' the worker returns. Nothing echoes an email or
+// a phone back, and no account id is ever put on the page.
 var SLUG = 'fsu_grass';
 var DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
 var AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-var state = { tid:'', meta:null, divisions:{}, email:'', a:'', w:'', busy:false, looking:null };
+var state = { tid:'', meta:null, divisions:{}, divId:'', slots:[], addSlots:[], busy:false, a:'', m:'', manage:null };
 
 function $(id){ return document.getElementById(id); }
-function val(id){ var el = $(id); return el ? String(el.value || '').trim() : ''; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
 function show(view){
   var views = document.querySelectorAll('.view');
   for(var i = 0; i < views.length; i++) views[i].classList.toggle('on', views[i].id === view);
   window.scrollTo({ top:0, behavior:'smooth' });
 }
-
-// ---- Field helpers, the same ones signup.html uses ----
 function emailValid(e){ return /^\S+@\S+\.\S+$/.test(e); }
-function setFieldErr(id, msg){
-  var el = $('err-' + id), inp = $(id);
-  if(el){ el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
-  if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; if(msg) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid'); }
-}
-function clearErrors(ids, formErrId){
-  ids.forEach(function(f){ setFieldErr(f, ''); });
-  if(formErrId && $(formErrId)) $(formErrId).textContent = '';
-}
-// Mirrors the worker's normalizePhone (src/auth.ts), like signup.html does. This one only
-// decides whether to warn before submitting; the worker decides what is stored.
-function normalizePhoneLocal(input){
+// Mirrors the worker's normalizePhone (src/auth.ts). Only decides whether to warn; the
+// worker decides what is stored.
+function phoneOk(input){
   var raw = String(input == null ? '' : input).trim();
-  if(!raw) return { primary:null, raw:'', malformed:false };
+  if(!raw) return false;
   var digits = raw.replace(/\D/g, '');
-  if(raw.charAt(0) === '+'){
-    if(digits.length >= 8 && digits.length <= 15) return { primary:'+' + digits, raw:raw, malformed:false };
-    return { primary:null, raw:raw, malformed:true };
-  }
-  if(digits.length === 10) return { primary:'+1' + digits, raw:raw, malformed:false };
-  if(digits.length === 11 && digits.charAt(0) === '1') return { primary:'+1' + digits.slice(1), raw:raw, malformed:false };
-  return { primary:null, raw:raw, malformed:true };
+  if(raw.charAt(0) === '+') return digits.length >= 8 && digits.length <= 15;
+  return digits.length === 10 || (digits.length === 11 && digits.charAt(0) === '1');
 }
-// Unlike signup, the cell is required here: the worker stores it on the new account.
-function validatePhoneField(id, label){
-  var v = val(id);
-  if(!v){ setFieldErr(id, 'Your ' + label + ' is required.'); return false; }
-  var ok = !normalizePhoneLocal(v).malformed;
-  setFieldErr(id, ok ? '' : 'That ' + label + ' does not look right. Use a 10 digit number, or a plus sign and the full number.');
-  return ok;
-}
-
 function setBusy(btnId, busy, label){
   var b = $(btnId); if(!b) return;
   b.disabled = !!busy;
   b.classList.toggle('busy', !!busy);
   if(label) b.querySelector('.lbl').textContent = label;
 }
-
-// 'YYYY-MM-DD' read in local time: 'Saturday, October 11'.
 function dateLabel(d){
   var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d || ''));
   if(!m) return '';
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
 }
-
-function catLabel(c){ return c === 'coed' ? 'coed' : c === 'mens' ? "men's" : c === 'womens' ? "women's" : 'open'; }
-function divIds(){
-  var D = state.divisions || {};
-  return Object.keys(D).filter(function(k){ return D[k] && ID_RE.test(k); })
-    .sort(function(a, b){ return String(D[a].name || '').localeCompare(String(D[b].name || '')); });
-}
-function fillDivisions(selId){
-  var sel = $(selId), D = state.divisions, ids = divIds();
-  sel.innerHTML = '';
-  if(ids.length > 1){
-    var ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Pick a division'; sel.appendChild(ph);
-  }
-  ids.forEach(function(id){
-    var d = D[id], o = document.createElement('option');
-    o.value = id;
-    o.textContent = String(d.name || id) + ' (' + (d.teamSize || '?') + 'v' + (d.teamSize || '?') + ', ' + catLabel(d.category) + ')';
-    sel.appendChild(o);
-  });
-}
-
-// Coed divisions need a gender for the team minimums, so Prefer not to say is set aside
-// there. Anywhere else gender stays optional and blank goes to the worker as unspecified.
-function updateGenderRule(){
-  var d = state.divisions[val('n-div')], coed = !!(d && d.category === 'coed');
-  var unspec = $('n-gender-unspec'), sel = $('n-gender');
-  unspec.disabled = coed;
-  unspec.hidden = coed;
-  if(coed && sel.value === 'unspecified') sel.value = '';
-  $('n-gender-opt').textContent = coed ? '' : '(optional)';
-  $('n-gender-hint').textContent = coed ? 'Coed teams need a mix of guys and girls, so we ask here.' : '';
-}
-
-function showClosed(){
-  $('closed-name').textContent = (state.meta && state.meta.name) ? state.meta.name : 'this tournament';
-  show('v-closed');
-}
 function genericErr(r, j){
   if(r && r.status === 429) return 'Too many tries in a short time. Wait a few minutes and try again.';
-  if(j && j.error && j.code !== 'server_error') return j.error;
+  if(j && j.error && j.code !== 'server_error' && j.error !== 'retired') return j.error;
   return 'Something went wrong on our end. Please try again in a moment.';
 }
-
 async function post(path, body){
   var r = null, j = null;
   try {
@@ -410,209 +263,354 @@ async function post(path, body){
   } catch(e){ return { net:true, r:null, j:null }; }
   return { net:false, r:r, j:j };
 }
-
-// ---- Register flow ----
-async function doLookup(){
-  if(state.busy) return;
-  clearErrors(['email'], 'email-form-err');
-  var email = val('email').toLowerCase();
-  if(!email){ setFieldErr('email', 'Enter your email.'); return; }
-  if(!emailValid(email)){ setFieldErr('email', "That email doesn't look right."); return; }
-  state.busy = true; setBusy('email-btn', true, 'Checking...');
-  var res = await post('/club/tournament-lookup', { slug:SLUG, tid:state.tid, email:email });
-  state.busy = false; setBusy('email-btn', false, 'Continue');
-  if(res.net){ $('email-form-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
-  var j = res.j;
-  if(!j || j.ok !== true){ $('email-form-err').textContent = genericErr(res.r, j); return; }
-  if(j.closed){ showClosed(); return; }
-  state.email = email;
-  if(!j.found){
-    clearErrors(['n-first','n-last','n-cell','n-div','n-gender'], 'new-form-err');
-    fillDivisions('n-div'); updateGenderRule();
-    show('v-new');
-    return;
-  }
-  if(j.alreadyRegistered){ show('v-already'); return; }
-  $('found-who').textContent = String(j.firstName || '') + (j.lastInitial ? ' ' + j.lastInitial + '.' : '');
-  clearErrors(['f-div'], 'found-form-err');
-  fillDivisions('f-div');
-  show('v-found');
-}
-
-function backToEmail(){
-  state.email = '';
-  ['email','f-team','f-mates','n-first','n-last','n-cell','n-team','n-mates'].forEach(function(id){ if($(id)) $(id).value = '';});
-  if($('n-gender')) $('n-gender').value = '';
-  ['f-looking','n-looking'].forEach(function(id){ if($(id)) $(id).checked = false; });
-  clearErrors(['email'], 'email-form-err');
-  show('v-email');
-  setTimeout(function(){ if($('email')) $('email').focus(); }, 300);
-}
-
-async function doRegister(kind){
-  if(state.busy) return;
-  var isNew = kind === 'new';
-  var p = isNew ? 'n-' : 'f-', btnId = isNew ? 'new-btn' : 'found-btn', errId = isNew ? 'new-form-err' : 'found-form-err';
-  clearErrors(isNew ? ['n-first','n-last','n-cell','n-div','n-gender'] : ['f-div'], errId);
-  var ok = true;
-  var divId = val(p + 'div');
-  if(!divId || !state.divisions[divId]){ setFieldErr(p + 'div', 'Pick a division.'); ok = false; }
-  var body = { slug:SLUG, tid:state.tid, email:state.email, divId:divId };
-  var team = val(p + 'team'), mates = val(p + 'mates');
-  if(team) body.teamName = team.slice(0, 60);
-  if(mates) body.teammates = mates.slice(0, 160);
-  if($(p + 'looking') && $(p + 'looking').checked) body.lookingForTeam = true;
-  if(isNew){
-    var first = val('n-first'), last = val('n-last'), gender = val('n-gender');
-    var coed = !!(state.divisions[divId] && state.divisions[divId].category === 'coed');
-    if(!first){ setFieldErr('n-first', 'First name is required.'); ok = false; }
-    if(!last){ setFieldErr('n-last', 'Last name is required.'); ok = false; }
-    if(!validatePhoneField('n-cell', 'cell phone')) ok = false;
-    if(coed && gender !== 'M' && gender !== 'F'){ setFieldErr('n-gender', 'Pick Guy or Girl for a coed division.'); ok = false; }
-    body.newPlayer = { firstName:first, lastName:last, cell:val('n-cell'), gender: gender || 'unspecified' };
-  }
-  if(!ok){
-    var firstErr = document.querySelector('.view.on .fld-err[style*="block"]');
-    if(firstErr) firstErr.scrollIntoView({ block:'center', behavior:'smooth' });
-    return;
-  }
-  // One request in flight at a time, so a double tap can never send two confirmation emails.
-  state.busy = true; setBusy(btnId, true, 'Registering...');
-  var res = await post('/club/tournament-register', body);
-  state.busy = false; setBusy(btnId, false, isNew ? 'Register' : 'Yes, register me');
-  if(res.net){ $(errId).textContent = 'We could not reach the server. Check your connection and try again.'; return; }
-  var j = res.j;
-  if(j && j.ok === true && j.closed){ showClosed(); return; }
-  if(j && j.ok === true && j.status === 'already_registered'){ show('v-already'); return; }
-  if(j && j.ok === true && j.status === 'registered'){
-    $('done-title').textContent = j.displayName ? "You're in, " + String(j.displayName) + '.' : "You're in.";
-    $('done-msg').textContent = 'Check your email for your confirmation' + (isNew ? ' and a link to finish your CourtSense account.' : '.');
-    show('v-done');
-    return;
-  }
-  if(j && j.code === 'new_player_required'){
-    fillDivisions('n-div'); $('n-div').value = divId; updateGenderRule();
-    show('v-new');
-    return;
-  }
-  $(errId).textContent = genericErr(res.r, j);
-}
-
-// ---- Withdraw flow ----
-async function doWithdraw(){
-  if(state.busy) return;
-  $('wd-form-err').textContent = '';
-  state.busy = true; setBusy('wd-btn', true, 'Withdrawing...');
-  var res = await post('/club/tournament-withdraw', { slug:SLUG, tid:state.tid, a:state.a, w:state.w });
-  state.busy = false; setBusy('wd-btn', false, 'Yes, withdraw me');
-  if(res.net){ $('wd-form-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
-  var j = res.j;
-  if(j && j.ok === true && j.status === 'withdrawn'){ show('v-withdrawn'); return; }
-  if(j && j.error === 'invalid_link'){ show('v-wd-invalid'); return; }
-  $('wd-form-err').textContent = genericErr(res.r, j);
-}
-
-// ---- Looking for teammates ----
-function genderWord(g){ return g === 'M' ? 'Guy' : g === 'F' ? 'Girl' : ''; }
-function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
-
-// Read fresh each time it opens, so the list is never stale. Read only.
-async function showLooking(){
-  show('v-looking');
-  $('looking-back').textContent = (state.a && state.w) ? 'Back' : 'Back to registration';
-  var box = $('looking-list');
-  box.innerHTML = '';
-  box.appendChild(el('p', 'empty', 'Loading...'));
-  var base = 'grass_club_matches/tournaments/' + encodeURIComponent(state.tid);
-  var regs, divs;
-  try {
-    var got = await Promise.all([getJson(base + '/registrations'), getJson(base + '/divisions')]);
-    regs = (got[0] && typeof got[0] === 'object') ? got[0] : {};
-    divs = (got[1] && typeof got[1] === 'object') ? got[1] : {};
-    state.divisions = divs;
-  } catch(e){
-    box.innerHTML = '';
-    box.appendChild(el('p', 'empty', 'We could not load the list. Check your connection and try again.'));
-    return;
-  }
-  // Values only. The registration keys never leave this function.
-  var lookers = Object.keys(regs).map(function(k){ return regs[k]; })
-    .filter(function(r){ return r && r.status === 'registered' && r.lookingForTeam === true; });
-  box.innerHTML = '';
-  var ids = divIds();
-  if(!ids.length){ box.appendChild(el('p', 'empty', 'No divisions are set up yet.')); return; }
-  var total = 0;
-  ids.forEach(function(id){
-    var d = divs[id];
-    var list = lookers.filter(function(r){ return r.divId === id; })
-      .map(function(r){ return { name: String(r.displayName || 'A player').slice(0, 40), g: genderWord(r.gender) }; })
-      .sort(function(a, b){ return a.name.localeCompare(b.name); });
-    total += list.length;
-    var block = el('div', 'div-block');
-    var head = el('div', 'div-head');
-    head.appendChild(el('span', 'div-name', String(d.name || 'Division')));
-    head.appendChild(el('span', 'div-count', list.length + ' looking'));
-    block.appendChild(head);
-    if(!list.length) block.appendChild(el('p', 'empty', 'Nobody in this division yet.'));
-    list.forEach(function(x){
-      var row = el('div', 'looker');
-      row.appendChild(el('span', null, x.name));
-      row.appendChild(el('span', 'g', x.g));
-      block.appendChild(row);
-    });
-    box.appendChild(block);
-  });
-  if(!total){
-    box.insertBefore(el('p', 'empty', 'Nobody has said they are looking yet. Register and tick "I\'m looking for teammates" to be the first.'), box.firstChild);
-  }
-}
-function lookingBack(){
-  if(state.a && state.w){ show('v-withdraw'); return; }
-  if(state.meta && state.meta.status === 'registration' && divIds().length){ show('v-email'); return; }
-  showClosed();
-}
-
-// Withdraw mode only: the same emailed link turns the flag on or off.
-function setLookingLabel(){
-  var on = state.looking === true;
-  $('lf-btn').querySelector('.lbl').textContent = on ? 'Take me off the Looking for teammates list' : 'Add me to the Looking for teammates list';
-}
-async function doLookingToggle(){
-  if(state.busy) return;
-  $('lf-note').textContent = '';
-  var want = state.looking !== true;
-  state.busy = true; setBusy('lf-btn', true, 'Saving...');
-  var res = await post('/club/tournament-looking', { slug:SLUG, tid:state.tid, a:state.a, w:state.w, lookingForTeam:want });
-  state.busy = false; setBusy('lf-btn', false); setLookingLabel();
-  if(res.net){ $('lf-note').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
-  var j = res.j;
-  if(j && j.ok === true){
-    state.looking = j.lookingForTeam === true;
-    setLookingLabel();
-    $('lf-note').textContent = state.looking ? "You're on the Looking for teammates list." : "You're off the Looking for teammates list.";
-    return;
-  }
-  if(j && j.error === 'invalid_link'){ show('v-wd-invalid'); return; }
-  if(j && j.error === 'not_registered'){ $('lf-note').textContent = "You're withdrawn, so you're not on the list. Register again to join it."; return; }
-  $('lf-note').textContent = genericErr(res.r, j);
-}
-
-// ---- Boot ----
 async function getJson(path){
   var r = await fetch(DB_URL + '/' + path + '.json');
   if(!r.ok) throw new Error('read ' + r.status);
   return r.json();
 }
-function invalid(msg){
-  if(msg) $('invalid-msg').textContent = msg;
-  show('v-invalid');
+
+// ---- Divisions ----
+function divRules(d){
+  if(!d) return null;
+  var size = Number(d.teamSize);
+  if([2,3,4].indexOf(size) < 0) return null;
+  var rm = Number(d.rosterMax);
+  var max = (isFinite(rm) && rm >= size) ? Math.min(rm, 12) : size;
+  var coed = (d.category === 'coed' && d.coed) ? { guys: Number(d.coed.minGuys) || 0, girls: Number(d.coed.minGirls) || 0 } : null;
+  return { name: String(d.name || 'Division'), size: size, max: max, coed: coed };
 }
+function divIds(){
+  var D = state.divisions || {};
+  return Object.keys(D).filter(function(k){ return D[k] && ID_RE.test(k) && divRules(D[k]); })
+    .sort(function(a, b){ return String(D[a].name || '').localeCompare(String(D[b].name || '')); });
+}
+function divText(r){
+  var t = r.name + ': ' + r.size + ' players';
+  if(r.max > r.size) t += ', up to ' + r.max + ' with subs';
+  if(r.coed) t += ', at least ' + r.coed.guys + ' guy' + (r.coed.guys === 1 ? '' : 's') + ' and ' + r.coed.girls + ' girl' + (r.coed.girls === 1 ? '' : 's');
+  return t;
+}
+function curRules(){ return divRules(state.divisions[state.divId]); }
+
+// ---- Player slots ----
+// A slot is one player: their email, then what a lookup found. Statuses:
+//   empty    not checked yet          found    has an account ("First L.")
+//   onTeam   already on a team here   new      no account; fill in the short form
+//   manual   lookup unavailable (registration closed while adding); the worker decides
+function newSlot(){ return { email:'', st:'empty', first:'', li:'', gNeeded:false, g:'', nf:'', nl:'', nc:'', ng:'', err:'' }; }
+function slotsOf(p){ return p === 'm' ? state.addSlots : state.slots; }
+
+function slotHtml(p, i, s, title, removable, coed){
+  var id = function(f){ return p + '-' + i + '-' + f; };
+  var on = function(f){ return 'slotSet(\'' + p + '\',' + i + ',\'' + f + '\',this.value)'; };
+  var h = '<div class="slot' + (s.err ? ' bad' : '') + '"><div class="slot-head"><span class="slot-title">' + esc(title) + '</span>'
+    + (removable ? '<button class="rm" type="button" onclick="removeSub(' + i + ')">Remove</button>' : '') + '</div>'
+    + '<label for="' + id('email') + '">Email</label>'
+    + '<div class="slot-row"><input type="email" id="' + id('email') + '" value="' + esc(s.email) + '" autocomplete="' + (p === 'r' && i === 0 ? 'email' : 'off') + '" autocapitalize="off" spellcheck="false" inputmode="email" oninput="slotEmail(\'' + p + '\',' + i + ',this.value)">'
+    + '<button class="btn ghost small" type="button" onclick="slotCheck(\'' + p + '\',' + i + ')">' + (s.st === 'empty' || s.st === 'manual' ? 'Check' : 'Recheck') + '</button></div>';
+  if(s.st === 'found'){
+    h += '<div class="found">✓ ' + esc(s.first) + (s.li ? ' ' + esc(s.li) + '.' : '') + '</div>';
+    if(s.gNeeded){
+      h += '<div class="field"><label for="' + id('g') + '">Guy or girl, for the coed count</label><select id="' + id('g') + '" onchange="' + on('g') + '">'
+        + '<option value="">Select</option><option value="M"' + (s.g === 'M' ? ' selected' : '') + '>Guy</option><option value="F"' + (s.g === 'F' ? ' selected' : '') + '>Girl</option></select>'
+        + '<span class="hint">Used for this tournament only.</span></div>';
+    }
+  } else if(s.st === 'onTeam'){
+    h += '<div class="onteam">Already on a team in this division.</div>';
+  } else if(s.st === 'new'){
+    h += '<p class="hint" style="margin-bottom:10px;">No CourtSense account yet. Add a few details and we will set one up and email them.</p>'
+      + '<div class="grid"><div class="field"><label for="' + id('nf') + '">First name</label><input type="text" id="' + id('nf') + '" maxlength="40" value="' + esc(s.nf) + '" oninput="' + on('nf') + '"></div>'
+      + '<div class="field"><label for="' + id('nl') + '">Last name</label><input type="text" id="' + id('nl') + '" maxlength="40" value="' + esc(s.nl) + '" oninput="' + on('nl') + '"></div></div>'
+      + '<div class="field"><label for="' + id('nc') + '">Cell phone</label><input type="tel" id="' + id('nc') + '" inputmode="tel" value="' + esc(s.nc) + '" oninput="' + on('nc') + '"><span class="hint">Never shown to other players.</span></div>'
+      + '<div class="field"><label for="' + id('ng') + '">Gender</label><select id="' + id('ng') + '" onchange="' + on('ng') + '">'
+      + '<option value="">Select</option><option value="M"' + (s.ng === 'M' ? ' selected' : '') + '>Guy</option><option value="F"' + (s.ng === 'F' ? ' selected' : '') + '>Girl</option>'
+      + (coed ? '' : '<option value="unspecified"' + (s.ng === 'unspecified' ? ' selected' : '') + '>Prefer not to say</option>')
+      + '</select></div>';
+  } else if(s.st === 'manual'){
+    h += '<p class="hint" style="margin-bottom:10px;">We will look this player up when you add them.</p>';
+  }
+  if(s.err) h += '<div class="slot-err" role="alert">' + esc(s.err) + '</div>';
+  return h + '</div>';
+}
+
+function renderSlots(p){
+  var r = p === 'm' ? state.manageRules : curRules();
+  var coed = !!(r && r.coed);
+  var list = slotsOf(p);
+  var box = $(p === 'm' ? 'm-slots' : 'r-slots');
+  box.innerHTML = list.map(function(s, i){
+    if(p === 'm') return slotHtml(p, i, s, 'New player', false, coed);
+    var size = r ? r.size : 2;
+    var title = i === 0 ? 'Player 1 (you)' : i < size ? 'Player ' + (i + 1) : 'Sub ' + (i - size + 1);
+    return slotHtml(p, i, s, title, i >= size, coed);
+  }).join('');
+  if(p === 'r') renderChecklist();
+}
+
+function slotEmail(p, i, v){
+  var s = slotsOf(p)[i]; if(!s) return;
+  var changed = s.email.trim().toLowerCase() !== String(v).trim().toLowerCase();
+  s.email = v;
+  if(changed && s.st !== 'empty'){ s.st = 'empty'; s.err = ''; renderSlots(p); var el = $(p + '-' + i + '-email'); if(el){ el.focus(); var n = el.value.length; try{ el.setSelectionRange(n, n); }catch(e){} } }
+  else if(p === 'r') renderChecklist();
+}
+function slotSet(p, i, f, v){ var s = slotsOf(p)[i]; if(!s) return; s[f] = v; if(p === 'r') renderChecklist(); }
+
+async function slotCheck(p, i){
+  if(state.busy) return;
+  var list = slotsOf(p), s = list[i]; if(!s) return;
+  var email = s.email.trim().toLowerCase();
+  s.err = '';
+  if(!emailValid(email)){ s.err = "That email doesn't look right."; renderSlots(p); return; }
+  var dupe = list.some(function(o, k){ return k !== i && o.email.trim().toLowerCase() === email; });
+  if(dupe){ s.err = 'That email is already on this team.'; renderSlots(p); return; }
+  var divId = p === 'm' ? state.manage.divId : state.divId;
+  state.busy = true;
+  var res = await post('/club/tournament-lookup', { slug:SLUG, tid:state.tid, email:email, divId:divId });
+  state.busy = false;
+  var j = res.j;
+  if(res.net){ s.err = 'We could not reach the server. Check your connection and try again.'; }
+  else if(j && j.ok === true && j.closed){
+    if(p === 'm'){ s.st = 'manual'; }
+    else { showClosed(); return; }
+  }
+  else if(j && j.ok === true && j.found){
+    s.first = String(j.firstName || ''); s.li = String(j.lastInitial || '');
+    s.gNeeded = !!j.genderNeeded;
+    s.st = j.onTeam ? 'onTeam' : 'found';
+  }
+  else if(j && j.ok === true){ s.st = 'new'; }
+  else { s.err = genericErr(res.r, j); }
+  renderSlots(p);
+}
+
+function slotReady(s, coed){
+  if(s.st === 'found') return !s.gNeeded || s.g === 'M' || s.g === 'F';
+  if(s.st === 'new') return !!(s.nf.trim() && s.nl.trim() && phoneOk(s.nc) && (coed ? (s.ng === 'M' || s.ng === 'F') : !!s.ng));
+  return s.st === 'manual' && emailValid(s.email.trim());
+}
+function slotProblem(s, coed){
+  if(s.st === 'empty') return 'Tap Check to look this player up.';
+  if(s.st === 'onTeam') return 'This player is already on a team in this division.';
+  if(s.st === 'found') return 'Pick Guy or Girl for this player.';
+  if(s.st === 'new'){
+    if(!s.nf.trim() || !s.nl.trim()) return 'Add their first and last name.';
+    if(!phoneOk(s.nc)) return 'Add a cell number we can reach, 10 digits or a plus sign and the full number.';
+    return coed ? 'Pick Guy or Girl for a coed division.' : 'Pick an option for gender.';
+  }
+  return 'Check this player.';
+}
+function memberOf(s){
+  var m = { email: s.email.trim().toLowerCase() };
+  if(s.st === 'found' && s.gNeeded) m.gender = s.g;
+  if(s.st === 'new') m.newPlayer = { firstName: s.nf.trim(), lastName: s.nl.trim(), cell: s.nc.trim(), gender: s.ng || 'unspecified' };
+  return m;
+}
+
+function renderChecklist(){
+  var r = curRules(), box = $('r-check');
+  if(!r){ box.textContent = ''; return; }
+  var coed = !!r.coed;
+  var filled = state.slots.filter(function(s){ return s.email.trim(); });
+  var ready = filled.filter(function(s){ return slotReady(s, coed); }).length;
+  var html = 'Players ready: <strong>' + ready + '</strong> of ' + r.size + (r.max > r.size ? ' (up to ' + r.max + ' with subs)' : '');
+  if(coed){
+    var guys = 0, girls = 0, onFile = 0;
+    filled.forEach(function(s){
+      var g = s.st === 'new' ? s.ng : (s.st === 'found' && s.gNeeded) ? s.g : '';
+      if(g === 'M') guys++; else if(g === 'F') girls++; else if(s.st === 'found') onFile++;
+    });
+    html += '<br>Coed: at least ' + r.coed.guys + ' guys and ' + r.coed.girls + ' girls. So far ' + guys + ' guy' + (guys === 1 ? '' : 's') + ' and ' + girls + ' girl' + (girls === 1 ? '' : 's')
+      + (onFile ? ', plus ' + onFile + ' from their profile' : '') + '. We confirm the mix when you register.';
+  }
+  box.innerHTML = html;
+  $('r-addsub').style.display = state.slots.length < r.max ? '' : 'none';
+}
+
+// ---- Register ----
+function startRegister(){
+  var ids = divIds();
+  var sel = $('r-div');
+  sel.innerHTML = '';
+  if(ids.length > 1){ var ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Pick a division'; sel.appendChild(ph); }
+  ids.forEach(function(id){ var o = document.createElement('option'); o.value = id; o.textContent = divRules(state.divisions[id]).name; sel.appendChild(o); });
+  state.divId = ids.length === 1 ? ids[0] : '';
+  sel.value = state.divId;
+  $('r-team').value = '';
+  $('r-err').textContent = '';
+  state.slots = [];
+  onDivisionChange(true);
+  show('v-register');
+}
+function onDivisionChange(fresh){
+  state.divId = $('r-div').value;
+  var r = curRules();
+  $('r-divinfo').textContent = r ? divText(r) : 'Pick a division to see the team size.';
+  var size = r ? r.size : 2, max = r ? r.max : 2;
+  var old = fresh === true ? [] : state.slots;
+  var next = [];
+  for(var i = 0; i < Math.max(size, Math.min(old.length, max)); i++){
+    var s = old[i] || newSlot();
+    // A lookup depends on the division (on a team here? gender needed?), so recheck.
+    if(s.st !== 'new'){ s.st = 'empty'; s.gNeeded = false; s.g = ''; }
+    s.err = '';
+    next.push(s);
+  }
+  state.slots = next;
+  $('r-slots').style.display = r ? '' : 'none';
+  $('r-addsub').style.display = r && state.slots.length < max ? '' : 'none';
+  renderSlots('r');
+}
+function addSub(){ var r = curRules(); if(!r || state.slots.length >= r.max) return; state.slots.push(newSlot()); renderSlots('r'); }
+function removeSub(i){ var r = curRules(); if(!r || i < r.size) return; state.slots.splice(i, 1); renderSlots('r'); }
+
+async function doRegister(){
+  if(state.busy) return;
+  $('r-err').textContent = '';
+  var r = curRules();
+  if(!r){ $('r-err').textContent = 'Pick a division.'; return; }
+  var coed = !!r.coed;
+  state.slots.forEach(function(s){ s.err = ''; });
+  var idx = [];
+  var ok = true;
+  state.slots.forEach(function(s, i){
+    var filled = !!s.email.trim();
+    if(!filled){ if(i < r.size){ s.err = 'Add this player.'; ok = false; } return; }
+    if(!slotReady(s, coed)){ s.err = slotProblem(s, coed); ok = false; return; }
+    idx.push(i);
+  });
+  var seen = {};
+  idx.forEach(function(i){ var e = state.slots[i].email.trim().toLowerCase(); if(seen[e]){ state.slots[i].err = 'That email is already on this team.'; ok = false; } seen[e] = true; });
+  if(!ok){ renderSlots('r'); $('r-err').textContent = 'Check the highlighted players.'; return; }
+  if(idx.length < r.size || idx.length > r.max){ $('r-err').textContent = divText(r) + '.'; return; }
+
+  var body = { slug:SLUG, tid:state.tid, divId:state.divId, members: idx.map(function(i){ return memberOf(state.slots[i]); }) };
+  var team = $('r-team').value.trim();
+  if(team) body.teamName = team.slice(0, 40);
+  state.busy = true; setBusy('r-btn', true, 'Registering...');
+  var res = await post('/club/tournament-register-team', body);
+  state.busy = false; setBusy('r-btn', false, 'Register team');
+  if(res.net){ $('r-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(j && j.ok === true && j.closed){ showClosed(); return; }
+  if(j && j.ok === true && j.teamId){
+    $('done-title').textContent = (j.teamName || 'Your team') + ' is in';
+    fillRoster('done-players', j.players || [], '');
+    show('v-done');
+    return;
+  }
+  if(j && typeof j.memberIndex === 'number' && idx[j.memberIndex] != null){
+    var s = state.slots[idx[j.memberIndex]];
+    if(j.code === 'new_player_required') s.st = 'new';
+    if(j.code === 'gender_needed'){ s.st = 'found'; s.gNeeded = true; }
+    if(j.code === 'already_on_team') s.st = 'onTeam';
+    s.err = j.error || 'Check this player.';
+    renderSlots('r');
+    $('r-err').textContent = 'Check the highlighted player.';
+    return;
+  }
+  $('r-err').textContent = genericErr(res.r, j);
+}
+
+function fillRoster(listId, names, you){
+  var ul = $(listId); ul.innerHTML = '';
+  names.forEach(function(n){
+    var li = document.createElement('li');
+    var a = document.createElement('span'); a.textContent = String(n); li.appendChild(a);
+    if(you && n === you){ var b = document.createElement('span'); b.className = 'you'; b.textContent = 'You'; li.appendChild(b); }
+    ul.appendChild(li);
+  });
+}
+
+function showClosed(){
+  $('closed-name').textContent = (state.meta && state.meta.name) ? state.meta.name : 'this tournament';
+  show('v-closed');
+}
+
+// ---- Manage ----
+function linkBody(){ return { slug:SLUG, tid:state.tid, a:state.a, m:state.m }; }
+async function loadManage(note){
+  var res = await post('/club/tournament-manage-info', linkBody());
+  var j = res.j;
+  if(res.net){ $('invalid-msg').textContent = 'We could not load your team. Check your connection and refresh the page.'; show('v-invalid'); return; }
+  if(!j || j.ok !== true){ if(j && j.error === 'invalid_link') show('v-link-invalid'); else { $('invalid-msg').textContent = genericErr(res.r, j); show('v-invalid'); } return; }
+  state.manage = j;
+  state.manageRules = divRules(state.divisions[j.divId]) || { name: j.divisionName || '', size: 2, max: 2, coed: null };
+  $('m-div').textContent = j.divisionName || state.manageRules.name || '';
+  $('m-team').textContent = j.teamName || '';
+  var st = $('m-status'); st.innerHTML = '';
+  var b = document.createElement('span');
+  if(j.status === 'registered'){ b.className = 'badge ok'; b.textContent = 'Registered'; }
+  else { b.className = 'badge warn'; b.textContent = j.needed > 0 ? 'Incomplete: needs ' + j.needed + ' more' : 'Incomplete: needs the coed mix'; }
+  st.appendChild(b);
+  fillRoster('m-players', j.players || [], j.you || '');
+  $('m-note').textContent = note || '';
+  $('m-add-sec').style.display = j.canAdd ? '' : 'none';
+  $('m-partner').style.display = j.status === 'incomplete' ? '' : 'none';
+  state.addSlots = [newSlot()];
+  $('m-add-err').textContent = ''; $('m-err').textContent = '';
+  renderSlots('m');
+  show('v-manage');
+}
+async function doAdd(){
+  if(state.busy) return;
+  $('m-add-err').textContent = '';
+  var s = state.addSlots[0]; var coed = !!(state.manageRules && state.manageRules.coed);
+  s.err = '';
+  if(!s.email.trim()){ s.err = 'Add their email.'; renderSlots('m'); return; }
+  if(!slotReady(s, coed)){ s.err = slotProblem(s, coed); renderSlots('m'); return; }
+  state.busy = true; setBusy('m-add-btn', true, 'Adding...');
+  var res = await post('/club/tournament-team-add', Object.assign(linkBody(), { member: memberOf(s) }));
+  state.busy = false; setBusy('m-add-btn', false, 'Add to team');
+  if(res.net){ $('m-add-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  var j = res.j;
+  if(j && j.ok === true && j.closed){ $('m-add-err').textContent = 'Changes are closed for this tournament. Reach out to the exec team.'; return; }
+  if(j && j.ok === true){ await loadManage('Added. Everyone on the team got an email.'); return; }
+  if(j && j.error === 'invalid_link'){ show('v-link-invalid'); return; }
+  if(j && j.memberIndex === 0){
+    if(j.code === 'new_player_required') s.st = 'new';
+    if(j.code === 'gender_needed'){ s.st = 'found'; s.gNeeded = true; s.first = s.first || 'This player'; }
+    if(j.code === 'already_on_team') s.st = 'onTeam';
+    s.err = j.error || 'Check this player.';
+    renderSlots('m');
+    return;
+  }
+  $('m-add-err').textContent = genericErr(res.r, j);
+}
+function result(ico, title, msg){ $('res-ico').textContent = ico; $('res-title').textContent = title; $('res-msg').textContent = msg; show('v-result'); }
+async function doWithdraw(){
+  if(state.busy) return;
+  if(!window.confirm('Withdraw from ' + (state.manage.teamName || 'your team') + '? The team stays, and your teammates get an email.')) return;
+  state.busy = true; setBusy('m-wd-btn', true, 'Withdrawing...');
+  var res = await post('/club/tournament-withdraw', linkBody());
+  state.busy = false; setBusy('m-wd-btn', false, 'Withdraw me');
+  var j = res.j;
+  if(j && j.ok === true){ result('👋', "You're off the team", 'Thanks for letting us know. We emailed your teammates so they can find a replacement.'); return; }
+  if(j && j.error === 'invalid_link'){ show('v-link-invalid'); return; }
+  $('m-err').textContent = res.net ? 'We could not reach the server. Check your connection and try again.' : genericErr(res.r, j);
+}
+async function doDrop(){
+  if(state.busy) return;
+  if(!window.confirm('Drop ' + (state.manage.teamName || 'your team') + ' for everyone? This removes the whole team from the tournament and cannot be undone. Every player on the team gets an email.')) return;
+  state.busy = true; setBusy('m-drop-btn', true, 'Dropping...');
+  var res = await post('/club/tournament-team-drop', linkBody());
+  state.busy = false; setBusy('m-drop-btn', false, 'Drop our team');
+  var j = res.j;
+  if(j && j.ok === true){ result('🗑️', 'Your team is dropped', 'Everyone on the team got an email. You can register a new team any time registration is open.'); return; }
+  if(j && j.error === 'invalid_link'){ show('v-link-invalid'); return; }
+  $('m-err').textContent = res.net ? 'We could not reach the server. Check your connection and try again.' : genericErr(res.r, j);
+}
+
+// ---- Boot ----
+function invalid(msg){ if(msg) $('invalid-msg').textContent = msg; show('v-invalid'); }
 async function boot(){
   var q = new URLSearchParams(location.search);
   state.tid = String(q.get('t') || '').trim();
   state.a = String(q.get('a') || '').trim();
-  state.w = String(q.get('w') || '').trim();
+  state.m = String(q.get('m') || '').trim();
   if(!ID_RE.test(state.tid)){ invalid(); return; }
+  // An old individual-registration withdraw link (a and w): those links are retired.
+  if(q.get('w') && !state.m){ show('v-link-invalid'); return; }
   var base = 'grass_club_matches/tournaments/' + encodeURIComponent(state.tid);
   try {
     var got = await Promise.all([getJson(base + '/meta'), getJson(base + '/divisions')]);
@@ -625,33 +623,17 @@ async function boot(){
   var m = state.meta;
   if(!m || typeof m !== 'object' || !m.name){ invalid(); return; }
   $('t-name').textContent = m.name;
-  $('t-when').textContent = dateLabel(m.date);
+  $('t-when').textContent = dateLabel(m.date) + (m.location ? ' · ' + m.location : '');
   document.title = m.name + ' | FSU Grass Club';
-
-  if(state.a || state.w){
-    if(!state.a || !state.w){ show('v-wd-invalid'); return; }
-    $('wd-title').textContent = 'Withdraw from ' + m.name + '?';
-    // Current flag for the toggle label, read from the public registration. Best effort:
-    // the button still works if this read fails, it just starts as "Add me".
-    if(/^[A-Za-z0-9_-]{1,200}$/.test(state.a)){
-      try { var mine = await getJson(base + '/registrations/' + encodeURIComponent(state.a)); state.looking = !!(mine && mine.lookingForTeam === true); }
-      catch(e){ state.looking = null; }
-    }
-    setLookingLabel();
-    show('v-withdraw');
+  if(state.a || state.m){
+    if(!state.a || !state.m){ show('v-link-invalid'); return; }
+    await loadManage('');
     return;
   }
-  if(q.get('looking') === '1'){ showLooking(); return; }
-  if(m.status !== 'registration'){ showClosed(); return; }
-  if(!divIds().length){ showClosed(); return; }
-  show('v-email');
+  // ?looking=1 from older emails lands on the normal register view.
+  if(m.status !== 'registration' || !divIds().length){ showClosed(); return; }
+  startRegister();
 }
-
-document.addEventListener('keydown', function(e){
-  if(e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
-  var on = document.querySelector('.view.on'); if(!on) return;
-  if(on.id === 'v-email'){ e.preventDefault(); doLookup(); }
-});
 boot();
 </script>
 </body>
