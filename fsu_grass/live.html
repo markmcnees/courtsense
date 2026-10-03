@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>FSU Grass Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --garnet:#782F40;
+    --garnet-dark:#5A2331;
+    --garnet-deep:#471a26;
+    --gold:#CEB888;
+    --gold-dark:#A8894C;
+    --cream:#F4EFE7;
+    --paper:#FBF7F0;
+    --ink:#1d1115;
+    --slate:#4f3f44;
+    --white:#FFFFFF;
+    --line:#d9ccbd;
+    --green:#1f5a26;
+    --green-bg:#e3f0e4;
+    --mine:#fff3c4;
+    --mine-line:#b8860b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Barlow',system-ui,sans-serif;color:var(--ink);background:var(--paper);line-height:1.45;font-size:18px;-webkit-font-smoothing:antialiased;}
+  .hero{background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);color:var(--white);padding:24px 16px 26px;text-align:center;position:relative;}
+  .hero::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-dark) 100%);}
+  .eyebrow{font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,9vw,56px);letter-spacing:1.5px;line-height:1;font-weight:400;margin-top:4px;}
+  .hero .when{color:var(--cream);font-size:18px;margin-top:8px;}
+  .hero .when:empty{display:none;}
+  .pills{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-size:15px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border-radius:999px;padding:6px 14px;background:var(--white);color:var(--garnet-deep);}
+  .pill.live{background:rgba(255,255,255,.14);color:var(--white);text-transform:none;letter-spacing:0;font-weight:600;}
+  .dot{width:10px;height:10px;border-radius:50%;background:#7CFC8A;box-shadow:0 0 0 3px rgba(124,252,138,.25);}
+  .pill.live.slow .dot{background:var(--gold);box-shadow:none;}
+  .wrap{max-width:720px;margin:0 auto;padding:16px 16px 40px;}
+  .card{background:var(--white);border-radius:14px;box-shadow:0 6px 24px rgba(71,26,38,0.12);padding:18px 16px;margin-bottom:16px;}
+  .card.center{text-align:center;padding:30px 20px;}
+  .cico{font-size:46px;line-height:1;margin-bottom:10px;}
+  h2{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--garnet);letter-spacing:.8px;line-height:1.05;margin-bottom:10px;font-weight:400;}
+  h3{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--garnet);letter-spacing:.6px;line-height:1.1;margin:4px 0 8px;font-weight:400;}
+  .muted{color:var(--slate);font-size:16px;}
+  .tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;}
+  .tab{flex:0 0 auto;min-height:48px;padding:10px 18px;border-radius:10px;border:2px solid var(--garnet);background:var(--white);color:var(--garnet);font-family:'Barlow',sans-serif;font-size:18px;font-weight:700;cursor:pointer;}
+  .tab.on{background:var(--garnet);color:var(--white);}
+  .find{display:flex;flex-direction:column;gap:6px;}
+  .find label{font-size:14px;font-weight:700;color:var(--garnet);text-transform:uppercase;letter-spacing:.7px;}
+  .find select{font-family:'Barlow',sans-serif;font-size:18px;min-height:52px;padding:10px 12px;border:2px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);width:100%;}
+  .court-now{display:grid;grid-template-columns:1fr;gap:10px;}
+  @media (min-width:600px){ .court-now{grid-template-columns:1fr 1fr;} }
+  .cn{border:2px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .cn-court{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--garnet);letter-spacing:.6px;line-height:1;}
+  .cn-teams{font-size:20px;font-weight:700;margin-top:6px;line-height:1.3;}
+  .cn-teams .vs{display:block;font-size:14px;font-weight:600;color:var(--slate);text-transform:uppercase;letter-spacing:.6px;}
+  .cn-meta{font-size:16px;color:var(--slate);margin-top:6px;}
+  table.st{width:100%;border-collapse:collapse;font-size:18px;}
+  table.st th{font-size:13px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.6px;text-align:right;padding:6px 6px;border-bottom:2px solid var(--line);}
+  table.st th.l,table.st td.l{text-align:left;}
+  table.st td{padding:10px 6px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;}
+  table.st td.rk{width:34px;text-align:center;font-weight:700;color:var(--garnet);}
+  table.st td.tn{font-weight:700;word-break:break-word;}
+  table.st tr.adv td.rk{background:var(--green-bg);color:var(--green);}
+  table.st tr.cut td{border-bottom:3px solid var(--green);}
+  .legend{font-size:15px;color:var(--slate);margin-top:8px;}
+  .legend b{color:var(--green);}
+  .wave{font-size:14px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.8px;margin:16px 0 6px;}
+  .match{border:2px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+  .mh{display:flex;justify-content:space-between;gap:10px;font-size:15px;color:var(--slate);font-weight:600;margin-bottom:6px;flex-wrap:wrap;}
+  .side{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:19px;padding:3px 0;}
+  .side .nm{font-weight:600;word-break:break-word;}
+  .side.win .nm{font-weight:800;color:var(--green);}
+  .side .sc{display:flex;gap:12px;font-variant-numeric:tabular-nums;font-weight:700;flex:0 0 auto;}
+  .side .sc span{min-width:26px;text-align:right;}
+  .side .sc .w{color:var(--green);}
+  .seed{font-size:14px;color:var(--slate);font-weight:700;margin-right:6px;}
+  .unplayed{font-size:15px;color:var(--slate);font-style:italic;}
+  .mine{background:var(--mine);border-color:var(--mine-line) !important;}
+  table.st tr.mine td{background:var(--mine);}
+  .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border-radius:6px;padding:2px 7px;margin-left:6px;vertical-align:middle;background:#ece4f0;color:#4a2a5e;}
+  .tag.tie{background:#fbeee0;color:#7a4106;}
+  .champ{background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);color:var(--white);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px;}
+  .champ .lbl{font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
+  .champ .nm{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:1px;line-height:1.1;margin-top:4px;}
+  .foot{text-align:center;padding:4px 16px 36px;font-size:14px;color:var(--slate);}
+  .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="eyebrow">FSU Grass Club</div>
+  <h1 id="t-name">Tournament</h1>
+  <div class="when" id="t-when"></div>
+  <div class="pills"><span class="pill" id="t-status" hidden></span><span class="pill live" id="t-live" hidden><span class="dot" aria-hidden="true"></span><span id="t-live-txt"></span></span></div>
+</header>
+
+<main class="wrap" id="app" aria-live="polite">
+  <div class="card center"><p class="muted">Loading the tournament...</p></div>
+</main>
+
+<footer class="foot">
+  <a href="https://courtsense.app">Powered by CourtSense</a>
+</footer>
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+// ===== TN ENGINE START =====
+// ---- Club tournament engine (divisions, pools, playoffs) ------------------
+// Pure functions only: no DOM, no Firebase, no globals read or written, and nothing passed in is
+// ever mutated. Every name starts with tn. scripts/tn-engine-test.js runs this block on its own.
+// Later steps store one tournament at grass_club_matches/tournaments/{tid} in this shape:
+//   meta      { name, date, status:'registration'|'setup'|'pools'|'playoffs'|'final', createdAt, updatedAt }
+//   divisions { divId: { name, category:'coed'|'mens'|'womens'|'open', teamSize:2|3|4, rosterMax,
+//               coed:{minGuys,minGirls}|null, poolCount, advancePerPool, courts:[n],
+//               pool:{bestOf:1|3, scoreTo, cap, thirdSetTo}, playoff:{bestOf:1|3, scoreTo, cap, thirdSetTo} } }
+//   teams     { teamId: { divId, name, seed, pool, captainAccountId, players:[ {accountId, name, gender} ] } }
+//   pools     { divId: { poolKey: { teamIds:[], courts:[], matches:[ {mid, round, wave, court, t1, t2, ref} ] } } }
+//   bracket   { divId: { rounds:[ [ {mid, round, slot, t1, t2, fromA?, fromB?, seedA?, seedB?, court?, bye?} ] ] } }
+//   results   { mid: { t1, t2, sets:[ {a,b} ], winner, at, by, byRole } }
+// A single game is sets of length 1. In a result, a is t1's points and b is t2's. Every player is a
+// CourtSense account, identified by accountId (the tally_kotb_pickup/players key), and there are no
+// guests. Tournament players are not club members: nothing here reads or writes the club roster.
+// Gender is 'M' | 'F' | null; 'male' and 'female' in any case are read the same way, and anything
+// else (the account's 'unspecified' included) counts toward neither coed minimum.
+// results is keyed by mid for the whole tournament, so pool and bracket mids take an optional
+// prefix (the divId) that keeps two divisions' "A-r1-m1" or "po-r1-m1" apart.
+// Tournament results stay apart from Kings Night: nothing here touches practiceTournaments.
+
+// Firebase hands arrays back as objects when they have gaps, so every list goes through tnArr.
+function tnArr(v){
+  if(Array.isArray(v)) return v.filter(function(x){ return x!=null; });
+  if(v&&typeof v==='object') return Object.keys(v).sort(function(a,b){ return a-b; }).map(function(k){ return v[k]; }).filter(function(x){ return x!=null; });
+  return [];
+}
+function tnClone(v){ return v==null?null:JSON.parse(JSON.stringify(v)); }
+function tnNum(v){
+  if(typeof v==='number') return (isFinite(v)&&v>=0&&Math.floor(v)===v)?v:null;
+  var s=String(v==null?'':v).trim();
+  return /^\d{1,3}$/.test(s)?parseInt(s,10):null;
+}
+function tnGender(g){
+  var s=String(g==null?'':g).trim().toLowerCase();
+  return (s==='m'||s==='male')?'M':(s==='f'||s==='female')?'F':null;
+}
+function tnPoolKey(i){ return i<26?String.fromCharCode(65+i):'P'+(i+1); }
+function tnMidPrefix(p){ return (p==null||p==='')?'':String(p)+'-'; }
+
+// Round robin by the circle method, ported from the 4v4 league generator. An odd count gets a BYE
+// sentinel that never appears in the output. Returns rounds, each a list of { a, b } pairings.
+function tnRoundRobin(teamIds){
+  var BYE='__BYE__', ids=tnArr(teamIds).slice();
+  if(ids.length<2) return [];
+  if(ids.length%2===1) ids.push(BYE);
+  var n=ids.length, rounds=[], rot=ids.slice(1);
+  for(var r=0;r<n-1;r++){
+    var seq=[ids[0]].concat(rot), round=[];
+    for(var i=0;i<n/2;i++){
+      var a=seq[i], b=seq[n-1-i];
+      if(a!==BYE&&b!==BYE) round.push({a:a, b:b});
+    }
+    rounds.push(round);
+    rot=[rot[rot.length-1]].concat(rot.slice(0,-1));
+  }
+  return rounds;
+}
+
+// Teams in seed order: seeded teams by seed ascending, then unseeded teams by name, then id.
+// teams may be a list of { id or teamId, seed, name } or the teams map keyed by teamId.
+function tnTeamList(teams){
+  if(Array.isArray(teams)) return teams.filter(Boolean).map(function(t){ return {id:(t.teamId!=null?t.teamId:t.id), seed:t.seed, name:t.name||''}; });
+  return Object.keys(teams||{}).filter(function(k){ return !!teams[k]; }).map(function(k){ return {id:k, seed:teams[k].seed, name:teams[k].name||''}; });
+}
+function tnSeedVal(s){
+  if(s==null||s==='') return null;
+  var n=+s; return (isFinite(n)&&n>0)?n:null;
+}
+function tnSeedOrder(list){
+  return list.slice().sort(function(a,b){
+    var sa=tnSeedVal(a.seed), sb=tnSeedVal(b.seed);
+    if(sa!=null&&sb!=null&&sa!==sb) return sa-sb;
+    if((sa!=null)!==(sb!=null)) return sa!=null?-1:1;
+    var c=String(a.name).localeCompare(String(b.name));
+    if(c) return c;
+    return String(a.id)<String(b.id)?-1:String(a.id)>String(b.id)?1:0;
+  });
+}
+// Snake the seed order into pools A, B, C...: 1 2 3 then 6 5 4 then 7 8 9. Each pool lists its
+// teams in seed order. Returns { A:[teamId...], B:[...] }.
+function tnSnakePools(teams,poolCount){
+  var P=Math.max(1,Math.floor(+poolCount)||1), out={};
+  for(var i=0;i<P;i++) out[tnPoolKey(i)]=[];
+  tnSeedOrder(tnTeamList(teams)).forEach(function(t,idx){
+    var row=Math.floor(idx/P), col=idx%P;
+    if(row%2===1) col=P-1-col;
+    out[tnPoolKey(col)].push(t.id);
+  });
+  return out;
+}
+
+// Every match of one pool. Rounds come from tnRoundRobin and stay in order. A round with more
+// matches than the pool has courts spills into later waves, so waves count up across the pool and
+// no team ever plays twice in one wave. Courts go in order within each wave. Each match gets a ref:
+// a pool team not playing in that wave and not already reffing in it, fewest ref duties first, then
+// the team on a bye that round, then pool order. ref is null when every team is on the sand.
+// Returns { teamIds, courts, matches } ready to store at pools/{divId}/{poolKey}.
+function tnSchedulePool(poolKey,teamIds,courts,idPrefix){
+  var ids=tnArr(teamIds), cs=tnArr(courts), C=Math.max(1,cs.length), pre=tnMidPrefix(idPrefix);
+  var refCount={}, order={}, matches=[], wave=0;
+  ids.forEach(function(id,i){ refCount[id]=0; order[id]=i; });
+  tnRoundRobin(ids).forEach(function(round,ri){
+    var inRound={};
+    round.forEach(function(p){ inRound[p.a]=1; inRound[p.b]=1; });
+    var list=round.map(function(p,mi){ return {mid:pre+poolKey+'-r'+(ri+1)+'-m'+(mi+1), round:ri+1, t1:p.a, t2:p.b}; });
+    for(var start=0;start<list.length;start+=C){
+      wave++;
+      var batch=list.slice(start,start+C), busy={};
+      batch.forEach(function(m){ busy[m.t1]=1; busy[m.t2]=1; });
+      batch.forEach(function(m,ci){
+        var cands=ids.filter(function(id){ return !busy[id]; }).sort(function(a,b){
+          return (refCount[a]-refCount[b])||((inRound[a]?1:0)-(inRound[b]?1:0))||(order[a]-order[b]);
+        });
+        var ref=cands.length?cands[0]:null;
+        if(ref!=null){ busy[ref]=1; refCount[ref]++; }
+        matches.push({mid:m.mid, round:m.round, wave:wave, court:cs.length?cs[ci]:null, t1:m.t1, t2:m.t2, ref:ref});
+      });
+    }
+  });
+  tnBalanceRefs(matches,ids);
+  return {teamIds:ids.slice(), courts:cs.slice(), matches:matches};
+}
+// The first pass above can leave ref duty uneven (five teams on one court lands at 3 and 1). This
+// moves duty from the busiest team along a chain of hand offs (X gives a match to Y, Y gives one to
+// Z...) to a team at least two duties lighter, where each new ref is free in that match's wave.
+// Every move lowers the spread, so it stops; changes only the matches list it is handed.
+function tnBalanceRefs(matches,ids){
+  var playing={}, reffing={};
+  matches.forEach(function(m){
+    var p=(playing[m.wave]=playing[m.wave]||{}); p[m.t1]=1; p[m.t2]=1;
+    if(m.ref!=null) (reffing[m.wave]=reffing[m.wave]||{})[m.ref]=1;
+  });
+  for(var guard=0;guard<500;guard++){
+    var c={}; ids.forEach(function(id){ c[id]=0; });
+    matches.forEach(function(m){ if(m.ref!=null) c[m.ref]++; });
+    var starts=ids.slice().sort(function(a,b){ return c[b]-c[a]; }), hit=null, prev=null;
+    for(var si=0;si<starts.length&&!hit;si++){
+      var s=starts[si], queue=[s];
+      prev={}; prev[s]={from:null, m:null};
+      while(queue.length&&!hit){
+        var X=queue.shift();
+        if(X!==s&&c[X]<=c[s]-2){ hit=X; break; }
+        matches.forEach(function(m){
+          if(m.ref!==X) return;
+          ids.forEach(function(Y){
+            if(prev[Y]||playing[m.wave][Y]||(reffing[m.wave]||{})[Y]) return;
+            prev[Y]={from:X, m:m}; queue.push(Y);
+          });
+        });
+      }
+    }
+    if(!hit) return;
+    for(var Z=hit;prev[Z].from!=null;Z=prev[Z].from){
+      var step=prev[Z], w=step.m.wave;
+      reffing[w][step.from]=0; reffing[w][Z]=1; step.m.ref=Z;
+    }
+  }
+}
+
+// One set against its target. A set ends when a side reaches the target with a 2 point lead, or
+// reaches the cap (the cap overrides win by 2). Returns an error string, or '' when the set is valid.
+function tnSetError(s,target,cap){
+  var a=tnNum(s&&s.a), b=tnNum(s&&s.b);
+  if(a==null||b==null) return 'scores must be whole numbers';
+  if(a===b) return 'a set cannot end tied';
+  var w=Math.max(a,b), l=Math.min(a,b), c=(cap&&cap>=target)?cap:0;
+  if(w<target) return 'not finished, the winner needs '+target;
+  if(c&&w>c) return 'over the cap of '+c;
+  if(w===target&&l<=target-2) return '';
+  if(c&&w===c&&l===c-1) return '';
+  if(w>target&&w-l===2) return '';
+  return w===target?'must be won by 2':'past '+target+' a set ends at a 2 point lead'+(c?' or at '+c:'');
+}
+// The winner of a match from its sets. fmt { bestOf:1|3, scoreTo, cap, thirdSetTo }: set 3 plays to
+// thirdSetTo when it is set, with win by 2 and no cap (the cap is written for scoreTo). Returns
+// { winner:'t1'|'t2'|null, valid, reason }; winner is null and valid true while the match is
+// unfinished, and valid is false for any bad set or a set played after the match was decided.
+function tnMatchWinner(result,fmt){
+  var f=fmt||{}, bestOf=(+f.bestOf===3)?3:1, need=(bestOf===3)?2:1;
+  var scoreTo=+f.scoreTo||21, cap=+f.cap||0, third=+f.thirdSetTo||0;
+  var sets=tnArr(result&&result.sets);
+  if(!sets.length) return {winner:null, valid:true, reason:'No sets entered'};
+  if(sets.length>bestOf) return {winner:null, valid:false, reason:'More sets than best of '+bestOf};
+  var w1=0, w2=0;
+  for(var i=0;i<sets.length;i++){
+    if(w1===need||w2===need) return {winner:null, valid:false, reason:'Set '+(i+1)+' was entered after the match was decided'};
+    var isThird=(i===2&&third>0);
+    var err=tnSetError(sets[i],isThird?third:scoreTo,isThird?0:cap);
+    if(err) return {winner:null, valid:false, reason:'Set '+(i+1)+': '+err};
+    if(tnNum(sets[i].a)>tnNum(sets[i].b)) w1++; else w2++;
+  }
+  if(w1===need) return {winner:'t1', valid:true, reason:''};
+  if(w2===need) return {winner:'t2', valid:true, reason:''};
+  return {winner:null, valid:true, reason:'Match not finished'};
+}
+// The result's sides for a scheduled match: { t1, t2 } with a scores belonging to t1. The result's
+// own t1 and t2 win when present, and must be the match's two teams; null when they are not.
+function tnResultSides(m,r){
+  var t1=(r&&r.t1!=null)?r.t1:m.t1, t2=(r&&r.t2!=null)?r.t2:m.t2;
+  if(!t1||!t2||t1===t2) return null;
+  var ok=(t1===m.t1&&t2===m.t2)||(t1===m.t2&&t2===m.t1);
+  return ok?{t1:t1, t2:t2}:null;
+}
+
+// Standings for one pool. Only finished, valid results whose teams match the scheduled match count.
+// Order: wins; head to head when exactly two teams share a win total; then set difference, point
+// difference, fewest points against. Teams still level after that keep teamIds order (the pool's
+// seed order) and carry tieUnresolved:true. rank is the 1 based position.
+function tnPoolStandings(teamIds,matches,results,fmt){
+  var ids=tnArr(teamIds), res=results||{}, rows={}, h2h={};
+  ids.forEach(function(id,i){ rows[id]={teamId:id, mp:0, w:0, l:0, setsW:0, setsL:0, ptsFor:0, ptsAgainst:0, pd:0, rank:0, tieUnresolved:false, _o:i}; });
+  tnArr(matches).forEach(function(m){
+    var r=m&&res[m.mid]; if(!r) return;
+    var x=tnResultSides(m,r); if(!x) return;
+    var A=rows[x.t1], B=rows[x.t2]; if(!A||!B) return;
+    var mw=tnMatchWinner(r,fmt); if(!mw.valid||!mw.winner) return;
+    tnArr(r.sets).forEach(function(s){
+      var a=tnNum(s.a), b=tnNum(s.b);
+      A.ptsFor+=a; A.ptsAgainst+=b; B.ptsFor+=b; B.ptsAgainst+=a;
+      if(a>b){ A.setsW++; B.setsL++; } else { B.setsW++; A.setsL++; }
+    });
+    A.mp++; B.mp++;
+    var win=(mw.winner==='t1')?A:B, lose=(win===A)?B:A;
+    win.w++; lose.l++;
+    h2h[win.teamId+'|'+lose.teamId]=(h2h[win.teamId+'|'+lose.teamId]||0)+1;
+  });
+  var list=ids.map(function(id){ var r=rows[id]; r.pd=r.ptsFor-r.ptsAgainst; return r; });
+  list.sort(function(a,b){ return (b.w-a.w)||(a._o-b._o); });
+  var out=[], i=0;
+  while(i<list.length){
+    var j=i; while(j<list.length&&list[j].w===list[i].w) j++;
+    out=out.concat(tnBreakTie(list.slice(i,j),h2h));
+    i=j;
+  }
+  return out.map(function(r,k){ var c=tnClone(r); delete c._o; c.rank=k+1; return c; });
+}
+function tnStatCmp(a,b){
+  return ((b.setsW-b.setsL)-(a.setsW-a.setsL))||(b.pd-a.pd)||(a.ptsAgainst-b.ptsAgainst);
+}
+function tnBreakTie(group,h2h){
+  if(group.length<2) return group;
+  if(group.length===2){
+    var a=group[0], b=group[1], ha=h2h[a.teamId+'|'+b.teamId]||0, hb=h2h[b.teamId+'|'+a.teamId]||0;
+    if(ha!==hb) return ha>hb?[a,b]:[b,a];
+  }
+  var g=group.slice().sort(function(x,y){ return tnStatCmp(x,y)||(x._o-y._o); });
+  for(var k=1;k<g.length;k++){
+    if(!tnStatCmp(g[k-1],g[k])){ g[k-1].tieUnresolved=true; g[k].tieUnresolved=true; }
+  }
+  return g;
+}
+
+// Cross pool playoff seeds. divisionStandings is { poolKey: tnPoolStandings rows }. Every pool's
+// first place team is ranked among the other first places (win %, set difference, point difference,
+// fewest points against, then pool key), then every second place, and so on down to
+// advancePerPool. Returns [ { seed, teamId, pool, poolRank } ] in seed order.
+function tnSeedPlayoffs(divisionStandings,advancePerPool){
+  var S=divisionStandings||{}, K=Math.max(0,Math.floor(+advancePerPool)||0), out=[];
+  var keys=Object.keys(S).sort();
+  var pct=function(r){ return r.mp?r.w/r.mp:0; };
+  for(var k=0;k<K;k++){
+    var tier=[];
+    keys.forEach(function(pk){
+      var rows=tnArr(S[pk]).slice().sort(function(a,b){ return (a.rank||0)-(b.rank||0); });
+      if(rows[k]) tier.push({row:rows[k], pool:pk});
+    });
+    tier.sort(function(x,y){ return (pct(y.row)-pct(x.row))||tnStatCmp(x.row,y.row)||(x.pool<y.pool?-1:x.pool>y.pool?1:0); });
+    tier.forEach(function(t){ out.push({seed:out.length+1, teamId:t.row.teamId, pool:t.pool, poolRank:k+1}); });
+  }
+  return out;
+}
+
+// Seed numbers in bracket order for a power of two: 1 8 4 5 2 7 3 6 for eight, the same pattern
+// for sixteen. Consecutive pairs are first round matches.
+function tnBracketOrder(size){
+  var o=[1];
+  while(o.length<size){
+    var n=o.length*2, nx=[];
+    o.forEach(function(s){ nx.push(s,n+1-s); });
+    o=nx;
+  }
+  return o;
+}
+// Single elimination from tnSeedPlayoffs output. The draw is the next power of two and byes fall to
+// the top seeds. A first round match between two teams from the same pool swaps its lower seed with
+// the next seed in the same pool finish tier (then the one before) when that clears it without
+// making another same pool match; otherwise it stands. A bye match carries bye:true and its team
+// moves straight on. Later matches name their feeders in fromA and fromB. Returns { rounds }.
+function tnBuildBracket(seeds,idPrefix){
+  var list=tnArr(seeds).slice().sort(function(a,b){ return (+a.seed||0)-(+b.seed||0); });
+  var N=list.length, pre=tnMidPrefix(idPrefix);
+  if(N<2) return {rounds:[]};
+  var size=2; while(size<N) size*=2;
+  var at=function(n){ return list[n-1]; };
+  var slots=tnBracketOrder(size).map(function(n){ return n<=N?n:null; });
+  var samePool=function(x,y){ return x!=null&&y!=null&&at(x).pool!=null&&at(x).pool===at(y).pool; };
+  var tierOf=function(n){ return at(n).poolRank||0; };
+  for(var p=0;p<slots.length;p+=2){
+    var x=slots[p], y=slots[p+1];
+    if(!samePool(x,y)) continue;
+    var hi=Math.min(x,y), lo=Math.max(x,y), loIdx=(slots[p]===lo)?p:p+1;
+    [lo+1,lo-1].some(function(c){
+      if(c<1||c>N||c===hi||tierOf(c)!==tierOf(lo)) return false;
+      var j=slots.indexOf(c), o=slots[j%2===0?j+1:j-1];
+      if(o==null||o===lo) return false;
+      if(samePool(hi,c)||samePool(o,lo)) return false;
+      slots[loIdx]=c; slots[j]=lo;
+      return true;
+    });
+  }
+  var rounds=[], r1=[];
+  for(var q=0;q<slots.length;q+=2){
+    var A=slots[q], B=slots[q+1];
+    if(A==null){ A=B; B=null; }
+    var m={mid:pre+'po-r1-m'+(q/2+1), round:1, slot:q/2+1, t1:at(A).teamId, t2:B!=null?at(B).teamId:null, seedA:at(A).seed};
+    if(B!=null) m.seedB=at(B).seed; else m.bye=true;
+    r1.push(m);
+  }
+  rounds.push(r1);
+  for(var r=2, count=size/4; count>=1; r++, count/=2){
+    var rd=[];
+    for(var s=1;s<=count;s++){
+      rd.push({mid:pre+'po-r'+r+'-m'+s, round:r, slot:s, t1:null, t2:null,
+        fromA:pre+'po-r'+(r-1)+'-m'+(2*s-1), fromB:pre+'po-r'+(r-1)+'-m'+(2*s)});
+    }
+    rounds.push(rd);
+  }
+  var filled=tnAdvance({rounds:rounds},{},null);
+  return {rounds:filled.rounds};
+}
+// Winners carried forward through a copy of the bracket; the input is never changed and no result
+// is ever removed. Each later match takes its teams from its feeders' winners. A result that no
+// longer fits its match (the teams changed after a feeder edit, the teams are not both known yet,
+// a result on a bye, or an invalid score) is left in place, gives no winner, and is listed in
+// conflicts as { mid, kind, reason }. Returns { rounds, conflicts, champion }.
+function tnAdvance(bracket,results,fmt){
+  var rounds=tnArr(bracket&&bracket.rounds).map(function(rd){ return tnArr(rd).map(function(m){ return tnClone(m); }); });
+  var res=results||{}, conflicts=[], winners={};
+  var win=function(mid){ return Object.prototype.hasOwnProperty.call(winners,mid)?winners[mid]:null; };
+  rounds.forEach(function(rd,ri){
+    rd.forEach(function(m){
+      if(ri>0&&(m.fromA||m.fromB)){ m.t1=m.fromA?win(m.fromA):null; m.t2=m.fromB?win(m.fromB):null; }
+      winners[m.mid]=tnBracketWinner(m,res[m.mid],fmt,conflicts);
+    });
+  });
+  var last=rounds.length?rounds[rounds.length-1]:[];
+  return {rounds:rounds, conflicts:conflicts, champion:(last.length===1?win(last[0].mid):null)};
+}
+function tnBracketWinner(m,r,fmt,conflicts){
+  var t1=m.t1||null, t2=m.t2||null;
+  if(m.bye){
+    if(r) conflicts.push({mid:m.mid, kind:'bye', reason:'A result was saved for a bye'});
+    return t1||t2;
+  }
+  if(!r) return null;
+  if(!t1||!t2){ conflicts.push({mid:m.mid, kind:'teams_unknown', reason:'A result is saved but both teams are not known yet'}); return null; }
+  var x=tnResultSides({t1:t1, t2:t2},r);
+  if(!x){ conflicts.push({mid:m.mid, kind:'teams_changed', reason:'The saved result is for different teams than this match now has'}); return null; }
+  var mw=tnMatchWinner(r,fmt);
+  if(!mw.valid){ conflicts.push({mid:m.mid, kind:'invalid', reason:mw.reason}); return null; }
+  if(!mw.winner) return null;
+  return mw.winner==='t1'?x.t1:x.t2;
+}
+
+// Every problem with a tournament's setup, as [ { code, message, divId?, teamId?, poolKey?, accountId? } ].
+// Empty means ready. "In no pool" is only checked once a division has pools.
+function tnValidateTournament(t){
+  var T=t||{}, divs=T.divisions||{}, teams=T.teams||{}, pools=T.pools||{}, issues=[];
+  var add=function(code,message,extra){
+    var x={code:code, message:message};
+    Object.keys(extra||{}).forEach(function(k){ x[k]=extra[k]; });
+    issues.push(x);
+  };
+  var dName=function(d){ return (divs[d]&&divs[d].name)||d; };
+  var tName=function(id){ return (teams[id]&&teams[id].name)||id; };
+  var teamsByDiv={}, seat={};
+  Object.keys(divs).forEach(function(d){ teamsByDiv[d]=[]; });
+  Object.keys(pools).forEach(function(d){
+    Object.keys(pools[d]||{}).forEach(function(pk){
+      var ids=tnArr((pools[d][pk]||{}).teamIds);
+      if(ids.length<2) add('pool_too_small','Pool '+pk+' in '+dName(d)+' has fewer than 2 teams',{divId:d, poolKey:pk});
+      ids.forEach(function(id){ (seat[id]=seat[id]||[]).push({divId:d, poolKey:pk}); });
+    });
+  });
+  Object.keys(divs).forEach(function(d){
+    var dv=divs[d]||{}, size=+dv.teamSize, max=(dv.rosterMax!=null)?+dv.rosterMax:size;
+    if([2,3,4].indexOf(size)<0) add('bad_team_size',dName(d)+' team size must be 2, 3, or 4',{divId:d});
+    else if(!(max>=size)) add('bad_roster_max',dName(d)+' roster max is smaller than the team size',{divId:d});
+    if(dv.coed&&((+dv.coed.minGuys||0)+(+dv.coed.minGirls||0))>max) add('coed_impossible',dName(d)+' coed minimums need more players than the roster max allows',{divId:d});
+  });
+  Object.keys(teams).forEach(function(id){
+    var tm=teams[id]; if(!tm) return;
+    var d=tm.divId, dv=divs[d];
+    if(!dv){ add('team_no_division',tName(id)+' is not in a division',{teamId:id}); return; }
+    teamsByDiv[d].push(id);
+    var players=tnArr(tm.players), size=+dv.teamSize, max=(dv.rosterMax!=null)?+dv.rosterMax:size;
+    players.forEach(function(p,i){
+      if(!String((p&&p.accountId)||'').trim()) add('player_missing_accountId',tName(id)+' player '+(i+1)+((p&&p.name)?' ('+p.name+')':'')+' is not linked to a CourtSense account',{divId:d, teamId:id});
+    });
+    if([2,3,4].indexOf(size)>=0){
+      if(players.length<size) add('roster_short',tName(id)+' has '+players.length+' players and needs at least '+size,{divId:d, teamId:id});
+      if(max>=size&&players.length>max) add('roster_long',tName(id)+' has '+players.length+' players and the roster max is '+max,{divId:d, teamId:id});
+    }
+    if(dv.coed){
+      var men=0, women=0;
+      players.forEach(function(p){ var g=tnGender(p&&p.gender); if(g==='M') men++; else if(g==='F') women++; });
+      if(men<(+dv.coed.minGuys||0)) add('coed_short_guys',tName(id)+' needs at least '+dv.coed.minGuys+' guys on the roster',{divId:d, teamId:id});
+      if(women<(+dv.coed.minGirls||0)) add('coed_short_girls',tName(id)+' needs at least '+dv.coed.minGirls+' girls on the roster',{divId:d, teamId:id});
+    }
+    var s=seat[id]||[], inDivs=[];
+    s.forEach(function(x){ if(inDivs.indexOf(x.divId)<0) inDivs.push(x.divId); });
+    if(inDivs.length>1||(inDivs.length===1&&inDivs[0]!==d)) add('team_two_divisions',tName(id)+' is placed in a pool outside its own division',{divId:d, teamId:id});
+    var own=s.filter(function(x){ return x.divId===d; });
+    if(own.length>1) add('team_two_pools',tName(id)+' is in more than one pool',{divId:d, teamId:id});
+    if(!own.length&&pools[d]&&Object.keys(pools[d]).length) add('team_no_pool',tName(id)+' is not in a pool',{divId:d, teamId:id});
+  });
+  Object.keys(teamsByDiv).forEach(function(d){
+    var owner={};
+    teamsByDiv[d].forEach(function(id){
+      var mine={};
+      tnArr(teams[id].players).forEach(function(p){
+        var r=String((p&&p.accountId)||'').trim(); if(!r) return;
+        if(mine[r]){ add('player_twice_on_team',tName(id)+' lists '+((p&&p.name)||r)+' twice',{divId:d, teamId:id, accountId:r}); return; }
+        mine[r]=1;
+        if(owner[r]) add('player_on_two_teams',((p&&p.name)||r)+' is on both '+tName(owner[r])+' and '+tName(id)+' in '+dName(d),{divId:d, teamId:id, accountId:r});
+        else owner[r]=id;
+      });
+    });
+  });
+  Object.keys(divs).forEach(function(d){
+    var dv=divs[d]||{}, n=teamsByDiv[d].length, pk=Object.keys(pools[d]||{});
+    var pc=pk.length||(+dv.poolCount||0), adv=+dv.advancePerPool||0;
+    if(pc*adv>n) add('too_many_advancing',dName(d)+' advances '+(pc*adv)+' teams but has '+n,{divId:d});
+    pk.forEach(function(k){
+      var sz=tnArr((pools[d][k]||{}).teamIds).length;
+      if(sz>=2&&adv>sz) add('pool_advance_exceeds_size','Pool '+k+' in '+dName(d)+' has '+sz+' teams and advances '+adv,{divId:d, poolKey:k});
+    });
+  });
+  return issues;
+}
+
+// ---- Pickup partner page listing for one club division --------------------------------
+// While a club tournament's registration is open, each division is listed on the pickup
+// "Find a Tournament Partner" directory at tally_kotb_pickup/tournaments/club-{tid}-{divId},
+// in pickup's own record shape. Returns { key, fields } where fields are paths RELATIVE to
+// that listing node, ready to prefix and merge into one multi-path update. The listing node
+// itself and its pool (written by players) are never in the map. existing is the listing as
+// it stands (or null): its createdAt is kept, and any stale division entry is cleared.
+// Returns { key, error } instead when the division cannot be listed.
+function tnPickupCategory(cat){ return cat==='mens'?'mens':cat==='womens'?'womens':'coed'; }
+function tnPickupListingKey(tid,divId){ return 'club-'+tid+'-'+divId; }
+function tnPickupListing(o){
+  var key=tnPickupListingKey(o.tid,o.divId), meta=o.meta||{}, div=o.div||{}, ex=o.existing||null;
+  if(key.length>60) return {key:key, error:'too_long'};
+  var date=String(meta.date||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return {key:key, error:'no_date'};
+  var loc=String(meta.location||'').trim();
+  if(!loc) return {key:key, error:'no_location'};
+  var size=+div.teamSize;
+  if([2,3,4].indexOf(size)<0) return {key:key, error:'bad_size'};
+  // Pickup keys a division by day, category and level (divIdFor). Club "open" has no pickup
+  // category, so it lists as coed; every club division lists at level open.
+  var cat=tnPickupCategory(div.category), level='open', pdiv=date+'-'+cat+'-'+level;
+  var f={};
+  f.id=key;
+  f.name=(String(meta.name||'Club tournament').trim()+': '+String(div.name||'Division').trim()).slice(0,150);
+  f.startDate=date; f.endDate=date; f.days=[date];
+  f.location=loc.slice(0,150);
+  f.locationAddress=String(meta.locationAddress||'').trim().slice(0,250)||null;
+  f.eventUrl=String(o.regLink||'').slice(0,500);
+  f.surface='grass';
+  f.format=size+'v'+size;
+  f.organizer=String(o.org||'').slice(0,100);
+  f.createdBy=String(o.createdBy||'').slice(0,200);
+  f.createdByName=String(o.org||'').slice(0,100);
+  f.createdAt=(ex&&typeof ex.createdAt==='number')?ex.createdAt:o.now;
+  f.status='open';
+  f.source='club'; f.clubTid=o.tid; f.clubDivId=o.divId;
+  f['divisions/'+pdiv]={id:pdiv, day:date, category:cat, level:level, regStatus:'open'};
+  Object.keys((ex&&ex.divisions)||{}).forEach(function(k){ if(k!==pdiv) f['divisions/'+k]=null; });
+  return {key:key, fields:f};
+}
+// Hide a listing the way pickup hides one (its directory skips status 'cancelled'). Only
+// for a listing that exists: a lone status write would fail the node's required-fields rule.
+function tnPickupHide(existing){ return (existing&&existing.name)?{status:'cancelled'}:null; }
+
+// ---- Schedule (America/New_York) -------------------------------------------------------
+// Club tournaments run on Eastern time. The registration deadline is entered as a local date
+// and time and stored as epoch ms, so every device and the worker agree on the instant.
+// US daylight saving (since 2007): EDT from the second Sunday of March at 2:00 AM local to
+// the first Sunday of November at 2:00 AM local; EST otherwise. In the repeated hour on the
+// November change, the earlier (EDT) instant is used. Returns null for a bad date or time.
+function tnNthSunday(y,month,n){ // month 1 to 12, nth Sunday as a day of the month
+  var first=new Date(Date.UTC(y,month-1,1)).getUTCDay();
+  return 1+((7-first)%7)+(n-1)*7;
+}
+function tnNyEpoch(dateStr,timeStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||'')), t=/^(\d{2}):(\d{2})$/.exec(String(timeStr||''));
+  if(!d||!t) return null;
+  var y=+d[1], mo=+d[2], da=+d[3], h=+t[1], mi=+t[2];
+  if(mo<1||mo>12||da<1||da>31||h>23||mi>59) return null;
+  var local=(mo*100+da)*10000+h*100+mi; // MMDDhhmm, comparable within a year
+  var start=(3*100+tnNthSunday(y,3,2))*10000+200, end=(11*100+tnNthSunday(y,11,1))*10000+200;
+  // Before 2:00 AM on the November Sunday is still EDT (so the repeated 1:00 hour reads as
+  // its first, EDT pass); from 2:00 AM local it is EST.
+  var edt=local>=start&&local<end;
+  return Date.UTC(y,mo-1,da,h,mi)+(edt?4:5)*3600000;
+}
+// "08:30" -> "8:30 AM", "23:59" -> "11:59 PM". '' for anything else.
+function tnTimeLabel(hhmm){
+  var t=/^(\d{2}):(\d{2})$/.exec(String(hhmm||''));
+  if(!t) return '';
+  var h=+t[1], ampm=h>=12?'PM':'AM', h12=h%12||12;
+  return h12+':'+t[2]+' '+ampm;
+}
+// "YYYY-MM-DD" -> "Sunday, October 11". Read at noon UTC so no time zone moves the day.
+function tnDayLabel(dateStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||''));
+  if(!d) return '';
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var dt=new Date(Date.UTC(+d[1],+d[2]-1,+d[3],12));
+  return days[dt.getUTCDay()]+', '+months[+d[2]-1]+' '+(+d[3]);
+}
+// Time left as words: "2 days 4 hours", "5 hours 10 minutes", "12 minutes", "less than a minute".
+function tnCountdown(ms){
+  if(!(ms>0)) return '';
+  var m=Math.floor(ms/60000), d=Math.floor(m/1440), h=Math.floor((m%1440)/60), mm=m%60;
+  var w=function(n,u){ return n+' '+u+(n===1?'':'s'); };
+  if(d) return w(d,'day')+(h?' '+w(h,'hour'):'');
+  if(h) return w(h,'hour')+(mm?' '+w(mm,'minute'):'');
+  return mm?w(mm,'minute'):'less than a minute';
+}
+// The day before a YYYY-MM-DD date, for the default registration deadline.
+function tnDayBefore(dateStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||''));
+  if(!d) return '';
+  var dt=new Date(Date.UTC(+d[1],+d[2]-1,+d[3]-1));
+  return dt.getUTCFullYear()+'-'+String(dt.getUTCMonth()+1).padStart(2,'0')+'-'+String(dt.getUTCDate()).padStart(2,'0');
+}
+
+// ---- Team ratings for seeding -------------------------------------------------------
+// ratings is one entry per player: a number, or null when the player is unrated. The team
+// rating is the mean of the numbers present; a team with none has no rating.
+function tnTeamRating(ratings){
+  var nums=tnArr(ratings).filter(function(x){ return typeof x==='number'&&isFinite(x); });
+  var total=Array.isArray(ratings)?ratings.length:nums.length;
+  return {avg:nums.length?Math.round(nums.reduce(function(a,b){ return a+b; },0)/nums.length):null, rated:nums.length, total:total};
+}
+// ---- Pools for game day -------------------------------------------------------------
+// Split a division's courts across its pools. With at least as many courts as pools, each
+// pool gets its own contiguous block and the blocks differ in size by at most one (earlier
+// pools take the extra court). With fewer courts than pools, pools share: pool i plays on
+// court i mod the number of courts, and pools on the same court take their waves in turn.
+// Returns one court list per pool.
+function tnSplitCourts(courts,poolCount){
+  var cs=tnArr(courts), P=Math.max(1,Math.floor(+poolCount)||1), out=[], i;
+  if(!cs.length){ for(i=0;i<P;i++) out.push([]); return out; }
+  if(cs.length>=P){
+    var base=Math.floor(cs.length/P), extra=cs.length%P, k=0;
+    for(i=0;i<P;i++){ var n=base+(i<extra?1:0); out.push(cs.slice(k,k+n)); k+=n; }
+  } else {
+    for(i=0;i<P;i++) out.push([cs[i%cs.length]]);
+  }
+  return out;
+}
+// A full pool preview for one division: snake the seeded teams into pools, split the
+// courts, and schedule each pool with mids prefixed by the divId. teams is a list of
+// { id, seed, name }. Returns { pools:{ key:{ teamIds, courts, matches } }, split:[ { pool,
+// courts } ], shared } where shared means pools have to share courts.
+function tnBuildPoolsPreview(divId,teams,poolCount,courts){
+  var P=Math.max(1,Math.floor(+poolCount)||1), cs=tnArr(courts);
+  var snake=tnSnakePools(teams,P), keys=Object.keys(snake), split=tnSplitCourts(cs,keys.length), pools={};
+  keys.forEach(function(k,i){ pools[k]=tnSchedulePool(k,snake[k],split[i],divId); });
+  return {pools:pools, split:keys.map(function(k,i){ return {pool:k, courts:split[i]}; }), shared:cs.length>0&&cs.length<keys.length};
+}
+
+// Strongest first: rated teams by average descending, then unrated teams, each tie broken
+// by name. Returns a new list; the input is untouched.
+function tnSortByRating(rows){
+  return tnArr(rows).slice().sort(function(a,b){
+    var x=a.teamRating, y=b.teamRating;
+    if((x==null)!==(y==null)) return x==null?1:-1;
+    if(x!=null&&y!=null&&x!==y) return y-x;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
+}
+// ===== TN ENGINE END =====
+</script>
+<script>
+// FSU Grass Club tournament: public live page. Read only: it never writes to Firebase and
+// never calls the worker. It listens to grass_club_matches/tournaments/{tid} with the
+// Firebase SDK and falls back to reading the same node over REST every 15 seconds when the
+// SDK cannot load or connect. It shows team names only: no player names, ratings, or ids.
+// Standings and the bracket come from the TN ENGINE block above, a byte-for-byte copy of
+// the one in beach-app-core/app.js (scripts/tn-engine-test.js checks they match).
+var DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
+var ROOT = 'grass_club_matches/tournaments/';
+var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+var POLL_MS = 15000;
+var STATUS_LABEL = { registration:'Registration open', setup:'Getting set up', pools:'Pool play', playoffs:'Playoffs', final:'Final' };
+
+var S = { tid:'', t:null, div:'', mine:'', sdkLive:false, poll:null, updated:0, notFound:false };
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
+
+// The remembered division and team, per tournament. Storage can be missing or blocked.
+function loadPick(){
+  try { var v = JSON.parse(localStorage.getItem('tnLive:' + S.tid) || 'null'); if(v){ S.div = String(v.div || ''); S.mine = String(v.team || ''); } } catch(e){}
+}
+function savePick(){
+  try { localStorage.setItem('tnLive:' + S.tid, JSON.stringify({ div:S.div, team:S.mine })); } catch(e){}
+}
+
+// ---- Data ----
+function teamsOf(){ return (S.t && S.t.teams) || {}; }
+function resultsOf(){ return (S.t && S.t.results) || {}; }
+function divisions(){
+  var D = (S.t && S.t.divisions) || {};
+  return Object.keys(D).filter(function(k){ return D[k] && ID_RE.test(k); })
+    .sort(function(a, b){ return String(D[a].name || '').localeCompare(String(D[b].name || '')); });
+}
+function divTeams(divId){
+  var T = teamsOf();
+  return Object.keys(T).filter(function(k){ return T[k] && T[k].divId === divId && T[k].status !== 'dropped'; })
+    .sort(function(a, b){ return String(T[a].name || '').localeCompare(String(T[b].name || '')); });
+}
+function teamLabel(id){
+  if(!id) return 'To be decided';
+  var x = teamsOf()[id];
+  if(!x) return 'Team';
+  return esc(x.name || 'Team') + (x.demo === true ? '<span class="tag">Practice</span>' : '');
+}
+function isMine(ids){ return !!S.mine && ids.indexOf(S.mine) >= 0; }
+// Sets in the match's own t1/t2 order, whichever way round the result was saved.
+function setsFor(m, r){
+  if(!r) return null;
+  var flip = (r.t1 != null && r.t1 === m.t2 && r.t2 === m.t1);
+  return tnArr(r.sets).map(function(s){ var a = tnNum(s.a), b = tnNum(s.b); return flip ? { a:b, b:a } : { a:a, b:b }; });
+}
+function poolsOf(divId){
+  var P = (S.t && S.t.pools && S.t.pools[divId]) || {};
+  return Object.keys(P).filter(function(k){ return P[k]; }).sort().map(function(k){ return { key:k, pool:P[k] }; });
+}
+
+// ---- Rendering ----
+function matchCard(m, opts){
+  var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), fmt = o.fmt;
+  var win = null;
+  if(sets){ var mw = tnMatchWinner({ sets:sets }, fmt); if(mw.valid) win = mw.winner; }
+  var head = [];
+  if(m.court != null && m.court !== '') head.push('Court ' + esc(m.court));
+  if(o.extra) head.push(o.extra);
+  var ref = m.ref ? 'Ref: ' + teamLabel(m.ref) : '';
+  var side = function(id, key, seed){
+    var sc = sets ? '<span class="sc">' + sets.map(function(s){ var mine = key === 't1' ? s.a : s.b, other = key === 't1' ? s.b : s.a; return '<span class="' + (mine > other ? 'w' : '') + '">' + esc(mine) + '</span>'; }).join('') + '</span>' : '';
+    return '<div class="side' + (win === key ? ' win' : '') + '"><span class="nm">' + (seed ? '<span class="seed">' + esc(seed) + '</span>' : '') + teamLabel(id) + '</span>' + sc + '</div>';
+  };
+  return '<div class="match' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '">'
+    + ((head.length || ref) ? '<div class="mh"><span>' + head.join(' &middot; ') + '</span><span>' + ref + '</span></div>' : '')
+    + side(m.t1, 't1', o.seedA) + side(m.t2, 't2', o.seedB)
+    + (sets ? '' : '<div class="unplayed">' + (m.t1 && m.t2 ? 'Not played yet' : 'Waiting on earlier matches') + '</div>')
+    + '</div>';
+}
+
+function standingsHtml(pool, div){
+  var rows = tnPoolStandings(pool.teamIds, pool.matches, resultsOf(), div.pool);
+  var adv = Number(div.advancePerPool) || 0;
+  var h = '<table class="st"><thead><tr><th class="l">#</th><th class="l">Team</th><th>W-L</th><th>Sets</th><th>Pts</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var cls = [];
+    if(adv && r.rank <= adv) cls.push('adv');
+    if(adv && r.rank === adv && rows.length > adv) cls.push('cut');
+    if(isMine([r.teamId])) cls.push('mine');
+    var pd = r.pd > 0 ? '+' + r.pd : String(r.pd);
+    h += '<tr class="' + cls.join(' ') + '"><td class="rk">' + r.rank + '</td><td class="l tn">' + teamLabel(r.teamId) + (r.tieUnresolved && r.mp ? '<span class="tag tie">Tied</span>' : '') + '</td>'
+      + '<td>' + r.w + '-' + r.l + '</td><td>' + r.setsW + '-' + r.setsL + '</td><td>' + esc(pd) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  var legend = [];
+  if(adv) legend.push('<b>Top ' + adv + '</b> in each pool advance to playoffs.');
+  legend.push('Pts is points scored minus points allowed.');
+  return h + '<div class="legend">' + legend.join(' ') + '</div>';
+}
+
+function wavesHtml(pool, div){
+  var byWave = {};
+  tnArr(pool.matches).forEach(function(m){ var w = Number(m.wave) || 0; (byWave[w] = byWave[w] || []).push(m); });
+  return Object.keys(byWave).map(Number).sort(function(a, b){ return a - b; }).map(function(w){
+    return '<div class="wave">' + (w ? 'Wave ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){ return matchCard(m, { fmt:div.pool }); }).join('');
+  }).join('');
+}
+
+function roundName(i, n){
+  var fromEnd = n - 1 - i;
+  if(fromEnd === 0) return 'Final';
+  if(fromEnd === 1) return 'Semifinals';
+  if(fromEnd === 2) return 'Quarterfinals';
+  return 'Round ' + (i + 1);
+}
+
+function bracketHtml(divId, div){
+  var b = S.t && S.t.bracket && S.t.bracket[divId];
+  if(!b || !tnArr(b.rounds).length) return '<p class="muted">Playoffs start after pool play.</p>';
+  var adv = tnAdvance(b, resultsOf(), div.playoff), n = adv.rounds.length, h = '';
+  if(adv.champion) h += '<div class="champ"><div class="lbl">Champions</div><div class="nm">' + teamLabel(adv.champion) + '</div></div>';
+  adv.rounds.forEach(function(rd, i){
+    h += '<div class="wave">' + roundName(i, n) + '</div>';
+    rd.forEach(function(m){
+      if(m.bye){
+        var who = m.t1 || m.t2;
+        h += '<div class="match' + (isMine([who]) ? ' mine' : '') + '"><div class="side"><span class="nm">' + (m.seedA ? '<span class="seed">' + esc(m.seedA) + '</span>' : '') + teamLabel(who) + '</span></div><div class="unplayed">Moves on with a bye</div></div>';
+        return;
+      }
+      h += matchCard(m, { fmt:div.playoff, seedA: i === 0 ? m.seedA : null, seedB: i === 0 ? m.seedB : null });
+    });
+  });
+  return h;
+}
+
+// For each court, the earliest match not yet scored: pool matches by wave, then playoff
+// matches by round once both teams are known.
+function onCourtHtml(divId, div){
+  var st = S.t.meta.status, res = resultsOf(), cand = [];
+  if(st !== 'pools' && st !== 'playoffs') {
+    return st === 'final' ? '<p class="muted">Play is done for the day. Thanks for coming out.</p>' : '<p class="muted">Matches show up here once play starts.</p>';
+  }
+  poolsOf(divId).forEach(function(p, pi){
+    tnArr(p.pool.matches).forEach(function(m){
+      if(!res[m.mid] && m.t1 && m.t2) cand.push({ m:m, order:[0, Number(m.wave) || 0, pi], label:'Pool ' + p.key, fmt:div.pool });
+    });
+  });
+  var b = S.t.bracket && S.t.bracket[divId];
+  if(b){
+    var adv = tnAdvance(b, res, div.playoff), n = adv.rounds.length;
+    adv.rounds.forEach(function(rd, i){
+      rd.forEach(function(m, si){
+        if(!m.bye && m.t1 && m.t2 && !res[m.mid]) cand.push({ m:m, order:[1, i, si], label:roundName(i, n), fmt:div.playoff });
+      });
+    });
+  }
+  var cmp = function(a, b){ for(var i = 0; i < 3; i++){ if(a.order[i] !== b.order[i]) return a.order[i] - b.order[i]; } return 0; };
+  var best = {}, keys = [];
+  cand.forEach(function(c){
+    var k = (c.m.court != null && c.m.court !== '') ? String(c.m.court) : '';
+    if(!best[k]){ best[k] = c; keys.push(k); } else if(cmp(c, best[k]) < 0) best[k] = c;
+  });
+  if(!keys.length) return '<p class="muted">No matches waiting right now.</p>';
+  keys.sort(function(a, b){ if(a === '') return 1; if(b === '') return -1; return (Number(a) - Number(b)) || a.localeCompare(b); });
+  return '<div class="court-now">' + keys.map(function(k){
+    var c = best[k], m = c.m;
+    return '<div class="cn' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
+      + '<div class="cn-teams">' + teamLabel(m.t1) + '<span class="vs">vs</span>' + teamLabel(m.t2) + '</div>'
+      + '<div class="cn-meta">' + esc(c.label) + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
+  }).join('') + '</div>';
+}
+
+function renderHeader(){
+  var meta = (S.t && S.t.meta) || {};
+  $('t-name').textContent = meta.name || 'Tournament';
+  document.title = (meta.name ? meta.name + ' Live' : 'FSU Grass Live');
+  var when = [];
+  if(meta.date) when.push(tnDayLabel(meta.date));
+  if(meta.location) when.push(String(meta.location));
+  $('t-when').textContent = when.join(' · ');
+  var st = $('t-status');
+  st.hidden = !STATUS_LABEL[meta.status];
+  st.textContent = STATUS_LABEL[meta.status] || '';
+}
+function renderLive(){
+  var el = $('t-live'); if(!S.updated){ el.hidden = true; return; }
+  el.hidden = false;
+  el.classList.toggle('slow', !S.sdkLive);
+  var d = new Date(S.updated), h = d.getHours(), mm = String(d.getMinutes()).padStart(2, '0');
+  $('t-live-txt').textContent = (S.sdkLive ? 'Live' : 'Refreshes every 15 seconds') + ' · updated ' + ((h % 12) || 12) + ':' + mm + (h >= 12 ? ' PM' : ' AM');
+}
+
+function notFound(){
+  S.notFound = true;
+  $('t-name').textContent = 'Tournament';
+  $('t-when').textContent = '';
+  $('t-status').hidden = true;
+  $('app').innerHTML = '<div class="card center"><div class="cico" aria-hidden="true">🔎</div><h2>We could not find that tournament</h2>'
+    + '<p class="muted">Double check the link, or ask the exec team for the live page link.</p></div>';
+}
+
+function render(){
+  if(!S.t || !S.t.meta){ notFound(); return; }
+  S.notFound = false;
+  renderHeader(); renderLive();
+  var divs = divisions(), D = S.t.divisions || {};
+  if(!divs.length){ $('app').innerHTML = '<div class="card center"><h2>Divisions are on the way</h2><p class="muted">Check back closer to the tournament.</p></div>'; return; }
+  if(divs.indexOf(S.div) < 0) S.div = divs[0];
+  var div = D[S.div], teams = divTeams(S.div);
+  if(S.mine && teams.indexOf(S.mine) < 0) S.mine = '';
+  var h = '';
+  if(divs.length > 1){
+    h += '<div class="tabs" role="tablist">' + divs.map(function(k){
+      return '<button class="tab' + (k === S.div ? ' on' : '') + '" type="button" role="tab" aria-selected="' + (k === S.div) + '" onclick="pickDiv(\'' + esc(k) + '\')">' + esc(D[k].name || 'Division') + '</button>';
+    }).join('') + '</div>';
+  }
+  if(teams.length){
+    h += '<div class="card find"><label for="mine">Find my team</label><select id="mine" onchange="pickTeam(this.value)"><option value="">Pick your team to highlight it</option>'
+      + teams.map(function(k){ var x = teamsOf()[k]; return '<option value="' + esc(k) + '"' + (k === S.mine ? ' selected' : '') + '>' + esc((x.name || 'Team') + (x.demo === true ? ' (Practice)' : '')) + '</option>'; }).join('')
+      + '</select></div>';
+  }
+  h += '<div class="card"><h2>On court now</h2>' + onCourtHtml(S.div, div) + '</div>';
+  var pools = poolsOf(S.div);
+  if(pools.length){
+    pools.forEach(function(p){
+      var courts = tnArr(p.pool.courts);
+      h += '<div class="card"><h2>Pool ' + esc(p.key) + '</h2>' + (courts.length ? '<p class="muted">Court' + (courts.length > 1 ? 's ' : ' ') + courts.map(esc).join(', ') + '</p>' : '')
+        + standingsHtml(p.pool, div) + wavesHtml(p.pool, div) + '</div>';
+    });
+  } else {
+    h += '<div class="card"><h2>Pools</h2><p class="muted">Pools are posted when the exec team sets them on game day.' + (teams.length ? ' ' + teams.length + ' team' + (teams.length === 1 ? ' is' : 's are') + ' in this division.' : '') + '</p></div>';
+  }
+  h += '<div class="card"><h2>Playoffs</h2>' + bracketHtml(S.div, div) + '</div>';
+  $('app').innerHTML = h;
+}
+
+function pickDiv(k){ S.div = k; S.mine = ''; savePick(); render(); }
+function pickTeam(k){ S.mine = k; savePick(); render(); }
+
+// ---- Loading: SDK listener first, REST polling as the fallback ----
+function onData(val){
+  S.t = val; S.updated = Date.now();
+  render();
+}
+function startPoll(){
+  if(S.poll) return;
+  var go = async function(){
+    try {
+      var r = await fetch(DB_URL + '/' + ROOT + S.tid + '.json');
+      if(r.ok && !S.sdkLive) onData(await r.json());
+    } catch(e){ /* try again next round */ }
+  };
+  go();
+  S.poll = setInterval(go, POLL_MS);
+}
+function startLive(){
+  try {
+    if(!window.firebase || !firebase.initializeApp) throw new Error('sdk missing');
+    var app = firebase.initializeApp({ databaseURL: DB_URL }, 'tn-live');
+    app.database().ref(ROOT + S.tid).on('value', function(snap){
+      S.sdkLive = true;
+      if(S.poll){ clearInterval(S.poll); S.poll = null; }
+      onData(snap.val());
+    }, function(){ S.sdkLive = false; startPoll(); });
+    setTimeout(function(){ if(!S.sdkLive) startPoll(); }, 8000);
+  } catch(e){ startPoll(); }
+}
+
+(function init(){
+  var tid = new URLSearchParams(location.search).get('t') || '';
+  if(!ID_RE.test(tid)){ notFound(); return; }
+  S.tid = tid;
+  loadPick();
+  startLive();
+  setInterval(renderLive, 30000);
+})();
+</script>
+</body>
+</html>
