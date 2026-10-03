@@ -149,6 +149,19 @@
   .scr-ov .sets{font-size:24px;font-weight:700;line-height:1.6;}
   .scr-ok{min-height:72px;min-width:220px;border-radius:16px;border:none;background:#fff;color:#111;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.5px;cursor:pointer;padding:0 28px;}
   .scr-back{min-height:56px;min-width:160px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-family:'Barlow',sans-serif;font-size:18px;font-weight:700;cursor:pointer;}
+  /* Corrections the way the KotB and HS scorers do them: a grey minus under each team. */
+  .scr-colm{display:flex;flex-direction:column;gap:8px;min-height:0;}
+  .scr-colm .scr-team{flex:1;min-height:0;}
+  .scr-minus{min-height:58px;border:none;border-radius:12px;background:#d9d9d9;color:#333;font-family:'Bebas Neue',sans-serif;font-size:36px;line-height:1;cursor:pointer;touch-action:manipulation;user-select:none;}
+  .scr-minus:active{transform:scale(.96);}
+  .scr-fin{flex:1;min-height:64px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-family:'Barlow',sans-serif;font-size:17px;font-weight:700;cursor:pointer;}
+  .scr-msg{min-height:20px;margin-top:6px;}
+  .scr-ov .fin{width:100%;max-width:440px;display:flex;flex-direction:column;gap:10px;}
+  .scr-ov .fin-row{display:grid;grid-template-columns:64px 1fr 1fr;gap:8px;align-items:center;}
+  .scr-ov .fin-row.head{font-size:14px;font-weight:700;opacity:.9;}
+  .scr-ov .fin-row.head span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .scr-ov .fin input{font-family:'Barlow',sans-serif;font-size:28px;font-weight:700;text-align:center;min-height:58px;border:none;border-radius:10px;width:100%;color:#111;}
+  .scr-ov .fin-msg{font-size:17px;font-weight:700;min-height:24px;color:#ffd666;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:13px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -312,13 +325,20 @@
   </div>
   <div class="scr-prev" id="scr-prev"></div>
   <div class="scr-btns">
-    <button class="scr-team l" id="scr-l" type="button" onclick="tapLive('l')"><span class="nm" id="scr-l-nm"></span><span class="pts" id="scr-l-pts">0</span><span class="tap">Tap for a point</span></button>
-    <button class="scr-team r" id="scr-r" type="button" onclick="tapLive('r')"><span class="nm" id="scr-r-nm"></span><span class="pts" id="scr-r-pts">0</span><span class="tap">Tap for a point</span></button>
+    <div class="scr-colm">
+      <button class="scr-team l" id="scr-l" type="button" onclick="tapLive('l')"><span class="nm" id="scr-l-nm"></span><span class="pts" id="scr-l-pts">0</span><span class="tap">Tap for a point</span></button>
+      <button class="scr-minus" type="button" onclick="minusLive('l')" aria-label="Take a point away from this team">−</button>
+    </div>
+    <div class="scr-colm">
+      <button class="scr-team r" id="scr-r" type="button" onclick="tapLive('r')"><span class="nm" id="scr-r-nm"></span><span class="pts" id="scr-r-pts">0</span><span class="tap">Tap for a point</span></button>
+      <button class="scr-minus" type="button" onclick="minusLive('r')" aria-label="Take a point away from this team">−</button>
+    </div>
   </div>
   <div class="scr-bottom">
     <button class="scr-undo" type="button" onclick="undoLive()">Undo</button>
-    <div class="scr-msg" id="scr-msg" role="status" aria-live="polite"></div>
+    <button class="scr-fin" type="button" onclick="openFinalLive()">Enter final score</button>
   </div>
+  <div class="scr-msg" id="scr-msg" role="status" aria-live="polite"></div>
 </div>
 <div class="scr-ov" id="scr-ov" hidden role="alertdialog" aria-modal="true"></div>
 
@@ -1843,12 +1863,24 @@ function liveSetOver(){
   return tnLivePrompts(fmtFor(LV.x), LV.live.sets, LV.live.set, false).setOver;
 }
 function sideFor(pos){ return (pos === 'l') === !LV.flipped ? 'a' : 'b'; }
+function shownScore(side){
+  var lv = LV.live, c = lv ? (lv.sets[lv.set] || { a:0, b:0 }) : { a:0, b:0 }, n = c[side];
+  LV.queue.forEach(function(q){ if(q.side === side){ if(q.action === 'point') n++; if(q.action === 'minus') n--; } });
+  return n;
+}
+// A correction: one point off that team in this set (the KotB and HS minus). Undo puts it back.
+function minusLive(pos){
+  if(!LV.live || !$('scr-ov').hidden) return;
+  var side = sideFor(pos);
+  if(shownScore(side) <= 0){ liveMsg('That team has no points to take away in this set.'); return; }
+  LV.queue.push({ action:'minus', side:side });
+  drawLive();
+  pumpLive();
+}
 function drawLive(){
   if(!LV.x) return;
   var lv = LV.live, sets = lv ? lv.sets : [{ a:0, b:0 }], i = lv ? lv.set : 0, c = sets[i] || { a:0, b:0 };
-  var pa = 0, pb = 0;
-  LV.queue.forEach(function(q){ if(q.action === 'point'){ if(q.side === 'a') pa++; else pb++; } });
-  var A = { nm:LV.x.t1Name, pts:c.a + pa }, B = { nm:LV.x.t2Name, pts:c.b + pb };
+  var A = { nm:LV.x.t1Name, pts:shownScore('a') }, B = { nm:LV.x.t2Name, pts:shownScore('b') };
   var L = LV.flipped ? B : A, R = LV.flipped ? A : B;
   $('scr-l').className = 'scr-team ' + (LV.flipped ? 'r' : 'l');
   $('scr-r').className = 'scr-team ' + (LV.flipped ? 'l' : 'r');
@@ -1900,7 +1932,8 @@ function undoLive(){
   if(!LV.live) return;
   // A tap still waiting to go out is simply taken back.
   var waiting = LV.queue.length - (LV.busy ? 1 : 0);
-  if(waiting > 0 && LV.queue[LV.queue.length - 1].action === 'point'){ LV.queue.pop(); drawLive(); return; }
+  var lastQ = waiting > 0 ? LV.queue[LV.queue.length - 1].action : '';
+  if(lastQ === 'point' || lastQ === 'minus'){ LV.queue.pop(); drawLive(); return; }
   LV.queue.push({ action:'undo' });
   pumpLive();
 }
@@ -1911,7 +1944,7 @@ async function pumpLive(){
   while(LV.mid && (LV.queue.length || LV.resync)){
     if(!LV.queue.length && LV.resync){ LV.resync = false; LV.queue.push({ action:'start' }); }
     var q = LV.queue[0], mid = LV.mid;
-    var res = await post('/club/tournament-live', Object.assign(linkBody(), { mid:mid, action:q.action, side:q.side, seq:LV.live ? LV.live.seq : 0 }));
+    var res = await post('/club/tournament-live', Object.assign(linkBody(), { mid:mid, action:q.action, side:q.side, sets:q.sets, seq:LV.live ? LV.live.seq : 0 }));
     if(LV.mid !== mid) break; // closed while the tap was on its way
     LV.queue.shift();
     if(await handleLive(res, q.action)){ LV.queue = []; }
@@ -1941,6 +1974,8 @@ async function handleLive(res, action){
   if(code === 'stale'){ if(j.live) LV.live = j.live; LV.resync = true; liveMsg('Score refreshed.'); return true; }
   if(code === 'set_over'){ if(j.live) LV.live = j.live; drawLive(); showSetOver(); return true; }
   if(code === 'nothing_to_undo'){ liveMsg('Nothing to undo.'); return false; }
+  if(code === 'at_zero'){ if(j.live) LV.live = j.live; liveMsg(j.error); return true; }
+  if(code === 'invalid_score'){ openFinalLive(j.error); return true; }
   if(code === 'not_decided' || code === 'set_not_over' || code === 'match_over'){ if(j.live) LV.live = j.live; liveMsg(j.error); return true; }
   if(j && j.error === 'invalid_link'){ closeLive(true); show('v-link-invalid'); return true; }
   if(code === 'already_scored' || code === 'live_locked' || code === 'not_your_match' || code === 'not_scoring' || code === 'bad_match' || code === 'not_ready'){
@@ -2005,6 +2040,50 @@ function showMatchOver(){
     + '<div class="sub">' + esc(x.t1Name) + ' vs ' + esc(x.t2Name) + (who ? '<br><strong>' + esc(who) + ' wins</strong>' : '') + '</div>'
     + '<button class="scr-ok" type="button" onclick="liveAction(\'finish\')">Confirm</button>'
     + '<button class="scr-back" type="button" onclick="hideOv()">Back</button>');
+}
+// Enter final score: type every set, checked as you type, confirmed, then saved in one step.
+function openFinalLive(err){
+  if(!LV.x) return;
+  var f = fmtFor(LV.x), n = (f && Number(f.bestOf) === 3) ? 3 : 1, sets = (LV.live && LV.live.sets) || [], rows = '';
+  for(var i = 0; i < n; i++){
+    var s = sets[i];
+    rows += '<div class="fin-row"><span>Set ' + (i + 1) + '</span>'
+      + '<input type="number" inputmode="numeric" min="0" max="99" id="fin-' + i + '-a" value="' + (s ? s.a : '') + '" oninput="checkFinalLive()" aria-label="Set ' + (i + 1) + ' ' + esc(LV.x.t1Name) + '">'
+      + '<input type="number" inputmode="numeric" min="0" max="99" id="fin-' + i + '-b" value="' + (s ? s.b : '') + '" oninput="checkFinalLive()" aria-label="Set ' + (i + 1) + ' ' + esc(LV.x.t2Name) + '"></div>';
+  }
+  showOv('match', '<div class="big">Final score</div><div class="fin"><div class="fin-row head"><span></span><span>' + esc(LV.x.t1Name) + '</span><span>' + esc(LV.x.t2Name) + '</span></div>'
+    + rows + '<div class="fin-msg" id="fin-msg"></div></div>'
+    + '<button class="scr-ok" id="fin-ok" type="button" onclick="saveFinalLive()">Save final score</button>'
+    + '<button class="scr-back" type="button" onclick="hideOv()">Back</button>');
+  checkFinalLive();
+  if(err) $('fin-msg').textContent = err;
+}
+function readFinalLive(){
+  var f = fmtFor(LV.x), n = (f && Number(f.bestOf) === 3) ? 3 : 1, sets = [];
+  for(var i = 0; i < n; i++){
+    var a = String($('fin-' + i + '-a').value || '').trim(), b = String($('fin-' + i + '-b').value || '').trim();
+    if(!a && !b) continue;
+    if(!a || !b) return { error:'Set ' + (i + 1) + ' needs a score for both teams.' };
+    if(sets.length < i) return { error:'Fill in set ' + i + ' before set ' + (i + 1) + '.' };
+    sets.push({ a:tnNum(a), b:tnNum(b) });
+  }
+  if(!sets.length) return { error:'Enter the score for each set.' };
+  var w = tnMatchWinner({ sets:sets }, f);
+  if(!w.valid) return { error:w.reason + '.' };
+  if(!w.winner) return { error:'Not finished yet. Add the next set.' };
+  return { sets:sets, who:w.winner === 't1' ? LV.x.t1Name : LV.x.t2Name };
+}
+function checkFinalLive(){
+  var g = readFinalLive(), msg = $('fin-msg'), ok = $('fin-ok');
+  if(msg) msg.textContent = g.error || (g.who + ' wins ' + g.sets.map(function(s){ return s.a + '-' + s.b; }).join(', '));
+  if(ok) ok.disabled = !!g.error;
+}
+function saveFinalLive(){
+  var g = readFinalLive(); if(g.error) return;
+  if(!window.confirm('Save this final score? ' + g.who + ' wins ' + g.sets.map(function(s){ return s.a + '-' + s.b; }).join(', ') + '. Only an exec can change it after this.')) return;
+  hideOv();
+  LV.queue = [{ action:'final', sets:g.sets }];
+  pumpLive();
 }
 // Coming back to the page (screen woke, app switched back) refreshes the score and the lock.
 document.addEventListener('visibilitychange', function(){

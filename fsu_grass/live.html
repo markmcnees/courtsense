@@ -1230,6 +1230,25 @@ function oneBracketHtml(divId, div, br){
   });
   return h;
 }
+// Final results, once the exec ends the tournament: every division's champion and places,
+// main bracket then Silver. Team names only; no ratings.
+function finalHtml(divs){
+  var D = S.t.divisions || {}, h = '<div class="card"><h2>Final results</h2>', any = false;
+  divs.forEach(function(divId){
+    var div = D[divId] || {}, list = bracketsOf(divId);
+    if(!list.length) return;
+    any = true;
+    h += '<h3>' + esc(div.name || 'Division') + '</h3>';
+    list.forEach(function(br){
+      var v = tnBracketView(br.b, resultsOf(), div.playoff);
+      if(v.champion) h += '<div class="champ"><div class="lbl">' + (br.key === 'silver' ? 'Silver champions' : 'Champions') + '</div><div class="nm">' + teamLabel(v.champion) + '</div></div>';
+      if(v.placements.length) h += '<div class="places">' + (br.key === 'silver' && !v.champion ? '<b>Silver</b><br>' : '') + v.placements.map(function(p){ return '<b>' + placeLabel(p.place) + '</b> ' + p.teamIds.map(teamLabel).join(', '); }).join('<br>') + '</div>';
+      else if(!v.champion) h += '<p class="muted">' + esc(br.title) + ' did not finish.</p>';
+    });
+  });
+  if(!any) h += '<p class="muted">The tournament is over. Thanks for playing.</p>';
+  return h + '</div>';
+}
 function bracketHtml(divId, div){
   var main = S.t.bracket && S.t.bracket[divId];
   if(!main) return '<p class="muted">Playoffs start after pool play.</p>';
@@ -1310,7 +1329,7 @@ function render(){
   if(divs.indexOf(S.div) < 0) S.div = divs[0];
   var div = D[S.div], teams = divTeams(S.div);
   if(S.mine && teams.indexOf(S.mine) < 0) S.mine = '';
-  var h = '';
+  var h = S.t.meta.status === 'final' ? finalHtml(divs) : '';
   if(divs.length > 1){
     h += '<div class="tabs" role="tablist">' + divs.map(function(k){
       return '<button class="tab' + (k === S.div ? ' on' : '') + '" type="button" role="tab" aria-selected="' + (k === S.div) + '" onclick="pickDiv(\'' + esc(k) + '\')">' + esc(D[k].name || 'Division') + '</button>';
