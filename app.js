@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.170';
+const APP_VERSION='1.1.171';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -11779,10 +11779,17 @@ var TN_PICKUP_BY='club:fsu_grass'; // not an account id, so pickup leaves listin
 // The only fields this card ever writes on a pickup listing. Never the node, never pool.
 var TN_PICKUP_FIELDS=['id','name','startDate','endDate','days','location','locationAddress','eventUrl','surface','format',
   'organizer','createdBy','createdByName','createdAt','status','source','clubTid','clubDivId'];
+// The schedule fields this card writes on meta (all Eastern time; regClosesAt is epoch ms).
+var TN_SCHEDULE_FIELDS=['regCloseDate','regCloseTime','regClosesAt','checkInTime','startTime','endTime','tz'];
+var TN_TZ='America/New_York';
 var TN_CATEGORIES=[['coed','Coed'],['mens',"Men's"],['womens',"Women's"],['open','Open']];
 var _tnList=null;          // { tid: tournament node } from the scoped listener, null until first read
 var _tnRef=null, _tnHandler=null;
-function tnUiDefaults(){ return {tid:'', newOpen:false, newName:'', newDate:'2026-10-11', newLoc:'', newAddr:'', locOpen:false, loc:'', addr:'', div:null, busy:false}; }
+function tnUiDefaults(){ return {tid:'', newOpen:false, newName:'', newDate:'2026-10-11', newLoc:'', newAddr:'',
+  newRegDate:'', newRegTime:'23:59', newCheck:'', newStart:'', newEnd:'',
+  locOpen:false, loc:'', addr:'', regDate:'', regTime:'', check:'', start:'', end:'', div:null, busy:false}; }
+// Tournaments this device already auto-closed at their deadline, so a render never loops.
+var _tnAutoClosed={};
 var _tnUi=tnUiDefaults();
 
 function tnCardEnabled(){ return DB_ROOT==='grass_club_matches'&&currentRole==='coach'; }
@@ -11821,6 +11828,7 @@ function tnWritePaths(tid,paths){
     if(p.indexOf(base)===0){
       var rest=p.slice(base.length);
       return rest==='meta'||rest==='meta/status'||rest==='meta/updatedAt'||rest==='meta/location'||rest==='meta/locationAddress'
+        ||TN_SCHEDULE_FIELDS.indexOf(rest.slice(5))>=0&&rest.indexOf('meta/')===0
         ||/^divisions\/[A-Za-z0-9_-]{1,64}$/.test(rest);
     }
     if(p.indexOf(lbase)===0){
@@ -11863,19 +11871,80 @@ function tnFullName(p){
   return n||String((p&&p.name)||'').trim()||'(no name)';
 }
 var TN_TEAM_ORDER={registered:0, incomplete:1, dropped:2};
-// Teams as display rows. The worker owns teams; the app only reads them.
+
+// ---- Player ratings for seeding (exec only) ----------------------------------------
+// The platform rating a tournament player carries, resolved by CourtSense account id. Same
+// sources, same order, as the rest of the club (csRankFor, resolveClubRating):
+//   1. the rating record tagged to the account (tally_kotb_pickup/ratings, playerId tag);
+//   2. the rating mirrored onto the account (tally_kotb_pickup/players/{id}.rating);
+//   3. an untagged rating record whose name matches the account's display name, when
+//      exactly one does (the weaker bridge resolveClubRating also uses);
+//   4. the TruVolley seed on a club roster record for the account (roster rating).
+// TruVolley: the rating record carries seededFromTruVolley, or the number came from the
+// roster seed (truVolley plus rating on the roster record). Provisional: not TruVolley and
+// fewer than 5 rated games. Nothing found reads as Unrated; no number is ever invented.
+var TN_PROVISIONAL_GAMES=5;
+var _tnRatingsKick=false;
+function tnPlayerRating(accountId){
+  var accts=communityPlayersNow()||{}, a=accts[accountId]||null;
+  var rec=null;
+  if(pcRatingsReady()){
+    var idx=pcRatingsIdx(), tagged=idx.byAcct[accountId]||[];
+    if(tagged.length===1) rec=_pcRatings[tagged[0]];
+    else if(!tagged.length&&a&&window.Ratings&&typeof Ratings.nameKey==='function'){
+      var nk=Ratings.nameKey(String(a.displayName||a.name||''));
+      var byName=nk?(idx.untaggedByName[nk]||[]).filter(function(k,i,arr){ return arr.indexOf(k)===i; }):[];
+      if(byName.length===1&&!(a.rating!=null)) rec=_pcRatings[byName[0]];
+    }
+  }
+  var roster=(D.players||[]).filter(function(p){ return p&&p.accountId===accountId; })[0]||null;
+  var val=null, games=0, tv=false;
+  if(rec&&typeof rec.rating==='number'){ val=rec.rating; games=+rec.gamesPlayed||0; tv=rec.seededFromTruVolley!=null; }
+  else if(a&&typeof a.rating==='number'){ val=a.rating; games=+a.gamesPlayed||0; }
+  else if(roster&&typeof roster.rating==='number'){ val=roster.rating; tv=typeof roster.truVolley==='number'; }
+  if(!tv&&roster&&typeof roster.truVolley==='number'&&typeof roster.rating==='number'&&games<TN_PROVISIONAL_GAMES&&val===roster.rating) tv=true;
+  if(val==null) return {value:null, label:'Unrated'};
+  var n=Math.round(val);
+  return {value:n, label:tv?'TV '+n:(games<TN_PROVISIONAL_GAMES?n+' provisional':String(n))};
+}
+// Load the rating records once for the card, then redraw. Reuses the practice loader.
+function tnWarmRatings(){
+  if(_tnRatingsKick||pcRatingsReady()||!db) return;
+  _tnRatingsKick=true;
+  pcLoadRatings().then(function(){ tnCardRender(); });
+}
+
+// Teams as display rows, with each player's rating and the team rating. The worker owns
+// teams; the app only reads them.
 function tnTeamRows(t){
   var T=tnTeams(t), divs=tnDivs(t);
   return Object.keys(T).filter(function(k){ return !!T[k]; }).map(function(k){
     var x=T[k], players=tnArr(x.players).filter(function(p){ return p&&p.accountId; });
     var status=(x.status==='registered'||x.status==='incomplete'||x.status==='dropped')?x.status:'incomplete';
+    var ratings=players.map(function(p){ return tnPlayerRating(p.accountId); });
+    var tr=tnTeamRating(ratings.map(function(r){ return r.value; }));
     return {id:k, name:String(x.name||'Team'), divId:String(x.divId||''),
       division:(divs[x.divId]&&divs[x.divId].name)||'(removed division)', status:status,
       players:players.map(function(p){ return tnFullName(p); }),
+      ratingLabels:ratings.map(function(r){ return r.label; }),
+      teamRating:tr.avg, rated:tr.rated, total:tr.total, seed:null,
       guys:players.filter(function(p){ return p.gender==='M'; }).length,
       girls:players.filter(function(p){ return p.gender==='F'; }).length,
       at:typeof x.createdAt==='number'?x.createdAt:0};
   }).sort(function(a,b){ return a.division.localeCompare(b.division)||(TN_TEAM_ORDER[a.status]-TN_TEAM_ORDER[b.status])||a.name.localeCompare(b.name); });
+}
+// Seeded view: per division (by name), active teams strongest first with a seed number,
+// then dropped teams, unseeded.
+function tnSeededRows(t){
+  var rows=tnTeamRows(t), byDiv={}, order=[];
+  rows.forEach(function(r){ if(!byDiv[r.division]){ byDiv[r.division]=[]; order.push(r.division); } byDiv[r.division].push(r); });
+  var out=[];
+  order.sort().forEach(function(d){
+    var active=tnSortByRating(byDiv[d].filter(function(r){ return r.status!=='dropped'; }));
+    active.forEach(function(r,i){ r.seed=i+1; });
+    out=out.concat(active, byDiv[d].filter(function(r){ return r.status==='dropped'; }));
+  });
+  return out;
 }
 
 // ---- UI state -------------------------------------------------------------
@@ -11883,10 +11952,40 @@ function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
 function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.newOpen=false; tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
+// Checks a schedule (meta-shaped). forOpen adds what opening registration needs: a deadline
+// in the future plus check-in and play start times. Returns a message, or '' when fine.
+function tnScheduleIssue(sch,forOpen){
+  var tm=/^\d{2}:\d{2}$/;
+  if(sch.regCloseDate&&!/^\d{4}-\d{2}-\d{2}$/.test(sch.regCloseDate)) return 'Pick a date for registration to close';
+  if(sch.regCloseTime&&!tm.test(sch.regCloseTime)) return 'Pick a time for registration to close';
+  if(sch.checkInTime&&!tm.test(sch.checkInTime)) return 'Check-in time does not look right';
+  if(sch.startTime&&!tm.test(sch.startTime)) return 'Play start time does not look right';
+  if(sch.endTime&&!tm.test(sch.endTime)) return 'End time does not look right';
+  if(sch.endTime&&sch.startTime&&sch.endTime<=sch.startTime) return 'End time should be after play starts';
+  if(sch.checkInTime&&sch.startTime&&sch.checkInTime>sch.startTime) return 'Check-in should be at or before play starts';
+  if(forOpen){
+    if(!(typeof sch.regClosesAt==='number'&&sch.regClosesAt>Date.now())) return 'Set a registration deadline in the future before opening registration';
+    if(!sch.checkInTime||!sch.startTime) return 'Add a check-in time and a play start time before opening registration';
+  }
+  return '';
+}
+// The schedule as meta fields: blanks are null so a cleared field is removed. The deadline
+// instant is computed for Eastern time, daylight saving included (tnNyEpoch).
+function tnScheduleFrom(regDate,regTime,check,start,end){
+  var d=String(regDate||'').trim(), t=String(regTime||'').trim();
+  return {regCloseDate:d||null, regCloseTime:t||null, regClosesAt:(d&&t)?tnNyEpoch(d,t):null,
+    checkInTime:String(check||'').trim()||null, startTime:String(start||'').trim()||null, endTime:String(end||'').trim()||null, tz:TN_TZ};
+}
 function tnEditLoc(open){
   var t=tnCur(); if(!t) return;
   _tnUi.locOpen=!!open;
-  if(open){ _tnUi.loc=String(t.meta.location||''); _tnUi.addr=String(t.meta.locationAddress||''); }
+  if(open){
+    var m=t.meta;
+    _tnUi.loc=String(m.location||''); _tnUi.addr=String(m.locationAddress||'');
+    // Default deadline: 11:59 PM the day before the tournament.
+    _tnUi.regDate=String(m.regCloseDate||tnDayBefore(m.date)); _tnUi.regTime=String(m.regCloseTime||'23:59');
+    _tnUi.check=String(m.checkInTime||''); _tnUi.start=String(m.startTime||''); _tnUi.end=String(m.endTime||'');
+  }
   tnCardRender();
 }
 
@@ -11964,6 +12063,8 @@ function tnCreate(){
   var loc=String(_tnUi.newLoc||'').trim(), addr=String(_tnUi.newAddr||'').trim();
   if(loc.length>80){ toast('Keep the location to 80 characters or fewer'); return; }
   if(addr.length>200){ toast('Keep the address to 200 characters or fewer'); return; }
+  var sch=tnScheduleFrom(_tnUi.newRegDate||tnDayBefore(date),_tnUi.newRegTime||'23:59',_tnUi.newCheck,_tnUi.newStart,_tnUi.newEnd);
+  var issue=tnScheduleIssue(sch,false); if(issue){ toast(issue); return; }
   var rand='';
   while(rand.length<4) rand+=Math.random().toString(36).slice(2);
   var tid='t-'+date.replace(/-/g,'')+'-'+rand.slice(0,4);
@@ -11971,21 +12072,31 @@ function tnCreate(){
   var meta={name:name, date:date, status:'setup', createdAt:now, updatedAt:now};
   if(loc) meta.location=loc;
   if(addr) meta.locationAddress=addr;
+  Object.keys(sch).forEach(function(k){ if(sch[k]!=null) meta[k]=sch[k]; });
   u[DB_ROOT+'/tournaments/'+tid+'/meta']=meta;
   _tnUi.busy=true;
   tnWrite(tid,u).then(function(ok){
     _tnUi.busy=false;
-    if(ok){ _tnUi.tid=tid; _tnUi.newOpen=false; _tnUi.newName=''; _tnUi.newLoc=''; _tnUi.newAddr=''; toast('Tournament created. Add a division next.'); }
+    if(ok){
+      _tnUi.tid=tid; _tnUi.newOpen=false; _tnUi.newName=''; _tnUi.newLoc=''; _tnUi.newAddr='';
+      _tnUi.newRegDate=''; _tnUi.newRegTime='23:59'; _tnUi.newCheck=''; _tnUi.newStart=''; _tnUi.newEnd='';
+      toast('Tournament created. Add a division next.');
+    }
     tnCardRender();
   });
 }
 // Opening lists every division on the pickup partner page; closing hides those listings.
 // The status change and the listing writes go in one update, so they land together.
-function tnSetStatus(status){
-  var t=tnCur(); if(!t||_tnUi.busy) return;
-  var tid=_tnUi.tid, divIds=Object.keys(tnDivs(t)).filter(function(k){ return !!tnDivs(t)[k]; });
-  if(status==='registration'&&!divIds.length){ toast('Add at least one division before opening registration'); return; }
-  if(status==='registration'&&!String(t.meta.location||'').trim()){ toast('Add a location before opening registration'); return; }
+// auto marks the deadline path: the same close, run once by the card, with its own message.
+function tnSetStatus(status,tidIn,auto){
+  var tid=tidIn||_tnUi.tid, t=(_tnList||{})[tid];
+  if(!t||!t.meta||_tnUi.busy) return;
+  var divIds=Object.keys(tnDivs(t)).filter(function(k){ return !!tnDivs(t)[k]; });
+  if(status==='registration'){
+    if(!divIds.length){ toast('Add at least one division before opening registration'); return; }
+    if(!String(t.meta.location||'').trim()){ toast('Add a location before opening registration'); return; }
+    var issue=tnScheduleIssue(t.meta,true); if(issue){ toast(issue); return; }
+  }
   var base=DB_ROOT+'/tournaments/'+tid+'/meta/', u={};
   u[base+'status']=status; u[base+'updatedAt']=Date.now();
   _tnUi.busy=true; tnCardRender();
@@ -11993,11 +12104,26 @@ function tnSetStatus(status){
     return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
       _tnUi.busy=false;
       if(ok){
-        if(status==='registration') toast(L.problems.length?'Registration is open. Could not list on the partner page: '+L.problems.join(', '):'Registration is open and listed on the partner page');
+        if(auto) toast('Registration closed at its deadline for '+(t.meta.name||'the tournament'));
+        else if(status==='registration') toast(L.problems.length?'Registration is open. Could not list on the partner page: '+L.problems.join(', '):'Registration is open and listed on the partner page');
         else toast('Registration is closed');
       }
       tnCardRender();
     });
+  });
+}
+// Any tournament still open after its deadline is closed the same way the Close button does
+// it: status to setup and its partner listings hidden. Once per device per tournament, so a
+// render can never loop on it.
+function tnAutoCloseDue(){
+  if(!tnCardEnabled()||_tnUi.busy||!db) return;
+  var L=_tnList||{}, now=Date.now();
+  Object.keys(L).some(function(tid){
+    var m=L[tid]&&L[tid].meta;
+    if(!m||m.status!=='registration'||typeof m.regClosesAt!=='number'||now<m.regClosesAt||_tnAutoClosed[tid]) return false;
+    _tnAutoClosed[tid]=true;
+    setTimeout(function(){ tnSetStatus('setup',tid,true); },0);
+    return true;
   });
 }
 function tnSaveLocation(){
@@ -12006,9 +12132,14 @@ function tnSaveLocation(){
   if(!loc){ toast('Add a location'); return; }
   if(loc.length>80){ toast('Keep the location to 80 characters or fewer'); return; }
   if(addr.length>200){ toast('Keep the address to 200 characters or fewer'); return; }
+  var sch=tnScheduleFrom(_tnUi.regDate,_tnUi.regTime,_tnUi.check,_tnUi.start,_tnUi.end);
+  var open=t.meta.status==='registration';
+  var issue=tnScheduleIssue(sch,open); if(issue){ toast(issue); return; }
   var base=DB_ROOT+'/tournaments/'+tid+'/meta/', u={};
   u[base+'location']=loc; u[base+'locationAddress']=addr||null; u[base+'updatedAt']=Date.now();
-  var open=t.meta.status==='registration';
+  Object.keys(sch).forEach(function(k){ u[base+k]=sch[k]; });
+  // A deadline moved into the future may close again later, so let the auto-close run again.
+  delete _tnAutoClosed[tid];
   var divIds=Object.keys(tnDivs(t)).filter(function(k){ return !!tnDivs(t)[k]; });
   // While open, the partner listings carry the location too, so refresh them.
   var nt={meta:Object.assign({},t.meta,{location:loc, locationAddress:addr}), divisions:tnDivs(t)};
@@ -12016,7 +12147,7 @@ function tnSaveLocation(){
   (open?tnListingUpdates(tid,nt,'list',divIds):Promise.resolve({updates:{},problems:[]})).then(function(L){
     return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
       _tnUi.busy=false;
-      if(ok){ _tnUi.locOpen=false; toast('Location saved'); }
+      if(ok){ _tnUi.locOpen=false; toast('Details saved'); }
       tnCardRender();
     });
   });
@@ -12108,17 +12239,20 @@ async function tnExport(){
   if(typeof XLSX==='undefined'){toast('Spreadsheet library not loaded');return;}
   var t=tnCur(); if(!t){toast('Pick a tournament');return;}
   if(!tnTeamRows(t).length){toast('No teams yet');return;}
+  if(!pcRatingsReady()) await pcLoadRatings(); // ratings for seeding; unrated when unavailable
   toast('Building export...');
   await ensureCommunityPlayers(); // full names; a failed read falls back to the stored First L.
-  var rows=tnTeamRows(t);
+  var rows=tnSeededRows(t);
   // Hard-coded columns, built key by key. No team object is ever spread in, and teams hold
   // no email or phone to begin with.
   var most=rows.reduce(function(n,r){ return Math.max(n,r.players.length); },4);
-  var pcols=[]; for(var i=1;i<=most;i++) pcols.push(i<=4?'Player '+i:'Sub '+(i-4));
-  var header=['Team','Division','Status'].concat(pcols).concat(['Guys','Girls']);
+  var pcols=[], rcols=[]; for(var i=1;i<=most;i++){ var c=i<=4?'Player '+i:'Sub '+(i-4); pcols.push(c); rcols.push(c+' rating'); }
+  var mixed=[]; pcols.forEach(function(c,i){ mixed.push(c, rcols[i]); });
+  var header=['Seed','Team','Division','Status','Team rating','Rated'].concat(mixed).concat(['Guys','Girls']);
   var out=rows.map(function(r){
-    var o={'Team':r.name, 'Division':r.division, 'Status':r.status};
-    pcols.forEach(function(c,i){ o[c]=r.players[i]||''; });
+    var o={'Seed':r.seed||'', 'Team':r.name, 'Division':r.division, 'Status':r.status,
+      'Team rating':r.teamRating!=null?r.teamRating:'Unrated', 'Rated':r.rated+' of '+r.total};
+    pcols.forEach(function(c,i){ o[c]=r.players[i]||''; o[rcols[i]]=r.players[i]?(r.ratingLabels[i]||'Unrated'):''; });
     o['Guys']=r.guys; o['Girls']=r.girls;
     return o;
   });
@@ -12168,6 +12302,12 @@ function tnCardRender(){
   var list=tnSorted();
   if(_tnUi.tid&&!tnCur()) _tnUi.tid='';
   if(!_tnUi.tid&&list.length&&!_tnUi.newOpen) _tnUi.tid=list[0].tid;
+  // A tournament still open after its deadline gets the Close path, once.
+  tnAutoCloseDue();
+  var tme=function(id,val,key){ return '<input type="time" class="form-input" id="'+id+'" value="'+esc(val)+'" oninput="tnSet(\''+key+'\',this.value)" style="'+inp+'">'; };
+  var dte=function(id,val,key){ return '<input type="date" class="form-input" id="'+id+'" value="'+esc(val)+'" oninput="tnSet(\''+key+'\',this.value)" style="'+inp+'">'; };
+  var two=function(a,b){ return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;"><div>'+a+'</div><div>'+b+'</div></div>'; };
+  var opt='<span style="font-weight:400;color:var(--gray);">(optional)</span>';
 
   // Picker and new tournament.
   if(list.length){
@@ -12183,6 +12323,11 @@ function tnCardRender(){
       +'<label style="'+lbl+'" for="tn-new-date">Date</label><input type="date" class="form-input" id="tn-new-date" value="'+esc(_tnUi.newDate)+'" oninput="tnSet(\'newDate\',this.value)" style="'+inp+'">'
       +'<label style="'+lbl+'" for="tn-new-loc">Location <span style="font-weight:400;color:var(--gray);">(needed to open registration)</span></label>'+txt('tn-new-loc',_tnUi.newLoc,"tnSet('newLoc',this.value)",' maxlength="80" placeholder="Langford Green"')
       +'<label style="'+lbl+'" for="tn-new-addr">Address <span style="font-weight:400;color:var(--gray);">(optional)</span></label>'+txt('tn-new-addr',_tnUi.newAddr,"tnSet('newAddr',this.value)",' maxlength="200"')
+      +two('<label style="'+lbl+'" for="tn-new-regdate">Registration closes</label>'+dte('tn-new-regdate',_tnUi.newRegDate||tnDayBefore(_tnUi.newDate),'newRegDate'),
+           '<label style="'+lbl+'" for="tn-new-regtime">at (Eastern)</label>'+tme('tn-new-regtime',_tnUi.newRegTime||'23:59','newRegTime'))
+      +two('<label style="'+lbl+'" for="tn-new-check">Check-in</label>'+tme('tn-new-check',_tnUi.newCheck,'newCheck'),
+           '<label style="'+lbl+'" for="tn-new-start">Play starts</label>'+tme('tn-new-start',_tnUi.newStart,'newStart'))
+      +'<label style="'+lbl+'" for="tn-new-end">Ends '+opt+'</label>'+tme('tn-new-end',_tnUi.newEnd,'newEnd')
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Create tournament','tnCreate()',true)+btn('Cancel','tnToggleNew(false)',false)+'</div></div>';
   } else {
     html+='<div style="margin-top:10px;">'+btn('+ New tournament','tnToggleNew(true)',false)+'</div>';
@@ -12192,9 +12337,13 @@ function tnCardRender(){
   if(t&&!_tnUi.newOpen){
     var m=t.meta, divs=tnDivs(t), divIds=Object.keys(divs).filter(function(k){ return !!divs[k]; })
       .sort(function(a,b){ return String(divs[a].name||'').localeCompare(String(divs[b].name||'')); });
-    var T=tnTeams(t), rows=tnTeamRows(t);
+    var T=tnTeams(t), rows=tnSeededRows(t);
+    if(rows.length) tnWarmRatings();
     var open=m.status==='registration';
     var hasLoc=!!String(m.location||'').trim();
+    var deadline=(typeof m.regClosesAt==='number')?m.regClosesAt:null;
+    var pastDeadline=open&&deadline!=null&&Date.now()>=deadline;
+    var schedIssue=tnScheduleIssue(m,true);
 
     // Status and location.
     html+='<div style="border-top:1px solid var(--border,#eee);margin-top:14px;padding-top:12px;">'
@@ -12203,20 +12352,32 @@ function tnCardRender(){
     if(_tnUi.locOpen){
       html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:12px;margin-top:10px;">'
         +'<label style="'+lbl+'" for="tn-loc">Location</label>'+txt('tn-loc',_tnUi.loc,"tnSet('loc',this.value)",' maxlength="80"')
-        +'<label style="'+lbl+'" for="tn-addr">Address <span style="font-weight:400;color:var(--gray);">(optional)</span></label>'+txt('tn-addr',_tnUi.addr,"tnSet('addr',this.value)",' maxlength="200"')
-        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Save location','tnSaveLocation()',true)+btn('Cancel','tnEditLoc(false)',false)+'</div></div>';
+        +'<label style="'+lbl+'" for="tn-addr">Address '+opt+'</label>'+txt('tn-addr',_tnUi.addr,"tnSet('addr',this.value)",' maxlength="200"')
+        +two('<label style="'+lbl+'" for="tn-regdate">Registration closes</label>'+dte('tn-regdate',_tnUi.regDate,'regDate'),
+             '<label style="'+lbl+'" for="tn-regtime">at (Eastern)</label>'+tme('tn-regtime',_tnUi.regTime,'regTime'))
+        +two('<label style="'+lbl+'" for="tn-check">Check-in</label>'+tme('tn-check',_tnUi.check,'check'),
+             '<label style="'+lbl+'" for="tn-start">Play starts</label>'+tme('tn-start',_tnUi.start,'start'))
+        +'<label style="'+lbl+'" for="tn-end">Ends '+opt+'</label>'+tme('tn-end',_tnUi.end,'end')
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Save details','tnSaveLocation()',true)+btn('Cancel','tnEditLoc(false)',false)+'</div></div>';
     } else {
-      html+='<div style="font-size:13px;margin-top:6px;">'+(hasLoc
+      var sched=[m.checkInTime?'Check-in '+tnTimeLabel(m.checkInTime):'', m.startTime?'play starts '+tnTimeLabel(m.startTime):'', m.endTime?'ends around '+tnTimeLabel(m.endTime):''].filter(Boolean).join(', ');
+      html+='<div style="font-size:13px;margin-top:6px;line-height:1.6;">'+(hasLoc
           ?'\u{1F4CD} '+esc(m.location)+(m.locationAddress?'<span style="color:var(--gray);">, '+esc(m.locationAddress)+'</span>':'')
           :'<span style="color:var(--gray);">No location yet.</span>')
-        +' <a href="javascript:void(0)" onclick="tnEditLoc(true)" style="color:var(--red);font-weight:700;">'+(hasLoc?'Edit':'Add location')+'</a></div>';
+        +(sched?'<br>\u{23F0} '+esc(sched.charAt(0).toUpperCase()+sched.slice(1)):'<br><span style="color:var(--gray);">No check-in or start time yet.</span>')
+        +(m.regCloseDate&&m.regCloseTime?'<br>\u{1F4DD} Registration closes '+esc(tnDayLabel(m.regCloseDate))+' at '+esc(tnTimeLabel(m.regCloseTime)):'')
+        +' <a href="javascript:void(0)" onclick="tnEditLoc(true)" style="color:var(--red);font-weight:700;">Edit details</a></div>';
     }
-    html+='<div style="margin-top:10px;font-size:13px;">Status: <strong style="color:'+(open?'#1e7e34':'var(--charcoal)')+';">'+esc(tnStatusLabel(m.status))+'</strong></div>';
+    var statusText=!open?tnStatusLabel(m.status)
+      :pastDeadline?'Registration closed by deadline'
+      :'Registration open'+(deadline!=null&&m.regCloseDate&&m.regCloseTime?', closes '+tnDayLabel(m.regCloseDate)+' at '+tnTimeLabel(m.regCloseTime)+' ('+tnCountdown(deadline-Date.now())+')':'');
+    html+='<div style="margin-top:10px;font-size:13px;">Status: <strong style="color:'+(open&&!pastDeadline?'#1e7e34':'var(--charcoal)')+';">'+esc(statusText)+'</strong></div>';
     if(m.status==='setup'||m.status==='registration'){
+      var canOpen=divIds.length&&hasLoc&&!schedIssue;
       html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
-        +(open?btn('Close registration',"tnSetStatus('setup')",false):btn('Open registration',"tnSetStatus('registration')",true,(divIds.length&&hasLoc)?'':'opacity:.6;'))
+        +(open?btn('Close registration',"tnSetStatus('setup')",false):btn('Open registration',"tnSetStatus('registration')",true,canOpen?'':'opacity:.6;'))
         +'</div>';
-      if(!open&&(!divIds.length||!hasLoc)) html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;">'+(!divIds.length?'Add a division':'Add a location')+' to open registration.</div>';
+      if(!open&&!canOpen) html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;">'+esc(!divIds.length?'Add a division to open registration.':!hasLoc?'Add a location to open registration.':schedIssue+'.')+'</div>';
       html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">'+(open
         ?'Each division is listed on the CourtSense partner page while registration is open.'
         :'Opening registration also lists each division on the CourtSense partner page.')+'</div>';
@@ -12308,14 +12469,18 @@ function tnCardRender(){
     if(!rows.length){
       html+='<div style="font-size:13px;color:var(--gray);">No teams yet.</div>';
     } else {
+      // Seeded: per division, active teams strongest first by team rating, dropped last.
       html+=rows.map(function(r){
+        var who=r.players.map(function(n,i){ return esc(n)+' <span style="color:var(--charcoal);">('+esc(r.ratingLabels[i]||'Unrated')+')</span>'; }).join(', ');
         return '<div style="padding:9px 0;border-bottom:1px solid var(--border,#f0f0f0);'+(r.status==='dropped'?'opacity:.55;':'')+'">'
-          +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span style="font-weight:700;font-size:14px;">'+esc(r.name)+'</span>'+badge(r.status)+'</div>'
-          +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)+(r.at?' &middot; '+esc(new Date(r.at).toLocaleDateString()):'')
-          +'<br>'+esc(r.players.join(', ')||'No players')+'</div></div>';
+          +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span style="font-weight:700;font-size:14px;">'
+          +(r.seed?'<span style="color:var(--red);">#'+r.seed+'</span> ':'')+esc(r.name)+'</span>'+badge(r.status)+'</div>'
+          +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)
+          +' &middot; Team rating <strong style="color:var(--charcoal);">'+(r.teamRating!=null?r.teamRating:'Unrated')+'</strong> ('+r.rated+' of '+r.total+' rated)'
+          +'<br>'+(who||'No players')+'</div></div>';
       }).join('');
     }
-    html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Email and phone are never shown here.</p></div>';
+    html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Seeds sort each division by team rating, the average of its rated players. Ratings are for execs only. Email and phone are never shown here.</p></div>';
   }
   el.innerHTML=html+'</div>';
 
@@ -14239,6 +14404,80 @@ function tnPickupListing(o){
 // Hide a listing the way pickup hides one (its directory skips status 'cancelled'). Only
 // for a listing that exists: a lone status write would fail the node's required-fields rule.
 function tnPickupHide(existing){ return (existing&&existing.name)?{status:'cancelled'}:null; }
+
+// ---- Schedule (America/New_York) -------------------------------------------------------
+// Club tournaments run on Eastern time. The registration deadline is entered as a local date
+// and time and stored as epoch ms, so every device and the worker agree on the instant.
+// US daylight saving (since 2007): EDT from the second Sunday of March at 2:00 AM local to
+// the first Sunday of November at 2:00 AM local; EST otherwise. In the repeated hour on the
+// November change, the earlier (EDT) instant is used. Returns null for a bad date or time.
+function tnNthSunday(y,month,n){ // month 1 to 12, nth Sunday as a day of the month
+  var first=new Date(Date.UTC(y,month-1,1)).getUTCDay();
+  return 1+((7-first)%7)+(n-1)*7;
+}
+function tnNyEpoch(dateStr,timeStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||'')), t=/^(\d{2}):(\d{2})$/.exec(String(timeStr||''));
+  if(!d||!t) return null;
+  var y=+d[1], mo=+d[2], da=+d[3], h=+t[1], mi=+t[2];
+  if(mo<1||mo>12||da<1||da>31||h>23||mi>59) return null;
+  var local=(mo*100+da)*10000+h*100+mi; // MMDDhhmm, comparable within a year
+  var start=(3*100+tnNthSunday(y,3,2))*10000+200, end=(11*100+tnNthSunday(y,11,1))*10000+200;
+  // Before 2:00 AM on the November Sunday is still EDT (so the repeated 1:00 hour reads as
+  // its first, EDT pass); from 2:00 AM local it is EST.
+  var edt=local>=start&&local<end;
+  return Date.UTC(y,mo-1,da,h,mi)+(edt?4:5)*3600000;
+}
+// "08:30" -> "8:30 AM", "23:59" -> "11:59 PM". '' for anything else.
+function tnTimeLabel(hhmm){
+  var t=/^(\d{2}):(\d{2})$/.exec(String(hhmm||''));
+  if(!t) return '';
+  var h=+t[1], ampm=h>=12?'PM':'AM', h12=h%12||12;
+  return h12+':'+t[2]+' '+ampm;
+}
+// "YYYY-MM-DD" -> "Sunday, October 11". Read at noon UTC so no time zone moves the day.
+function tnDayLabel(dateStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||''));
+  if(!d) return '';
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var dt=new Date(Date.UTC(+d[1],+d[2]-1,+d[3],12));
+  return days[dt.getUTCDay()]+', '+months[+d[2]-1]+' '+(+d[3]);
+}
+// Time left as words: "2 days 4 hours", "5 hours 10 minutes", "12 minutes", "less than a minute".
+function tnCountdown(ms){
+  if(!(ms>0)) return '';
+  var m=Math.floor(ms/60000), d=Math.floor(m/1440), h=Math.floor((m%1440)/60), mm=m%60;
+  var w=function(n,u){ return n+' '+u+(n===1?'':'s'); };
+  if(d) return w(d,'day')+(h?' '+w(h,'hour'):'');
+  if(h) return w(h,'hour')+(mm?' '+w(mm,'minute'):'');
+  return mm?w(mm,'minute'):'less than a minute';
+}
+// The day before a YYYY-MM-DD date, for the default registration deadline.
+function tnDayBefore(dateStr){
+  var d=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr||''));
+  if(!d) return '';
+  var dt=new Date(Date.UTC(+d[1],+d[2]-1,+d[3]-1));
+  return dt.getUTCFullYear()+'-'+String(dt.getUTCMonth()+1).padStart(2,'0')+'-'+String(dt.getUTCDate()).padStart(2,'0');
+}
+
+// ---- Team ratings for seeding -------------------------------------------------------
+// ratings is one entry per player: a number, or null when the player is unrated. The team
+// rating is the mean of the numbers present; a team with none has no rating.
+function tnTeamRating(ratings){
+  var nums=tnArr(ratings).filter(function(x){ return typeof x==='number'&&isFinite(x); });
+  var total=Array.isArray(ratings)?ratings.length:nums.length;
+  return {avg:nums.length?Math.round(nums.reduce(function(a,b){ return a+b; },0)/nums.length):null, rated:nums.length, total:total};
+}
+// Strongest first: rated teams by average descending, then unrated teams, each tie broken
+// by name. Returns a new list; the input is untouched.
+function tnSortByRating(rows){
+  return tnArr(rows).slice().sort(function(a,b){
+    var x=a.teamRating, y=b.teamRating;
+    if((x==null)!==(y==null)) return x==null?1:-1;
+    if(x!=null&&y!=null&&x!==y) return y-x;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
+}
 // ===== TN ENGINE END =====
 
 // ---- Practice tournament (club, exec only) ---------------------------------
