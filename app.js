@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.178';
+const APP_VERSION='1.1.179';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12065,6 +12065,8 @@ function tnListingUpdates(tid,t,mode,divIds,divOverride){
     return out;
   });
 }
+// "at least 1 guy and 1 girl", "at least 2 guys and 2 girls".
+function tnCoedText(g,f){ g=+g||0; f=+f||0; return 'at least '+g+' guy'+(g===1?'':'s')+' and '+f+' girl'+(f===1?'':'s'); }
 function tnMerge(a,b){ Object.keys(b||{}).forEach(function(k){ a[k]=b[k]; }); return a; }
 
 // Default coed minimums by team size: 2s and 3s need one of each, 4s need two of each.
@@ -13287,13 +13289,21 @@ function tnEndRetry(){
 // Create writes exactly what the card's own create and division editor write (meta, then each
 // division through tnDivFromDraft), in one update through tnWrite, and can open registration
 // right after. The card's editors stay for later changes.
+// Shared defaults for every preset (and Custom): pools of 4, top 2 advance, 1 game to 21 cap
+// 25, single elimination with a third place match, 20 minutes a match, switch sides every 7,
+// technical timeout at 21. Team size, roster max, category and coed minimums vary.
+var TN_PRESET_BASE={poolSize:'4', advancePerPool:'2', pBestOf:'1', pScoreTo:'21', pCap:'25', oBestOf:'1', oScoreTo:'21', oCap:'25',
+  oFormat:'single', oThirdPlace:'1', pMpm:'20', oMpm:'20', pSwitch:'7', oSwitch:'7', pTto:'1', oTto:'1', pTtoAt:'21', oTtoAt:'21'};
 var TN_PRESETS=[
-  {key:'coed4', label:'Coed 4s, standard grass', name:'Coed 4s', d:{category:'coed', teamSize:'4', rosterMax:'6', minGuys:'2', minGirls:'2', poolSize:'4', advancePerPool:'2',
-    pBestOf:'1', pScoreTo:'21', pCap:'25', oBestOf:'1', oScoreTo:'21', oCap:'25', oFormat:'single', oThirdPlace:'1'}},
-  {key:'mens2', label:"Men's 2s", name:"Men's 2s", d:{category:'mens', teamSize:'2', rosterMax:'2', poolSize:'4', advancePerPool:'2', pCap:'0', oCap:'0', oFormat:'single', oThirdPlace:'0'}},
-  {key:'womens2', label:"Women's 2s", name:"Women's 2s", d:{category:'womens', teamSize:'2', rosterMax:'2', poolSize:'4', advancePerPool:'2', pCap:'0', oCap:'0', oFormat:'single', oThirdPlace:'0'}},
-  {key:'coed2', label:'Coed 2s', name:'Coed 2s', d:{category:'coed', teamSize:'2', rosterMax:'2', minGuys:'1', minGirls:'1', poolSize:'4', advancePerPool:'2', pCap:'0', oCap:'0', oFormat:'single', oThirdPlace:'0'}},
-  {key:'open3', label:'Open 3s', name:'Open 3s', d:{category:'open', teamSize:'3', rosterMax:'4', poolSize:'4', advancePerPool:'2', pCap:'0', oCap:'0', oFormat:'single', oThirdPlace:'0'}}
+  {key:'mens2', label:"Men's 2s", name:"Men's 2s", d:{category:'mens', teamSize:'2', rosterMax:'2'}},
+  {key:'womens2', label:"Women's 2s", name:"Women's 2s", d:{category:'womens', teamSize:'2', rosterMax:'2'}},
+  {key:'coed2', label:'Coed 2s', name:'Coed 2s', d:{category:'coed', teamSize:'2', rosterMax:'2', minGuys:'1', minGirls:'1'}},
+  {key:'mens3', label:"Men's 3s", name:"Men's 3s", d:{category:'mens', teamSize:'3', rosterMax:'4'}},
+  {key:'womens3', label:"Women's 3s", name:"Women's 3s", d:{category:'womens', teamSize:'3', rosterMax:'4'}},
+  {key:'coed3', label:'Coed 3s', name:'Coed 3s', d:{category:'coed', teamSize:'3', rosterMax:'4', minGuys:'1', minGirls:'1'}},
+  {key:'mens4', label:"Men's 4s", name:"Men's 4s", d:{category:'mens', teamSize:'4', rosterMax:'6'}},
+  {key:'womens4', label:"Women's 4s", name:"Women's 4s", d:{category:'womens', teamSize:'4', rosterMax:'6'}},
+  {key:'coed4', label:'Coed 4s', name:'Coed 4s', d:{category:'coed', teamSize:'4', rosterMax:'6', minGuys:'2', minGirls:'2'}}
 ];
 var TN_HELP={
   expected:'Your best guess. It is only used for the day at a glance.',
@@ -13320,11 +13330,16 @@ var TN_HELP={
 var _tnWiz=null;
 function tnWizNewDiv(preset){
   var p=TN_PRESETS.filter(function(x){ return x.key===preset; })[0];
-  var d=Object.assign(tnNewDivDraft(), {expected:'8', poolSize:'4', preset:p?p.key:'custom'}, p?p.d:{});
+  var d=Object.assign(tnNewDivDraft(), {expected:'8', preset:p?p.key:'custom'}, TN_PRESET_BASE, p?p.d:{});
   d.name=p?p.name:'';
   return d;
 }
+// A filled garnet button that is never greyed: a busy card explains itself in a line instead.
+function tnFillBtn(label,onclick){
+  return '<button class="btn btn-small" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;background:var(--red);color:#fff;border:2px solid var(--red);font-weight:700;" onclick="'+onclick+'">'+label+'</button>';
+}
 function tnWizOpen(){
+  if(_tnUi.busy){ toast('Saving a change. Try again in a moment.'); return; }
   _tnWiz={step:1, idx:0, open:false, b:{name:'', date:'', loc:'', addr:''}, sched:{regDate:'', regTime:'23:59', check:'', start:'', end:''}, divs:[]};
   tnCardRender();
 }
@@ -13485,7 +13500,8 @@ function tnWizHtml(h){
       +pick('tn-w-size','Team size',d.teamSize,'d.teamSize',[['2','2 players'],['3','3 players'],['4','4 players']],'teamSize')
       +field('tn-w-rmax','Roster max',d.rosterMax,'d.rosterMax',' inputmode="numeric"','rosterMax')
       +pick('tn-w-cat','Category',d.category,'d.category',[['coed','Coed'],['mens',"Men's"],['womens',"Women's"],['open','Open']])
-      +(d.category==='coed'?field('tn-w-mg','Coed: fewest guys',d.minGuys,'d.minGuys',' inputmode="numeric"','coed')+field('tn-w-mf','Coed: fewest girls',d.minGirls,'d.minGirls',' inputmode="numeric"'):'')
+      +(d.category==='coed'?field('tn-w-mg','Coed: fewest guys',d.minGuys,'d.minGuys',' inputmode="numeric"','coed')+field('tn-w-mf','Coed: fewest girls',d.minGirls,'d.minGirls',' inputmode="numeric"')
+        +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">Each team needs '+esc(tnCoedText(d.minGuys,d.minGirls))+'.</div>':'')
       +field('tn-w-courts','Courts',d.courts,'d.courts','','courts')
       +'<div style="font-weight:700;font-size:13px;margin-top:12px;">Pool play</div><div style="font-size:12px;color:var(--gray);">Seeding and work refs are automatic.</div>'+help('seeding')+help('refs')
       +field('tn-w-psize','Teams per pool',d.poolSize,'d.poolSize',' inputmode="numeric"','pools')
@@ -13515,14 +13531,18 @@ function tnWizHtml(h){
     html+='<div style="font-size:14px;line-height:1.7;"><strong>'+esc(m.name)+'</strong>, '+esc(tnDayLabel(m.date))+(m.location?', '+esc(m.location):'')
       +'<br>Check in '+esc(tnTimeLabel(m.checkInTime)||'not set')+', play starts '+esc(tnTimeLabel(m.startTime)||'not set')+(m.endTime?', ends around '+esc(tnTimeLabel(m.endTime)):'')
       +'<br>Registration closes '+esc(m.regCloseDate?tnDayLabel(m.regCloseDate):'not set')+(m.regCloseTime?' at '+esc(tnTimeLabel(m.regCloseTime)):'')
-      +'<br>Divisions: '+w.divs.map(function(d){ return esc(d.name||'Division'); }).join(', ')+'</div>'
+      +'</div><div style="font-size:13px;line-height:1.7;margin-top:6px;">'+w.divs.map(function(d){
+        return '<div><strong>'+esc(d.name||'Division')+'</strong>: '+esc(d.teamSize)+' players a side, roster up to '+esc(d.rosterMax)
+          +(d.category==='coed'?', '+esc(tnCoedText(d.minGuys,d.minGirls)):'')+'</div>';
+      }).join('')+'</div>'
       +'<div style="font-weight:700;font-size:13px;margin-top:12px;">Ready to open registration?</div>'+tnReadinessHtml(tnReadiness(m,dv),esc)
       +'<div style="font-weight:700;font-size:13px;margin-top:12px;">Day at a glance</div>'+tnDayGlanceHtml(w.divs,w.sched,esc)
       +'<label style="display:flex;gap:10px;align-items:center;min-height:48px;font-size:14px;margin-top:10px;"><input type="checkbox" id="tn-w-open" '+(w.open?'checked':'')+' onchange="tnWizSet(\'open\',this.checked)" style="width:22px;height:22px;"> Open registration right away</label>';
   }
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">'
     +(s>1?btn('Back','tnWizGo('+(s-1)+')',false):'')
-    +(s<5?btn('Next','tnWizGo('+(s+1)+')',true,'background:var(--red);color:#fff;'):btn('Create tournament','tnWizCreate()',true,'background:var(--red);color:#fff;'))
+    +(s<5?tnFillBtn('Next','tnWizGo('+(s+1)+')'):tnFillBtn('Create tournament','tnWizCreate()'))
+    +(_tnUi.busy&&s===5?'<div style="font-size:12px;color:var(--gray);width:100%;">Creating the tournament...</div>':'')
     +'</div></div>';
   return html;
 }
@@ -13876,6 +13896,8 @@ function tnGdMatchHtml(t,m,R,esc,nm,scoring,btn){
 function tnCardRender(){
   var el=document.getElementById('tn-card'); if(!el) return;
   if(!tnCardEnabled()){ el.innerHTML=''; return; }
+  if(_tnUi.busy){ if(!_tnUi.busySince) _tnUi.busySince=Date.now(); else if(Date.now()-_tnUi.busySince>20000){ _tnUi.busy=false; _tnUi.busySince=0; } }
+  else _tnUi.busySince=0;
   tnAttach();
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
   var ae=document.activeElement, focusId=(ae&&ae.id&&ae.id.indexOf('tn-')===0)?ae.id:null;
@@ -13933,7 +13955,9 @@ function tnCardRender(){
       +'<label style="'+lbl+'" for="tn-new-end">Ends '+opt+'</label>'+tme('tn-new-end',_tnUi.newEnd,'newEnd')
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Create tournament','tnCreate()',true)+btn('Cancel','tnToggleNew(false)',false)+'</div></div>';
   } else {
-    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn('Create tournament','tnWizOpen()',true,'background:var(--red);color:#fff;')+btn('Quick create','tnToggleNew(true)',false)+'</div>';
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+tnFillBtn('Create tournament','tnWizOpen()')
+      +'<button class="btn btn-small" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;background:#fff;color:var(--red);border:1px solid var(--red);font-weight:700;" onclick="tnToggleNew(true)">Quick create</button></div>'
+      +(_tnUi.busy?'<div style="font-size:12px;color:var(--gray);margin-top:4px;">Saving a change. Create tournament works once it finishes.</div>':'');
   }
 
   var t=tnCur();
@@ -14023,7 +14047,7 @@ function tnCardRender(){
         +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
         +'<div><div style="font-weight:700;font-size:14px;">'+esc(d.name||id)+'</div>'
         +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(cat)+', '+esc(d.teamSize)+'v'+esc(d.teamSize)+', roster up to '+esc(d.rosterMax)
-        +(d.category==='coed'&&d.coed?', at least '+esc(d.coed.minGuys)+' guys and '+esc(d.coed.minGirls)+' girls':'')
+        +(d.category==='coed'&&d.coed?', '+esc(tnCoedText(d.coed.minGuys,d.coed.minGirls)):'')
         +'<br>Courts '+esc(tnArr(d.courts).join(', '))+', '+esc(d.poolCount)+' pool'+(+d.poolCount===1?'':'s')+', top '+esc(d.advancePerPool)+' per pool advance'
         +'<br>Pool: '+esc(fmt(d.pool))+'. Playoff: '+esc(fmt(d.playoff))+'.'
         +'<br><strong>'+nReg+'</strong> team'+(nReg===1?'':'s')+' registered</div></div>'
