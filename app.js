@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.176';
+const APP_VERSION='1.1.177';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1121,7 +1121,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <button class="tab active" data-tab="recruiting">Recruiting</button>
       <button class="tab" data-tab="accounting">Accounting</button>
       <button class="tab" data-tab="travel">Travel</button>
-      <button class="tab" data-tab="info">Info</button>
+      <button class="tab" data-tab="info">Export</button>
+      ${SC.dbRoots.matches==='grass_club_matches'?'<button class="tab" data-tab="tournaments">Tournaments</button>':''}
       `:`
       <button class="tab active" data-tab="dashboard">Dashboard</button>
       <button class="tab" data-tab="gameday">Planner</button>
@@ -1565,7 +1566,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   <div class="tab-content" id="tab-recruiting"></div>
   ${SC.tiersEnabled?`<div class="tab-content" id="tab-accounting"></div>
   <div class="tab-content" id="tab-travel"></div>
-  <div class="tab-content" id="tab-info"></div>`:`<div class="tab-content" id="tab-logistics">
+  <div class="tab-content" id="tab-info"></div>
+  ${SC.dbRoots.matches==='grass_club_matches'?'<div class="tab-content" id="tab-tournaments"></div>':''}`:`<div class="tab-content" id="tab-logistics">
     <div id="tab-accounting"></div>
     <div id="tab-travel"></div>
   </div>`}
@@ -4175,6 +4177,7 @@ function refreshTab(id){
     case'accounting':renderAccounting();break;
     case'travel':renderTravel();break;
     case'info':renderInfo();break;
+    case'tournaments':renderTournaments();break;
     case'logistics':renderAccounting();renderTravel();break;
   }
 }
@@ -11697,8 +11700,15 @@ function renderInfo(){
       <div class="card-title"><span class="bar"></span> Shirt order</div>
       <p style="font-size:13px;color:var(--gray);line-height:1.6;margin-bottom:12px;">Name, tier and size only, with a summary grid of counts by tier and size for the printer.</p>
       <button class="btn btn-small btn-w" style="background:#782F40;color:#fff;border:none;" onclick="exportShirtOrder()">👕 Shirt order export</button>
-    </div>`+(tnCardEnabled()?'<div id="tn-card"></div>':'');
-  if(tnCardEnabled()) tnCardRender();
+    </div>`;
+}
+// Logistics > Tournaments (grass club): the Tournament card's home. The pane keeps one
+// #tn-card mount; the card redraws itself into it.
+function renderTournaments(){
+  const pane=document.getElementById('tab-tournaments'); if(!pane) return;
+  if(!tnCardEnabled()){ pane.innerHTML='<div class="card"><p style="font-size:13px;color:var(--gray);">Tournaments are for execs. Sign in as an exec to run one.</p></div>'; return; }
+  if(!document.getElementById('tn-card')) pane.innerHTML='<div id="tn-card"></div>';
+  tnCardRender();
 }
 
 async function exportInfo(){
@@ -11768,7 +11778,7 @@ async function exportInfo(){
 // names come from the CourtSense account's public displayName (ensureCommunityPlayers),
 // falling back to the 'First L.' the worker stored.
 //
-// The card mounts into #tn-card, which renderInfo rebuilds on every data refresh, so
+// The card mounts into #tn-card on Logistics > Tournaments (renderTournaments), and it redraws on every data refresh, so
 // every field keeps its draft in _tnUi and focus is put back after each redraw.
 // ============================================================
 var TN_REG_PAGE='https://courtsense.app/fsu_grass/tournament.html';
@@ -12587,7 +12597,7 @@ function tnGdHtml(t,h){
   if(status==='setup'){
     var anyPools=ids.some(function(d){ return tnGdHasPools(t,d); });
     html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:6px 0;">Seed each division, save its pools, then start pool play. Starting freezes team changes for players.</div>'
-      +'<div style="margin:8px 0;">'+btn('Start pool play','tnGdStart()',true,anyPools?'':'opacity:.6;')+'</div>';
+      +(anyPools?'<div style="margin:8px 0;">'+btn('Start pool play','tnGdStart()',true,'background:var(--red);color:#fff;')+'</div>':'');
   } else {
     html+='<div style="font-size:13px;margin:6px 0;">Status: <strong>'+esc(tnStatusLabel(status))+'</strong></div>';
   }
@@ -12699,6 +12709,14 @@ function tnPoSilver(t,divId){ return ((t&&t.silver)||{})[divId]||null; }
 function tnPoOverrides(t,divId){ return ((t&&t.refOverrides)||{})[divId]||{}; }
 // Refs for the division's playoff and Silver brackets together (tnDivisionPlayoffRefs), the
 // same call the live page and the worker make, so everyone shows the same ref.
+// The refs the previewed brackets would get: the saved pools' standings, no playoff results yet.
+function tnPoPreviewRefs(t,divId,b){
+  var pv=_tnGd.po.preview[divId]; if(!pv) return {};
+  var d=tnDivs(t)[divId]||{};
+  var all=tnDivisionPlayoffRefs({pools:tnGdPools(t,divId), bracket:pv.bracket, silver:pv.silver, results:tnGdResults(t), overrides:{},
+    poolFmt:d.pool||{bestOf:1, scoreTo:21}, playoffFmt:tnPoFmt(t,divId)});
+  return b===pv.silver?all.silver:all.playoff;
+}
 function tnPoRefs(t,divId){
   var d=tnDivs(t)[divId]||{};
   return tnDivisionPlayoffRefs({pools:tnGdPools(t,divId), bracket:tnPoBracket(t,divId), silver:tnPoSilver(t,divId), results:tnGdResults(t),
@@ -12828,7 +12846,7 @@ function tnPoPlaceLabel(n){ var s=['th','st','nd','rd'], v=n%100; return n+(s[(v
 function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
   var esc=h.esc, btn=h.btn, T=tnTeams(t), R=preview?{}:tnGdResults(t), f=tnPoFmt(t,divId);
   var nm=function(id){ return id?esc((T[id]&&T[id].name)||'Team'):'<span style="color:var(--gray);">To be decided</span>'; };
-  var v=tnBracketView(b,R,f), refs=preview?{}:tnPoRefs(t,divId)[b===tnPoSilver(t,divId)?'silver':'playoff'], ov=tnPoOverrides(t,divId);
+  var v=tnBracketView(b,R,f), refs=preview?tnPoPreviewRefs(t,divId,b):tnPoRefs(t,divId)[b===tnPoSilver(t,divId)?'silver':'playoff'], ov=tnPoOverrides(t,divId);
   var html='<div style="font-weight:700;font-size:15px;margin-top:12px;">'+esc(title)+'</div>';
   if(v.champion) html+='<div style="background:var(--red);color:#fff;border-radius:10px;padding:10px 12px;margin:8px 0;font-weight:700;">\u{1F3C6} Champion: '+nm(v.champion)+'</div>';
   if(v.placements.length>1&&v.champion){
@@ -12866,7 +12884,9 @@ function tnPoMatchHtml(t,m,R,refs,ov,esc,nm,scoring,btn,v,preview){
     +(m.order!=null?'Match '+esc(m.order):'')+(m.court!=null?' &middot; Court '+esc(m.court):'')
     +(m.ifNeeded&&!v.needGf2&&!m.void?' &middot; only if the losers bracket team wins the final':'')+'</div>';
   if(preview){
-    return head+'<div style="font-size:13px;padding:2px 2px 6px;border-bottom:1px solid var(--border,#eee);">'+seedTxt(m.seedA)+nm(m.t1)+' vs '+seedTxt(m.seedB)+nm(m.t2)+'</div>';
+    var pref=Object.prototype.hasOwnProperty.call(refs,m.mid)?refs[m.mid]:null;
+    return head+'<div style="font-size:13px;padding:2px 2px 6px;border-bottom:1px solid var(--border,#eee);">'+seedTxt(m.seedA)+nm(m.t1)+' vs '+seedTxt(m.seedB)+nm(m.t2)
+      +(m.t1&&m.t2?'<div style="font-size:12px;color:var(--gray);">'+(pref?'Ref: '+nm(pref):'Ref: none yet')+'</div>':'')+'</div>';
   }
   var ready=!!(m.t1&&m.t2), r=R[m.mid], ref=Object.prototype.hasOwnProperty.call(refs,m.mid)?refs[m.mid]:null;
   var set=Object.prototype.hasOwnProperty.call(ov,m.mid)&&ov[m.mid];
@@ -12902,7 +12922,7 @@ function tnPoHtml(t,h){
   if(!locked){
     html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">'+btn(saved?'Preview new playoffs':'Preview playoffs','tnPoPreview()',!saved)
       +(pv?btn('Save playoffs','tnPoSave()',true):'')
-      +(status==='pools'?btn('Start playoffs','tnPoStart()',!!saved,saved?'':'opacity:.6;'):'')+'</div>';
+      +(status==='pools'&&saved?btn('Start playoffs','tnPoStart()',true,'background:var(--red);color:#fff;'):'')+'</div>';
   } else {
     html+='<div style="font-size:12px;color:var(--gray);">Playoff scores are in, so this bracket is locked.</div>';
   }
@@ -13215,7 +13235,8 @@ function tnEndHtml(t,h){
   if(st!=='final'){
     html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Closes scoring for everyone, shows final results on the live page, and rates every finished set for 2 player teams. Exec only.</div>';
     var pv=_tnEnd.preview;
-    if(!pv) return html+btn('End tournament','tnEndStart()',true)+'</div>';
+    // Primary once every bracket has a champion; before that it still works, with the strong confirm.
+    if(!pv) return html+btn('End tournament','tnEndStart()',true,tnEndOpenBrackets(t).length?'':'background:var(--red);color:#fff;')+'</div>';
     if(pv.loading) return html+'<div style="font-size:13px;">Checking the games...</div></div>';
     html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.6;">';
     if(pv.open.length) html+='<div style="color:#8a4b08;font-weight:700;">Not finished: '+pv.open.map(esc).join('; ')+'</div>';
