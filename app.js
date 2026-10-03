@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.172';
+const APP_VERSION='1.1.173';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -11772,6 +11772,7 @@ async function exportInfo(){
 // every field keeps its draft in _tnUi and focus is put back after each redraw.
 // ============================================================
 var TN_REG_PAGE='https://courtsense.app/fsu_grass/tournament.html';
+var TN_LIVE_PAGE='https://courtsense.app/fsu_grass/live.html'; // public, read only: pools, standings, bracket
 var TN_PARTNER_PAGE='https://courtsense.app/pickup/?view=tournaments';
 var TN_PICKUP_ROOT='tally_kotb_pickup/tournaments';
 var TN_PICKUP_ORG='FSU Grass Club';
@@ -12242,11 +12243,11 @@ function tnDeleteDiv(divId){
     });
   });
 }
-function tnCopyLink(){
-  var link=TN_REG_PAGE+'?t='+encodeURIComponent(_tnUi.tid);
+function tnCopyLink(live){
+  var link=(live?TN_LIVE_PAGE:TN_REG_PAGE)+'?t='+encodeURIComponent(_tnUi.tid);
   var done=function(){ toast('Link copied'); };
   var fallback=function(){
-    var el=document.getElementById('tn-link');
+    var el=document.getElementById(live?'tn-live-link':'tn-link');
     if(el){ el.focus(); el.select(); try{ document.execCommand('copy'); done(); return; }catch(e){} }
     toast('Press and hold the link to copy it');
   };
@@ -12301,6 +12302,7 @@ async function tnExport(){
 //   teams/{teamId}/seed and /pool       written here; the worker owns everything else on a team
 //   pools/{divId}/{poolKey}             { teamIds, courts, matches:[ { mid, round, wave, court, t1, t2, ref } ] }
 //   results/{mid}                       { t1, t2, sets:[ {a,b} ], winner, at, by, byRole:'exec' }
+//                                       (the worker writes player and ref scores: byRole 'player'|'ref', byTeam)
 // Mids carry the divId prefix (tnSchedulePool idPrefix), which is how a result is tied to its
 // division. Pools cannot be regenerated once any result for the division exists.
 // The live data arrives on the card's existing listener on DB_ROOT/tournaments, which already
@@ -12642,7 +12644,10 @@ function tnGdMatchHtml(t,m,R,esc,nm,scoring,btn){
     ?'<button type="button" onclick="tnGdEdit(\''+esc(m.mid)+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:52px;padding:8px 2px;background:none;border:none;text-align:left;font-size:14px;color:var(--charcoal);cursor:pointer;">'
     :'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;padding:6px 2px;font-size:14px;">')
     +'<span>'+line+'</span>'+right+(scoring&&btn?'</button>':'</div>');
-  if(r&&r.by) h+='<div style="font-size:11px;color:var(--gray);padding:0 2px 6px;">Entered by '+esc(r.by)+(r.at?' at '+esc(new Date(r.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})):'')+'</div>';
+  // Exec entries carry byRole exec; scores sent from a team's manage link carry player or ref.
+  var src=(r&&r.byRole==='player')?'Player':(r&&r.byRole==='ref')?'Ref':'';
+  if(r&&r.by) h+='<div style="font-size:11px;color:var(--gray);padding:0 2px 6px;">Entered by '+esc(r.by)
+    +(src?' <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:4px;padding:1px 5px;background:'+(src==='Ref'?'#1f3a5f':'var(--red)')+';color:#fff;">'+src+'</span>':'')+(r.at?' at '+esc(new Date(r.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})):'')+'</div>';
   if(open){
     var box=function(i,side){
       return '<input class="form-input" id="tn-gd-s'+i+side+'" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="'+esc(e.sets[i][side])+'"'
@@ -12787,6 +12792,18 @@ function tnCardRender(){
       +'<div id="tn-qr" style="width:180px;max-width:100%;margin:12px auto 0;"></div>'
       +(open?'':'<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">The page says registration is closed until you open it.</div>')
       +'</div>';
+    // Live page, from setup on: pools, standings, and the bracket for anyone at the field.
+    if(TN_GAME_STATUSES.indexOf(m.status)>=0){
+      var live=TN_LIVE_PAGE+'?t='+encodeURIComponent(_tnUi.tid);
+      html+='<div style="border-top:1px solid var(--border,#eee);margin-top:14px;padding-top:12px;">'
+        +'<div style="font-weight:700;font-size:14px;margin-bottom:6px;">Live page</div>'
+        +'<div style="display:flex;gap:8px;align-items:center;">'
+        +'<input class="form-input" id="tn-live-link" readonly value="'+esc(live)+'" style="'+inp+'font-size:13px;flex:1;min-width:0;" onclick="this.select()">'
+        +btn('Copy','tnCopyLink(true)',true)+'</div>'
+        +'<div id="tn-live-qr" style="width:180px;max-width:100%;margin:12px auto 0;"></div>'
+        +'<div style="font-size:12px;color:var(--gray);text-align:center;margin-top:6px;">Post this at the field. Anyone can follow pools, standings, and playoffs. It shows team names only.</div>'
+        +'</div>';
+    }
 
     // Divisions.
     html+='<div style="border-top:1px solid var(--border,#eee);margin-top:14px;padding-top:12px;">'
@@ -12880,6 +12897,7 @@ function tnCardRender(){
   el.innerHTML=html+'</div>';
 
   if(t&&!_tnUi.newOpen) renderQrInto('tn-qr',TN_REG_PAGE+'?t='+encodeURIComponent(_tnUi.tid));
+  if(t&&!_tnUi.newOpen&&document.getElementById('tn-live-qr')) renderQrInto('tn-live-qr',TN_LIVE_PAGE+'?t='+encodeURIComponent(_tnUi.tid));
   // Full names arrive with the account read; redraw once it lands.
   if(t&&Object.keys(tnTeams(t)).length&&!communityPlayersNow()) ensureCommunityPlayers().then(function(a){ if(a) tnCardRender(); });
   tnGdRefresh(); // the score editor message and Save state
