@@ -92,6 +92,11 @@
   @keyframes lp{0%,100%{opacity:1;}50%{opacity:.25;}}
   .liveline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:18px;font-weight:800;color:#b3121b;margin-top:6px;font-variant-numeric:tabular-nums;}
   .cn.is-live{border-color:#c81e1e;}
+  .br{display:flex;gap:12px;overflow-x:auto;align-items:flex-start;}
+  .br-col{flex:1 0 250px;min-width:250px;}
+  @media (max-width:700px){ .br{flex-direction:column;overflow-x:visible;} .br-col{flex:none;min-width:0;width:100%;} }
+  .places{font-size:17px;line-height:1.7;margin:0 0 12px;}
+  .places b{color:var(--garnet);display:inline-block;min-width:44px;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:14px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -406,7 +411,9 @@ function tnBracketOrder(size){
 // the next seed in the same pool finish tier (then the one before) when that clears it without
 // making another same pool match; otherwise it stands. A bye match carries bye:true and its team
 // moves straight on. Later matches name their feeders in fromA and fromB. Returns { rounds }.
-function tnBuildBracket(seeds,idPrefix){
+// opts.thirdPlace (4 or more teams) adds {prefix}po-3rd to the last round: the two semifinal
+// losers (fromLoser) play for third.
+function tnBuildBracket(seeds,idPrefix,opts){
   var list=tnArr(seeds).slice().sort(function(a,b){ return (+a.seed||0)-(+b.seed||0); });
   var N=list.length, pre=tnMidPrefix(idPrefix);
   if(N<2) return {rounds:[]};
@@ -445,6 +452,11 @@ function tnBuildBracket(seeds,idPrefix){
     }
     rounds.push(rd);
   }
+  if(opts&&opts.thirdPlace&&N>=4&&rounds.length>=2){
+    var semis=rounds[rounds.length-2];
+    rounds[rounds.length-1].push({mid:pre+'po-3rd', round:rounds.length, slot:2, t1:null, t2:null,
+      fromA:semis[0].mid, fromB:semis[1].mid, fromLoser:true});
+  }
   var filled=tnAdvance({rounds:rounds},{},null);
   return {rounds:filled.rounds};
 }
@@ -452,19 +464,22 @@ function tnBuildBracket(seeds,idPrefix){
 // is ever removed. Each later match takes its teams from its feeders' winners. A result that no
 // longer fits its match (the teams changed after a feeder edit, the teams are not both known yet,
 // a result on a bye, or an invalid score) is left in place, gives no winner, and is listed in
-// conflicts as { mid, kind, reason }. Returns { rounds, conflicts, champion }.
+// conflicts as { mid, kind, reason }. A fromLoser match (third place) takes its feeders' losers.
+// Returns { rounds, conflicts, champion, won, lost } (won and lost: mid to team id or null).
 function tnAdvance(bracket,results,fmt){
   var rounds=tnArr(bracket&&bracket.rounds).map(function(rd){ return tnArr(rd).map(function(m){ return tnClone(m); }); });
-  var res=results||{}, conflicts=[], winners={};
-  var win=function(mid){ return Object.prototype.hasOwnProperty.call(winners,mid)?winners[mid]:null; };
+  var res=results||{}, conflicts=[], winners={}, losers={};
+  var get=function(map,mid){ return Object.prototype.hasOwnProperty.call(map,mid)?map[mid]:null; };
   rounds.forEach(function(rd,ri){
     rd.forEach(function(m){
-      if(ri>0&&(m.fromA||m.fromB)){ m.t1=m.fromA?win(m.fromA):null; m.t2=m.fromB?win(m.fromB):null; }
-      winners[m.mid]=tnBracketWinner(m,res[m.mid],fmt,conflicts);
+      if(ri>0&&(m.fromA||m.fromB)){ var src=m.fromLoser?losers:winners; m.t1=m.fromA?get(src,m.fromA):null; m.t2=m.fromB?get(src,m.fromB):null; }
+      var w=tnBracketWinner(m,res[m.mid],fmt,conflicts);
+      winners[m.mid]=w;
+      losers[m.mid]=(w&&!m.bye)?(w===m.t1?m.t2:m.t1):null;
     });
   });
-  var last=rounds.length?rounds[rounds.length-1]:[];
-  return {rounds:rounds, conflicts:conflicts, champion:(last.length===1?win(last[0].mid):null)};
+  var last=rounds.length?rounds[rounds.length-1]:[], fin=last.filter(function(m){ return !m.fromLoser; });
+  return {rounds:rounds, conflicts:conflicts, champion:(fin.length===1?get(winners,fin[0].mid):null), won:winners, lost:losers};
 }
 function tnBracketWinner(m,r,fmt,conflicts){
   var t1=m.t1||null, t2=m.t2||null;
@@ -737,6 +752,295 @@ function tnLivePrompts(fmt,sets,i,point){
     setOver:setOver, matchOver:mw.valid&&!!mw.winner};
 }
 
+// ---- Playoff formats -------------------------------------------------------------------
+// bracket/{divId} and silver/{divId} hold one of:
+//   { format:'single', opts:{ thirdPlace }, rounds:[ [match...] ] }
+//   { format:'double', opts:{ finalReset }, winners:[rounds], losers:[rounds], final:[gf1, gf2?] }
+// A match names its feeders in fromA and fromB: the winner of that mid, or its loser when
+// fromLoser (both sides; the single third place match) or fromALoser / fromBLoser (double)
+// is set. tnScheduleBracket adds order (the play sequence) and court to every match that will
+// be played; byes and empty matches get neither.
+
+// Placements from a single elimination tnAdvance: 1st and 2nd from the final, 3rd and 4th from
+// the third place match when there is one (else the semifinal losers share 3rd), and each
+// earlier round's losers share the place after everyone who got further.
+function tnSinglePlacements(a){
+  var rounds=a.rounds, out=[], n=rounds.length, W=a.won||{}, Lo=a.lost||{};
+  if(!n) return out;
+  var last=rounds[n-1], fin=last.filter(function(m){ return !m.fromLoser; })[0], third=last.filter(function(m){ return m.fromLoser; })[0];
+  if(a.champion){ out.push({place:1, teamIds:[a.champion]}); if(fin&&Lo[fin.mid]) out.push({place:2, teamIds:[Lo[fin.mid]]}); }
+  if(third&&W[third.mid]){ out.push({place:3, teamIds:[W[third.mid]]}); if(Lo[third.mid]) out.push({place:4, teamIds:[Lo[third.mid]]}); }
+  for(var r=n-2;r>=0;r--){
+    if(r===n-2&&third) continue;
+    var lost=rounds[r].map(function(m){ return Lo[m.mid]; }).filter(Boolean);
+    if(lost.length) out.push({place:rounds[r].length+1, teamIds:lost});
+  }
+  return out;
+}
+
+// Double elimination from tnSeedPlayoffs output. The winners bracket is tnBuildBracket's draw
+// (byes to the top seeds, same pool first round swaps) with mids {prefix}de-w-r{r}-m{s}. The
+// losers bracket ({prefix}de-l-r{r}-m{s}) starts with the round 1 losers in pairs, then
+// alternates: a drop-in round where the losers of the next winners round come down to meet
+// the losers bracket survivors (in reverse order, so teams from the same corner do not meet
+// again straight away), then a round where those survivors play each other. A slot fed by a
+// bye has no team: a losers match with one empty side is a bye, with two it is empty (void).
+// The grand final {prefix}de-gf1 is the winners bracket champion against the losers bracket
+// champion; with opts.finalReset, {prefix}de-gf2 is played only if the losers bracket team
+// wins gf1. Returns { format:'double', opts, winners, losers, final }.
+function tnBuildDoubleElim(seeds,idPrefix,opts){
+  var o=opts||{}, pre=tnMidPrefix(idPrefix), single=tnBuildBracket(seeds,idPrefix);
+  var out={format:'double', opts:{finalReset:!!o.finalReset}, winners:[], losers:[], final:[]};
+  if(!single.rounds.length) return out;
+  var from=pre+'po-r', to=pre+'de-w-r';
+  var rn=function(mid){ return (mid&&mid.indexOf(from)===0)?to+mid.slice(from.length):mid; };
+  var W=single.rounds.map(function(rd){ return rd.map(function(m){
+    var c=tnClone(m); c.mid=rn(c.mid); if(c.fromA) c.fromA=rn(c.fromA); if(c.fromB) c.fromB=rn(c.fromB); return c;
+  }); });
+  var k=W.length, L=[], lm=function(r,s){ return pre+'de-l-r'+r+'-m'+s; };
+  if(k>=2){
+    var r1=[];
+    for(var s=1;s<=W[0].length/2;s++){
+      r1.push({mid:lm(1,s), round:1, slot:s, t1:null, t2:null, fromA:W[0][2*s-2].mid, fromALoser:true, fromB:W[0][2*s-1].mid, fromBLoser:true});
+    }
+    L.push(r1);
+    for(var j=2;j<=k;j++){
+      var prev=L[L.length-1], wr=W[j-1], rno=L.length+1, drop=[];
+      for(var d=1;d<=wr.length;d++){
+        drop.push({mid:lm(rno,d), round:rno, slot:d, t1:null, t2:null, fromA:prev[d-1].mid, fromB:wr[wr.length-d].mid, fromBLoser:true});
+      }
+      L.push(drop);
+      if(j<k){
+        var r2=L.length+1, pair=[];
+        for(var q=1;q<=drop.length/2;q++) pair.push({mid:lm(r2,q), round:r2, slot:q, t1:null, t2:null, fromA:drop[2*q-2].mid, fromB:drop[2*q-1].mid});
+        L.push(pair);
+      }
+    }
+  }
+  var wFinal=W[k-1][0].mid, lFinal=L.length?L[L.length-1][0].mid:null;
+  var F=[{mid:pre+'de-gf1', round:1, slot:1, t1:null, t2:null, fromA:wFinal, fromB:lFinal||wFinal, fromBLoser:!lFinal}];
+  if(o.finalReset) F.push({mid:pre+'de-gf2', round:2, slot:1, t1:null, t2:null, fromA:F[0].mid, fromB:F[0].mid, ifNeeded:true});
+  var filled=tnAdvanceDouble({format:'double', winners:W, losers:L, final:F},{},null);
+  out.winners=filled.winners; out.losers=filled.losers; out.final=filled.final;
+  return out;
+}
+
+// Winners and losers carried forward through a copy of a double elimination bracket; nothing
+// passed in is changed. Conflicts are reported as tnAdvance does, plus a result saved on an
+// empty match or on an if needed final that is not (or not yet) needed. Returns { winners,
+// losers, final, conflicts, champion, placements, needGf2, won, lost }: placements are 1st,
+// 2nd, then the losers bracket final loser 3rd, and each earlier losers round's losers share
+// the place after everyone who got further.
+function tnAdvanceDouble(bracket,results,fmt){
+  var b=bracket||{}, res=results||{}, conflicts=[], won={}, lost={}, dead={};
+  var cp=function(rs){ return tnArr(rs).map(function(rd){ return tnArr(rd).map(function(m){ return tnClone(m); }); }); };
+  var W=cp(b.winners), L=cp(b.losers), F=tnArr(b.final).map(function(m){ return tnClone(m); });
+  var has=function(o,k){ return Object.prototype.hasOwnProperty.call(o,k); };
+  var side=function(mid,loser){
+    if(!mid||dead[mid+(loser?':l':':w')]) return {dead:true};
+    var o=loser?lost:won; return {team:has(o,mid)?o[mid]:null};
+  };
+  var settle=function(m,fed){
+    if(fed){
+      var a=side(m.fromA,!!m.fromALoser), c=side(m.fromB,!!m.fromBLoser);
+      delete m.bye; delete m.void;
+      if(a.dead&&c.dead){ m.void=true; m.t1=null; m.t2=null; }
+      else if(a.dead||c.dead){ m.bye=true; m.t1=a.dead?c.team:a.team; m.t2=null; }
+      else { m.t1=a.team; m.t2=c.team; }
+    }
+    if(m.void){
+      if(res[m.mid]) conflicts.push({mid:m.mid, kind:'void', reason:'A result is saved for a match that has no teams'});
+      dead[m.mid+':w']=true; dead[m.mid+':l']=true; won[m.mid]=null; lost[m.mid]=null; return;
+    }
+    var w=tnBracketWinner(m,res[m.mid],fmt,conflicts);
+    won[m.mid]=w;
+    if(m.bye){ dead[m.mid+':l']=true; lost[m.mid]=null; }
+    else lost[m.mid]=w?(w===m.t1?m.t2:m.t1):null;
+  };
+  W.forEach(function(rd,ri){ rd.forEach(function(m){ settle(m,ri>0); }); });
+  L.forEach(function(rd){ rd.forEach(function(m){ settle(m,true); }); });
+  var g1=F[0], g2=F[1], champion=null, runnerUp=null, needGf2=false;
+  if(g1){
+    settle(g1,true);
+    var w1=won[g1.mid];
+    if(g2){
+      g2.ifNeeded=true; delete g2.void; delete g2.bye;
+      if(w1&&w1===g1.t2){ needGf2=true; g2.t1=g1.t1; g2.t2=g1.t2; settle(g2,false); }
+      else if(w1){
+        g2.void=true; g2.t1=null; g2.t2=null; won[g2.mid]=null; lost[g2.mid]=null;
+        if(res[g2.mid]) conflicts.push({mid:g2.mid, kind:'not_needed', reason:'A result is saved for the if needed final, but it was not needed'});
+      } else {
+        g2.t1=null; g2.t2=null; won[g2.mid]=null; lost[g2.mid]=null;
+        if(res[g2.mid]) conflicts.push({mid:g2.mid, kind:'not_needed_yet', reason:'A result is saved for the if needed final before the first final is decided'});
+      }
+    }
+    if(w1&&(w1===g1.t1||!g2)){ champion=w1; runnerUp=lost[g1.mid]; }
+    else if(w1&&g2&&won[g2.mid]){ champion=won[g2.mid]; runnerUp=lost[g2.mid]; }
+  }
+  var places=[];
+  if(champion){ places.push({place:1, teamIds:[champion]}); if(runnerUp) places.push({place:2, teamIds:[runnerUp]}); }
+  var next=3;
+  for(var i=L.length-1;i>=0;i--){
+    var real=L[i].filter(function(m){ return !m.bye&&!m.void; });
+    var out=real.map(function(m){ return lost[m.mid]; }).filter(Boolean);
+    if(out.length) places.push({place:next, teamIds:out});
+    next+=real.length;
+  }
+  return {winners:W, losers:L, final:F, conflicts:conflicts, champion:champion, placements:places, needGf2:needGf2, won:won, lost:lost};
+}
+
+// One view of any stored bracket, single or double: sections of rounds in display order, every
+// match in one flat list (each with section, winner and loser filled in), the champion, the
+// placements and the conflicts. A bracket with no format is single (build 2 stored rounds only).
+function tnBracketView(bracket,results,fmt){
+  var b=bracket||{}, out={format:b.format==='double'?'double':'single', sections:[], matches:[], champion:null, placements:[], conflicts:[], needGf2:false};
+  var won, lost;
+  if(out.format==='double'){
+    var d=tnAdvanceDouble(b,results,fmt);
+    out.sections=[{key:'winners', label:'Winners bracket', rounds:d.winners}, {key:'losers', label:'Losers bracket', rounds:d.losers},
+      {key:'final', label:'Final', rounds:d.final.length?[d.final]:[]}];
+    won=d.won; lost=d.lost; out.champion=d.champion; out.placements=d.placements; out.conflicts=d.conflicts; out.needGf2=d.needGf2;
+  } else {
+    var a=tnAdvance(b,results,fmt);
+    out.sections=[{key:'main', label:'Bracket', rounds:a.rounds}];
+    won=a.won; lost=a.lost; out.champion=a.champion; out.placements=tnSinglePlacements(a); out.conflicts=a.conflicts;
+  }
+  out.sections.forEach(function(sec){
+    sec.rounds.forEach(function(rd){ rd.forEach(function(m){ m.section=sec.key; m.winner=won[m.mid]||null; m.loser=lost[m.mid]||null; out.matches.push(m); }); });
+  });
+  return out;
+}
+
+// Silver bracket seeds: the teams that did not advance, ranked across pools tier by tier the
+// same way tnSeedPlayoffs ranks the advancing ones (every pool's first non-advancing team,
+// then the next, and so on). Returns [ { seed, teamId, pool, poolRank } ].
+function tnSeedSilver(divisionStandings,advancePerPool){
+  var S=divisionStandings||{}, K=Math.max(0,Math.floor(+advancePerPool)||0), out=[], keys=Object.keys(S).sort(), max=0;
+  var pct=function(r){ return r.mp?r.w/r.mp:0; };
+  keys.forEach(function(pk){ max=Math.max(max,tnArr(S[pk]).length); });
+  for(var k=K;k<max;k++){
+    var tier=[];
+    keys.forEach(function(pk){
+      var rows=tnArr(S[pk]).slice().sort(function(a,b){ return (a.rank||0)-(b.rank||0); });
+      if(rows[k]) tier.push({row:rows[k], pool:pk});
+    });
+    tier.sort(function(x,y){ return (pct(y.row)-pct(x.row))||tnStatCmp(x.row,y.row)||(x.pool<y.pool?-1:x.pool>y.pool?1:0); });
+    tier.forEach(function(t){ out.push({seed:out.length+1, teamId:t.row.teamId, pool:t.pool, poolRank:k+1}); });
+  }
+  return out;
+}
+
+// Order and courts for a stored bracket (a copy is returned). A match's level is one more than
+// its latest feeder's, so it can never be scheduled before what it waits on. Play order is by
+// level, then winners before losers before the final, then round, then slot. Courts go round
+// robin in that order, so each court plays its matches in sequence and the same court keeps
+// a steady rhythm. Byes and empty matches get order and court null.
+function tnScheduleBracket(bracket,courts){
+  var b=tnClone(bracket)||{}, C=tnArr(courts).filter(function(c){ return c!=null&&c!==''; });
+  var v=tnBracketView(b,{},null), byMid={}, level={};
+  v.matches.forEach(function(m){ byMid[m.mid]=m; });
+  var lv=function(mid){
+    if(level[mid]!=null) return level[mid];
+    var m=byMid[mid], l=1; if(!m) return 0;
+    [m.fromA,m.fromB].forEach(function(f){ if(f&&f!==mid) l=Math.max(l,lv(f)+1); });
+    level[mid]=l; return l;
+  };
+  var rank={main:0, winners:0, losers:1, final:2};
+  var play=v.matches.filter(function(m){ return !m.bye&&!m.void; }).sort(function(x,y){
+    return (lv(x.mid)-lv(y.mid))||(rank[x.section]-rank[y.section])||((x.round||0)-(y.round||0))||((x.slot||0)-(y.slot||0));
+  });
+  var at={};
+  play.forEach(function(m,i){ at[m.mid]={order:i+1, court:C.length?C[i%C.length]:null}; });
+  var each=function(rd){ tnArr(rd).forEach(function(m){ var a=at[m.mid]; m.order=a?a.order:null; m.court=a?a.court:null; }); };
+  if(b.format==='double'){ tnArr(b.winners).forEach(each); tnArr(b.losers).forEach(each); each(b.final); }
+  else tnArr(b.rounds).forEach(each);
+  return b;
+}
+
+// Refs for a bracket's matches that have no result yet, in play order. An exec override
+// (overrides[mid] = teamId) wins. Otherwise the loser of the most recent finished match (by
+// order) on the same court. When there is none (the first match on a court, or that loser is
+// playing this match), and every match in this match's round has both teams known, the ref is
+// picked in this order:
+//   1. a team in this bracket not playing in this round (a bye in the round first), not
+//      already reffing in this round, and not busy at this order slot (opts.busy);
+//   2. a team from opts.pool (the division's teams that did not make the playoffs), not in
+//      this round, not reffing in it, and not busy at this order slot;
+//   3. null.
+// Ties go to the fewest ref assignments so far in the bracket, then the best pool finish
+// (opts.finish[teamId], lower is better), then team id. A ref is never playing that match.
+// A round is one round index of one section (winners and losers rounds are separate).
+// opts.busy is { order: [teamIds] }: teams playing or reffing another bracket's match with
+// the same order slot. Returns { mid: teamId|null } for every unplayed match with an order.
+function tnPlayoffRefs(bracket,results,overrides,fmt,opts){
+  var o=opts||{}, res=results||{}, ov=overrides||{}, out={}, v=tnBracketView(bracket,res,fmt);
+  var finish=o.finish||{}, pool=tnArr(o.pool), busy=o.busy||{};
+  var has=function(x,k){ return Object.prototype.hasOwnProperty.call(x,k); };
+  var rk=function(m){ return m.section+':'+(m.round||0); };
+  var rounds={}, inBracket={}, list=[];
+  v.matches.forEach(function(m){
+    var k=rk(m), r=rounds[k]||(rounds[k]={playing:{}, byes:{}, complete:true});
+    if(m.void) return;
+    if(m.bye){ var b=m.t1||m.t2; if(b) r.byes[b]=1; else r.complete=false; }
+    else { if(m.t1) r.playing[m.t1]=1; if(m.t2) r.playing[m.t2]=1; if(!m.t1||!m.t2) r.complete=false; }
+    [m.t1,m.t2].forEach(function(id){ if(id){ if(!has(inBracket,id)) list.push(id); inBracket[id]=1; } });
+  });
+  var done=v.matches.filter(function(m){ return m.order!=null&&m.loser; });
+  var count={}, reffing={};
+  var rank=function(a,b,byes){
+    var ba=byes&&byes[a]?0:1, bb=byes&&byes[b]?0:1;
+    return (ba-bb)||((count[a]||0)-(count[b]||0))||((has(finish,a)?+finish[a]:999)-(has(finish,b)?+finish[b]:999))||(a<b?-1:a>b?1:0);
+  };
+  v.matches.filter(function(m){ return m.order!=null&&!m.bye&&!m.void&&!res[m.mid]; })
+    .sort(function(x,y){ return x.order-y.order; })
+    .forEach(function(m){
+      var k=rk(m), r=rounds[k], refs=reffing[k]||(reffing[k]={}), ref=null;
+      var free=function(id){ return id&&id!==m.t1&&id!==m.t2&&!r.playing[id]&&!refs[id]&&tnArr(busy[m.order]).indexOf(id)<0; };
+      if(has(ov,m.mid)&&ov[m.mid]) ref=String(ov[m.mid]);
+      else {
+        var prior=null;
+        done.forEach(function(d){ if(String(d.court)===String(m.court)&&d.order<m.order&&(!prior||d.order>prior.order)) prior=d; });
+        ref=prior?prior.loser:null;
+        if((!ref||ref===m.t1||ref===m.t2)&&r.complete&&m.t1&&m.t2){
+          var c1=list.filter(free).sort(function(a,b){ return rank(a,b,r.byes); });
+          var c2=c1.length?[]:pool.filter(function(id){ return !inBracket[id]&&free(id); }).sort(function(a,b){ return rank(a,b,null); });
+          ref=c1[0]||c2[0]||null;
+        }
+      }
+      if(ref&&(ref===m.t1||ref===m.t2)) ref=null;
+      out[m.mid]=ref;
+      if(ref){ count[ref]=(count[ref]||0)+1; refs[ref]=1; }
+    });
+  return out;
+}
+// Refs for a whole division: the playoff bracket and the Silver bracket together, so a team
+// is never asked to ref two matches in the same order slot or to ref while it plays Silver.
+// o: { pools, bracket, silver, results, overrides, poolFmt, playoffFmt }. Pool finish (the
+// rank in its pool) breaks ties; teams in no playoff bracket are the fallback refs. Silver
+// refs come first, then the playoff bracket avoids every team playing or reffing a Silver
+// match in the same order slot. Returns { playoff:{ mid: ref }, silver:{ mid: ref } }.
+function tnDivisionPlayoffRefs(o){
+  var res=o.results||{}, ov=o.overrides||{}, f=o.playoffFmt||null, finish={}, teams=[];
+  Object.keys(o.pools||{}).sort().forEach(function(k){
+    var p=o.pools[k]||{};
+    tnPoolStandings(p.teamIds,p.matches,res,o.poolFmt||null).forEach(function(r){ finish[r.teamId]=r.rank; teams.push(r.teamId); });
+  });
+  var inMain={};
+  if(o.bracket) tnBracketView(o.bracket,res,f).matches.forEach(function(m){ if(m.t1) inMain[m.t1]=1; if(m.t2) inMain[m.t2]=1; });
+  var pool=teams.filter(function(id){ return !inMain[id]; });
+  var silver=o.silver?tnPlayoffRefs(o.silver,res,ov,f,{finish:finish, pool:pool}):{};
+  var busy={};
+  if(o.silver){
+    tnBracketView(o.silver,res,f).matches.forEach(function(m){
+      if(m.order==null||m.bye||m.void) return;
+      var b=busy[m.order]||(busy[m.order]=[]);
+      [m.t1,m.t2,silver[m.mid]].forEach(function(id){ if(id) b.push(id); });
+    });
+  }
+  var playoff=o.bracket?tnPlayoffRefs(o.bracket,res,ov,f,{finish:finish, pool:pool, busy:busy}):{};
+  return {playoff:playoff, silver:silver};
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -858,31 +1162,78 @@ function wavesHtml(pool, div){
   }).join('');
 }
 
-function roundName(i, n){
-  var fromEnd = n - 1 - i;
-  if(fromEnd === 0) return 'Final';
-  if(fromEnd === 1) return 'Semifinals';
-  if(fromEnd === 2) return 'Quarterfinals';
-  return 'Round ' + (i + 1);
+// ---- Playoffs ----
+// The playoff bracket and the Silver bracket (teams that did not advance), single or double
+// elimination, through the engine's tnBracketView. Each match's ref is tnPlayoffRefs: the
+// exec's choice, else the loser of the last finished match on that court.
+function bracketsOf(divId){
+  var out = [], b = S.t.bracket && S.t.bracket[divId], s = S.t.silver && S.t.silver[divId];
+  if(b) out.push({ key:'playoff', title:'Playoffs', b:b });
+  if(s) out.push({ key:'silver', title:'Silver bracket', b:s });
+  return out;
 }
-
-function bracketHtml(divId, div){
-  var b = S.t && S.t.bracket && S.t.bracket[divId];
-  if(!b || !tnArr(b.rounds).length) return '<p class="muted">Playoffs start after pool play.</p>';
-  var adv = tnAdvance(b, resultsOf(), div.playoff), n = adv.rounds.length, h = '';
-  if(adv.champion) h += '<div class="champ"><div class="lbl">Champions</div><div class="nm">' + teamLabel(adv.champion) + '</div></div>';
-  adv.rounds.forEach(function(rd, i){
-    h += '<div class="wave">' + roundName(i, n) + '</div>';
-    rd.forEach(function(m){
-      if(m.bye){
-        var who = m.t1 || m.t2;
-        h += '<div class="match' + (isMine([who]) ? ' mine' : '') + '"><div class="side"><span class="nm">' + (m.seedA ? '<span class="seed">' + esc(m.seedA) + '</span>' : '') + teamLabel(who) + '</span></div><div class="unplayed">Moves on with a bye</div></div>';
-        return;
-      }
-      h += matchCard(m, { fmt:div.playoff, seedA: i === 0 ? m.seedA : null, seedB: i === 0 ? m.seedB : null });
+// Both brackets together (tnDivisionPlayoffRefs), the same call the club app and the worker
+// make, so a ref never clashes with a Silver match in the same slot.
+function refsFor(divId, b, fmt){
+  var all = tnDivisionPlayoffRefs({ pools:(S.t.pools && S.t.pools[divId]) || {}, bracket:S.t.bracket && S.t.bracket[divId], silver:S.t.silver && S.t.silver[divId],
+    results:resultsOf(), overrides:(S.t.refOverrides && S.t.refOverrides[divId]) || {}, poolFmt:((S.t.divisions || {})[divId] || {}).pool, playoffFmt:fmt });
+  return b === (S.t.silver && S.t.silver[divId]) ? all.silver : all.playoff;
+}
+function withRef(m, refs){ return Object.assign({}, m, { ref: Object.prototype.hasOwnProperty.call(refs, m.mid) ? refs[m.mid] : null }); }
+function roundName(sec, i, n, m){
+  if(sec === 'main'){
+    if(m && m.fromLoser) return 'Third place';
+    var e = n - 1 - i;
+    return e === 0 ? 'Final' : e === 1 ? 'Semifinals' : e === 2 ? 'Quarterfinals' : 'Round ' + (i + 1);
+  }
+  if(sec === 'winners') return i === n - 1 ? 'Winners final' : 'Winners round ' + (i + 1);
+  if(sec === 'losers') return i === n - 1 ? 'Losers final' : 'Losers round ' + (i + 1);
+  return m && m.ifNeeded ? 'If needed' : 'Final';
+}
+// Round names by mid, for the On court now cards.
+function roundNames(v){
+  var out = {};
+  v.sections.forEach(function(sec){ sec.rounds.forEach(function(rd, i){ rd.forEach(function(m){ out[m.mid] = roundName(sec.key, i, sec.rounds.length, m); }); }); });
+  return out;
+}
+function placeLabel(n){ var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+function oneBracketHtml(divId, div, br){
+  var fmt = div.playoff, v = tnBracketView(br.b, resultsOf(), fmt), refs = refsFor(divId, br.b, fmt), h = '';
+  if(v.champion){
+    h += '<div class="champ"><div class="lbl">' + (br.key === 'silver' ? 'Silver champions' : 'Champions') + '</div><div class="nm">' + teamLabel(v.champion) + '</div></div>';
+    if(v.placements.length > 1) h += '<div class="places">' + v.placements.map(function(p){ return '<b>' + placeLabel(p.place) + '</b> ' + p.teamIds.map(teamLabel).join(', '); }).join('<br>') + '</div>';
+  }
+  v.sections.forEach(function(sec){
+    if(!sec.rounds.length) return;
+    if(v.format === 'double') h += '<h3>' + esc(sec.label) + '</h3>';
+    h += '<div class="br">';
+    sec.rounds.forEach(function(rd, i){
+      // Empty matches never show; the if needed final shows only once it is needed.
+      var shown = rd.filter(function(m){ return !m.void && !(m.ifNeeded && !v.needGf2); });
+      if(!shown.length) return;
+      var last = '';
+      h += '<div class="br-col">';
+      shown.forEach(function(m){
+        var name = roundName(sec.key, i, sec.rounds.length, m);
+        if(name !== last) h += '<div class="wave">' + esc(name) + '</div>';
+        last = name;
+        if(m.bye){
+          var who = m.t1 || m.t2;
+          h += '<div class="match' + (isMine([who]) ? ' mine' : '') + '"><div class="side"><span class="nm">' + (m.seedA ? '<span class="seed">' + esc(m.seedA) + '</span>' : '') + (who ? teamLabel(who) : 'To be decided') + '</span></div><div class="unplayed">Moves on with a bye</div></div>';
+          return;
+        }
+        h += matchCard(withRef(m, refs), { fmt:fmt, extra:m.order != null ? 'Match ' + esc(m.order) : '', seedA:m.seedA, seedB:m.seedB });
+      });
+      h += '</div>';
     });
+    h += '</div>';
   });
   return h;
+}
+function bracketHtml(divId, div){
+  var main = S.t.bracket && S.t.bracket[divId];
+  if(!main) return '<p class="muted">Playoffs start after pool play.</p>';
+  return oneBracketHtml(divId, div, { key:'playoff', b:main });
 }
 
 // For each court, the earliest match not yet scored: pool matches by wave, then playoff
@@ -897,15 +1248,13 @@ function onCourtHtml(divId, div){
       if(!res[m.mid] && m.t1 && m.t2) cand.push({ m:m, order:[liveOf(m.mid) ? 0 : 1, 0, Number(m.wave) || 0, pi], label:'Pool ' + p.key, fmt:div.pool });
     });
   });
-  var b = S.t.bracket && S.t.bracket[divId];
-  if(b){
-    var adv = tnAdvance(b, res, div.playoff), n = adv.rounds.length;
-    adv.rounds.forEach(function(rd, i){
-      rd.forEach(function(m, si){
-        if(!m.bye && m.t1 && m.t2 && !res[m.mid]) cand.push({ m:m, order:[liveOf(m.mid) ? 0 : 1, 1, i, si], label:roundName(i, n), fmt:div.playoff });
-      });
+  bracketsOf(divId).forEach(function(br, bi){
+    var v = tnBracketView(br.b, res, div.playoff), refs = refsFor(divId, br.b, div.playoff), names = roundNames(v);
+    v.matches.forEach(function(m){
+      if(m.bye || m.void || !m.t1 || !m.t2 || res[m.mid]) return;
+      cand.push({ m:withRef(m, refs), order:[liveOf(m.mid) ? 0 : 1, 1, m.order != null ? Number(m.order) : 999, bi], label:(br.key === 'silver' ? 'Silver: ' : '') + names[m.mid] + (m.order != null ? ' &middot; Match ' + m.order : ''), fmt:div.playoff });
     });
-  }
+  });
   var cmp = function(a, b){ for(var i = 0; i < 4; i++){ if(a.order[i] !== b.order[i]) return a.order[i] - b.order[i]; } return 0; };
   var best = {}, keys = [];
   cand.forEach(function(c){
@@ -919,7 +1268,7 @@ function onCourtHtml(divId, div){
     return '<div class="cn' + (lv ? ' is-live' : '') + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
       + '<div class="cn-teams">' + teamLabel(m.t1) + '<span class="vs">vs</span>' + teamLabel(m.t2) + '</div>'
       + (lv ? liveLine(lv) : '')
-      + '<div class="cn-meta">' + esc(c.label) + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
+      + '<div class="cn-meta">' + c.label.split(' &middot; ').map(esc).join(' &middot; ') + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
   }).join('') + '</div>';
 }
 
@@ -984,6 +1333,8 @@ function render(){
     h += '<div class="card"><h2>Pools</h2><p class="muted">Pools are posted when the exec team sets them on game day.' + (teams.length ? ' ' + teams.length + ' team' + (teams.length === 1 ? ' is' : 's are') + ' in this division.' : '') + '</p></div>';
   }
   h += '<div class="card"><h2>Playoffs</h2>' + bracketHtml(S.div, div) + '</div>';
+  var silver = S.t.silver && S.t.silver[S.div];
+  if(silver) h += '<div class="card"><h2>Silver bracket</h2><p class="muted">For the teams that did not advance from pools.</p>' + oneBracketHtml(S.div, div, { key:'silver', b:silver }) + '</div>';
   $('app').innerHTML = h;
 }
 
