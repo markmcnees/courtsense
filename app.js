@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.169';
+const APP_VERSION='1.1.170';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -11772,10 +11772,18 @@ async function exportInfo(){
 // every field keeps its draft in _tnUi and focus is put back after each redraw.
 // ============================================================
 var TN_REG_PAGE='https://courtsense.app/fsu_grass/tournament.html';
+var TN_PARTNER_PAGE='https://courtsense.app/pickup/?view=tournaments';
+var TN_PICKUP_ROOT='tally_kotb_pickup/tournaments';
+var TN_PICKUP_ORG='FSU Grass Club';
+var TN_PICKUP_BY='club:fsu_grass'; // not an account id, so pickup leaves listing structure to admins
+// The only fields this card ever writes on a pickup listing. Never the node, never pool.
+var TN_PICKUP_FIELDS=['id','name','startDate','endDate','days','location','locationAddress','eventUrl','surface','format',
+  'organizer','createdBy','createdByName','createdAt','status','source','clubTid','clubDivId'];
 var TN_CATEGORIES=[['coed','Coed'],['mens',"Men's"],['womens',"Women's"],['open','Open']];
 var _tnList=null;          // { tid: tournament node } from the scoped listener, null until first read
 var _tnRef=null, _tnHandler=null;
-var _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false, onlyLooking:false};
+function tnUiDefaults(){ return {tid:'', newOpen:false, newName:'', newDate:'2026-10-11', newLoc:'', newAddr:'', locOpen:false, loc:'', addr:'', div:null, busy:false}; }
+var _tnUi=tnUiDefaults();
 
 function tnCardEnabled(){ return DB_ROOT==='grass_club_matches'&&currentRole==='coach'; }
 
@@ -11791,22 +11799,36 @@ function tnAttach(){
 function tnDetach(){
   if(_tnRef&&_tnHandler) _tnRef.off('value',_tnHandler);
   _tnRef=null; _tnHandler=null; _tnList=null;
-  _tnUi={tid:'', newOpen:false, newName:'', newDate:'2026-10-11', div:null, busy:false, onlyLooking:false};
+  _tnUi=tnUiDefaults();
 }
 
 // ---- Write guard ----------------------------------------------------------
-// Approves an update map only when every key is an explicit child of this one
-// tournament: meta, meta/status, meta/updatedAt, or divisions/{divId}. Anything else,
-// including the tournament node itself or anything under registrations, is refused.
+// Approves an update map only when every key is one of:
+//   DB_ROOT/tournaments/{tid}/meta, meta/status, meta/updatedAt, meta/location,
+//     meta/locationAddress, or divisions/{divId}
+//   tally_kotb_pickup/tournaments/club-{tid}-{divId}/{field} for a field in TN_PICKUP_FIELDS,
+//     or .../divisions/{day}-{coed|mens|womens}-open (the listing's one division entry)
+// Anything else is refused: either tournament node itself, teams, registrations, a
+// listing node as a whole, and a listing's pool.
 function tnWritePaths(tid,paths){
   if(!/^[A-Za-z0-9_-]{1,64}$/.test(String(tid||''))) return false;
   var base=DB_ROOT+'/tournaments/'+tid+'/';
+  var lbase=TN_PICKUP_ROOT+'/club-'+tid+'-';
   var keys=Array.isArray(paths)?paths:Object.keys(paths||{});
   if(!keys.length) return false;
   return keys.every(function(p){
-    if(typeof p!=='string'||p.indexOf(base)!==0) return false;
-    var rest=p.slice(base.length);
-    return rest==='meta'||rest==='meta/status'||rest==='meta/updatedAt'||/^divisions\/[A-Za-z0-9_-]{1,64}$/.test(rest);
+    if(typeof p!=='string') return false;
+    if(p.indexOf(base)===0){
+      var rest=p.slice(base.length);
+      return rest==='meta'||rest==='meta/status'||rest==='meta/updatedAt'||rest==='meta/location'||rest==='meta/locationAddress'
+        ||/^divisions\/[A-Za-z0-9_-]{1,64}$/.test(rest);
+    }
+    if(p.indexOf(lbase)===0){
+      var m=/^([A-Za-z0-9_-]{1,64})\/(.+)$/.exec(p.slice(lbase.length));
+      if(!m||('club-'+tid+'-'+m[1]).length>60) return false;
+      return TN_PICKUP_FIELDS.indexOf(m[2])>=0||/^divisions\/\d{4}-\d{2}-\d{2}-(coed|mens|womens)-open$/.test(m[2]);
+    }
+    return false;
   });
 }
 function tnWrite(tid,updates){
@@ -11824,7 +11846,7 @@ function tnSorted(){
 }
 function tnCur(){ var L=_tnList||{}; return (_tnUi.tid&&L[_tnUi.tid]&&L[_tnUi.tid].meta)?L[_tnUi.tid]:null; }
 function tnDivs(t){ return (t&&t.divisions)||{}; }
-function tnRegs(t){ return (t&&t.registrations)||{}; }
+function tnTeams(t){ return (t&&t.teams)||{}; }
 function tnStatusLabel(s){
   return s==='registration'?'Registration open':s==='setup'?'Setup, registration closed':String(s||'Unknown');
 }
@@ -11833,24 +11855,27 @@ function tnDateLabel(d){
   if(!m) return String(d||'');
   return new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 }
-function tnGenderLabel(g){ return g==='M'?'M':g==='F'?'F':'Not set'; }
-function tnFullName(r){
+// A team player's full name from their CourtSense account, else the 'First L.' the worker stored.
+function tnFullName(p){
   var accts=communityPlayersNow();
-  var a=(accts&&r&&r.accountId)?accts[r.accountId]:null;
+  var a=(accts&&p&&p.accountId)?accts[p.accountId]:null;
   var n=a?String(a.displayName||a.name||'').trim():'';
-  return n||String((r&&r.displayName)||'').trim()||'(no name)';
+  return n||String((p&&p.name)||'').trim()||'(no name)';
 }
-function tnRegRows(t){
-  var regs=tnRegs(t), divs=tnDivs(t);
-  return Object.keys(regs).filter(function(k){ return !!regs[k]; }).map(function(k){
-    var r=regs[k];
-    return {name:tnFullName(r), gender:tnGenderLabel(r.gender), divId:r.divId||'',
-      division:(divs[r.divId]&&divs[r.divId].name)||'(removed division)',
-      teamName:String(r.teamName||''), teammates:String(r.teammates||''),
-      status:r.status==='withdrawn'?'withdrawn':'registered', source:r.source==='new'?'new':'existing',
-      looking:r.lookingForTeam===true,
-      at:typeof r.createdAt==='number'?r.createdAt:0};
-  }).sort(function(a,b){ return a.division.localeCompare(b.division)||(a.status===b.status?0:(a.status==='registered'?-1:1))||a.name.localeCompare(b.name); });
+var TN_TEAM_ORDER={registered:0, incomplete:1, dropped:2};
+// Teams as display rows. The worker owns teams; the app only reads them.
+function tnTeamRows(t){
+  var T=tnTeams(t), divs=tnDivs(t);
+  return Object.keys(T).filter(function(k){ return !!T[k]; }).map(function(k){
+    var x=T[k], players=tnArr(x.players).filter(function(p){ return p&&p.accountId; });
+    var status=(x.status==='registered'||x.status==='incomplete'||x.status==='dropped')?x.status:'incomplete';
+    return {id:k, name:String(x.name||'Team'), divId:String(x.divId||''),
+      division:(divs[x.divId]&&divs[x.divId].name)||'(removed division)', status:status,
+      players:players.map(function(p){ return tnFullName(p); }),
+      guys:players.filter(function(p){ return p.gender==='M'; }).length,
+      girls:players.filter(function(p){ return p.gender==='F'; }).length,
+      at:typeof x.createdAt==='number'?x.createdAt:0};
+  }).sort(function(a,b){ return a.division.localeCompare(b.division)||(TN_TEAM_ORDER[a.status]-TN_TEAM_ORDER[b.status])||a.name.localeCompare(b.name); });
 }
 
 // ---- UI state -------------------------------------------------------------
@@ -11858,7 +11883,45 @@ function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
 function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.newOpen=false; tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
-function tnSetOnlyLooking(on){ _tnUi.onlyLooking=!!on; tnCardRender(); }
+function tnEditLoc(open){
+  var t=tnCur(); if(!t) return;
+  _tnUi.locOpen=!!open;
+  if(open){ _tnUi.loc=String(t.meta.location||''); _tnUi.addr=String(t.meta.locationAddress||''); }
+  tnCardRender();
+}
+
+// ---- Pickup partner listings ------------------------------------------------
+// Builds the absolute-path updates for the pickup listings of some divisions. mode 'list'
+// writes or refreshes each listing (registration open); mode 'hide' sets status cancelled
+// on each listing that exists. Reads the current listings first so createdAt is kept and a
+// hide never writes to a listing that was never created. Resolves { updates, problems }.
+function tnListingUpdates(tid,t,mode,divIds,divOverride){
+  var out={updates:{}, problems:[]};
+  if(!db||!divIds.length) return Promise.resolve(out);
+  var meta=(t&&t.meta)||{}, divs=tnDivs(t);
+  return Promise.all(divIds.map(function(divId){
+    var key=tnPickupListingKey(tid,divId);
+    return db.ref(TN_PICKUP_ROOT+'/'+key).once('value').then(function(s){ return {divId:divId, key:key, ex:s.val()}; })
+      .catch(function(){ return {divId:divId, key:key, ex:null, failed:true}; });
+  })).then(function(rows){
+    rows.forEach(function(r){
+      var base=TN_PICKUP_ROOT+'/'+r.key+'/';
+      if(mode==='hide'){
+        var h=tnPickupHide(r.ex);
+        if(h) Object.keys(h).forEach(function(k){ out.updates[base+k]=h[k]; });
+        return;
+      }
+      if(r.failed){ out.problems.push(r.divId); return; }
+      var div=(divOverride&&divOverride[r.divId])||divs[r.divId];
+      var L=tnPickupListing({tid:tid, divId:r.divId, meta:meta, div:div, existing:r.ex,
+        regLink:TN_REG_PAGE+'?t='+encodeURIComponent(tid), org:TN_PICKUP_ORG, createdBy:TN_PICKUP_BY, now:Date.now()});
+      if(L.error){ out.problems.push((div&&div.name)||r.divId); return; }
+      Object.keys(L.fields).forEach(function(k){ out.updates[base+k]=L.fields[k]; });
+    });
+    return out;
+  });
+}
+function tnMerge(a,b){ Object.keys(b||{}).forEach(function(k){ a[k]=b[k]; }); return a; }
 
 // Default coed minimums by team size: 2s and 3s need one of each, 4s need two of each.
 function tnCoedDefault(size){ return +size===4?{minGuys:2, minGirls:2}:{minGuys:1, minGirls:1}; }
@@ -11898,28 +11961,64 @@ function tnCreate(){
   if(!name){ toast('Give the tournament a name'); return; }
   if(name.length>80){ toast('Keep the name to 80 characters or fewer'); return; }
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ toast('Pick a date'); return; }
+  var loc=String(_tnUi.newLoc||'').trim(), addr=String(_tnUi.newAddr||'').trim();
+  if(loc.length>80){ toast('Keep the location to 80 characters or fewer'); return; }
+  if(addr.length>200){ toast('Keep the address to 200 characters or fewer'); return; }
   var rand='';
   while(rand.length<4) rand+=Math.random().toString(36).slice(2);
   var tid='t-'+date.replace(/-/g,'')+'-'+rand.slice(0,4);
   var now=Date.now(), u={};
-  u[DB_ROOT+'/tournaments/'+tid+'/meta']={name:name, date:date, status:'setup', createdAt:now, updatedAt:now};
+  var meta={name:name, date:date, status:'setup', createdAt:now, updatedAt:now};
+  if(loc) meta.location=loc;
+  if(addr) meta.locationAddress=addr;
+  u[DB_ROOT+'/tournaments/'+tid+'/meta']=meta;
   _tnUi.busy=true;
   tnWrite(tid,u).then(function(ok){
     _tnUi.busy=false;
-    if(ok){ _tnUi.tid=tid; _tnUi.newOpen=false; _tnUi.newName=''; toast('Tournament created. Add a division next.'); }
+    if(ok){ _tnUi.tid=tid; _tnUi.newOpen=false; _tnUi.newName=''; _tnUi.newLoc=''; _tnUi.newAddr=''; toast('Tournament created. Add a division next.'); }
     tnCardRender();
   });
 }
+// Opening lists every division on the pickup partner page; closing hides those listings.
+// The status change and the listing writes go in one update, so they land together.
 function tnSetStatus(status){
   var t=tnCur(); if(!t||_tnUi.busy) return;
-  if(status==='registration'&&!Object.keys(tnDivs(t)).length){ toast('Add at least one division before opening registration'); return; }
-  var base=DB_ROOT+'/tournaments/'+_tnUi.tid+'/meta/', u={};
+  var tid=_tnUi.tid, divIds=Object.keys(tnDivs(t)).filter(function(k){ return !!tnDivs(t)[k]; });
+  if(status==='registration'&&!divIds.length){ toast('Add at least one division before opening registration'); return; }
+  if(status==='registration'&&!String(t.meta.location||'').trim()){ toast('Add a location before opening registration'); return; }
+  var base=DB_ROOT+'/tournaments/'+tid+'/meta/', u={};
   u[base+'status']=status; u[base+'updatedAt']=Date.now();
-  _tnUi.busy=true;
-  tnWrite(_tnUi.tid,u).then(function(ok){
-    _tnUi.busy=false;
-    if(ok) toast(status==='registration'?'Registration is open':'Registration is closed');
-    tnCardRender();
+  _tnUi.busy=true; tnCardRender();
+  tnListingUpdates(tid,t,status==='registration'?'list':'hide',divIds).then(function(L){
+    return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
+      _tnUi.busy=false;
+      if(ok){
+        if(status==='registration') toast(L.problems.length?'Registration is open. Could not list on the partner page: '+L.problems.join(', '):'Registration is open and listed on the partner page');
+        else toast('Registration is closed');
+      }
+      tnCardRender();
+    });
+  });
+}
+function tnSaveLocation(){
+  var t=tnCur(); if(!t||_tnUi.busy) return;
+  var tid=_tnUi.tid, loc=String(_tnUi.loc||'').trim(), addr=String(_tnUi.addr||'').trim();
+  if(!loc){ toast('Add a location'); return; }
+  if(loc.length>80){ toast('Keep the location to 80 characters or fewer'); return; }
+  if(addr.length>200){ toast('Keep the address to 200 characters or fewer'); return; }
+  var base=DB_ROOT+'/tournaments/'+tid+'/meta/', u={};
+  u[base+'location']=loc; u[base+'locationAddress']=addr||null; u[base+'updatedAt']=Date.now();
+  var open=t.meta.status==='registration';
+  var divIds=Object.keys(tnDivs(t)).filter(function(k){ return !!tnDivs(t)[k]; });
+  // While open, the partner listings carry the location too, so refresh them.
+  var nt={meta:Object.assign({},t.meta,{location:loc, locationAddress:addr}), divisions:tnDivs(t)};
+  _tnUi.busy=true; tnCardRender();
+  (open?tnListingUpdates(tid,nt,'list',divIds):Promise.resolve({updates:{},problems:[]})).then(function(L){
+    return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
+      _tnUi.busy=false;
+      if(ok){ _tnUi.locOpen=false; toast('Location saved'); }
+      tnCardRender();
+    });
   });
 }
 function tnIntIn(v,lo,hi){ var n=parseInt(String(v).trim(),10); return (isFinite(n)&&n>=lo&&n<=hi)?n:null; }
@@ -11956,34 +12055,42 @@ function tnSaveDiv(){
   // Division-level checks from the engine, so the card and the engine agree.
   var divId=d.divId;
   if(!divId){
-    var slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40)||'div';
+    // Kept short so the pickup listing key club-{tid}-{divId} stays within its 60 characters.
+    var slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24).replace(/-+$/,'')||'div';
     var rand=''; while(rand.length<3) rand+=Math.random().toString(36).slice(2);
     divId=slug+'-'+rand.slice(0,3);
   }
   var probe={divisions:{}}; probe.divisions[divId]=div;
   var issue=tnValidateTournament(probe).filter(function(x){ return x.code==='bad_team_size'||x.code==='bad_roster_max'||x.code==='coed_impossible'; })[0];
   if(issue){ toast(issue.message); return; }
-  var u={}; u[DB_ROOT+'/tournaments/'+_tnUi.tid+'/divisions/'+divId]=div;
-  _tnUi.busy=true;
-  tnWrite(_tnUi.tid,u).then(function(ok){
-    _tnUi.busy=false;
-    if(ok){ _tnUi.div=null; toast('Division saved'); }
-    tnCardRender();
+  var tid=_tnUi.tid, u={}; u[DB_ROOT+'/tournaments/'+tid+'/divisions/'+divId]=div;
+  var over={}; over[divId]=div;
+  _tnUi.busy=true; tnCardRender();
+  // While registration is open, the division's partner listing is refreshed in the same update.
+  (t.meta.status==='registration'?tnListingUpdates(tid,t,'list',[divId],over):Promise.resolve({updates:{},problems:[]})).then(function(L){
+    return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
+      _tnUi.busy=false;
+      if(ok){ _tnUi.div=null; toast(L.problems.length?'Division saved. Could not list it on the partner page.':'Division saved'); }
+      tnCardRender();
+    });
   });
 }
 function tnDeleteDiv(divId){
   var t=tnCur(); if(!t||_tnUi.busy) return;
-  var regs=tnRegs(t);
-  var used=Object.keys(regs).filter(function(k){ return regs[k]&&regs[k].divId===divId; }).length;
-  if(used){ toast('This division has '+used+' registration'+(used===1?'':'s')+', so it cannot be deleted'); return; }
+  var T=tnTeams(t);
+  var used=Object.keys(T).filter(function(k){ return T[k]&&T[k].divId===divId; }).length;
+  if(used){ toast('This division has '+used+' team'+(used===1?'':'s')+', so it cannot be deleted'); return; }
   var name=(tnDivs(t)[divId]&&tnDivs(t)[divId].name)||'this division';
   if(!window.confirm('Delete '+name+'?')) return;
-  var u={}; u[DB_ROOT+'/tournaments/'+_tnUi.tid+'/divisions/'+divId]=null;
-  _tnUi.busy=true;
-  tnWrite(_tnUi.tid,u).then(function(ok){
-    _tnUi.busy=false;
-    if(ok){ if(_tnUi.div&&_tnUi.div.divId===divId) _tnUi.div=null; toast('Division deleted'); }
-    tnCardRender();
+  var tid=_tnUi.tid, u={}; u[DB_ROOT+'/tournaments/'+tid+'/divisions/'+divId]=null;
+  _tnUi.busy=true; tnCardRender();
+  // Its partner listing (if one was ever made) is hidden, never deleted.
+  tnListingUpdates(tid,t,'hide',[divId]).then(function(L){
+    return tnWrite(tid,tnMerge(u,L.updates)).then(function(ok){
+      _tnUi.busy=false;
+      if(ok){ if(_tnUi.div&&_tnUi.div.divId===divId) _tnUi.div=null; toast('Division deleted'); }
+      tnCardRender();
+    });
   });
 }
 function tnCopyLink(){
@@ -12000,33 +12107,37 @@ function tnCopyLink(){
 async function tnExport(){
   if(typeof XLSX==='undefined'){toast('Spreadsheet library not loaded');return;}
   var t=tnCur(); if(!t){toast('Pick a tournament');return;}
-  var rows0=tnRegRows(t);
-  if(!rows0.length){toast('No registrations yet');return;}
+  if(!tnTeamRows(t).length){toast('No teams yet');return;}
   toast('Building export...');
   await ensureCommunityPlayers(); // full names; a failed read falls back to the stored First L.
-  var rows=tnRegRows(t);
-  // Hard-coded columns, built key by key. No registration object is ever spread in.
-  var header=['Full name','Gender','Division','Team name','Teammates','Looking','Status','Source','Registered'];
+  var rows=tnTeamRows(t);
+  // Hard-coded columns, built key by key. No team object is ever spread in, and teams hold
+  // no email or phone to begin with.
+  var most=rows.reduce(function(n,r){ return Math.max(n,r.players.length); },4);
+  var pcols=[]; for(var i=1;i<=most;i++) pcols.push(i<=4?'Player '+i:'Sub '+(i-4));
+  var header=['Team','Division','Status'].concat(pcols).concat(['Guys','Girls']);
   var out=rows.map(function(r){
-    return {'Full name':r.name, 'Gender':r.gender, 'Division':r.division, 'Team name':r.teamName,
-      'Teammates':r.teammates, 'Looking':r.looking?'Yes':'', 'Status':r.status, 'Source':r.source,
-      'Registered':r.at?new Date(r.at).toISOString().slice(0,10):''};
+    var o={'Team':r.name, 'Division':r.division, 'Status':r.status};
+    pcols.forEach(function(c,i){ o[c]=r.players[i]||''; });
+    o['Guys']=r.guys; o['Girls']=r.girls;
+    return o;
   });
-  var sumHeader=['Division','M','F','Not set','Total'], byDiv={}, order=[];
-  rows.filter(function(r){ return r.status==='registered'; }).forEach(function(r){
-    if(!byDiv[r.division]){ byDiv[r.division]={'Division':r.division,'M':0,'F':0,'Not set':0,'Total':0}; order.push(r.division); }
-    byDiv[r.division][r.gender]++; byDiv[r.division].Total++;
+  var sumHeader=['Division','Registered','Incomplete','Dropped','Total'], byDiv={}, order=[];
+  var label={registered:'Registered', incomplete:'Incomplete', dropped:'Dropped'};
+  rows.forEach(function(r){
+    if(!byDiv[r.division]){ byDiv[r.division]={'Division':r.division,'Registered':0,'Incomplete':0,'Dropped':0,'Total':0}; order.push(r.division); }
+    byDiv[r.division][label[r.status]]++; byDiv[r.division].Total++;
   });
   var sum=order.sort().map(function(k){ return byDiv[k]; });
-  var tot={'Division':'TOTAL','M':0,'F':0,'Not set':0,'Total':0};
-  sum.forEach(function(s){ ['M','F','Not set','Total'].forEach(function(c){ tot[c]+=s[c]; }); });
+  var tot={'Division':'TOTAL','Registered':0,'Incomplete':0,'Dropped':0,'Total':0};
+  sum.forEach(function(s){ ['Registered','Incomplete','Dropped','Total'].forEach(function(c){ tot[c]+=s[c]; }); });
   sum.push(tot);
   var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(out,{header:header}),'Registrations');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(out,{header:header}),'Teams');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sum,{header:sumHeader}),'Summary');
   var prefix=(SC&&SC.exportPrefix)||'club_';
   XLSX.writeFile(wb,prefix+'tournament_'+_tnUi.tid+'_'+td()+'.xlsx');
-  toast('Exported '+rows.length+' registration'+(rows.length===1?'':'s')+'.');
+  toast('Exported '+rows.length+' team'+(rows.length===1?'':'s')+'.');
 }
 
 // ---- Render ---------------------------------------------------------------
@@ -12070,6 +12181,8 @@ function tnCardRender(){
       +'<div style="font-weight:700;font-size:14px;">New tournament</div>'
       +'<label style="'+lbl+'" for="tn-new-name">Name</label>'+txt('tn-new-name',_tnUi.newName,"tnSet('newName',this.value)",' maxlength="80" placeholder="Fall Grass Classic"')
       +'<label style="'+lbl+'" for="tn-new-date">Date</label><input type="date" class="form-input" id="tn-new-date" value="'+esc(_tnUi.newDate)+'" oninput="tnSet(\'newDate\',this.value)" style="'+inp+'">'
+      +'<label style="'+lbl+'" for="tn-new-loc">Location <span style="font-weight:400;color:var(--gray);">(needed to open registration)</span></label>'+txt('tn-new-loc',_tnUi.newLoc,"tnSet('newLoc',this.value)",' maxlength="80" placeholder="Langford Green"')
+      +'<label style="'+lbl+'" for="tn-new-addr">Address <span style="font-weight:400;color:var(--gray);">(optional)</span></label>'+txt('tn-new-addr',_tnUi.newAddr,"tnSet('newAddr',this.value)",' maxlength="200"')
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Create tournament','tnCreate()',true)+btn('Cancel','tnToggleNew(false)',false)+'</div></div>';
   } else {
     html+='<div style="margin-top:10px;">'+btn('+ New tournament','tnToggleNew(true)',false)+'</div>';
@@ -12079,19 +12192,34 @@ function tnCardRender(){
   if(t&&!_tnUi.newOpen){
     var m=t.meta, divs=tnDivs(t), divIds=Object.keys(divs).filter(function(k){ return !!divs[k]; })
       .sort(function(a,b){ return String(divs[a].name||'').localeCompare(String(divs[b].name||'')); });
-    var regs=tnRegs(t), rows=tnRegRows(t);
+    var T=tnTeams(t), rows=tnTeamRows(t);
     var open=m.status==='registration';
+    var hasLoc=!!String(m.location||'').trim();
 
-    // Status.
+    // Status and location.
     html+='<div style="border-top:1px solid var(--border,#eee);margin-top:14px;padding-top:12px;">'
       +'<div style="font-weight:700;font-size:15px;">'+esc(m.name||_tnUi.tid)+'</div>'
-      +'<div style="font-size:13px;color:var(--gray);margin-top:2px;">'+esc(tnDateLabel(m.date))+'</div>'
-      +'<div style="margin-top:10px;font-size:13px;">Status: <strong style="color:'+(open?'#1e7e34':'var(--charcoal)')+';">'+esc(tnStatusLabel(m.status))+'</strong></div>';
+      +'<div style="font-size:13px;color:var(--gray);margin-top:2px;">'+esc(tnDateLabel(m.date))+'</div>';
+    if(_tnUi.locOpen){
+      html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:12px;margin-top:10px;">'
+        +'<label style="'+lbl+'" for="tn-loc">Location</label>'+txt('tn-loc',_tnUi.loc,"tnSet('loc',this.value)",' maxlength="80"')
+        +'<label style="'+lbl+'" for="tn-addr">Address <span style="font-weight:400;color:var(--gray);">(optional)</span></label>'+txt('tn-addr',_tnUi.addr,"tnSet('addr',this.value)",' maxlength="200"')
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+btn('Save location','tnSaveLocation()',true)+btn('Cancel','tnEditLoc(false)',false)+'</div></div>';
+    } else {
+      html+='<div style="font-size:13px;margin-top:6px;">'+(hasLoc
+          ?'\u{1F4CD} '+esc(m.location)+(m.locationAddress?'<span style="color:var(--gray);">, '+esc(m.locationAddress)+'</span>':'')
+          :'<span style="color:var(--gray);">No location yet.</span>')
+        +' <a href="javascript:void(0)" onclick="tnEditLoc(true)" style="color:var(--red);font-weight:700;">'+(hasLoc?'Edit':'Add location')+'</a></div>';
+    }
+    html+='<div style="margin-top:10px;font-size:13px;">Status: <strong style="color:'+(open?'#1e7e34':'var(--charcoal)')+';">'+esc(tnStatusLabel(m.status))+'</strong></div>';
     if(m.status==='setup'||m.status==='registration'){
       html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
-        +(open?btn('Close registration',"tnSetStatus('setup')",false):btn('Open registration',"tnSetStatus('registration')",true,divIds.length?'':'opacity:.6;'))
+        +(open?btn('Close registration',"tnSetStatus('setup')",false):btn('Open registration',"tnSetStatus('registration')",true,(divIds.length&&hasLoc)?'':'opacity:.6;'))
         +'</div>';
-      if(!open&&!divIds.length) html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;">Add a division to open registration.</div>';
+      if(!open&&(!divIds.length||!hasLoc)) html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;">'+(!divIds.length?'Add a division':'Add a location')+' to open registration.</div>';
+      html+='<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">'+(open
+        ?'Each division is listed on the CourtSense partner page while registration is open.'
+        :'Opening registration also lists each division on the CourtSense partner page.')+'</div>';
     }
     html+='</div>';
 
@@ -12112,7 +12240,7 @@ function tnCardRender(){
     if(!divIds.length) html+='<div style="font-size:13px;color:var(--gray);">No divisions yet.</div>';
     divIds.forEach(function(id){
       var d=divs[id], cat=(TN_CATEGORIES.filter(function(c){ return c[0]===d.category; })[0]||['', d.category||''])[1];
-      var nReg=Object.keys(regs).filter(function(k){ return regs[k]&&regs[k].divId===id&&regs[k].status==='registered'; }).length;
+      var nReg=Object.keys(T).filter(function(k){ return T[k]&&T[k].divId===id&&T[k].status==='registered'; }).length;
       var fmt=function(f){ f=f||{}; return (f.bestOf===3?'Best of 3':'1 game')+' to '+(f.scoreTo||21)+(f.cap?', cap '+f.cap:'')+(f.bestOf===3?', third to '+(f.thirdSetTo||15):''); };
       html+='<div style="padding:10px 0;border-bottom:1px solid var(--border,#f0f0f0);">'
         +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
@@ -12121,7 +12249,7 @@ function tnCardRender(){
         +(d.category==='coed'&&d.coed?', at least '+esc(d.coed.minGuys)+' guys and '+esc(d.coed.minGirls)+' girls':'')
         +'<br>Courts '+esc(tnArr(d.courts).join(', '))+', '+esc(d.poolCount)+' pool'+(+d.poolCount===1?'':'s')+', top '+esc(d.advancePerPool)+' per pool advance'
         +'<br>Pool: '+esc(fmt(d.pool))+'. Playoff: '+esc(fmt(d.playoff))+'.'
-        +'<br><strong>'+nReg+'</strong> registered</div></div>'
+        +'<br><strong>'+nReg+'</strong> team'+(nReg===1?'':'s')+' registered</div></div>'
         +'<div style="display:flex;gap:6px;flex-shrink:0;">'+btn('Edit',"tnEditDiv('"+id+"')",false)+btn('Delete',"tnDeleteDiv('"+id+"')",false,'color:#b02a37;border-color:#b02a37;')+'</div>'
         +'</div></div>';
     });
@@ -12159,50 +12287,41 @@ function tnCardRender(){
     }
     html+='</div>';
 
-    // Registrations.
-    var regd=rows.filter(function(r){ return r.status==='registered'; }).length, wd=rows.length-regd;
+    // Teams. Read only: the worker owns teams.
+    var cnt=function(list,st){ return list.filter(function(x){ return x.status===st; }).length; };
     html+='<div style="border-top:1px solid var(--border,#eee);margin-top:14px;padding-top:12px;">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
-      +'<div style="font-weight:700;font-size:14px;">Registrations</div>'+btn('Download spreadsheet','tnExport()',true)+'</div>'
-      +'<div style="font-size:13px;color:var(--charcoal);margin:8px 0;"><strong>'+regd+'</strong> registered'+(wd?', '+wd+' withdrawn':'')+'</div>';
+      +'<div style="font-weight:700;font-size:14px;">Teams</div>'+btn('Download spreadsheet','tnExport()',true)+'</div>'
+      +'<div style="font-size:13px;color:var(--charcoal);margin:8px 0;"><strong>'+cnt(rows,'registered')+'</strong> registered'
+      +(cnt(rows,'incomplete')?', '+cnt(rows,'incomplete')+' incomplete':'')+(cnt(rows,'dropped')?', '+cnt(rows,'dropped')+' dropped':'')+'</div>';
     if(divIds.length){
       html+='<div style="font-size:12px;color:var(--gray);line-height:1.6;margin-bottom:8px;">'
         +divIds.map(function(id){
           var r=rows.filter(function(x){ return x.divId===id; });
-          var on=r.filter(function(x){ return x.status==='registered'; }).length;
-          var lk=r.filter(function(x){ return x.status==='registered'&&x.looking; }).length;
-          return esc(divs[id].name||id)+': '+on+' registered'+(lk?', '+lk+' looking':'')+(r.length-on?', '+(r.length-on)+' withdrawn':'');
+          return esc(divs[id].name||id)+': '+cnt(r,'registered')+' registered, '+cnt(r,'incomplete')+' incomplete, '+cnt(r,'dropped')+' dropped';
         }).join('<br>')+'</div>';
     }
-    // "Only looking" narrows the list to registered players still looking for teammates.
-    var shown=_tnUi.onlyLooking?rows.filter(function(r){ return r.status==='registered'&&r.looking; }):rows;
-    if(rows.length){
-      html+='<label style="display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px;cursor:pointer;margin-bottom:4px;">'
-        +'<input type="checkbox" id="tn-only-looking" '+(_tnUi.onlyLooking?'checked ':'')+'onchange="tnSetOnlyLooking(this.checked)" style="width:20px;height:20px;accent-color:var(--red);">'
-        +'Only looking for teammates</label>';
-    }
-    var lookBadge='<span style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:1px 5px;vertical-align:middle;">Looking</span>';
+    var badge=function(st){
+      var c=st==='registered'?['#e7f1e8','#1e7e34']:st==='incomplete'?['#fbeee0','#8a4b08']:['#eee','#666'];
+      return '<span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;background:'+c[0]+';color:'+c[1]+';border-radius:4px;padding:2px 6px;white-space:nowrap;">'+esc(st)+'</span>';
+    };
     if(!rows.length){
-      html+='<div style="font-size:13px;color:var(--gray);">No registrations yet.</div>';
-    } else if(!shown.length){
-      html+='<div style="font-size:13px;color:var(--gray);">Nobody is looking for teammates right now.</div>';
+      html+='<div style="font-size:13px;color:var(--gray);">No teams yet.</div>';
     } else {
-      html+=shown.map(function(r){
-        var team=[r.teamName?'Team: '+esc(r.teamName):'', r.teammates?'With: '+esc(r.teammates):''].filter(Boolean).join('<br>');
-        return '<div style="padding:9px 0;border-bottom:1px solid var(--border,#f0f0f0);'+(r.status==='withdrawn'?'opacity:.55;':'')+'">'
-          +'<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;font-size:14px;">'+esc(r.name)+(r.looking&&r.status==='registered'?lookBadge:'')+'</span>'
-          +'<span style="font-size:12px;color:var(--gray);white-space:nowrap;">'+esc(r.gender)+' &middot; '+esc(r.status)+'</span></div>'
-          +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)+' &middot; '+(r.source==='new'?'new to CourtSense':'existing account')
-          +(r.at?' &middot; '+esc(new Date(r.at).toLocaleDateString()):'')+(team?'<br>'+team:'')+'</div></div>';
+      html+=rows.map(function(r){
+        return '<div style="padding:9px 0;border-bottom:1px solid var(--border,#f0f0f0);'+(r.status==='dropped'?'opacity:.55;':'')+'">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span style="font-weight:700;font-size:14px;">'+esc(r.name)+'</span>'+badge(r.status)+'</div>'
+          +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)+(r.at?' &middot; '+esc(new Date(r.at).toLocaleDateString()):'')
+          +'<br>'+esc(r.players.join(', ')||'No players')+'</div></div>';
       }).join('');
     }
-    html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Players register on the public page. Email and phone are never shown here.</p></div>';
+    html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Email and phone are never shown here.</p></div>';
   }
   el.innerHTML=html+'</div>';
 
   if(t&&!_tnUi.newOpen) renderQrInto('tn-qr',TN_REG_PAGE+'?t='+encodeURIComponent(_tnUi.tid));
   // Full names arrive with the account read; redraw once it lands.
-  if(t&&Object.keys(tnRegs(t)).length&&!communityPlayersNow()) ensureCommunityPlayers().then(function(a){ if(a) tnCardRender(); });
+  if(t&&Object.keys(tnTeams(t)).length&&!communityPlayersNow()) ensureCommunityPlayers().then(function(a){ if(a) tnCardRender(); });
   if(focusId){ var box=document.getElementById(focusId); if(box){ box.focus(); try{ var n=String(box.value||'').length; if(box.setSelectionRange&&box.type==='text') box.setSelectionRange(n,n); }catch(e){} } }
 }
 
@@ -13130,8 +13249,8 @@ function renderClubLife(){
 
 // ---- Club Life: open tournament registration (grass only) -------------------------
 // A card at the top of Club Life for every club tournament whose registration is open
-// (meta.status 'registration', date today or later), linking to the public page and its
-// Looking for teammates view. One read of DB_ROOT/tournaments, kept for 60 seconds and
+// (meta.status 'registration', date today or later), linking to the public registration page
+// and to the CourtSense partner page. One read of DB_ROOT/tournaments, kept for 60 seconds and
 // deliberately not mapped into D. Read only, and nothing personal is shown: just the
 // tournament name, date, and two links.
 var _clTn={ts:0, data:null, loading:false};
@@ -13165,7 +13284,7 @@ function clTnRender(){
       +'<div class="card-title"><span class="bar"></span> \u{1F3C6} Tournament registration is open</div>'
       +'<div style="font-size:16px;font-weight:700;color:var(--charcoal);">'+esc(m.name||'Club tournament')+(w?', '+esc(w):'')+'</div>'
       +'<a href="'+esc(link)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:15px;text-decoration:none;">Register</a>'
-      +'<a href="'+esc(link+'&looking=1')+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px 0 2px;color:var(--red);font-weight:700;font-size:14px;text-decoration:underline;">See who\'s looking for teammates</a>'
+      +'<a href="'+esc(TN_PARTNER_PAGE)+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px 0 2px;color:var(--red);font-weight:700;font-size:14px;text-decoration:underline;">Need a partner? Find one</a>'
       +'</div>';
   }).join('');
 }
@@ -14075,6 +14194,51 @@ function tnValidateTournament(t){
   });
   return issues;
 }
+
+// ---- Pickup partner page listing for one club division --------------------------------
+// While a club tournament's registration is open, each division is listed on the pickup
+// "Find a Tournament Partner" directory at tally_kotb_pickup/tournaments/club-{tid}-{divId},
+// in pickup's own record shape. Returns { key, fields } where fields are paths RELATIVE to
+// that listing node, ready to prefix and merge into one multi-path update. The listing node
+// itself and its pool (written by players) are never in the map. existing is the listing as
+// it stands (or null): its createdAt is kept, and any stale division entry is cleared.
+// Returns { key, error } instead when the division cannot be listed.
+function tnPickupCategory(cat){ return cat==='mens'?'mens':cat==='womens'?'womens':'coed'; }
+function tnPickupListingKey(tid,divId){ return 'club-'+tid+'-'+divId; }
+function tnPickupListing(o){
+  var key=tnPickupListingKey(o.tid,o.divId), meta=o.meta||{}, div=o.div||{}, ex=o.existing||null;
+  if(key.length>60) return {key:key, error:'too_long'};
+  var date=String(meta.date||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return {key:key, error:'no_date'};
+  var loc=String(meta.location||'').trim();
+  if(!loc) return {key:key, error:'no_location'};
+  var size=+div.teamSize;
+  if([2,3,4].indexOf(size)<0) return {key:key, error:'bad_size'};
+  // Pickup keys a division by day, category and level (divIdFor). Club "open" has no pickup
+  // category, so it lists as coed; every club division lists at level open.
+  var cat=tnPickupCategory(div.category), level='open', pdiv=date+'-'+cat+'-'+level;
+  var f={};
+  f.id=key;
+  f.name=(String(meta.name||'Club tournament').trim()+': '+String(div.name||'Division').trim()).slice(0,150);
+  f.startDate=date; f.endDate=date; f.days=[date];
+  f.location=loc.slice(0,150);
+  f.locationAddress=String(meta.locationAddress||'').trim().slice(0,250)||null;
+  f.eventUrl=String(o.regLink||'').slice(0,500);
+  f.surface='grass';
+  f.format=size+'v'+size;
+  f.organizer=String(o.org||'').slice(0,100);
+  f.createdBy=String(o.createdBy||'').slice(0,200);
+  f.createdByName=String(o.org||'').slice(0,100);
+  f.createdAt=(ex&&typeof ex.createdAt==='number')?ex.createdAt:o.now;
+  f.status='open';
+  f.source='club'; f.clubTid=o.tid; f.clubDivId=o.divId;
+  f['divisions/'+pdiv]={id:pdiv, day:date, category:cat, level:level, regStatus:'open'};
+  Object.keys((ex&&ex.divisions)||{}).forEach(function(k){ if(k!==pdiv) f['divisions/'+k]=null; });
+  return {key:key, fields:f};
+}
+// Hide a listing the way pickup hides one (its directory skips status 'cancelled'). Only
+// for a listing that exists: a lone status write would fail the node's required-fields rule.
+function tnPickupHide(existing){ return (existing&&existing.name)?{status:'cancelled'}:null; }
 // ===== TN ENGINE END =====
 
 // ---- Practice tournament (club, exec only) ---------------------------------
