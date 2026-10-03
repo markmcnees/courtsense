@@ -114,6 +114,41 @@
   .setrow input:focus{outline:none;border-color:var(--garnet);background:var(--white);}
   .lost{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);text-align:left;}
   .lost .link-btn{margin:0 auto;}
+  .ym-live{font-size:17px;font-weight:700;color:#b3121b;margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .live-dot{display:inline-flex;align-items:center;gap:6px;background:#c81e1e;color:#fff;font-size:13px;font-weight:800;letter-spacing:1px;border-radius:6px;padding:3px 8px;}
+  .live-dot::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;animation:lp 1.2s ease-in-out infinite;}
+  @keyframes lp{0%,100%{opacity:1;}50%{opacity:.25;}}
+  .ym .btn.small + .btn.small{margin-top:10px;}
+  /* Full-screen live scorer: one hand, bright sun. */
+  .scr{position:fixed;inset:0;z-index:50;background:#111;color:#fff;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom));font-family:'Barlow',sans-serif;}
+  .scr[hidden]{display:none;}
+  .scr-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .scr-x,.scr-flip{min-height:48px;min-width:48px;padding:8px 14px;border-radius:10px;border:2px solid #555;background:#222;color:#fff;font-family:'Barlow',sans-serif;font-size:16px;font-weight:700;cursor:pointer;}
+  .scr-set{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:1.5px;}
+  .scr-prev{text-align:center;font-size:16px;color:#ccc;min-height:22px;margin:4px 0 8px;}
+  .scr-btns{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0;}
+  .scr-team{border:none;border-radius:18px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:16px 8px 18px;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;}
+  .scr-team:active{filter:brightness(1.25);transform:scale(.99);}
+  .scr-team.l{background:#782F40;}
+  .scr-team.r{background:#1f3a5f;}
+  .scr-team .nm{font-size:20px;font-weight:800;line-height:1.2;text-align:center;word-break:break-word;}
+  .scr-team .pts{font-family:'Bebas Neue',sans-serif;font-size:min(34vw,170px);line-height:.9;font-variant-numeric:tabular-nums;}
+  .scr-team .tap{font-size:14px;font-weight:700;opacity:.85;letter-spacing:.5px;text-transform:uppercase;}
+  .scr-bottom{display:flex;gap:10px;align-items:center;margin-top:10px;}
+  .scr-undo{flex:0 0 auto;min-height:64px;min-width:120px;border-radius:14px;border:2px solid #fff;background:#000;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;cursor:pointer;}
+  .scr-msg{flex:1;font-size:15px;font-weight:600;color:#ffd666;line-height:1.3;}
+  .scr-ov{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:24px;gap:18px;}
+  .scr-ov[hidden]{display:none;}
+  .scr-ov.switch{background:#1e40af;}
+  .scr-ov.tto{background:#8a4b08;}
+  .scr-ov.set{background:#1f5a26;}
+  .scr-ov.match{background:#111;}
+  .scr-ov .big{font-family:'Bebas Neue',sans-serif;font-size:min(16vw,72px);letter-spacing:2px;line-height:1;}
+  .scr-ov .sub{font-size:19px;font-weight:600;line-height:1.4;max-width:420px;}
+  .scr-ov .cd{font-family:'Bebas Neue',sans-serif;font-size:min(30vw,140px);line-height:1;}
+  .scr-ov .sets{font-size:24px;font-weight:700;line-height:1.6;}
+  .scr-ok{min-height:72px;min-width:220px;border-radius:16px;border:none;background:#fff;color:#111;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.5px;cursor:pointer;padding:0 28px;}
+  .scr-back{min-height:56px;min-width:160px;border-radius:14px;border:2px solid #fff;background:transparent;color:#fff;font-family:'Barlow',sans-serif;font-size:18px;font-weight:700;cursor:pointer;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:13px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -230,7 +265,7 @@
         <p class="started">Pool play has started. See an exec for team changes.</p>
         <a class="btn ghost" id="m-live" href="live.html">Watch live</a>
         <h3 style="margin-top:18px;">Your matches</h3>
-        <p class="muted">Either team or the ref can enter the score once a match is done. The first score in counts, so check it before you send.</p>
+        <p class="muted">The ref team scores live, point by point, from this page. If a match is never scored live, either team or the ref can enter the final score when it is done. The first score in counts, so check it before you send.</p>
         <div class="form-err" id="m-game-err" role="alert"></div>
         <div id="m-matches"></div>
         <button class="link-btn" type="button" onclick="refreshMatches()">Refresh my matches</button>
@@ -267,6 +302,25 @@
 <footer class="foot">
   <a href="https://courtsense.app">Powered by CourtSense</a>
 </footer>
+
+<!-- Live scorer: the ref team scores the match point by point. -->
+<div class="scr" id="scr" hidden role="dialog" aria-modal="true" aria-label="Live scoring">
+  <div class="scr-top">
+    <button class="scr-x" type="button" onclick="closeLive()">Close</button>
+    <div class="scr-set" id="scr-set">Set 1</div>
+    <button class="scr-flip" type="button" onclick="flipLive()" aria-label="Switch display">&#8644; Switch display</button>
+  </div>
+  <div class="scr-prev" id="scr-prev"></div>
+  <div class="scr-btns">
+    <button class="scr-team l" id="scr-l" type="button" onclick="tapLive('l')"><span class="nm" id="scr-l-nm"></span><span class="pts" id="scr-l-pts">0</span><span class="tap">Tap for a point</span></button>
+    <button class="scr-team r" id="scr-r" type="button" onclick="tapLive('r')"><span class="nm" id="scr-r-nm"></span><span class="pts" id="scr-r-pts">0</span><span class="tap">Tap for a point</span></button>
+  </div>
+  <div class="scr-bottom">
+    <button class="scr-undo" type="button" onclick="undoLive()">Undo</button>
+    <div class="scr-msg" id="scr-msg" role="status" aria-live="polite"></div>
+  </div>
+</div>
+<div class="scr-ov" id="scr-ov" hidden role="alertdialog" aria-modal="true"></div>
 
 <script>
 // ===== TN ENGINE START =====
@@ -858,6 +912,38 @@ function tnSortByRating(rows){
     return String(a.name||'').localeCompare(String(b.name||''));
   });
 }
+// ---- Live point scoring --------------------------------------------------------------
+// Side switches and the technical timeout for one format (a division's pool or playoff).
+// Missing settings take the defaults: switch every 7 points when sets go to 21 or more (5
+// otherwise), every 5 in the third set, and a technical timeout at scoreTo combined points
+// in sets 1 and 2 only, never in the third (deciding) set. tto is on unless set to false.
+function tnLiveRules(fmt){
+  var f=fmt||{}, to=Number(f.scoreTo)||21;
+  var sw=tnNum(f.switchEvery), sw3=tnNum(f.thirdSetSwitchEvery), at=tnNum(f.ttoAt);
+  return {switchEvery:(sw&&sw>0)?sw:(to>=21?7:5), thirdSetSwitchEvery:(sw3&&sw3>0)?sw3:5,
+    tto:f.tto!==false, ttoAt:(at&&at>0)?at:to};
+}
+// The target and cap for set i (0 based), as tnMatchWinner reads them: the third set plays
+// to thirdSetTo with no cap when thirdSetTo is set.
+function tnSetTarget(fmt,i){
+  var f=fmt||{}, third=Number(f.thirdSetTo)||0;
+  if(i===2&&third>0) return {target:third, cap:0};
+  return {target:Number(f.scoreTo)||21, cap:Number(f.cap)||0};
+}
+// What to tell the scorer after a live action. sets are the live sets so far, i the current
+// set index, point true when this action just added a point. setOver: set i is finished and
+// valid. matchOver: the sets through i decide the match. switchSides and tto only follow a
+// point that did not end the set.
+function tnLivePrompts(fmt,sets,i,point){
+  var list=tnArr(sets), s=list[i]||{}, a=tnNum(s.a)||0, b=tnNum(s.b)||0, total=a+b;
+  var r=tnLiveRules(fmt), tg=tnSetTarget(fmt,i);
+  var setOver=a!==b&&tnSetError({a:a, b:b},tg.target,tg.cap)==='';
+  var mw=tnMatchWinner({sets:list.slice(0,i+1)},fmt);
+  var third=(i===2), every=third?r.thirdSetSwitchEvery:r.switchEvery, live=!!point&&!setOver&&total>0;
+  return {switchSides:live&&total%every===0, tto:live&&r.tto&&!third&&total===r.ttoAt,
+    setOver:setOver, matchOver:mw.valid&&!!mw.winner};
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -872,6 +958,7 @@ function tnSortByRating(rows){
 //   /club/tournament-team-drop      { slug, tid, a, m }
 //   /club/tournament-score          { slug, tid, a, m, mid, sets:[ {a,b} ] }   (once pool play starts)
 //   /club/tournament-resend         { slug, tid, email }                        (always the same answer)
+//   /club/tournament-live           { slug, tid, a, m, mid, action, side?, seq } (point by point scoring)
 // A picked player is shown by the name search returned; nothing on this page ever shows an
 // email or a phone that the person did not just type.
 var SLUG = 'fsu_grass';
@@ -1368,7 +1455,16 @@ function matchHtml(x){
     + (x.role === 'playing' && x.refName ? '<div class="ym-sub">Ref: ' + esc(x.refName) + '</div>' : '');
   if(x.score) return h + '<div class="ym-score">' + esc(scoreLine(x)) + '</div></div>';
   if(!ready) return h + '<div class="ym-sub">Teams are set when the earlier matches finish.</div></div>';
-  if(_scoreOpen !== x.mid) return h + '<button class="btn small" type="button" style="margin-top:10px;" onclick="openScore(\'' + esc(x.mid) + '\')">Enter score</button></div>';
+  // Live scoring: the ref team (or a playing team when there is no ref) runs it; everyone
+  // else sees the running score. The final score form is only for matches never scored live.
+  var lv = x.liveState;
+  if(lv && _scoreOpen === x.mid) _scoreOpen = '';
+  var liveLine = lv ? '<div class="ym-live"><span class="live-dot">LIVE</span>' + esc(liveText(lv)) + '</div>'
+    + (x.canLive ? '' : '<div class="ym-sub">Being scored live. The final score shows here when it ends.</div>') : '';
+  var acts = '';
+  if(x.canLive) acts += '<button class="btn small" type="button" style="margin-top:10px;" onclick="openLive(\'' + esc(x.mid) + '\')">' + (lv ? 'Resume live scoring' : 'Score live') + '</button>';
+  if(!lv && _scoreOpen !== x.mid) acts += '<button class="btn small ghost" type="button" style="margin-top:10px;" onclick="openScore(\'' + esc(x.mid) + '\')">Enter final score</button>';
+  if(_scoreOpen !== x.mid) return h + liveLine + acts + '</div>';
   var n = bestOfFor(x), f = fmtFor(x) || {};
   h += '<div class="sets"><div class="setrow head"><span></span><span>' + esc(x.t1Name) + '</span><span>' + esc(x.t2Name) + '</span></div>';
   for(var i = 0; i < n; i++){
@@ -1423,10 +1519,196 @@ async function submitScore(mid){
   if(j && j.ok === true){ _scoreOpen = ''; await loadManage('Score saved. Thanks!'); return; }
   setBusy('sc-btn', false, 'Send score');
   if(j && j.error === 'invalid_link'){ show('v-link-invalid'); return; }
-  if(j && j.code === 'already_scored'){ _scoreOpen = ''; await loadManage(''); $('m-game-err').textContent = j.error; return; }
+  if(j && (j.code === 'already_scored' || j.code === 'live_in_progress')){ _scoreOpen = ''; await loadManage(''); $('m-game-err').textContent = j.error; return; }
   err.textContent = res.net ? 'We could not reach the server. Check your connection and try again.' : genericErr(res.r, j);
 }
 async function refreshMatches(){ if(!state.busy) await loadManage(''); }
+
+// ---- Live scorer (point by point) ----
+// The ref team runs it (or a playing team on a match with no ref). The worker holds the
+// score: every tap goes to /club/tournament-live with the seq last seen, one at a time in
+// order, and the screen shows the worker's score plus any taps still on their way. The
+// worker answers with prompts (switch sides, technical timeout, set over, match over)
+// worked out from the division's settings. Closing the page loses nothing: reopening the
+// scorer resumes from the worker's copy.
+var LV = { mid:'', x:null, live:null, flipped:false, queue:[], busy:false, lock:null, timer:null, resync:false };
+function liveText(lv){
+  var sets = lv.sets || [], i = Math.min(Number(lv.set) || 0, Math.max(0, sets.length - 1)), c = sets[i] || { a:0, b:0 };
+  var prev = sets.slice(0, i).map(function(s){ return s.a + '-' + s.b; });
+  return 'Set ' + (i + 1) + ': ' + c.a + '-' + c.b + (prev.length ? ' (earlier: ' + prev.join(', ') + ')' : '');
+}
+function liveSetOver(){
+  if(!LV.live || !LV.x) return false;
+  return tnLivePrompts(fmtFor(LV.x), LV.live.sets, LV.live.set, false).setOver;
+}
+function sideFor(pos){ return (pos === 'l') === !LV.flipped ? 'a' : 'b'; }
+function drawLive(){
+  if(!LV.x) return;
+  var lv = LV.live, sets = lv ? lv.sets : [{ a:0, b:0 }], i = lv ? lv.set : 0, c = sets[i] || { a:0, b:0 };
+  var pa = 0, pb = 0;
+  LV.queue.forEach(function(q){ if(q.action === 'point'){ if(q.side === 'a') pa++; else pb++; } });
+  var A = { nm:LV.x.t1Name, pts:c.a + pa }, B = { nm:LV.x.t2Name, pts:c.b + pb };
+  var L = LV.flipped ? B : A, R = LV.flipped ? A : B;
+  $('scr-l').className = 'scr-team ' + (LV.flipped ? 'r' : 'l');
+  $('scr-r').className = 'scr-team ' + (LV.flipped ? 'l' : 'r');
+  $('scr-l-nm').textContent = L.nm; $('scr-l-pts').textContent = L.pts;
+  $('scr-r-nm').textContent = R.nm; $('scr-r-pts').textContent = R.pts;
+  $('scr-set').textContent = 'Set ' + (i + 1);
+  $('scr-prev').textContent = sets.slice(0, i).map(function(s, k){ return 'Set ' + (k + 1) + ': ' + s.a + '-' + s.b; }).join('   ');
+}
+function liveMsg(t){ $('scr-msg').textContent = t || ''; }
+async function lockScreen(){
+  try {
+    if(navigator.wakeLock && !LV.lock){
+      LV.lock = await navigator.wakeLock.request('screen');
+      if(LV.lock && LV.lock.addEventListener) LV.lock.addEventListener('release', function(){ LV.lock = null; });
+    }
+  } catch(e){ /* not supported or not allowed; the screen may dim */ }
+}
+function openLive(mid){
+  var x = ((state.manage && state.manage.yourMatches) || []).filter(function(m){ return m.mid === mid; })[0];
+  if(!x) return;
+  var keep = LV.mid === mid ? LV.flipped : false;
+  LV = { mid:mid, x:x, live:x.liveState || null, flipped:keep, queue:[{ action:'start' }], busy:false, lock:LV.lock, timer:null, resync:false };
+  $('scr').hidden = false;
+  document.body.style.overflow = 'hidden';
+  hideOv();
+  liveMsg('Connecting...');
+  drawLive();
+  lockScreen();
+  pumpLive();
+}
+function closeLive(quiet){
+  LV.mid = ''; LV.queue = [];
+  hideOv();
+  $('scr').hidden = true;
+  document.body.style.overflow = '';
+  if(LV.lock){ try { LV.lock.release(); } catch(e){} LV.lock = null; }
+  if(!quiet) refreshMatches();
+}
+function flipLive(){ LV.flipped = !LV.flipped; drawLive(); }
+function tapLive(pos){
+  if(!LV.live || !$('scr-ov').hidden) return;
+  if(liveSetOver()){ showSetOver(); return; }
+  LV.queue.push({ action:'point', side:sideFor(pos) });
+  if(navigator.vibrate) try { navigator.vibrate(15); } catch(e){}
+  drawLive();
+  pumpLive();
+}
+function undoLive(){
+  if(!LV.live) return;
+  // A tap still waiting to go out is simply taken back.
+  var waiting = LV.queue.length - (LV.busy ? 1 : 0);
+  if(waiting > 0 && LV.queue[LV.queue.length - 1].action === 'point'){ LV.queue.pop(); drawLive(); return; }
+  LV.queue.push({ action:'undo' });
+  pumpLive();
+}
+function liveAction(a){ hideOv(); LV.queue.push({ action:a }); pumpLive(); }
+async function pumpLive(){
+  if(LV.busy) return;
+  LV.busy = true;
+  while(LV.mid && (LV.queue.length || LV.resync)){
+    if(!LV.queue.length && LV.resync){ LV.resync = false; LV.queue.push({ action:'start' }); }
+    var q = LV.queue[0], mid = LV.mid;
+    var res = await post('/club/tournament-live', Object.assign(linkBody(), { mid:mid, action:q.action, side:q.side, seq:LV.live ? LV.live.seq : 0 }));
+    if(LV.mid !== mid) break; // closed while the tap was on its way
+    LV.queue.shift();
+    if(await handleLive(res, q.action)){ LV.queue = []; }
+  }
+  LV.busy = false;
+  drawLive();
+}
+// Returns true when the taps still waiting should be dropped.
+async function handleLive(res, action){
+  var j = res.j;
+  if(res.net){ liveMsg('No connection. That tap was not saved. Tap again when you have signal.'); return true; }
+  if(j && j.ok === true && j.finished){
+    var done = 'Final score saved. Thanks!';
+    closeLive(true);
+    await loadManage(done);
+    return true;
+  }
+  if(j && j.ok === true && j.live){
+    LV.live = j.live; liveMsg('');
+    var p = j.prompts || {};
+    if(p.matchOver){ drawLive(); showMatchOver(); return true; }
+    if(p.setOver){ drawLive(); showSetOver(); return true; }
+    if(p.switchSides || p.tto) showBreak(p);
+    return false;
+  }
+  var code = j && j.code;
+  if(code === 'stale'){ if(j.live) LV.live = j.live; LV.resync = true; liveMsg('Score refreshed.'); return true; }
+  if(code === 'set_over'){ if(j.live) LV.live = j.live; drawLive(); showSetOver(); return true; }
+  if(code === 'nothing_to_undo'){ liveMsg('Nothing to undo.'); return false; }
+  if(code === 'not_decided' || code === 'set_not_over' || code === 'match_over'){ if(j.live) LV.live = j.live; liveMsg(j.error); return true; }
+  if(j && j.error === 'invalid_link'){ closeLive(true); show('v-link-invalid'); return true; }
+  if(code === 'already_scored' || code === 'live_locked' || code === 'not_your_match' || code === 'not_scoring' || code === 'bad_match' || code === 'not_ready'){
+    var why = j.error;
+    closeLive(true);
+    await loadManage('');
+    $('m-game-err').textContent = why;
+    return true;
+  }
+  liveMsg(genericErr(res.r, j));
+  return true;
+}
+
+// ---- Scorer prompts ----
+function hideOv(){
+  var ov = $('scr-ov');
+  ov.hidden = true; ov.className = 'scr-ov'; ov.innerHTML = '';
+  if(LV.timer){ clearInterval(LV.timer); LV.timer = null; }
+}
+function showOv(cls, html){
+  hideOv();
+  var ov = $('scr-ov');
+  ov.className = 'scr-ov ' + cls; ov.innerHTML = html; ov.hidden = false;
+}
+function curScore(){
+  var lv = LV.live, c = lv && lv.sets[lv.set];
+  return c ? esc(LV.x.t1Name) + ' ' + c.a + ', ' + esc(LV.x.t2Name) + ' ' + c.b : '';
+}
+// A side switch and the technical timeout can land on the same point; one screen covers both.
+// After a switch the display flips with the teams, so each team stays on its side of the phone.
+function showBreak(p){
+  var sw = !!p.switchSides;
+  var h = p.tto
+    ? '<div class="big">Technical timeout</div>' + (sw ? '<div class="sub">Switch sides after the timeout.</div>' : '')
+      + '<div class="cd" id="scr-cd">30</div><div class="sub">' + curScore() + '</div>'
+    : '<div class="big">&#8644; Switch sides</div><div class="sub">' + curScore() + '<br>The display flips to match.</div>';
+  showOv(p.tto ? 'tto' : 'switch', h + '<button class="scr-ok" type="button" onclick="okBreak(' + (sw ? 'true' : 'false') + ')">OK</button>');
+  if(p.tto){
+    var left = 30;
+    LV.timer = setInterval(function(){
+      left -= 1;
+      var el = $('scr-cd'); if(el) el.textContent = left > 0 ? left : 'Time';
+      if(left <= 0){ clearInterval(LV.timer); LV.timer = null; if(navigator.vibrate) try { navigator.vibrate([200, 100, 200]); } catch(e){} }
+    }, 1000);
+  }
+}
+function okBreak(sw){ hideOv(); if(sw){ LV.flipped = !LV.flipped; drawLive(); } }
+function showSetOver(){
+  var lv = LV.live; if(!lv) return;
+  var c = lv.sets[lv.set], next = lv.set + 2;
+  showOv('set', '<div class="big">Set over</div><div class="sub" style="font-size:24px;font-weight:800;">' + c.a + '-' + c.b + '</div>'
+    + '<button class="scr-ok" type="button" onclick="liveAction(\'nextSet\')">Start set ' + next + '</button>'
+    + '<button class="scr-back" type="button" onclick="hideOv()">Back (to fix with Undo)</button>');
+}
+function showMatchOver(){
+  var lv = LV.live, x = LV.x; if(!lv) return;
+  var sets = lv.sets.slice(0, lv.set + 1);
+  var w = tnMatchWinner({ sets:sets }, fmtFor(x));
+  var who = w.winner === 't1' ? x.t1Name : w.winner === 't2' ? x.t2Name : '';
+  showOv('match', '<div class="big">Match over</div><div class="sub">Confirm the final score</div>'
+    + '<div class="sets">' + sets.map(function(s, k){ return 'Set ' + (k + 1) + ': ' + s.a + '-' + s.b; }).join('<br>') + '</div>'
+    + '<div class="sub">' + esc(x.t1Name) + ' vs ' + esc(x.t2Name) + (who ? '<br><strong>' + esc(who) + ' wins</strong>' : '') + '</div>'
+    + '<button class="scr-ok" type="button" onclick="liveAction(\'finish\')">Confirm</button>'
+    + '<button class="scr-back" type="button" onclick="hideOv()">Back</button>');
+}
+// Coming back to the page (screen woke, app switched back) refreshes the score and the lock.
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible' && LV.mid){ lockScreen(); LV.resync = true; pumpLive(); }
+});
 
 // ---- Lost your manage link? ----
 // Always the same answer, whether or not the email is on a team.

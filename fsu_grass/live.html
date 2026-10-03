@@ -87,6 +87,11 @@
   .champ{background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);color:var(--white);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px;}
   .champ .lbl{font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
   .champ .nm{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:1px;line-height:1.1;margin-top:4px;}
+  .live-dot{display:inline-flex;align-items:center;gap:6px;background:#c81e1e;color:#fff;font-size:13px;font-weight:800;letter-spacing:1px;border-radius:6px;padding:3px 8px;vertical-align:middle;}
+  .live-dot::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;animation:lp 1.2s ease-in-out infinite;}
+  @keyframes lp{0%,100%{opacity:1;}50%{opacity:.25;}}
+  .liveline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:18px;font-weight:800;color:#b3121b;margin-top:6px;font-variant-numeric:tabular-nums;}
+  .cn.is-live{border-color:#c81e1e;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:14px;color:var(--slate);}
   .foot a{color:var(--garnet);font-weight:700;text-decoration:none;}
 </style>
@@ -700,6 +705,38 @@ function tnSortByRating(rows){
     return String(a.name||'').localeCompare(String(b.name||''));
   });
 }
+// ---- Live point scoring --------------------------------------------------------------
+// Side switches and the technical timeout for one format (a division's pool or playoff).
+// Missing settings take the defaults: switch every 7 points when sets go to 21 or more (5
+// otherwise), every 5 in the third set, and a technical timeout at scoreTo combined points
+// in sets 1 and 2 only, never in the third (deciding) set. tto is on unless set to false.
+function tnLiveRules(fmt){
+  var f=fmt||{}, to=Number(f.scoreTo)||21;
+  var sw=tnNum(f.switchEvery), sw3=tnNum(f.thirdSetSwitchEvery), at=tnNum(f.ttoAt);
+  return {switchEvery:(sw&&sw>0)?sw:(to>=21?7:5), thirdSetSwitchEvery:(sw3&&sw3>0)?sw3:5,
+    tto:f.tto!==false, ttoAt:(at&&at>0)?at:to};
+}
+// The target and cap for set i (0 based), as tnMatchWinner reads them: the third set plays
+// to thirdSetTo with no cap when thirdSetTo is set.
+function tnSetTarget(fmt,i){
+  var f=fmt||{}, third=Number(f.thirdSetTo)||0;
+  if(i===2&&third>0) return {target:third, cap:0};
+  return {target:Number(f.scoreTo)||21, cap:Number(f.cap)||0};
+}
+// What to tell the scorer after a live action. sets are the live sets so far, i the current
+// set index, point true when this action just added a point. setOver: set i is finished and
+// valid. matchOver: the sets through i decide the match. switchSides and tto only follow a
+// point that did not end the set.
+function tnLivePrompts(fmt,sets,i,point){
+  var list=tnArr(sets), s=list[i]||{}, a=tnNum(s.a)||0, b=tnNum(s.b)||0, total=a+b;
+  var r=tnLiveRules(fmt), tg=tnSetTarget(fmt,i);
+  var setOver=a!==b&&tnSetError({a:a, b:b},tg.target,tg.cap)==='';
+  var mw=tnMatchWinner({sets:list.slice(0,i+1)},fmt);
+  var third=(i===2), every=third?r.thirdSetSwitchEvery:r.switchEvery, live=!!point&&!setOver&&total>0;
+  return {switchSides:live&&total%every===0, tto:live&&r.tto&&!third&&total===r.ttoAt,
+    setOver:setOver, matchOver:mw.valid&&!!mw.winner};
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -754,6 +791,20 @@ function setsFor(m, r){
   var flip = (r.t1 != null && r.t1 === m.t2 && r.t2 === m.t1);
   return tnArr(r.sets).map(function(s){ var a = tnNum(s.a), b = tnNum(s.b); return flip ? { a:b, b:a } : { a:a, b:b }; });
 }
+// The live record for a match being scored point by point, until its result is saved.
+function liveOf(mid){
+  var L = (S.t && S.t.live) || {}, lv = L[mid];
+  if(!lv || resultsOf()[mid]) return null;
+  var sets = tnArr(lv.sets).map(function(x){ return { a:tnNum(x.a) || 0, b:tnNum(x.b) || 0 }; });
+  if(!sets.length) return null;
+  return { sets:sets, set:Math.min(Number(lv.set) || 0, sets.length - 1) };
+}
+// "Set 2: 14-11 (earlier 21-15)", scores in the match's t1, t2 order.
+function liveText(lv){
+  var c = lv.sets[lv.set], prev = lv.sets.slice(0, lv.set).map(function(x){ return x.a + '-' + x.b; });
+  return 'Set ' + (lv.set + 1) + ': ' + c.a + '-' + c.b + (prev.length ? ' (earlier ' + prev.join(', ') + ')' : '');
+}
+function liveLine(lv){ return '<div class="liveline"><span class="live-dot">LIVE</span>' + esc(liveText(lv)) + '</div>'; }
 function poolsOf(divId){
   var P = (S.t && S.t.pools && S.t.pools[divId]) || {};
   return Object.keys(P).filter(function(k){ return P[k]; }).sort().map(function(k){ return { key:k, pool:P[k] }; });
@@ -761,7 +812,7 @@ function poolsOf(divId){
 
 // ---- Rendering ----
 function matchCard(m, opts){
-  var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), fmt = o.fmt;
+  var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), fmt = o.fmt, lv = r ? null : liveOf(m.mid);
   var win = null;
   if(sets){ var mw = tnMatchWinner({ sets:sets }, fmt); if(mw.valid) win = mw.winner; }
   var head = [];
@@ -775,7 +826,7 @@ function matchCard(m, opts){
   return '<div class="match' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '">'
     + ((head.length || ref) ? '<div class="mh"><span>' + head.join(' &middot; ') + '</span><span>' + ref + '</span></div>' : '')
     + side(m.t1, 't1', o.seedA) + side(m.t2, 't2', o.seedB)
-    + (sets ? '' : '<div class="unplayed">' + (m.t1 && m.t2 ? 'Not played yet' : 'Waiting on earlier matches') + '</div>')
+    + (sets ? '' : lv ? liveLine(lv) : '<div class="unplayed">' + (m.t1 && m.t2 ? 'Not played yet' : 'Waiting on earlier matches') + '</div>')
     + '</div>';
 }
 
@@ -843,7 +894,7 @@ function onCourtHtml(divId, div){
   }
   poolsOf(divId).forEach(function(p, pi){
     tnArr(p.pool.matches).forEach(function(m){
-      if(!res[m.mid] && m.t1 && m.t2) cand.push({ m:m, order:[0, Number(m.wave) || 0, pi], label:'Pool ' + p.key, fmt:div.pool });
+      if(!res[m.mid] && m.t1 && m.t2) cand.push({ m:m, order:[liveOf(m.mid) ? 0 : 1, 0, Number(m.wave) || 0, pi], label:'Pool ' + p.key, fmt:div.pool });
     });
   });
   var b = S.t.bracket && S.t.bracket[divId];
@@ -851,11 +902,11 @@ function onCourtHtml(divId, div){
     var adv = tnAdvance(b, res, div.playoff), n = adv.rounds.length;
     adv.rounds.forEach(function(rd, i){
       rd.forEach(function(m, si){
-        if(!m.bye && m.t1 && m.t2 && !res[m.mid]) cand.push({ m:m, order:[1, i, si], label:roundName(i, n), fmt:div.playoff });
+        if(!m.bye && m.t1 && m.t2 && !res[m.mid]) cand.push({ m:m, order:[liveOf(m.mid) ? 0 : 1, 1, i, si], label:roundName(i, n), fmt:div.playoff });
       });
     });
   }
-  var cmp = function(a, b){ for(var i = 0; i < 3; i++){ if(a.order[i] !== b.order[i]) return a.order[i] - b.order[i]; } return 0; };
+  var cmp = function(a, b){ for(var i = 0; i < 4; i++){ if(a.order[i] !== b.order[i]) return a.order[i] - b.order[i]; } return 0; };
   var best = {}, keys = [];
   cand.forEach(function(c){
     var k = (c.m.court != null && c.m.court !== '') ? String(c.m.court) : '';
@@ -864,9 +915,10 @@ function onCourtHtml(divId, div){
   if(!keys.length) return '<p class="muted">No matches waiting right now.</p>';
   keys.sort(function(a, b){ if(a === '') return 1; if(b === '') return -1; return (Number(a) - Number(b)) || a.localeCompare(b); });
   return '<div class="court-now">' + keys.map(function(k){
-    var c = best[k], m = c.m;
-    return '<div class="cn' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
+    var c = best[k], m = c.m, lv = liveOf(m.mid);
+    return '<div class="cn' + (lv ? ' is-live' : '') + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
       + '<div class="cn-teams">' + teamLabel(m.t1) + '<span class="vs">vs</span>' + teamLabel(m.t2) + '</div>'
+      + (lv ? liveLine(lv) : '')
       + '<div class="cn-meta">' + esc(c.label) + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
   }).join('') + '</div>';
 }
