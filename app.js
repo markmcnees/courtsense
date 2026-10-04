@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.179';
+const APP_VERSION='1.1.180';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12602,7 +12602,7 @@ function tnGdClearScore(){
 function tnGdHtml(t,h){
   var esc=h.esc, btn=h.btn, inp=h.inp, lbl=h.lbl, m=t.meta, status=m.status;
   var ids=tnGdDivIds(t);
-  var html='<div style="border-top:2px solid var(--red);margin-top:16px;padding-top:12px;">'
+  var html='<style>'+TN_MC_CSS+'</style><div style="border-top:2px solid var(--red);margin-top:16px;padding-top:12px;">'
     +'<div style="font-weight:700;font-size:16px;">\u{1F3D0} Game day</div>';
   if(!ids.length) return html+'<div style="font-size:13px;color:var(--gray);margin-top:6px;">Add a division first.</div></div>';
   if(ids.indexOf(_tnGd.div)<0) _tnGd.div=ids[0];
@@ -12707,8 +12707,11 @@ function tnGdPoolsHtml(t,pools,R,esc,rowsById,scoring,btn,div,seedOf){
     var waves={};
     matches.forEach(function(m){ (waves[m.wave]=waves[m.wave]||[]).push(m); });
     h+=Object.keys(waves).sort(function(a,b){ return a-b; }).map(function(w){
-      return '<div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-top:8px;">Wave '+esc(w)+'</div>'
-        +waves[w].map(function(m){ return tnGdMatchHtml(t,m,R,esc,nm,scoring,btn); }).join('');
+      return '<div class="tn-rh" style="margin-top:12px;">Wave '+esc(w)+'</div>'
+        +waves[w].map(function(m){
+          var ab=(R&&R[m.mid])?'':tnAboutMid(t,m.mid);
+          return tnGdMatchHtml(t,m,R,esc,nm,scoring,btn,{head:['Pool '+esc(k), m.court!=null?'Court '+esc(m.court):'', ab?esc(ab):''].filter(Boolean).join(' &middot; '), preview:!btn});
+        }).join('');
     }).join('');
     return h+'</div>';
   }).join('');
@@ -12848,14 +12851,15 @@ function tnPoSetRef(mid,teamId){
   tnWrite(tid,u).then(function(ok){ _tnUi.busy=false; if(ok){ _tnGd.po.refEdit=null; toast(teamId?'Ref set':'Ref back to automatic'); } tnCardRender(); });
 }
 // Round names: single by distance from the final; double by bracket side.
-function tnPoRoundName(sec,i,n,m){
+function tnPoRoundName(sec,i,n,m,silver){
+  var name;
   if(sec==='main'){
-    if(m&&m.fromLoser) return 'Third place';
-    var e=n-1-i; return e===0?'Final':e===1?'Semifinals':e===2?'Quarterfinals':'Round '+(i+1);
-  }
-  if(sec==='winners') return i===n-1?'Winners final':'Winners round '+(i+1);
-  if(sec==='losers') return i===n-1?'Losers final':'Losers round '+(i+1);
-  return 'Final';
+    var e=n-1-i;
+    name=(m&&m.fromLoser)?'Third place':e===0?'Final':e===1?'Semifinal':e===2?'Quarterfinal':'Round '+(i+1);
+  } else if(sec==='winners') name='Winners round '+(i+1);
+  else if(sec==='losers') name='Losers round '+(i+1);
+  else name=(m&&m.ifNeeded)?'If-needed final':'Final';
+  return silver?'Silver '+name.charAt(0).toLowerCase()+name.slice(1):name;
 }
 function tnPoPlaceLabel(n){ var s=['th','st','nd','rd'], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
 // One bracket (main or Silver): sections, rounds as columns (stacked on a phone), each match
@@ -12865,7 +12869,7 @@ function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
   var nm=function(id){ return id?esc((T[id]&&T[id].name)||'Team'):'<span style="color:var(--gray);">To be decided</span>'; };
   var v=tnBracketView(b,R,f), refs=preview?tnPoPreviewRefs(t,divId,b):tnPoRefs(t,divId)[b===tnPoSilver(t,divId)?'silver':'playoff'], ov=tnPoOverrides(t,divId);
   var html='<div style="font-weight:700;font-size:15px;margin-top:12px;">'+esc(title)+'</div>';
-  if(v.champion) html+='<div style="background:var(--red);color:#fff;border-radius:10px;padding:10px 12px;margin:8px 0;font-weight:700;">\u{1F3C6} Champion: '+nm(v.champion)+'</div>';
+  if(v.champion) html+='<div style="background:var(--red);color:#fff;opacity:1;border-radius:10px;padding:12px 14px;margin:8px 0 12px;font-weight:800;font-size:16px;">\u{1F3C6} '+(/Silver/.test(title)?'Silver champion':'Champion')+': <span style="color:#fff;">'+esc((tnTeams(t)[v.champion]||{}).name||'Team')+'</span></div>';
   if(v.placements.length>1&&v.champion){
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:6px;">'+v.placements.map(function(p){ return '<strong>'+tnPoPlaceLabel(p.place)+'</strong> '+p.teamIds.map(nm).join(', '); }).join('<br>')+'</div>';
   }
@@ -12873,9 +12877,10 @@ function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
     html+='<div style="font-size:12px;color:var(--red);background:var(--primary-bg,#f3e9eb);border-radius:8px;padding:8px 10px;margin:6px 0;line-height:1.5;"><strong>Check these scores:</strong><br>'
       +v.conflicts.map(function(c){ return esc(c.mid)+': '+esc(c.reason); }).join('<br>')+'</div>';
   }
+  var silver=/Silver/.test(title);
   v.sections.forEach(function(sec){
     if(!sec.rounds.length) return;
-    if(v.format==='double') html+='<div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;margin-top:10px;">'+esc(sec.label)+'</div>';
+    if(v.format==='double') html+='<div class="tn-rh" style="margin-top:12px;font-size:14px;">'+esc(sec.label)+'</div>';
     html+='<div class="tn-br">';
     sec.rounds.forEach(function(rd,i){
       var shown=rd.filter(function(m){ return !m.void; });
@@ -12883,10 +12888,10 @@ function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
       html+='<div class="tn-br-col">';
       var lastName='';
       shown.forEach(function(m){
-        var name=sec.key==='final'?(m.ifNeeded?'If needed':'Final'):tnPoRoundName(sec.key,i,sec.rounds.length,m);
-        if(name!==lastName) html+='<div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin:6px 0 4px;">'+esc(name)+'</div>';
+        var name=tnPoRoundName(sec.key,i,sec.rounds.length,m,silver);
+        if(name!==lastName) html+='<div class="tn-rh">'+esc(name)+'</div>';
         lastName=name;
-        html+=tnPoMatchHtml(t,m,R,refs,ov,esc,nm,scoring,btn,v,preview);
+        html+=tnPoMatchHtml(t,m,R,refs,ov,esc,nm,scoring,btn,v,preview,name);
       });
       html+='</div>';
     });
@@ -12894,33 +12899,28 @@ function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
   });
   return html;
 }
-function tnPoMatchHtml(t,m,R,refs,ov,esc,nm,scoring,btn,v,preview){
-  if(m.bye) return '<div style="font-size:12px;color:var(--gray);padding:6px 2px;border-bottom:1px solid var(--border,#eee);">Bye: '+nm(m.t1)+' moves on</div>';
-  var seedTxt=function(s){ return s?'<span style="color:var(--red);font-weight:700;">#'+esc(s)+'</span> ':''; };
-  var head='<div style="font-size:11px;color:var(--gray);margin-top:6px;">'
-    +(m.order!=null?'Match '+esc(m.order):'')+(m.court!=null?' &middot; Court '+esc(m.court):'')+(!preview&&t&&t.meta&&tnAboutMid(t,m.mid)?' &middot; '+esc(tnAboutMid(t,m.mid)):'')
-    +(m.ifNeeded&&!v.needGf2&&!m.void?' &middot; only if the losers bracket team wins the final':'')+'</div>';
-  if(preview){
-    var pref=Object.prototype.hasOwnProperty.call(refs,m.mid)?refs[m.mid]:null;
-    return head+'<div style="font-size:13px;padding:2px 2px 6px;border-bottom:1px solid var(--border,#eee);">'+seedTxt(m.seedA)+nm(m.t1)+' vs '+seedTxt(m.seedB)+nm(m.t2)
-      +(m.t1&&m.t2?'<div style="font-size:12px;color:var(--gray);">'+(pref?'Ref: '+nm(pref):'Ref: none yet')+'</div>':'')+'</div>';
+function tnPoMatchHtml(t,m,R,refs,ov,esc,nm,scoring,btn,v,preview,name){
+  if(m.bye) return '<div class="tn-bye">'+(m.t1||m.t2?nm(m.t1||m.t2):'A team')+' has a bye</div>';
+  var byMid={}; v.matches.forEach(function(x){ byMid[x.mid]=x; });
+  var r=R[m.mid], ab=(!r&&!preview&&t&&t.meta)?tnAboutMid(t,m.mid):'';
+  var head=[esc(name||''), m.order!=null?'Match '+esc(m.order):'', m.court!=null?'Court '+esc(m.court):'', ab?esc(ab):''].filter(Boolean).join(' &middot; ');
+  var ref=Object.prototype.hasOwnProperty.call(refs,m.mid)?refs[m.mid]:null, set=Object.prototype.hasOwnProperty.call(ov,m.mid)&&ov[m.mid];
+  var refHtml='';
+  if(preview) refHtml=m.t1&&m.t2?(ref?'Ref: '+nm(ref):'Ref: none yet'):'';
+  else if(ref) refHtml='Ref: '+nm(ref)+(scoring?' <span style="color:#555;">('+(set?'set by exec':'automatic')+')</span>':'');
+  else if(!r) refHtml=esc(tnRefNote(m,v));
+  var after='';
+  if(!preview&&!r&&scoring&&_tnGd.po.refEdit===m.mid){
+    var T=tnTeams(t), ids=tnGdRegTeams(t,_tnGd.div).filter(function(id){ return id!==m.t1&&id!==m.t2; })
+      .sort(function(a,b){ return String(T[a].name||'').localeCompare(String(T[b].name||'')); });
+    after='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:8px;margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">'
+      +ids.map(function(id){ return btn(esc(T[id].name||'Team'),"tnPoSetRef('"+esc(m.mid)+"','"+esc(id)+"')",id===ref); }).join('')
+      +btn('Automatic',"tnPoSetRef('"+esc(m.mid)+"','')",!set)+btn('Cancel',"tnPoRefEdit('"+esc(m.mid)+"')",false)+'</div>';
   }
-  var ready=!!(m.t1&&m.t2), r=R[m.mid], ref=Object.prototype.hasOwnProperty.call(refs,m.mid)?refs[m.mid]:null;
-  var set=Object.prototype.hasOwnProperty.call(ov,m.mid)&&ov[m.mid];
-  var h=head+tnGdMatchHtml(t,Object.assign({},m,{ref:ref}),R,esc,nm,scoring&&ready,btn);
-  if(!r&&scoring){
-    h+='<div style="font-size:12px;color:var(--gray);display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:6px;">'
-      +(ref?'Ref: '+nm(ref)+(set?' (set by exec)':' (automatic)'):'No ref yet')+' '
-      +'<button type="button" onclick="tnPoRefEdit(\''+esc(m.mid)+'\')" style="background:none;border:none;color:var(--red);font-weight:700;text-decoration:underline;min-height:40px;cursor:pointer;">Change ref</button></div>';
-    if(_tnGd.po.refEdit===m.mid){
-      var T=tnTeams(t), ids=tnGdRegTeams(t,_tnGd.div).filter(function(id){ return id!==m.t1&&id!==m.t2; })
-        .sort(function(a,b){ return String(T[a].name||'').localeCompare(String(T[b].name||'')); });
-      h+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:8px;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;">'
-        +ids.map(function(id){ return btn(esc(T[id].name||'Team'),"tnPoSetRef('"+esc(m.mid)+"','"+esc(id)+"')",id===ref); }).join('')
-        +btn('Automatic',"tnPoSetRef('"+esc(m.mid)+"','')",!set)+btn('Cancel',"tnPoRefEdit('"+esc(m.mid)+"')",false)+'</div>';
-    }
-  }
-  return h;
+  return tnMatchCard(t,m,{R:preview?{}:R, esc:esc, nm:nm, btn:preview?null:btn, scoring:!preview&&scoring&&!(m.ifNeeded&&!v.needGf2), head:head,
+    seedA:m.seedA, seedB:m.seedB, labelA:m.t1?'':tnFeederText(m,'A',byMid), labelB:m.t2?'':tnFeederText(m,'B',byMid),
+    refHtml:refHtml, preview:preview, after:after,
+    actions:(!preview&&!r&&scoring)?btn('Change ref',"tnPoRefEdit('"+esc(m.mid)+"')",false):''});
 }
 // The playoffs step for the chosen division: preview, tie order, save, start, then the
 // saved brackets with scoring.
@@ -13101,14 +13101,14 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
   var ck=tnRateCheck(t,mid);
   if(ck.kind!=='rate'){
     upd[path+'rated']=ck.kind==='defer'?'deferred':'skipped'; upd[path+'ratedNote']=ck.note;
-    if(ck.kind==='defer') sum.deferred++; else sum.skipped.push(tnMatchLabel(t,mid)+': '+ck.note);
+    if(ck.kind==='defer'){ sum.deferred++; sum.deferredList.push({label:tnMatchLabel(t,mid), note:ck.note}); } else sum.skipped.push({label:tnMatchLabel(t,mid), note:ck.note});
     return (await tnWrite(tid,upd))?'next':'stop';
   }
   var rv=tnRateResolveAll(ck,accounts);
   if(!rv) return 'stop';
   if(rv.blocker){
     upd[path+'rated']='skipped'; upd[path+'ratedNote']=rv.blocker+' '+rv.reason;
-    sum.skipped.push(tnMatchLabel(t,mid)+': '+rv.blocker+' '+rv.reason);
+    sum.skipped.push({label:tnMatchLabel(t,mid), note:rv.blocker+' '+rv.reason});
     return (await tnWrite(tid,upd))?'next':'stop';
   }
   var players=ck.t1.concat(ck.t2);
@@ -13131,7 +13131,7 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
     if(made==='fail') return 'stop';
     if(made==='taken'){
       upd[path+'rated']='skipped'; upd[path+'ratedNote']=String(p.name||'A player')+' needs a rating link';
-      sum.skipped.push(tnMatchLabel(t,mid)+': '+String(p.name||'A player')+' needs a rating link');
+      sum.skipped.push({label:tnMatchLabel(t,mid), note:String(p.name||'A player')+' needs a rating link'});
       return (await tnWrite(tid,upd))?'next':'stop';
     }
   }
@@ -13158,7 +13158,7 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
 }
 // Lock, set final, then rate what is left. Safe to run again at any point.
 async function tnRateTournament(tid){
-  var sum={rated:0, partial:0, games:0, deferred:0, skipped:[], errors:[]};
+  var sum={rated:0, partial:0, games:0, deferred:0, deferredList:[], skipped:[], errors:[]};
   var token=gi('run');
   if(!(await tnRateLock(tid,token,'claim'))){ sum.errors.push('Another exec is ending this tournament right now. Try again in a few minutes.'); return sum; }
   try{
@@ -13204,7 +13204,7 @@ function tnEndStart(){
 }
 async function tnEndPreview(t){
   var ok=await pcLoadRatings(), accounts=communityPlayersNow()||{};
-  var info={loading:false, ratingsOk:ok, results:0, games:0, fresh:0, deferred:0, skipped:[], open:tnEndOpenBrackets(t), unscored:0};
+  var info={loading:false, ratingsOk:ok, results:0, games:0, fresh:0, deferred:0, deferredList:[], skipped:[], open:tnEndOpenBrackets(t), unscored:0};
   var R=tnGdResults(t);
   tnGdDivIds(t).forEach(function(d){
     Object.keys(tnGdPools(t,d)).forEach(function(k){ tnArr(tnGdPools(t,d)[k].matches).forEach(function(m){ if(!R[m.mid]) info.unscored++; }); });
@@ -13213,10 +13213,10 @@ async function tnEndPreview(t){
   var freshSeen={};
   tnRateQueue(t).forEach(function(mid){
     var ck=tnRateCheck(t,mid);
-    if(ck.kind==='defer'){ info.deferred++; return; }
-    if(ck.kind==='skip'){ info.skipped.push(tnMatchLabel(t,mid)+': '+ck.note); return; }
+    if(ck.kind==='defer'){ info.deferred++; info.deferredList.push({label:tnMatchLabel(t,mid), note:ck.note}); return; }
+    if(ck.kind==='skip'){ info.skipped.push({label:tnMatchLabel(t,mid), note:ck.note}); return; }
     var rv=tnRateResolveAll(ck,accounts);
-    if(!rv||rv.blocker){ info.skipped.push(tnMatchLabel(t,mid)+': '+(rv?rv.blocker+' '+rv.reason:'ratings not loaded')); return; }
+    if(!rv||rv.blocker){ info.skipped.push({label:tnMatchLabel(t,mid), note:rv?rv.blocker+' '+rv.reason:'Ratings not loaded'}); return; }
     info.results++; info.games+=ck.sets.length;
     Object.keys(rv.byAcct).forEach(function(a){ if(rv.byAcct[a].status==='new') freshSeen[a]=1; });
   });
@@ -13260,17 +13260,18 @@ function tnEndHtml(t,h){
     if(pv.unscored) html+='<div style="color:#8a4b08;">'+pv.unscored+' pool match'+(pv.unscored===1?' has':'es have')+' no score.</div>';
     if(!pv.ratingsOk) html+='<div style="color:var(--red);">Ratings could not be read right now. Ending still works; use Retry ratings later.</div>';
     html+='<div><strong>'+pv.games+'</strong> game'+(pv.games===1?'':'s')+' to rate from '+pv.results+' match'+(pv.results===1?'':'es')+(pv.fresh?', '+pv.fresh+' new rating record'+(pv.fresh===1?'':'s'):'')+'.</div>'
-      +(pv.deferred?'<div><strong>'+pv.deferred+'</strong> deferred: team size not supported for ratings yet. They are kept and rate later.</div>':'')
-      +(pv.skipped.length?'<div><strong>'+pv.skipped.length+'</strong> skipped:<br>'+pv.skipped.map(esc).join('<br>')+'</div>':'')
+      +tnGroupedHtml(pv.deferredList,'deferred',esc)+(pv.deferred?'<div style="color:#555;">Deferred results are kept and rate later.</div>':'')
+      +tnGroupedHtml(pv.skipped,'skipped',esc)
       +'</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'+btn('Confirm: end and rate','tnEndConfirm()',true)+btn('Cancel','tnEndCancel()',false)+'</div>';
     return html+'</div>';
   }
   var c=tnRateCounts(t), s=_tnEnd.summary;
-  html+='<div style="font-size:13px;margin:6px 0;line-height:1.6;">Final. Results: '+c.rated+' rated'+(c.partial?', '+c.partial+' partly rated':'')+(c.deferred?', '+c.deferred+' deferred':'')+(c.skipped?', '+c.skipped+' skipped':'')+(c.left?', <strong>'+c.left+' not rated yet</strong>':'')+'.</div>';
+  html+='<div style="font-size:15px;font-weight:800;margin:6px 0 2px;color:#1e7e34;">Tournament ended</div>'
+    +'<div style="font-size:13px;margin:2px 0 6px;line-height:1.6;">Results: '+c.rated+' rated'+(c.partial?', '+c.partial+' partly rated':'')+(c.deferred?', '+c.deferred+' deferred':'')+(c.skipped?', '+c.skipped+' skipped':'')+(c.left?', <strong>'+c.left+' not rated yet</strong>':'')+'.</div>';
   if(s){
     html+='<div style="background:#f6f6f6;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.6;">'
-      +'<div><strong>This run:</strong> '+s.rated+' match'+(s.rated===1?'':'es')+' rated ('+s.games+' new game'+(s.games===1?'':'s')+')'+(s.partial?', '+s.partial+' partly':'')+', '+s.deferred+' deferred, '+s.skipped.length+' skipped.</div>'
-      +(s.skipped.length?'<div>'+s.skipped.map(esc).join('<br>')+'</div>':'')
+      +'<div><strong>This run:</strong> '+s.rated+' match'+(s.rated===1?'':'es')+' rated ('+s.games+' new game'+(s.games===1?'':'s')+')'+(s.partial?', '+s.partial+' partly':'')+'.</div>'
+      +tnGroupedHtml(s.deferredList||[],'deferred',esc)+tnGroupedHtml(s.skipped,'skipped',esc)
       +(s.errors.length?'<div style="color:var(--red);font-weight:700;">'+s.errors.map(esc).join('<br>')+'</div>':'')+'</div>';
   }
   if(c.left||tnRateQueue(t).some(function(mid){ var v=tnGdResults(t)[mid].rated; return v==null||v===false||v==='pending'||v==='deferred'; })){
@@ -13845,51 +13846,125 @@ function tnScShowMatch(){
 }
 document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible'&&_tnSc.mid){ tnScLock(); _tnSc.resync=true; tnScPump(); } });
 
-function tnGdMatchHtml(t,m,R,esc,nm,scoring,btn){
-  var r=R&&R[m.mid], e=_tnGd.edit, open=!!(e&&e.mid===m.mid&&btn);
-  var score=r?tnArr(r.sets).map(function(s){ return s.a+'-'+s.b; }).join(', '):'';
-  var ab=(t&&t.meta)?tnAboutMid(t,m.mid):'';
-  var line='<span style="color:var(--gray);font-size:12px;">Ct '+esc(m.court==null?'?':m.court)+(ab?', '+esc(ab):'')+'</span> '
-    +'<span style="'+(r&&r.winner===m.t1?'font-weight:700;':'')+'">'+nm(m.t1)+'</span> vs '
-    +'<span style="'+(r&&r.winner===m.t2?'font-weight:700;':'')+'">'+nm(m.t2)+'</span>'
-    +(m.ref?'<span style="color:var(--gray);font-size:12px;"> &middot; Ref '+nm(m.ref)+'</span>':'');
-  var lv=(!r&&t&&t.live&&t.live[m.mid])||null, lvSets=lv?tnArr(lv.sets):[], lvCur=lvSets[Math.min(Number(lv&&lv.set)||0,Math.max(0,lvSets.length-1))];
-  var right=r?'<span style="font-size:13px;font-weight:700;color:#1e7e34;white-space:nowrap;">'+esc(score)+'</span>'
-    :lv?'<span style="font-size:12px;font-weight:700;white-space:nowrap;"><span style="background:#c81e1e;color:#fff;border-radius:4px;padding:1px 5px;margin-right:4px;">LIVE</span>'
-      +'Set '+((Number(lv.set)||0)+1)+': '+esc(lvCur?(tnNum(lvCur.a)||0)+'-'+(tnNum(lvCur.b)||0):'0-0')+'</span>'
-    :'<span style="font-size:12px;color:var(--gray);white-space:nowrap;">Not played</span>';
-  var h='<div style="border-bottom:1px solid var(--border,#eee);">';
-  h+=(scoring&&btn
-    ?'<button type="button" onclick="tnGdEdit(\''+esc(m.mid)+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:52px;padding:8px 2px;background:none;border:none;text-align:left;font-size:14px;color:var(--charcoal);cursor:pointer;">'
-    :'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;padding:6px 2px;font-size:14px;">')
-    +'<span>'+line+'</span>'+right+(scoring&&btn?'</button>':'</div>');
+// ---- Match cards (exec views) ------------------------------------------------------------
+// One card per match: a header line (round, match number, court, about time), the two teams
+// stacked with seed, name and score, a LIVE line, the ref line, then the exec actions on their
+// own row. Used by the pool lists, the brackets, Silver and the playoff preview.
+var TN_MC_CSS='.tn-mc{background:#fff;border:1px solid #cfcfcf;border-radius:12px;padding:12px 14px;margin:0 0 14px;box-shadow:0 1px 3px rgba(0,0,0,.06);color:#1a1a1a;}'
+  +'.tn-mc-h{font-size:12.5px;font-weight:700;color:#3d3d3d;letter-spacing:.2px;margin-bottom:8px;}'
+  +'.tn-mc-t{display:flex;align-items:center;gap:8px;min-height:32px;font-size:15px;}'
+  +'.tn-mc-seed{flex:0 0 auto;min-width:32px;font-size:12px;font-weight:800;color:#fff;background:var(--red);border-radius:6px;padding:2px 6px;text-align:center;}'
+  +'.tn-mc-n{flex:1 1 auto;min-width:0;overflow-wrap:break-word;}'
+  +'.tn-mc-t.win .tn-mc-n{font-weight:800;}'
+  +'.tn-mc-s{flex:0 0 auto;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums;color:#145a24;}'
+  +'.tn-mc-tbd{color:#555;font-style:italic;}'
+  +'.tn-mc-live{margin-top:6px;font-size:14px;font-weight:700;}'
+  +'.tn-mc-np{margin-top:4px;font-size:13px;color:#555;}'
+  +'.tn-mc-ref{margin-top:6px;font-size:13px;color:#2b2b2b;}'
+  +'.tn-mc-by{margin-top:4px;font-size:12px;color:#555;}'
+  +'.tn-mc-act{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}'
+  +'.tn-mc-act .btn{flex:0 0 auto;min-width:120px;}'
+  +'.tn-live{display:inline-block;background:#c81e1e;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:800;letter-spacing:.5px;margin-right:4px;}'
+  +'.tn-bye{font-size:13px;color:#4a4a4a;font-style:italic;margin:0 0 12px;}'
+  +'.tn-rh{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#2b2b2b;margin:6px 0 8px;}'
+  +'.tn-br{display:flex;gap:16px;overflow-x:auto;align-items:flex-start;padding-bottom:6px;}'
+  +'.tn-br-col{flex:0 0 300px;min-width:300px;}'
+  +'@media (max-width:700px){.tn-br{flex-direction:column;overflow-x:visible;}.tn-br-col{flex:none;width:100%;min-width:0;}}';
+// A result's score from the winner's side: "21-19, 18-21, 15-12".
+function tnScoreText(m,r){
+  var sets=tnArr(r&&r.sets), winT1=r&&r.winner?(r.winner===(r.t1!=null?r.t1:m.t1)):true;
+  return sets.map(function(s){ return winT1?(s.a+'-'+s.b):(s.b+'-'+s.a); }).join(', ');
+}
+function tnLiveText(lv){
+  var ls=tnArr(lv&&lv.sets), i=Math.min(Number(lv&&lv.set)||0,Math.max(0,ls.length-1)), c=ls[i]||{a:0,b:0};
+  return 'Set '+(i+1)+': '+(tnNum(c.a)||0)+'-'+(tnNum(c.b)||0);
+}
+// "Winner of Match 1" / "Loser of Match 2" for a slot whose team is not known yet.
+function tnFeederText(m,side,byMid){
+  var f=side==='A'?m.fromA:m.fromB, lose=side==='A'?(m.fromALoser||m.fromLoser):(m.fromBLoser||m.fromLoser), fm=f?byMid[f]:null;
+  return (fm&&fm.order!=null)?(lose?'Loser':'Winner')+' of Match '+fm.order:'To be decided';
+}
+// Why a bracket match has no ref yet, from the data: the loser of an earlier match on this
+// court will take it, or the round's matchups are not set yet, or nobody is free.
+function tnRefNote(m,v){
+  var prior=null;
+  v.matches.forEach(function(x){ if(x.order!=null&&m.order!=null&&x.order<m.order&&String(x.court)===String(m.court)&&(!prior||x.order>prior.order)) prior=x; });
+  if(prior&&!prior.loser&&!prior.bye&&!prior.void) return 'Ref: loser of Match '+prior.order;
+  var rk=m.section+':'+m.round;
+  var open=v.matches.some(function(x){ return x.section+':'+x.round===rk&&!x.void&&!x.bye&&(!x.t1||!x.t2); });
+  return open?'Ref: picked when this round\'s matchups are set':'No ref available, teams score this one';
+}
+// One match card. o: { R, esc, nm, btn, scoring, head, seedA, seedB, labelA, labelB, refHtml,
+// actions (more buttons for the action row), after (html under the actions), preview }.
+function tnMatchCard(t,m,o){
+  var esc=o.esc, nm=o.nm, btn=o.btn, R=o.R||{}, r=R[m.mid], scoring=!!(o.scoring&&btn);
+  var e=_tnGd.edit, open=!!(e&&e.mid===m.mid&&btn);
+  var lv=(!r&&t&&t.live&&t.live[m.mid])||null;
+  var winKey=r?(r.winner===m.t1?'a':r.winner===m.t2?'b':''):'', sc=r?tnScoreText(m,r):'';
+  var row=function(key,id,seed,label){
+    var w=winKey===key;
+    return '<div class="tn-mc-t'+(w?' win':'')+'">'+(seed?'<span class="tn-mc-seed">#'+esc(seed)+'</span>':'')
+      +'<span class="tn-mc-n">'+(id?nm(id):'<span class="tn-mc-tbd">'+esc(label||'To be decided')+'</span>')+'</span>'
+      +((w||(!winKey&&key==='a'))&&sc?'<span class="tn-mc-s">'+esc(sc)+'</span>':'')+'</div>';
+  };
+  var h='<div class="tn-mc">'+(o.head?'<div class="tn-mc-h">'+o.head+'</div>':'')
+    +row('a',m.t1,o.seedA,o.labelA)+row('b',m.t2,o.seedB,o.labelB);
+  if(lv) h+='<div class="tn-mc-live"><span class="tn-live">LIVE</span>'+esc(tnLiveText(lv))+'</div>';
+  else if(!r&&!o.preview&&m.t1&&m.t2) h+='<div class="tn-mc-np">Not played yet</div>';
+  if(o.refHtml) h+='<div class="tn-mc-ref">'+o.refHtml+'</div>';
   // Exec entries carry byRole exec; scores sent from a team's manage link carry player or ref.
   var src=(r&&r.byRole==='player')?'Player':(r&&r.byRole==='ref')?'Ref':'';
-  if(r&&r.by) h+='<div style="font-size:11px;color:var(--gray);padding:0 2px 6px;">Entered by '+esc(r.by)
-    +(src?' <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:4px;padding:1px 5px;background:'+(src==='Ref'?'#1f3a5f':'var(--red)')+';color:#fff;">'+src+'</span>':'')+(r.at?' at '+esc(new Date(r.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})):'')+'</div>';
-  if(scoring&&btn&&!r&&m.t1&&m.t2&&!open) h+='<div style="padding:0 2px 8px;">'+btn(lv?'Open live scorer':'Score live',"tnScOpen('"+esc(m.mid)+"')",false)+'</div>';
-  if(open){
-    var box=function(i,side){
-      return '<input class="form-input" id="tn-gd-s'+i+side+'" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="'+esc(e.sets[i][side])+'"'
-        +' oninput="tnGdSetScore('+i+',\''+side+'\',this.value)" style="width:72px;min-height:52px;padding:8px;font-size:24px;font-weight:700;text-align:center;border:1px solid var(--border,#ccc);border-radius:10px;box-sizing:border-box;">';
-    };
-    h+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px;margin:4px 0 10px;">'
-      +e.sets.map(function(s,i){
-        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-          +'<span style="font-size:12px;font-weight:700;color:var(--gray);min-width:44px;">Set '+(i+1)+(i===2?' <span style="font-weight:400;">if needed</span>':'')+'</span>'
-          +'<div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:6px;"><span style="font-size:13px;flex:1;">'+nm(m.t1)+'</span>'+box(i,'a')+'</div>'
-          +'<span style="color:var(--gray);">to</span>'
-          +'<div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:6px;">'+box(i,'b')+'<span style="font-size:13px;flex:1;text-align:right;">'+nm(m.t2)+'</span></div>'
-          +'</div>';
-      }).join('')
-      +'<div id="tn-gd-msg" style="font-size:13px;font-weight:700;min-height:20px;margin:4px 0 8px;"></div>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
-      +'<button id="tn-gd-save" class="btn btn-small" style="min-height:48px;padding:10px 16px;font-size:15px;border-radius:8px;background:var(--red);color:#fff;border:none;font-weight:700;opacity:.5;" disabled onclick="tnGdSaveScore()">Save score</button>'
-      +btn('Cancel','tnGdCancel()',false)
-      +(r?btn('Clear score','tnGdClearScore()',false,'color:#b02a37;border-color:#b02a37;'):'')
-      +'</div></div>';
+  if(r&&r.by) h+='<div class="tn-mc-by">Entered by '+esc(r.by)
+    +(src?' <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:4px;padding:1px 5px;background:'+(src==='Ref'?'#1f3a5f':'var(--red)')+';color:#fff;">'+src+'</span>':'')
+    +(r.at?' at '+esc(new Date(r.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})):'')+'</div>';
+  if(scoring&&m.t1&&m.t2&&!open){
+    h+='<div class="tn-mc-act">'+(!r?btn(lv?'Open live scorer':'Score live',"tnScOpen('"+esc(m.mid)+"')",false):'')
+      +btn(r?'Edit score':'Enter score',"tnGdEdit('"+esc(m.mid)+"')",false)+(o.actions||'')+'</div>';
+  } else if(scoring&&!open&&o.actions){
+    h+='<div class="tn-mc-act">'+o.actions+'</div>';
   }
+  if(o.after) h+=o.after;
+  if(open) h+=tnGdEditorHtml(m,r,esc,nm,btn,e);
   return h+'</div>';
+}
+function tnGdEditorHtml(m,r,esc,nm,btn,e){
+  var box=function(i,side){
+    return '<input class="form-input" id="tn-gd-s'+i+side+'" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="'+esc(e.sets[i][side])+'"'
+      +' oninput="tnGdSetScore('+i+',\''+side+'\',this.value)" style="width:72px;min-height:52px;padding:8px;font-size:24px;font-weight:700;text-align:center;border:1px solid var(--border,#ccc);border-radius:10px;box-sizing:border-box;">';
+  };
+  return '<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px;margin:10px 0 0;">'
+    +e.sets.map(function(s,i){
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+        +'<span style="font-size:12px;font-weight:700;color:#3d3d3d;min-width:44px;">Set '+(i+1)+(i===2?' <span style="font-weight:400;">if needed</span>':'')+'</span>'
+        +'<div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:6px;"><span style="font-size:13px;flex:1;">'+nm(m.t1)+'</span>'+box(i,'a')+'</div>'
+        +'<span style="color:#555;">to</span>'
+        +'<div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:6px;">'+box(i,'b')+'<span style="font-size:13px;flex:1;text-align:right;">'+nm(m.t2)+'</span></div>'
+        +'</div>';
+    }).join('')
+    +'<div id="tn-gd-msg" style="font-size:13px;font-weight:700;min-height:20px;margin:4px 0 8px;"></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    +'<button id="tn-gd-save" class="btn btn-small" style="min-height:48px;padding:10px 16px;font-size:15px;border-radius:8px;background:var(--red);color:#fff;border:none;font-weight:700;opacity:.5;" disabled onclick="tnGdSaveScore()">Save score</button>'
+    +btn('Cancel','tnGdCancel()',false)
+    +(r?btn('Clear score','tnGdClearScore()',false,'color:#b02a37;border-color:#b02a37;'):'')
+    +'</div></div>';
+}
+// Pool match cards (and any caller without bracket context). opts.head replaces the default
+// header "Court c · about time".
+function tnGdMatchHtml(t,m,R,esc,nm,scoring,btn,opts){
+  var o=opts||{}, r=R&&R[m.mid], ab=(t&&t.meta&&!r)?tnAboutMid(t,m.mid):'';
+  var head=o.head||[m.court!=null?'Court '+esc(m.court):'', ab?esc(ab):''].filter(Boolean).join(' &middot; ');
+  var refHtml=m.ref?'Ref: '+nm(m.ref):(!r&&btn?'No ref available, teams score this one':'');
+  return tnMatchCard(t,m,{R:R||{}, esc:esc, nm:nm, btn:btn, scoring:scoring, head:head, refHtml:o.refHtml!=null?o.refHtml:refHtml,
+    seedA:o.seedA, seedB:o.seedB, labelA:o.labelA, labelB:o.labelB, actions:o.actions, after:o.after, preview:o.preview});
+}
+// Grouped by reason: "23 skipped: Practice team, not rated (23)", details behind a toggle.
+function tnGroupedHtml(list,verb,esc){
+  if(!list.length) return '';
+  var by={}, order=[];
+  list.forEach(function(x){ var k=x.note||'Other'; if(!by[k]){ by[k]=0; order.push(k); } by[k]++; });
+  return '<div><strong>'+list.length+' '+verb+'</strong>: '+order.map(function(k){ return esc(k)+' ('+by[k]+')'; }).join(', ')+'</div>'
+    +(list.some(function(x){ return x.label; })?'<details style="margin:2px 0 4px;"><summary style="cursor:pointer;min-height:32px;font-weight:700;color:var(--red);">Show details</summary>'
+      +list.map(function(x){ return '<div>'+esc(x.label?x.label+': ':'')+esc(x.note||'')+'</div>'; }).join('')+'</details>':'');
 }
 
 // ---- Render ---------------------------------------------------------------
