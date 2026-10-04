@@ -70,7 +70,19 @@
   .legend{font-size:15px;color:var(--slate);margin-top:8px;}
   .legend b{color:var(--green);}
   .wave{font-size:14px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.8px;margin:16px 0 6px;}
-  .match{border:2px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+  .mcard{background:var(--white);border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 14px;}
+  .mcard-h{font-size:15px;font-weight:700;color:var(--slate);margin-bottom:8px;line-height:1.35;}
+  .mcard-t{display:flex;align-items:center;gap:10px;min-height:34px;font-size:19px;}
+  .mcard-seed{flex:0 0 auto;min-width:36px;font-size:14px;font-weight:800;color:var(--white);background:var(--garnet);border-radius:7px;padding:2px 7px;text-align:center;}
+  .mcard-n{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:break-word;}
+  .mcard-t.win .mcard-n{font-weight:800;color:var(--ink);}
+  .mcard-s{flex:0 0 auto;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums;color:var(--green);}
+  .mcard-tbd{color:var(--slate);font-style:italic;font-weight:600;}
+  .mcard-np{font-size:16px;color:var(--slate);margin-top:4px;}
+  .mcard-ref{font-size:16px;color:var(--ink);margin-top:6px;}
+  .bye-note{font-size:16px;font-style:italic;color:var(--slate);margin:0 0 12px;}
+  .rhead{font-size:15px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.8px;margin:6px 0 10px;}
+  .mcard.mine{background:var(--mine);border-color:var(--mine-line);}
   .mh{display:flex;justify-content:space-between;gap:10px;font-size:15px;color:var(--slate);font-weight:600;margin-bottom:6px;flex-wrap:wrap;}
   .side{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:19px;padding:3px 0;}
   .side .nm{font-weight:600;word-break:break-word;}
@@ -84,16 +96,17 @@
   table.st tr.mine td{background:var(--mine);}
   .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border-radius:6px;padding:2px 7px;margin-left:6px;vertical-align:middle;background:#ece4f0;color:#4a2a5e;}
   .tag.tie{background:#fbeee0;color:#7a4106;}
-  .champ{background:linear-gradient(160deg,var(--garnet) 0%,var(--garnet-deep) 100%);color:var(--white);border-radius:12px;padding:16px;text-align:center;margin-bottom:12px;}
-  .champ .lbl{font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);}
+  .champ{background:var(--garnet);color:var(--white);opacity:1;border-radius:12px;padding:16px;text-align:center;margin-bottom:12px;}
+  .champ .lbl{font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--white);}
+  .champ .nm, .champ .nm .tag{color:var(--white);}
   .champ .nm{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:1px;line-height:1.1;margin-top:4px;}
   .live-dot{display:inline-flex;align-items:center;gap:6px;background:#c81e1e;color:#fff;font-size:13px;font-weight:800;letter-spacing:1px;border-radius:6px;padding:3px 8px;vertical-align:middle;}
   .live-dot::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;animation:lp 1.2s ease-in-out infinite;}
   @keyframes lp{0%,100%{opacity:1;}50%{opacity:.25;}}
   .liveline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:18px;font-weight:800;color:#b3121b;margin-top:6px;font-variant-numeric:tabular-nums;}
   .cn.is-live{border-color:#c81e1e;}
-  .br{display:flex;gap:12px;overflow-x:auto;align-items:flex-start;}
-  .br-col{flex:1 0 250px;min-width:250px;}
+  .br{display:flex;gap:16px;overflow-x:auto;align-items:flex-start;padding-bottom:6px;}
+  .br-col{flex:0 0 320px;min-width:320px;}
   @media (max-width:700px){ .br{flex-direction:column;overflow-x:visible;} .br-col{flex:none;min-width:0;width:100%;} }
   .places{font-size:17px;line-height:1.7;margin:0 0 12px;}
   .places b{color:var(--garnet);display:inline-block;min-width:44px;}
@@ -1225,24 +1238,40 @@ function computeTimes(){
   });
   return out;
 }
+// One card per match: header (round, match, court, about time), the two teams stacked with seed,
+// name and score (from the winner's side), a LIVE line while it is scored, and the ref line.
+// opts: { fmt, head, seedA, seedB, labelA, labelB (for a team not known yet), refHtml }.
 function matchCard(m, opts){
-  var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), fmt = o.fmt, lv = r ? null : liveOf(m.mid);
+  var o = opts || {}, r = resultsOf()[m.mid], sets = setsFor(m, r), lv = r ? null : liveOf(m.mid);
   var win = null;
-  if(sets){ var mw = tnMatchWinner({ sets:sets }, fmt); if(mw.valid) win = mw.winner; }
-  var head = [];
-  if(m.court != null && m.court !== '') head.push('Court ' + esc(m.court));
-  if(o.extra) head.push(o.extra);
-  if(!r && TIMES[m.mid] != null) head.push(esc(tnAboutLabel(TIMES[m.mid])));
-  var ref = m.ref ? 'Ref: ' + teamLabel(m.ref) : '';
-  var side = function(id, key, seed){
-    var sc = sets ? '<span class="sc">' + sets.map(function(s){ var mine = key === 't1' ? s.a : s.b, other = key === 't1' ? s.b : s.a; return '<span class="' + (mine > other ? 'w' : '') + '">' + esc(mine) + '</span>'; }).join('') + '</span>' : '';
-    return '<div class="side' + (win === key ? ' win' : '') + '"><span class="nm">' + (seed ? '<span class="seed">' + esc(seed) + '</span>' : '') + teamLabel(id) + '</span>' + sc + '</div>';
+  if(sets){ var mw = tnMatchWinner({ sets:sets }, o.fmt); if(mw.valid) win = mw.winner; }
+  var sc = sets ? sets.map(function(x){ return win === 't2' ? x.b + '-' + x.a : x.a + '-' + x.b; }).join(', ') : '';
+  var row = function(id, key, seed, label){
+    var w = win === key, showSc = sc && (w || (!win && key === 't1'));
+    return '<div class="mcard-t' + (w ? ' win' : '') + '">' + (seed ? '<span class="mcard-seed">#' + esc(seed) + '</span>' : '')
+      + '<span class="mcard-n">' + (id ? teamLabel(id) : '<span class="mcard-tbd">' + esc(label || 'To be decided') + '</span>') + '</span>'
+      + (showSc ? '<span class="mcard-s">' + esc(sc) + '</span>' : '') + '</div>';
   };
-  return '<div class="match' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '">'
-    + ((head.length || ref) ? '<div class="mh"><span>' + head.join(' &middot; ') + '</span><span>' + ref + '</span></div>' : '')
-    + side(m.t1, 't1', o.seedA) + side(m.t2, 't2', o.seedB)
-    + (sets ? '' : lv ? liveLine(lv) : '<div class="unplayed">' + (m.t1 && m.t2 ? 'Not played yet' : 'Waiting on earlier matches') + '</div>')
+  return '<div class="mcard' + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '">'
+    + (o.head ? '<div class="mcard-h">' + o.head + '</div>' : '')
+    + row(m.t1, 't1', o.seedA, o.labelA) + row(m.t2, 't2', o.seedB, o.labelB)
+    + (sets ? '' : lv ? liveLine(lv) : '<div class="mcard-np">' + (m.t1 && m.t2 ? 'Not played yet' : 'Waiting on earlier matches') + '</div>')
+    + (o.refHtml ? '<div class="mcard-ref">' + o.refHtml + '</div>' : '')
     + '</div>';
+}
+// "Winner of Match 1" / "Loser of Match 2" for a slot not known yet.
+function feederText(m, side, byMid){
+  var f = side === 'A' ? m.fromA : m.fromB, lose = side === 'A' ? (m.fromALoser || m.fromLoser) : (m.fromBLoser || m.fromLoser), fm = f ? byMid[f] : null;
+  return (fm && fm.order != null) ? (lose ? 'Loser' : 'Winner') + ' of Match ' + fm.order : 'To be decided';
+}
+// Why a bracket match has no ref yet, from the data.
+function refNote(m, v){
+  var prior = null;
+  v.matches.forEach(function(x){ if(x.order != null && m.order != null && x.order < m.order && String(x.court) === String(m.court) && (!prior || x.order > prior.order)) prior = x; });
+  if(prior && !prior.loser && !prior.bye && !prior.void) return 'Ref: loser of Match ' + prior.order;
+  var rk = m.section + ':' + m.round;
+  var open = v.matches.some(function(x){ return x.section + ':' + x.round === rk && !x.void && !x.bye && (!x.t1 || !x.t2); });
+  return open ? 'Ref: picked when this round\'s matchups are set' : 'No ref available, teams score this one';
 }
 
 function standingsHtml(pool, div){
@@ -1265,11 +1294,15 @@ function standingsHtml(pool, div){
   return h + '<div class="legend">' + legend.join(' ') + '</div>';
 }
 
-function wavesHtml(pool, div){
-  var byWave = {};
+function wavesHtml(pool, div, key){
+  var byWave = {}, R = resultsOf();
   tnArr(pool.matches).forEach(function(m){ var w = Number(m.wave) || 0; (byWave[w] = byWave[w] || []).push(m); });
   return Object.keys(byWave).map(Number).sort(function(a, b){ return a - b; }).map(function(w){
-    return '<div class="wave">' + (w ? 'Wave ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){ return matchCard(m, { fmt:div.pool }); }).join('');
+    return '<div class="rhead">' + (w ? 'Wave ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){
+      var head = [key ? 'Pool ' + esc(key) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '', !R[m.mid] && TIMES[m.mid] != null ? esc(tnAboutLabel(TIMES[m.mid])) : ''].filter(Boolean).join(' &middot; ');
+      var refHtml = m.ref ? 'Ref: ' + teamLabel(m.ref) : (R[m.mid] ? '' : 'No ref available, teams score this one');
+      return matchCard(m, { fmt:div.pool, head:head, refHtml:refHtml });
+    }).join('');
   }).join('');
 }
 
@@ -1291,20 +1324,20 @@ function refsFor(divId, b, fmt){
   return b === (S.t.silver && S.t.silver[divId]) ? all.silver : all.playoff;
 }
 function withRef(m, refs){ return Object.assign({}, m, { ref: Object.prototype.hasOwnProperty.call(refs, m.mid) ? refs[m.mid] : null }); }
-function roundName(sec, i, n, m){
+function roundName(sec, i, n, m, silver){
+  var name;
   if(sec === 'main'){
-    if(m && m.fromLoser) return 'Third place';
     var e = n - 1 - i;
-    return e === 0 ? 'Final' : e === 1 ? 'Semifinals' : e === 2 ? 'Quarterfinals' : 'Round ' + (i + 1);
-  }
-  if(sec === 'winners') return i === n - 1 ? 'Winners final' : 'Winners round ' + (i + 1);
-  if(sec === 'losers') return i === n - 1 ? 'Losers final' : 'Losers round ' + (i + 1);
-  return m && m.ifNeeded ? 'If needed' : 'Final';
+    name = (m && m.fromLoser) ? 'Third place' : e === 0 ? 'Final' : e === 1 ? 'Semifinal' : e === 2 ? 'Quarterfinal' : 'Round ' + (i + 1);
+  } else if(sec === 'winners') name = 'Winners round ' + (i + 1);
+  else if(sec === 'losers') name = 'Losers round ' + (i + 1);
+  else name = (m && m.ifNeeded) ? 'If-needed final' : 'Final';
+  return silver ? 'Silver ' + name.charAt(0).toLowerCase() + name.slice(1) : name;
 }
 // Round names by mid, for the On court now cards.
-function roundNames(v){
+function roundNames(v, silver){
   var out = {};
-  v.sections.forEach(function(sec){ sec.rounds.forEach(function(rd, i){ rd.forEach(function(m){ out[m.mid] = roundName(sec.key, i, sec.rounds.length, m); }); }); });
+  v.sections.forEach(function(sec){ sec.rounds.forEach(function(rd, i){ rd.forEach(function(m){ out[m.mid] = roundName(sec.key, i, sec.rounds.length, m, silver); }); }); });
   return out;
 }
 function placeLabel(n){ var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
@@ -1322,18 +1355,23 @@ function oneBracketHtml(divId, div, br){
       // Empty matches never show; the if needed final shows only once it is needed.
       var shown = rd.filter(function(m){ return !m.void && !(m.ifNeeded && !v.needGf2); });
       if(!shown.length) return;
-      var last = '';
+      var last = '', silver = br.key === 'silver', byMid = {}, R = resultsOf();
+      v.matches.forEach(function(x){ byMid[x.mid] = x; });
       h += '<div class="br-col">';
       shown.forEach(function(m){
-        var name = roundName(sec.key, i, sec.rounds.length, m);
-        if(name !== last) h += '<div class="wave">' + esc(name) + '</div>';
+        var name = roundName(sec.key, i, sec.rounds.length, m, silver);
+        if(name !== last) h += '<div class="rhead">' + esc(name) + '</div>';
         last = name;
         if(m.bye){
           var who = m.t1 || m.t2;
-          h += '<div class="match' + (isMine([who]) ? ' mine' : '') + '"><div class="side"><span class="nm">' + (m.seedA ? '<span class="seed">' + esc(m.seedA) + '</span>' : '') + (who ? teamLabel(who) : 'To be decided') + '</span></div><div class="unplayed">Moves on with a bye</div></div>';
+          h += '<div class="bye-note">' + (who ? teamLabel(who) : 'A team') + ' has a bye</div>';
           return;
         }
-        h += matchCard(withRef(m, refs), { fmt:fmt, extra:m.order != null ? 'Match ' + esc(m.order) : '', seedA:m.seedA, seedB:m.seedB });
+        var mm = withRef(m, refs), played = !!R[m.mid];
+        var head = [esc(name), m.order != null ? 'Match ' + esc(m.order) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '',
+          !played && TIMES[m.mid] != null ? esc(tnAboutLabel(TIMES[m.mid])) : ''].filter(Boolean).join(' &middot; ');
+        var refHtml = mm.ref ? 'Ref: ' + teamLabel(mm.ref) : (played ? '' : esc(refNote(m, v)));
+        h += matchCard(mm, { fmt:fmt, head:head, seedA:m.seedA, seedB:m.seedB, labelA:m.t1 ? '' : feederText(m, 'A', byMid), labelB:m.t2 ? '' : feederText(m, 'B', byMid), refHtml:refHtml });
       });
       h += '</div>';
     });
@@ -1379,10 +1417,10 @@ function onCourtHtml(divId, div){
     });
   });
   bracketsOf(divId).forEach(function(br, bi){
-    var v = tnBracketView(br.b, res, div.playoff), refs = refsFor(divId, br.b, div.playoff), names = roundNames(v);
+    var v = tnBracketView(br.b, res, div.playoff), refs = refsFor(divId, br.b, div.playoff), names = roundNames(v, br.key === 'silver');
     v.matches.forEach(function(m){
       if(m.bye || m.void || !m.t1 || !m.t2 || res[m.mid]) return;
-      cand.push({ m:withRef(m, refs), order:[liveOf(m.mid) ? 0 : 1, 1, m.order != null ? Number(m.order) : 999, bi], label:(br.key === 'silver' ? 'Silver: ' : '') + names[m.mid] + (m.order != null ? ' &middot; Match ' + m.order : ''), fmt:div.playoff });
+      cand.push({ m:withRef(m, refs), order:[liveOf(m.mid) ? 0 : 1, 1, m.order != null ? Number(m.order) : 999, bi], label:names[m.mid] + (m.order != null ? ' &middot; Match ' + m.order : ''), fmt:div.playoff });
     });
   });
   var cmp = function(a, b){ for(var i = 0; i < 4; i++){ if(a.order[i] !== b.order[i]) return a.order[i] - b.order[i]; } return 0; };
@@ -1458,7 +1496,7 @@ function render(){
     pools.forEach(function(p){
       var courts = tnArr(p.pool.courts);
       h += '<div class="card"><h2>Pool ' + esc(p.key) + '</h2>' + (courts.length ? '<p class="muted">Court' + (courts.length > 1 ? 's ' : ' ') + courts.map(esc).join(', ') + '</p>' : '')
-        + standingsHtml(p.pool, div) + wavesHtml(p.pool, div) + '</div>';
+        + standingsHtml(p.pool, div) + wavesHtml(p.pool, div, p.key) + '</div>';
     });
   } else {
     h += '<div class="card"><h2>Pools</h2><p class="muted">Pools are posted when the exec team sets them on game day.' + (teams.length ? ' ' + teams.length + ' team' + (teams.length === 1 ? ' is' : 's are') + ' in this division.' : '') + '</p></div>';
