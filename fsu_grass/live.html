@@ -72,11 +72,11 @@
   .wave{font-size:14px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.8px;margin:16px 0 6px;}
   .mcard{background:var(--white);border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 14px;}
   .mcard-h{font-size:15px;font-weight:700;color:var(--slate);margin-bottom:8px;line-height:1.35;}
-  .mcard-t{display:flex;align-items:center;gap:10px;min-height:34px;font-size:19px;}
-  .mcard-seed{flex:0 0 auto;min-width:36px;font-size:14px;font-weight:800;color:var(--white);background:var(--garnet);border-radius:7px;padding:2px 7px;text-align:center;}
-  .mcard-n{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:break-word;}
+  .mcard-t{display:flex;align-items:center;gap:7px;min-height:34px;font-size:18px;}
+  .mcard-seed{flex:0 0 auto;min-width:30px;font-size:13px;font-weight:800;color:var(--white);background:var(--garnet);border-radius:7px;padding:2px 5px;text-align:center;}
+  .mcard-n{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:normal;word-break:normal;hyphens:none;}
   .mcard-t.win .mcard-n{font-weight:800;color:var(--ink);}
-  .mcard-s{flex:0 0 auto;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums;color:var(--green);}
+  .mcard-s{flex:0 0 auto;min-width:68px;text-align:right;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums;color:var(--green);}
   .mcard-tbd{color:var(--slate);font-style:italic;font-weight:600;}
   .mcard-np{font-size:16px;color:var(--slate);margin-top:4px;}
   .mcard-ref{font-size:16px;color:var(--ink);margin-top:6px;}
@@ -107,7 +107,11 @@
   .cn.is-live{border-color:#c81e1e;}
   .br{display:flex;gap:16px;overflow-x:auto;align-items:flex-start;padding-bottom:6px;}
   .br-col{flex:0 0 320px;min-width:320px;}
-  @media (max-width:700px){ .br{flex-direction:column;overflow-x:visible;} .br-col{flex:none;min-width:0;width:100%;} }
+  .br.fit{overflow-x:visible;flex-wrap:wrap;}
+  .br.fit .br-col{flex:1 1 0;min-width:220px;}
+  .champ, .mcard-seed, .live-dot, .mcard-t.win, .mcard-s{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  @media print{ .champ{background:var(--garnet) !important;color:var(--white) !important;} .br{overflow:visible !important;flex-wrap:wrap;} }
+  @media (max-width:700px){ .br{flex-direction:column;overflow-x:visible;} .br-col, .br.fit .br-col{flex:none;min-width:0;width:100%;} }
   .places{font-size:17px;line-height:1.7;margin:0 0 12px;}
   .places b{color:var(--garnet);display:inline-block;min-width:44px;}
   .foot{text-align:center;padding:4px 16px 36px;font-size:14px;color:var(--slate);}
@@ -1259,6 +1263,12 @@ function matchCard(m, opts){
     + (o.refHtml ? '<div class="mcard-ref">' + o.refHtml + '</div>' : '')
     + '</div>';
 }
+// Header time: the estimate while unplayed, the time it finished once played ("8:42 PM").
+function headTime(mid){
+  var r = resultsOf()[mid];
+  if(r) return (typeof r.at === 'number' && r.at > 0) ? new Date(r.at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : '';
+  return TIMES[mid] != null ? tnAboutLabel(TIMES[mid]) : '';
+}
 // "Winner of Match 1" / "Loser of Match 2" for a slot not known yet.
 function feederText(m, side, byMid){
   var f = side === 'A' ? m.fromA : m.fromB, lose = side === 'A' ? (m.fromALoser || m.fromLoser) : (m.fromBLoser || m.fromLoser), fm = f ? byMid[f] : null;
@@ -1299,7 +1309,7 @@ function wavesHtml(pool, div, key){
   tnArr(pool.matches).forEach(function(m){ var w = Number(m.wave) || 0; (byWave[w] = byWave[w] || []).push(m); });
   return Object.keys(byWave).map(Number).sort(function(a, b){ return a - b; }).map(function(w){
     return '<div class="rhead">' + (w ? 'Wave ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){
-      var head = [key ? 'Pool ' + esc(key) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '', !R[m.mid] && TIMES[m.mid] != null ? esc(tnAboutLabel(TIMES[m.mid])) : ''].filter(Boolean).join(' &middot; ');
+      var head = [key ? 'Pool ' + esc(key) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '', esc(headTime(m.mid))].filter(Boolean).join(' &middot; ');
       var refHtml = m.ref ? 'Ref: ' + teamLabel(m.ref) : (R[m.mid] ? '' : 'No ref available, teams score this one');
       return matchCard(m, { fmt:div.pool, head:head, refHtml:refHtml });
     }).join('');
@@ -1350,13 +1360,14 @@ function oneBracketHtml(divId, div, br){
   v.sections.forEach(function(sec){
     if(!sec.rounds.length) return;
     if(v.format === 'double') h += '<h3>' + esc(sec.label) + '</h3>';
-    h += '<div class="br">';
+    var nRounds = sec.rounds.filter(function(rd){ return rd.some(function(m){ return !m.void && !(m.ifNeeded && !v.needGf2); }); }).length;
+    h += '<div class="br' + (nRounds <= 3 ? ' fit' : '') + '">';
     sec.rounds.forEach(function(rd, i){
       // Empty matches never show; the if needed final shows only once it is needed.
       var shown = rd.filter(function(m){ return !m.void && !(m.ifNeeded && !v.needGf2); });
       if(!shown.length) return;
-      var last = '', silver = br.key === 'silver', byMid = {}, R = resultsOf();
-      v.matches.forEach(function(x){ byMid[x.mid] = x; });
+      var last = '', silver = br.key === 'silver', byMid = {}, seedOf = {}, R = resultsOf();
+      v.matches.forEach(function(x){ byMid[x.mid] = x; if(x.t1 && x.seedA != null) seedOf[x.t1] = x.seedA; if(x.t2 && x.seedB != null) seedOf[x.t2] = x.seedB; });
       h += '<div class="br-col">';
       shown.forEach(function(m){
         var name = roundName(sec.key, i, sec.rounds.length, m, silver);
@@ -1369,9 +1380,9 @@ function oneBracketHtml(divId, div, br){
         }
         var mm = withRef(m, refs), played = !!R[m.mid];
         var head = [esc(name), m.order != null ? 'Match ' + esc(m.order) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '',
-          !played && TIMES[m.mid] != null ? esc(tnAboutLabel(TIMES[m.mid])) : ''].filter(Boolean).join(' &middot; ');
+          esc(headTime(m.mid))].filter(Boolean).join(' &middot; ');
         var refHtml = mm.ref ? 'Ref: ' + teamLabel(mm.ref) : (played ? '' : esc(refNote(m, v)));
-        h += matchCard(mm, { fmt:fmt, head:head, seedA:m.seedA, seedB:m.seedB, labelA:m.t1 ? '' : feederText(m, 'A', byMid), labelB:m.t2 ? '' : feederText(m, 'B', byMid), refHtml:refHtml });
+        h += matchCard(mm, { fmt:fmt, head:head, seedA:m.t1 ? seedOf[m.t1] : null, seedB:m.t2 ? seedOf[m.t2] : null, labelA:m.t1 ? '' : feederText(m, 'A', byMid), labelB:m.t2 ? '' : feederText(m, 'B', byMid), refHtml:refHtml });
       });
       h += '</div>';
     });
