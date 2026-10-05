@@ -34,12 +34,20 @@
   const SCALE = 173.7178;
 
   // Per-game rating-change cap (magnitude, in rating points). A player's rating
-  // moves at most CAP_DEFAULT per game, or CAP_SEEDED per game if they carry a
-  // TruVolley seed (seededFromTruVolley present on their state). Compute the game
-  // normally, then clamp the final post-margin delta before committing.
+  // moves at most CAP_DEFAULT per game. A player who carries a TruVolley seed
+  // (seededFromTruVolley present on their state) moves at most CAP_SEEDED per
+  // game for their first SEEDED_CAP_GAMES CourtSense games, then CAP_DEFAULT like
+  // everyone else. capFor reads the PRE-game gamesPlayed (both callers pass the
+  // pre-game copy), so games 1 through 10 are capped at 5 and game 11 onward at
+  // 10. Compute the game normally, then clamp the final post-margin delta before
+  // committing.
   const CAP_DEFAULT = 10;
   const CAP_SEEDED = 5;
-  function capFor(rec){ return (rec && rec.seededFromTruVolley != null) ? CAP_SEEDED : CAP_DEFAULT; }
+  const SEEDED_CAP_GAMES = 10;
+  function capFor(rec){
+    if (!rec || rec.seededFromTruVolley == null) return CAP_DEFAULT;
+    return (rec.gamesPlayed || 0) < SEEDED_CAP_GAMES ? CAP_SEEDED : CAP_DEFAULT;
+  }
 
   // Display gate. A rating is SHOWN once a player carries a TruVolley seed or
   // has played RATED_MIN_GAMES games. Below that they display as Unrated. This
@@ -384,7 +392,9 @@
           peakRatingDate: cur.peakRatingDate || null,
           lastUpdated: cur.lastUpdated || null,
           // Carry the TruVolley seed flag so capFor() applies the 5-point cap to
-          // seeded players in LIVE scoring, not just in offline re-rate runs.
+          // seeded players in LIVE scoring for their first 10 CourtSense games
+          // (gamesPlayed, read just above, is the count that decides it), not
+          // just in offline re-rate runs.
           seededFromTruVolley: cur.seededFromTruVolley ?? null,
           // Carry the account stamp so the write below can mirror onto the
           // account record. Absent on guest records; that is fine.
