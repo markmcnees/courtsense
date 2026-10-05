@@ -1,7 +1,6 @@
 User-agent: *
 Disallow: /admin-players.html
 Disallow: /admin-ratings.html
-Disallow: /seed-ratings.html
 Disallow: /coach-admin.html
 Disallow: /coach-start/
 Disallow: /onboard/
