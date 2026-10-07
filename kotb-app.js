@@ -784,7 +784,7 @@ function initTabs(){
 function refreshAll(){fillWeekSels();refreshTab(tab);}
 function refreshTab(t){
   if(t==='standings') renderStandings();
-  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();}
+  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();renderLeagueSettings();}
   else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();}
   else if(t==='ratings'){renderRatings();renderRatingsHeader();}
 }
@@ -2993,7 +2993,9 @@ async function lnRun(path, body, onOk){
   const res=await lnCall(path, body);
   if(res.status===401){
     laClear(LA_SCOPE);
-    _lnPending=function(){ lnRun(path, body, onOk); };
+    // Chain, so two calls that both hit an expired session both replay after one PIN.
+    const prev=_lnPending;
+    _lnPending=function(){ if(prev) prev(); lnRun(path, body, onOk); };
     _pinAction='links';_pinEntry='';updatePinDots();$('pin-error').textContent='';
     $('pin-modal-title').textContent='Admin PIN: Link Accounts';$('pin-modal').classList.add('on');
     return;
@@ -3078,8 +3080,105 @@ function lnDrawResults(note){
   const box=$('ln-res'); if(!box) return;
   if(note){ box.innerHTML='<div style="font-size:13px;color:var(--gray);">'+esc(note)+'</div>'; return; }
   box.innerHTML=_lnResults.map(function(x,i){
-    return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;" onclick="lnPick('+i+')">'+esc(x.name)+'</button>';
+    return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;text-align:left;" onclick="lnPick('+i+')">'+esc(x.name)+lnMetaHtml(x)+'</button>';
   }).join('');
+}
+// The small gray line that tells same-name accounts apart: account key, the month it
+// joined, and where it is already linked in this league. Parts with no data are left out.
+const LN_SUB_LABEL={kings:'Kings',queens:'Queens',rec:'Rec',comp:'Comp'};
+function lnMetaHtml(x){
+  const parts=['id '+x.accountId];
+  if(x.joined) parts.push('joined '+x.joined);
+  if(Array.isArray(x.linkedIn)&&x.linkedIn.length) parts.push('already linked ('+x.linkedIn.map(s=>LN_SUB_LABEL[s]||s).join(', ')+')');
+  return '<div style="font-size:11px;font-weight:400;color:var(--gray);margin-top:2px;">'+esc(parts.join(' · '))+'</div>';
+}
+
+// ─── LEAGUE SETTINGS AND SCOREKEEPERS (Admin tab) ───
+// Start time, venue and director email for weather calls, plus who may open a weather
+// poll. Stored in the worker only (league_settings), per side, through the same league
+// admin token and PIN replay as the link card. The director email never comes back to
+// the page: only a masked form, shown as the placeholder.
+let _stSide=null, _stLoading=false, _stPresets=[], _stSkResults=[], _stSkTimer=null;
+function renderLeagueSettings(){
+  if(!$('st-time')) return;
+  if(_stLoading || _stSide===SIDE) return;
+  stLoad();
+}
+function stLoad(){
+  const side=SIDE;
+  _stLoading=true;
+  lnRun('/league/settings/get', { sub:side }, function(j){
+    if(side!==SIDE) return;
+    _stSide=side; stFill(j);
+  }).finally(function(){ _stLoading=false; });
+}
+function stFill(j){
+  _stPresets=Array.isArray(j.venuePresets)?j.venuePresets:[];
+  $('st-time').value=j.startTime||'';
+  const v=j.venue||null;
+  const opts=['<option value="">Not set</option>']
+    .concat(_stPresets.map(p=>'<option value="'+esc(p.key)+'">'+esc(p.name)+'</option>'))
+    .concat(['<option value="custom">Custom</option>']);
+  $('st-venue').innerHTML=opts.join('');
+  $('st-venue').value=v?(v.key==='custom'?'custom':v.key):'';
+  $('st-vname').value=(v&&v.key==='custom')?v.name:'';
+  $('st-vlat').value=(v&&v.key==='custom')?String(v.lat):'';
+  $('st-vlon').value=(v&&v.key==='custom')?String(v.lon):'';
+  stVenueChange();
+  $('st-email').value='';
+  $('st-email').placeholder=j.directorEmailMasked||'Not set';
+  stDrawScorekeepers(Array.isArray(j.scorekeepers)?j.scorekeepers:[]);
+}
+function stVenueChange(){ $('st-custom').style.display=$('st-venue').value==='custom'?'block':'none'; }
+function stSave(){
+  const body={ sub:SIDE, startTime:$('st-time').value||'', venueKey:$('st-venue').value };
+  if(body.venueKey==='custom') body.venueCustom={ name:$('st-vname').value.trim(), lat:$('st-vlat').value.trim(), lon:$('st-vlon').value.trim() };
+  // A blank email box means leave it as it is; Clear is the only way to remove it.
+  const e=$('st-email').value.trim();
+  if(e) body.directorEmail=e;
+  lnRun('/league/settings/set', body, function(j){ stFill(j); toast('Settings saved'); });
+}
+function stClearEmail(){
+  if(!confirm('Clear the director email? Cancel notices will have no one to go to until you add one.')) return;
+  lnRun('/league/settings/set', { sub:SIDE, directorEmail:'' }, function(j){ stFill(j); toast('Director email cleared'); });
+}
+function stDrawScorekeepers(list){
+  const el=$('st-sk'); if(!el) return;
+  if(!list.length){ el.innerHTML='<p style="font-size:13px;color:var(--gray);">No scorekeepers yet.</p>'; return; }
+  el.innerHTML=list.map(function(s){
+    return '<div class="pitem"><div style="flex:1;min-width:0;"><div class="pname2">'+esc(s.name)+'</div>'
+      +lnMetaHtml({ accountId:s.accountId, joined:s.joined })+'</div>'
+      +'<div class="pacts"><button class="btn btn-g btn-sm" onclick="stSkRemove(\''+escAttr(s.accountId)+'\')">Remove</button></div></div>';
+  }).join('');
+}
+function stSkSearch(v){
+  clearTimeout(_stSkTimer);
+  const box=$('st-sk-res'); const q=String(v||'').trim();
+  if(q.length<2){ _stSkResults=[]; if(box) box.innerHTML=q.length?'<div style="font-size:13px;color:var(--gray);">Keep typing...</div>':''; return; }
+  _stSkTimer=setTimeout(function(){
+    lnRun('/league/links/search', { q:q }, function(j){
+      _stSkResults=Array.isArray(j.results)?j.results:[];
+      const b=$('st-sk-res'); if(!b) return;
+      b.innerHTML=_stSkResults.length?_stSkResults.map(function(x,i){
+        return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;text-align:left;" onclick="stSkAdd('+i+')">'+esc(x.name)+lnMetaHtml(x)+'</button>';
+      }).join(''):'<div style="font-size:13px;color:var(--gray);">No accounts match that name.</div>';
+    });
+  }, 300);
+}
+function stSkAdd(i){
+  const x=_stSkResults[i]; if(!x) return;
+  lnRun('/league/settings/scorekeeper', { sub:SIDE, accountId:x.accountId, on:true }, function(j){
+    _stSkResults=[]; $('st-sk-q').value=''; $('st-sk-res').innerHTML='';
+    stDrawScorekeepers(Array.isArray(j.scorekeepers)?j.scorekeepers:[]);
+    toast('Scorekeeper added');
+  });
+}
+function stSkRemove(id){
+  if(!confirm('Remove this scorekeeper?')) return;
+  lnRun('/league/settings/scorekeeper', { sub:SIDE, accountId:id, on:false }, function(j){
+    stDrawScorekeepers(Array.isArray(j.scorekeepers)?j.scorekeepers:[]);
+    toast('Scorekeeper removed');
+  });
 }
 function lnPick(i){
   const x=_lnResults[i]; if(!x || !_lnFind) return;

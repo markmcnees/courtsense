@@ -229,17 +229,19 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .card-admin-teams { order: 1; }
 .card-admin-roster{ order: 2; }
 .card-admin-links { order: 3; }
-.card-admin-sched { order: 4; }
-.card-admin-score { order: 5; }
-.card-admin-export{ order: 6; }
-.card-admin-archive{ order: 7; }
+.card-admin-settings{ order: 4; }
+.card-admin-sched { order: 5; }
+.card-admin-score { order: 6; }
+.card-admin-export{ order: 7; }
+.card-admin-archive{ order: 8; }
 body.sched-locked .card-admin-score  { order: 1; }
 body.sched-locked .card-admin-sched  { order: 2; }
 body.sched-locked .card-admin-teams  { order: 3; }
 body.sched-locked .card-admin-roster { order: 4; }
 body.sched-locked .card-admin-links  { order: 5; }
-body.sched-locked .card-admin-export { order: 6; }
-body.sched-locked .card-admin-archive{ order: 7; }
+body.sched-locked .card-admin-settings{ order: 6; }
+body.sched-locked .card-admin-export { order: 7; }
+body.sched-locked .card-admin-archive{ order: 8; }
 
 /* ADMIN LOCK SCREEN */
 .card-admin-lock{display:none;order:0;}
@@ -247,6 +249,7 @@ body.admin-locked .card-admin-lock{display:block;}
 body.admin-locked .card-admin-teams,
 body.admin-locked .card-admin-roster,
 body.admin-locked .card-admin-links,
+body.admin-locked .card-admin-settings,
 body.admin-locked .card-admin-sched,
 body.admin-locked .card-admin-score,
 body.admin-locked .card-admin-export,
@@ -409,6 +412,33 @@ body.admin-locked .card-admin-archive{display:none;}
         <button class="btn btn-g btn-sm" onclick="lnReload()">Refresh</button>
       </div>
       <div id="linklist"><p style="font-size:13px;color:var(--gray);">Loading...</p></div>
+    </div>
+
+    <div class="card card-admin-settings">
+      <div class="ctitle"><span class="bar"></span>League settings</div>
+      <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Used for weather calls. Start time is first serve. The director gets an email when a night is canceled.</p>
+      <div class="row2">
+        <div class="fg" style="margin:0;"><label class="lbl">Start time</label><input class="inp" type="time" id="st-time"></div>
+        <div class="fg" style="margin:0;"><label class="lbl">Venue</label><select class="inp" id="st-venue" onchange="stVenueChange()"></select></div>
+      </div>
+      <div id="st-custom" style="display:none;margin-bottom:10px;">
+        <div class="fg" style="margin:0 0 8px;"><label class="lbl">Venue name</label><input class="inp" id="st-vname" maxlength="80" placeholder="Park name"></div>
+        <div class="row2">
+          <div class="fg" style="margin:0;"><label class="lbl">Latitude</label><input class="inp" id="st-vlat" inputmode="decimal" placeholder="30.4485"></div>
+          <div class="fg" style="margin:0;"><label class="lbl">Longitude</label><input class="inp" id="st-vlon" inputmode="decimal" placeholder="-84.2317"></div>
+        </div>
+      </div>
+      <div class="fg"><label class="lbl">Director email</label>
+        <div style="display:flex;gap:8px;"><input class="inp" type="email" id="st-email" maxlength="200" style="flex:1;" placeholder="Not set"><button class="btn btn-g btn-sm" onclick="stClearEmail()">Clear</button></div>
+      </div>
+      <button class="btn btn-a btn-w" onclick="stSave()">Save settings</button>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid #00000014;">
+        <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Scorekeepers</div>
+        <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Scorekeepers can open a weather poll for this league.</p>
+        <div id="st-sk"></div>
+        <input class="inp" id="st-sk-q" placeholder="Add scorekeeper: type a name" oninput="stSkSearch(this.value)" style="margin-top:6px;">
+        <div id="st-sk-res" style="margin-top:8px;"></div>
+      </div>
     </div>
 
     <div class="card card-admin-sched">
@@ -1019,6 +1049,7 @@ function refreshTab(which){
     // tab is actually open, and only for the active division.
     if(isAdminAuthed()) renderArchiveCard();
     if(isAdminAuthed()) renderLinkAccounts();
+    if(isAdminAuthed()) renderLeagueSettings();
   }
   if(which === 'schedule') renderPublicSchedule();
   if(which === 'standings') renderStandings();
@@ -1445,7 +1476,9 @@ async function lnRun(path, body, onOk){
   const res = await lnCall(path, body);
   if(res.status === 401){
     laClear(LA_SCOPE);
-    _lnPending = function(){ lnRun(path, body, onOk); };
+    // Chain, so two calls that both hit an expired session both replay after one PIN.
+    const prev = _lnPending;
+    _lnPending = function(){ if(prev) prev(); lnRun(path, body, onOk); };
     _pinAction = 'links'; _pinEntry = ''; updatePinDots(); $('pin-error').textContent = '';
     $('pin-modal-title').textContent = 'Admin PIN: Link Accounts'; $('pin-modal').classList.add('on');
     return;
@@ -1534,8 +1567,109 @@ function lnDrawResults(note){
   const box = $('ln-res'); if(!box) return;
   if(note){ box.innerHTML = '<div style="font-size:13px;color:var(--gray);">' + escapeHtml(note) + '</div>'; return; }
   box.innerHTML = _lnResults.map(function(x, i){
-    return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;" onclick="lnPick(' + i + ')">' + escapeHtml(x.name) + '</button>';
+    return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;text-align:left;" onclick="lnPick(' + i + ')">' + escapeHtml(x.name) + lnMetaHtml(x) + '</button>';
   }).join('');
+}
+// The small gray line that tells same-name accounts apart: account key, the month it
+// joined, and where it is already linked in this league. Parts with no data are left out.
+const LN_SUB_LABEL = { kings: 'Kings', queens: 'Queens', rec: 'Rec', comp: 'Comp' };
+function lnMetaHtml(x){
+  const parts = ['id ' + x.accountId];
+  if(x.joined) parts.push('joined ' + x.joined);
+  if(Array.isArray(x.linkedIn) && x.linkedIn.length) parts.push('already linked (' + x.linkedIn.map(s => LN_SUB_LABEL[s] || s).join(', ') + ')');
+  return '<div style="font-size:11px;font-weight:400;color:var(--gray);margin-top:2px;">' + escapeHtml(parts.join(' · ')) + '</div>';
+}
+
+// LEAGUE SETTINGS AND SCOREKEEPERS (admin tab)
+// Start time, venue and director email for weather calls, plus who may open a weather
+// poll. Stored in the worker only (league_settings), per division, through the same
+// league admin token and PIN replay as the link card. The director email never comes
+// back to the page: only a masked form, shown as the placeholder.
+let _stDiv = null, _stLoading = false, _stPresets = [], _stSkResults = [], _stSkTimer = null;
+function renderLeagueSettings(){
+  if(!$('st-time')) return;
+  if(_stLoading || _stDiv === DIV) return;
+  stLoad();
+}
+function stLoad(){
+  const div = DIV;
+  _stLoading = true;
+  lnRun('/league/settings/get', { sub: div }, function(j){
+    if(div !== DIV) return;
+    _stDiv = div; stFill(j);
+  }).finally(function(){ _stLoading = false; });
+}
+function stFill(j){
+  _stPresets = Array.isArray(j.venuePresets) ? j.venuePresets : [];
+  $('st-time').value = j.startTime || '';
+  const v = j.venue || null;
+  const opts = ['<option value="">Not set</option>']
+    .concat(_stPresets.map(p => '<option value="' + escapeHtml(p.key) + '">' + escapeHtml(p.name) + '</option>'))
+    .concat(['<option value="custom">Custom</option>']);
+  $('st-venue').innerHTML = opts.join('');
+  $('st-venue').value = v ? (v.key === 'custom' ? 'custom' : v.key) : '';
+  $('st-vname').value = (v && v.key === 'custom') ? v.name : '';
+  $('st-vlat').value = (v && v.key === 'custom') ? String(v.lat) : '';
+  $('st-vlon').value = (v && v.key === 'custom') ? String(v.lon) : '';
+  stVenueChange();
+  $('st-email').value = '';
+  $('st-email').placeholder = j.directorEmailMasked || 'Not set';
+  stDrawScorekeepers(Array.isArray(j.scorekeepers) ? j.scorekeepers : []);
+}
+function stVenueChange(){ $('st-custom').style.display = $('st-venue').value === 'custom' ? 'block' : 'none'; }
+function stSave(){
+  if(!requireAdmin('stSave')) return;
+  const body = { sub: DIV, startTime: $('st-time').value || '', venueKey: $('st-venue').value };
+  if(body.venueKey === 'custom') body.venueCustom = { name: $('st-vname').value.trim(), lat: $('st-vlat').value.trim(), lon: $('st-vlon').value.trim() };
+  // A blank email box means leave it as it is; Clear is the only way to remove it.
+  const e = $('st-email').value.trim();
+  if(e) body.directorEmail = e;
+  lnRun('/league/settings/set', body, function(j){ stFill(j); toast('Settings saved'); });
+}
+function stClearEmail(){
+  if(!requireAdmin('stClearEmail')) return;
+  if(!confirm('Clear the director email? Cancel notices will have no one to go to until you add one.')) return;
+  lnRun('/league/settings/set', { sub: DIV, directorEmail: '' }, function(j){ stFill(j); toast('Director email cleared'); });
+}
+function stDrawScorekeepers(list){
+  const el = $('st-sk'); if(!el) return;
+  if(!list.length){ el.innerHTML = '<p style="font-size:13px;color:var(--gray);">No scorekeepers yet.</p>'; return; }
+  el.innerHTML = list.map(function(s){
+    return '<div class="team-item"><div class="team-body"><div class="team-name">' + escapeHtml(s.name) + '</div>'
+      + lnMetaHtml({ accountId: s.accountId, joined: s.joined }) + '</div>'
+      + '<div class="team-acts"><button class="btn btn-g btn-sm" onclick="stSkRemove(\'' + escapeHtml(s.accountId) + '\')">Remove</button></div></div>';
+  }).join('');
+}
+function stSkSearch(v){
+  clearTimeout(_stSkTimer);
+  const box = $('st-sk-res'); const q = String(v || '').trim();
+  if(q.length < 2){ _stSkResults = []; if(box) box.innerHTML = q.length ? '<div style="font-size:13px;color:var(--gray);">Keep typing...</div>' : ''; return; }
+  _stSkTimer = setTimeout(function(){
+    lnRun('/league/links/search', { q: q }, function(j){
+      _stSkResults = Array.isArray(j.results) ? j.results : [];
+      const b = $('st-sk-res'); if(!b) return;
+      b.innerHTML = _stSkResults.length ? _stSkResults.map(function(x, i){
+        return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;text-align:left;" onclick="stSkAdd(' + i + ')">' + escapeHtml(x.name) + lnMetaHtml(x) + '</button>';
+      }).join('') : '<div style="font-size:13px;color:var(--gray);">No accounts match that name.</div>';
+    });
+  }, 300);
+}
+function stSkAdd(i){
+  if(!requireAdmin('stSkAdd')) return;
+  const x = _stSkResults[i]; if(!x) return;
+  lnRun('/league/settings/scorekeeper', { sub: DIV, accountId: x.accountId, on: true }, function(j){
+    _stSkResults = []; $('st-sk-q').value = ''; $('st-sk-res').innerHTML = '';
+    stDrawScorekeepers(Array.isArray(j.scorekeepers) ? j.scorekeepers : []);
+    toast('Scorekeeper added');
+  });
+}
+function stSkRemove(id){
+  if(!requireAdmin('stSkRemove')) return;
+  if(!confirm('Remove this scorekeeper?')) return;
+  lnRun('/league/settings/scorekeeper', { sub: DIV, accountId: id, on: false }, function(j){
+    stDrawScorekeepers(Array.isArray(j.scorekeepers) ? j.scorekeepers : []);
+    toast('Scorekeeper removed');
+  });
 }
 function lnPick(i){
   const x = _lnResults[i]; if(!x || !_lnFind) return;

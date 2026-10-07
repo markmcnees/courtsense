@@ -321,6 +321,33 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
 
     <div class="card">
+      <div class="ctitle"><span class="bar"></span>League settings</div>
+      <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Used for weather calls. Start time is first serve. The director gets an email when a night is canceled.</p>
+      <div class="row2">
+        <div class="fg" style="margin:0;"><label class="lbl">Start time</label><input class="inp" type="time" id="st-time"></div>
+        <div class="fg" style="margin:0;"><label class="lbl">Venue</label><select class="inp" id="st-venue" onchange="stVenueChange()"></select></div>
+      </div>
+      <div id="st-custom" style="display:none;margin-bottom:10px;">
+        <div class="fg" style="margin:0 0 8px;"><label class="lbl">Venue name</label><input class="inp" id="st-vname" maxlength="80" placeholder="Park name"></div>
+        <div class="row2">
+          <div class="fg" style="margin:0;"><label class="lbl">Latitude</label><input class="inp" id="st-vlat" inputmode="decimal" placeholder="30.4485"></div>
+          <div class="fg" style="margin:0;"><label class="lbl">Longitude</label><input class="inp" id="st-vlon" inputmode="decimal" placeholder="-84.2317"></div>
+        </div>
+      </div>
+      <div class="fg"><label class="lbl">Director email</label>
+        <div style="display:flex;gap:8px;"><input class="inp" type="email" id="st-email" maxlength="200" style="flex:1;" placeholder="Not set"><button class="btn btn-g btn-sm" onclick="stClearEmail()">Clear</button></div>
+      </div>
+      <button class="btn btn-a btn-w" onclick="stSave()">Save settings</button>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid #00000014;">
+        <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Scorekeepers</div>
+        <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Scorekeepers can open a weather poll for this league.</p>
+        <div id="st-sk"></div>
+        <input class="inp" id="st-sk-q" placeholder="Add scorekeeper: type a name" oninput="stSkSearch(this.value)" style="margin-top:6px;">
+        <div id="st-sk-res" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 5</span>Weekly Schedule</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <select class="inp" id="week-sel" style="flex:1;min-width:160px;" onchange="pickPlannerWeek()">
@@ -498,7 +525,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=78d80a52"></script>
+<script src="/kotb-app.js?v=6f035872"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">
