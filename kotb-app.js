@@ -3229,7 +3229,7 @@ function lnConfirmAll(){
 // already in Eastern 12-hour form.
 const POLL_LEAGUE={kings:'Kings',queens:'Queens'};
 let _authReady=Promise.resolve();
-let _ap={side:null,data:null,loading:false};
+let _ap={side:null,data:null,test:null,loading:false};
 let _pc={side:null,data:null,at:0,timer:null,loading:false};
 function pollNeeds(e){ return Math.ceil(e*3/5); }
 function pollCountsLine(c){
@@ -3249,6 +3249,8 @@ function apLoad(){
   lnRun('/league/poll/status', { sub:side }, function(j){
     if(side!==SIDE) return;
     _ap.side=side; _ap.data=j; apDraw();
+    // The latest test poll for this league, shown under the real controls.
+    lnRun('/league/poll/test-status', { sub:side }, function(t){ if(side!==SIDE) return; _ap.test=t; apDraw(); });
   }).finally(function(){ _ap.loading=false; });
 }
 function apRefresh(){ _ap.side=null; apLoad(); }
@@ -3277,7 +3279,30 @@ function apDraw(){
   } else {
     html=line('Playing '+pollWhen(d)+'. '+d.counts.cancel+' cancel, '+d.counts.play+' play.');
   }
-  el.innerHTML=html;
+  el.innerHTML=html+apTestHtml();
+}
+// Test polls: a dry run for the director. Same flow, but only the given email and the
+// director are emailed, every email says TEST, and nothing in the league changes.
+function apTestHtml(){
+  const t=_ap.test&&_ap.test.test;
+  let line='';
+  if(t){
+    if(t.status==='open') line='Test poll: open, closes '+t.closesLabel+'. '+t.counts.cast+' of '+t.counts.eligible+' voted.';
+    else if(t.status==='closing') line='Test poll: voting closed, making the call now.';
+    else if(t.status==='undone') line='Test poll: cancel undone. Back on.';
+    else if(t.decision) line='Test poll: decided '+t.decision+'.'+(t.decision==='cancel'&&t.makeupWouldLabel?(' Would make up '+t.makeupWouldLabel+'.'):'');
+  }
+  return '<div style="margin-top:14px;padding-top:12px;border-top:1px solid #00000014;">'
+    +(line?'<p style="font-size:13px;color:var(--gray);margin-bottom:8px;">'+esc(line)+'</p>':'')
+    +'<button class="btn btn-g btn-sm" onclick="apTest()">Send a test poll</button></div>';
+}
+function apTest(){
+  const email=String(prompt('Send the test poll to which email?','')||'').trim();
+  if(!email) return;
+  if(!/^\S+@\S+\.\S+$/.test(email)){ toast("That email doesn't look right."); return; }
+  const dir=!!(_ap.test&&_ap.test.directorSet);
+  if(!confirm('Send a test poll to '+email+(dir?' and the director':'')+'? It closes in 20 minutes. Nothing in the league changes.')) return;
+  lnRun('/league/poll/test-open', { sub:SIDE, testEmail:email }, function(j){ toast(j.existing?'A test poll is already running.':'Test poll sent. Check your email.'); apRefresh(); });
 }
 function apOpen(){
   const d=_ap.data; if(!d||!d.night) return;

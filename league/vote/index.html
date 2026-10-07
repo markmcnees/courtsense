@@ -71,7 +71,7 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
       <img src="/logo.png" alt="CourtSense" onerror="this.style.display='none'">
       <span>CourtSense</span>
     </a>
-    <span class="page-title">Weather vote</span>
+    <span class="page-title">Weather vote <span id="test-badge" style="display:none;margin-left:6px;padding:1px 8px;border-radius:6px;background:#d4a843;color:#1a1a1a;font-size:13px;letter-spacing:1px;">TEST</span></span>
     <span id="cs-nav" style="color:#fff;"></span>
   </div>
 </div>
@@ -151,6 +151,9 @@ const q = new URLSearchParams(window.location.search);
 const link = { scope: q.get('s') || '', sub: q.get('d') || '', n: q.get('n') || '', a: q.get('a') || '', m: q.get('m') || '' };
 const arrivalVote = q.get('v') || '';
 const undoToken = q.get('u') || '';
+// t=1 marks a test poll: a dry run that changes nothing in the league. Every call says so.
+const isTest = q.get('t') === '1';
+if (isTest) link.t = 1;
 try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
 
 let current = null;
@@ -237,7 +240,7 @@ function switchVote(){
 
 async function doUndo(){
   $('btn-undo').disabled = true;
-  const j = await post('/league/poll/undo', { scope: link.scope, sub: link.sub, n: link.n, d: undoToken });
+  const j = await post('/league/poll/undo', Object.assign({ scope: link.scope, sub: link.sub, n: link.n, d: undoToken }, isTest ? { t: 1 } : {}));
   $('btn-undo').disabled = false;
   if(j && j.ok === true){
     setFacts($('undone-facts'), [['League', j.league || ''], ['Night', j.dateLabel || '']]);
@@ -249,6 +252,7 @@ async function doUndo(){
 }
 
 (async function boot(){
+  if(isTest) $('test-badge').style.display = 'inline-block';
   if(undoToken){ show('state-undo'); return; }
   if(!link.scope || !link.sub || !link.n || !link.a || !link.m){ show('state-invalid'); return; }
   if(arrivalVote === 'cancel' || arrivalVote === 'play'){ await castVote(arrivalVote); return; }
