@@ -214,6 +214,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <!-- STANDINGS -->
   <div class="pane on" id="pane-standings">
+    <div id="poll-player"></div>
     <div class="card" style="padding:0;overflow:hidden;">
       <div style="overflow-x:auto;">
         <table class="tbl" id="stbl">
@@ -313,6 +314,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Link player accounts <span id="linkcnt" style="font-size:13px;font-weight:400;color:var(--gray);margin-left:6px;"></span></div>
       <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Link each player to their CourtSense account so they can vote on weather calls and mark themselves out.</p>
+      <div id="link-warn" style="display:none;border:1.5px solid #d4a843;background:#fffbf0;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <button class="btn btn-a btn-sm" id="link-confirm-all" onclick="lnConfirmAll()" disabled>Confirm all suggestions</button>
         <button class="btn btn-g btn-sm" onclick="lnReload()">Refresh</button>
@@ -345,6 +347,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <input class="inp" id="st-sk-q" placeholder="Add scorekeeper: type a name" oninput="stSkSearch(this.value)" style="margin-top:6px;">
         <div id="st-sk-res" style="margin-top:8px;"></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Weather poll</div>
+      <div id="poll-admin"><p style="font-size:13px;color:var(--gray);">Loading...</p></div>
     </div>
 
     <div class="card">
@@ -525,7 +532,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=6f035872"></script>
+<script src="/kotb-app.js?v=2c730759"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">

@@ -695,13 +695,14 @@ function initFB(){
     // League Chat login: read/post require a CourtSense player login. autoShowLogin
     // false keeps the league app usable without login; the board gates itself.
     if(window.CourtSenseAuth){
-      CourtSenseAuth.init({
+      // Kept so the weather poll card can wait for sign-in to settle before it asks.
+      _authReady = Promise.resolve(CourtSenseAuth.init({
         firebaseDb: db,
         rosterPath: 'tally_kotb_pickup/players',
         autoShowLogin: false,
         onLogin: lcOnLogin,
         onLogout: lcOnLogout
-      });
+      })).catch(function(){});
     }
   }catch(e){console.error(e);setSS(false);}
 }
@@ -783,8 +784,8 @@ function initTabs(){
 
 function refreshAll(){fillWeekSels();refreshTab(tab);}
 function refreshTab(t){
-  if(t==='standings') renderStandings();
-  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();renderLeagueSettings();}
+  if(t==='standings'){ renderStandings(); pcMaybeLoad(); }
+  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();renderLeagueSettings();renderPollAdmin();}
   else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();}
   else if(t==='ratings'){renderRatings();renderRatingsHeader();}
 }
@@ -3033,6 +3034,7 @@ function drawLinks(){
   const nSug=rows.filter(r=>!r.linked&&r.suggest).length;
   const nLinked=rows.filter(r=>r.linked).length;
   if($('linkcnt')) $('linkcnt').textContent=rows.length?(nLinked+' of '+rows.length+' linked'):'';
+  lnCoverage(nLinked, rows.length, 'players');
   const all=$('link-confirm-all');
   if(all){ all.disabled=!nSug; all.textContent=nSug?('Confirm all suggestions ('+nSug+')'):'Confirm all suggestions'; }
   if(!rows.length){ el.innerHTML='<p style="font-size:13px;color:var(--gray);">No players on this roster yet.</p>'; return; }
@@ -3061,6 +3063,14 @@ function drawLinks(){
     return html;
   }).join('');
   if(_lnFind && $('ln-q')) $('ln-q').focus();
+}
+// Under 75% linked, a weather vote can be decided by a few people: say so.
+function lnCoverage(n, m, who){
+  const el=$('link-warn'); if(!el) return;
+  if(m>0 && n/m<0.75){
+    el.textContent='Only '+n+' of '+m+' '+who+' are linked. Weather votes may be decided by a small group.';
+    el.style.display='block';
+  } else { el.textContent=''; el.style.display='none'; }
 }
 function lnRow(id){ return (_lnRows||[]).filter(r=>r.rosterId===id)[0]||null; }
 function lnOpenFind(id){ _lnFind=id; _lnResults=[]; drawLinks(); }
@@ -3210,6 +3220,169 @@ function lnConfirmAll(){
   });
 }
 
+// ─── WEATHER POLL ───
+// The worker runs the poll (league_polls); these cards only show it and act on it.
+// Admin card (Admin tab): open the poll, watch the count, undo a weather cancel, all with
+// the league admin token and the same PIN replay as the cards above. Player card (top of
+// Standings): appears only while a poll is open or a call was made for tonight or later;
+// signed-in voters vote here, everyone else sees the count. Times come from the worker
+// already in Eastern 12-hour form.
+const POLL_LEAGUE={kings:'Kings',queens:'Queens'};
+let _authReady=Promise.resolve();
+let _ap={side:null,data:null,loading:false};
+let _pc={side:null,data:null,at:0,timer:null,loading:false};
+function pollNeeds(e){ return Math.ceil(e*3/5); }
+function pollCountsLine(c){
+  if(!c) return '';
+  return c.cast+' of '+c.eligible+' voted (needs '+pollNeeds(c.eligible)+'). Cancel '+c.cancel+', Play '+c.play+'.';
+}
+function pollWhen(d){ return d.date===td()?'tonight':('on '+(d.dateLabel||'')); }
+
+function renderPollAdmin(){
+  if(!$('poll-admin')) return;
+  if(_ap.loading || _ap.side===SIDE) return;
+  apLoad();
+}
+function apLoad(){
+  const side=SIDE;
+  _ap.loading=true;
+  lnRun('/league/poll/status', { sub:side }, function(j){
+    if(side!==SIDE) return;
+    _ap.side=side; _ap.data=j; apDraw();
+  }).finally(function(){ _ap.loading=false; });
+}
+function apRefresh(){ _ap.side=null; apLoad(); }
+function apDraw(){
+  const el=$('poll-admin'); if(!el) return;
+  const d=_ap.data; if(!d){ el.innerHTML=''; return; }
+  const gray=t=>'<p style="font-size:13px;color:var(--gray);margin-top:6px;">'+esc(t)+'</p>';
+  const line=t=>'<p style="font-size:14px;margin-bottom:6px;">'+esc(t)+'</p>';
+  const refresh='<button class="btn btn-g btn-sm" onclick="apRefresh()">Refresh</button>';
+  let html='';
+  if(!d.poll){
+    if(!d.night){ html=gray((d.canOpen&&d.canOpen.reason)||'There is no upcoming league night to poll.'); }
+    else {
+      html=line('Next night: '+d.night.dateLabel+'.');
+      html+=(d.canOpen&&d.canOpen.reason)?gray(d.canOpen.reason):'<button class="btn btn-a btn-sm" onclick="apOpen()">Open weather poll</button>';
+    }
+  } else if(d.status==='open'){
+    html=line('Poll open. Closes '+d.closesLabel+'.')+line(pollCountsLine(d.counts))+refresh;
+  } else if(d.status==='closing'){
+    html=line('Voting closed. Making the call now.')+refresh;
+  } else if(d.status==='undone'){
+    html=line('Cancellation undone. Back on.');
+  } else if(d.decision==='cancel'){
+    html=line('Canceled by weather vote.'+(d.makeupLabel?(' Makeup '+d.makeupLabel+'.'):''))
+      +'<button class="btn btn-d btn-sm" onclick="apUndo()">Undo cancellation</button>';
+  } else {
+    html=line('Playing '+pollWhen(d)+'. '+d.counts.cancel+' cancel, '+d.counts.play+' play.');
+  }
+  el.innerHTML=html;
+}
+function apOpen(){
+  const d=_ap.data; if(!d||!d.night) return;
+  if(!confirm('Open a weather poll for '+(POLL_LEAGUE[SIDE]||SIDE)+' on '+d.night.dateLabel+'? Every eligible voter gets an email.')) return;
+  lnRun('/league/poll/open', { sub:SIDE }, function(j){ toast('Weather poll open. '+j.eligibleCount+' voters emailed.'); apRefresh(); pcLoad(); });
+}
+function apUndo(){
+  const d=_ap.data; if(!d||!d.poll) return;
+  if(!confirm('Undo the weather cancellation? League goes back on, the makeup week is removed, and everyone is emailed.')) return;
+  lnRun('/league/poll/undo', { sub:SIDE, n:d.poll.nightKey }, function(){ toast('Cancellation undone'); apRefresh(); pcLoad(); });
+}
+
+function pcToken(){
+  try{ return (window.CourtSenseAuth&&CourtSenseAuth.getSessionToken&&CourtSenseAuth.getSessionToken())||null; }catch(e){ return null; }
+}
+async function pcFetch(path, body){
+  try{
+    const r=await fetch(LA_WORKER+path, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    let j=null; try{ j=await r.json(); }catch(e){}
+    return { status:r.status, j:j };
+  }catch(e){ return { status:0, j:null }; }
+}
+// Standings refreshes on every live update, so only ask the worker when the side changed
+// or the last answer is over 30 seconds old.
+function pcMaybeLoad(){
+  if(!$('poll-player') || _pc.loading) return;
+  if(_pc.side===SIDE && Date.now()-_pc.at<30000) return;
+  pcLoad();
+}
+async function pcLoad(){
+  if(!$('poll-player')) return;
+  const side=SIDE;
+  _pc.loading=true;
+  try{
+    await Promise.race([_authReady, new Promise(function(r){ setTimeout(r, 6000); })]);
+    const body={ scope:LA_SCOPE, sub:side };
+    const tok=pcToken(); if(tok) body.sessionToken=tok;
+    const res=await pcFetch('/league/poll/status', body);
+    if(side!==SIDE) return;
+    _pc.side=side; _pc.at=Date.now();
+    _pc.data=(res.j&&res.j.ok===true)?res.j:null;
+    pcDraw(); pcSchedule();
+  } finally { _pc.loading=false; }
+}
+// While a poll is open, refresh every 60 seconds, and only while the page is visible.
+function pcSchedule(){
+  if(_pc.timer){ clearInterval(_pc.timer); _pc.timer=null; }
+  if(_pc.data && _pc.data.status==='open'){
+    _pc.timer=setInterval(function(){ if(document.visibilityState==='visible') pcLoad(); }, 60000);
+  }
+}
+function pcDraw(){
+  const el=$('poll-player'); if(!el) return;
+  const d=_pc.data;
+  const league=POLL_LEAGUE[SIDE]||SIDE;
+  const card=b=>'<div class="card" style="border:2px solid #d4a843;"><div class="ctitle"><span class="bar" style="background:#d4a843;"></span>Weather check</div>'+b+'</div>';
+  const p=t=>'<p style="font-size:14px;margin-bottom:6px;">'+esc(t)+'</p>';
+  const gray=t=>'<p style="font-size:13px;color:var(--gray);margin-top:6px;">'+esc(t)+'</p>';
+  if(!d){ el.innerHTML=''; return; }
+  if(!d.poll){
+    if(d.you&&d.you.scorekeeper&&d.night){
+      el.innerHTML=card(p('Next night: '+d.night.dateLabel+'.')+((d.canOpen&&d.canOpen.reason)?gray(d.canOpen.reason):'<button class="btn btn-a btn-sm" onclick="pcOpen()">Open weather poll</button>'));
+    } else el.innerHTML='';
+    return;
+  }
+  if(d.status==='open'){
+    let b=p('Weather check for '+league+' '+pollWhen(d)+'. Vote by '+d.closesLabel+'.');
+    if(d.you&&d.you.eligible){
+      const on=v=>d.you.vote===v;
+      b+='<div style="display:flex;gap:8px;margin:8px 0;">'
+        +'<button class="btn btn-sm" style="flex:1;background:#b42318;color:#fff;'+(on('cancel')?'outline:3px solid #d4a843;':'opacity:'+(d.you.vote?'.55':'1')+';')+'" onclick="pcVote(\'cancel\')">'+(on('cancel')?'&#10003; ':'')+'Cancel tonight</button>'
+        +'<button class="btn btn-sm" style="flex:1;background:#1e7e34;color:#fff;'+(on('play')?'outline:3px solid #d4a843;':'opacity:'+(d.you.vote?'.55':'1')+';')+'" onclick="pcVote(\'play\')">'+(on('play')?'&#10003; ':'')+'Let\'s play</button></div>';
+      b+=gray(pollCountsLine(d.counts));
+    } else if(d.you){
+      b+=gray(pollCountsLine(d.counts))+gray('Only linked players can vote. Ask the league director to link your account.');
+    } else {
+      b+=gray(pollCountsLine(d.counts))+gray('Check your email for your vote link, or sign in to vote.');
+    }
+    el.innerHTML=card(b);
+    return;
+  }
+  if(d.status==='closing'){ el.innerHTML=card(p('Voting closed. Making the call now.')); return; }
+  if(d.status==='undone'){ el.innerHTML=card(p('League is back on '+pollWhen(d)+'.'+(d.firstServe?(' First serve '+d.firstServe+'.'):''))); return; }
+  if(d.decision==='cancel'){ el.innerHTML=card(p('Canceled by weather vote.'+(d.makeupLabel?(' Makeup '+d.makeupLabel+'.'):''))); return; }
+  el.innerHTML=card(p('League is on '+pollWhen(d)+'.'+(d.firstServe?(' First serve '+d.firstServe+'.'):'')));
+}
+async function pcVote(v){
+  const tok=pcToken(); if(!tok){ toast('Sign in to vote.'); return; }
+  const res=await pcFetch('/league/poll/vote-app', { sessionToken:tok, scope:LA_SCOPE, sub:SIDE, v:v });
+  if(!res.j||res.j.ok!==true){ toast((res.j&&res.j.error)||'Could not save your vote. Try again.'); }
+  await pcLoad();
+}
+async function pcOpen(){
+  const d=_pc.data; if(!d||!d.night) return;
+  const tok=pcToken(); if(!tok){ toast('Sign in first.'); return; }
+  if(!confirm('Open a weather poll for '+(POLL_LEAGUE[SIDE]||SIDE)+' on '+d.night.dateLabel+'? Every eligible voter gets an email.')) return;
+  const res=await pcFetch('/league/poll/open', { sessionToken:tok, scope:LA_SCOPE, sub:SIDE });
+  if(res.j&&res.j.ok===true) toast('Weather poll open. '+res.j.eligibleCount+' voters emailed.');
+  else toast((res.j&&res.j.error)||'Could not open the poll. Try again.');
+  await pcLoad();
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState==='visible' && _pc.data && _pc.data.status==='open') pcLoad();
+});
+
 let _pinBusy=false;
 function pinTap(v){
   if(_pinBusy)return;
@@ -3353,10 +3526,12 @@ function lcOnLogin(player){
   _lcName = player.displayName || lcDisplayNameOf(player);
   if(_lcPendingOpen){ _lcPendingOpen = false; openLeagueChat(); }
   else if(_lcOpen){ $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : ''; }
+  pcLoad(); // the weather poll card shows the signed-in player's vote
 }
 function lcOnLogout(){
   _lcPid = null; _lcName = '';
   if(_lcOpen) closeLeagueChat();
+  pcLoad();
 }
 
 function openLeagueChat(){
