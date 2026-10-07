@@ -39,6 +39,13 @@
  * localStorage, then falls back to sessionStorage; expired localStorage
  * entries are dropped. Logout clears both stores.
  *
+ * Worker session: sign-in and signup also return { sessionToken,
+ * sessionExpiresAt }, stored on the same key. autoLogin restores exactly as
+ * before, then asks the worker to confirm the token (/auth/player-session).
+ * isVerified() is true only when the worker confirmed it for this same
+ * playerId; getSessionToken() returns the token only then. Features that must
+ * know "this is me" (voting, absence) send that token, never the playerId.
+ *
  * No password reset email flow in v1: admin resets via admin-players.html
  * and texts the new plaintext to the player.
  */
@@ -55,6 +62,9 @@
 
   let _db = null;
   let _rosterPath = '';
+  // Worker session state. _verified is true only after the worker confirms the token.
+  let _sessionToken = null;
+  let _verified = false;
   let _onLogin = null;
   let _onLogout = null;
   let _currentPlayer = null;
@@ -244,7 +254,7 @@
     return '';
   }
 
-  async function attemptLogin(email, password){
+  async function attemptLogin(email, password, remember){
     if(!email) return { success: false, error: 'Enter your email' };
     if(!password) return { success: false, error: 'Enter your password' };
 
@@ -259,7 +269,8 @@
         body: JSON.stringify({
           rosterPath: _rosterPath,
           email: String(email).trim().toLowerCase(),
-          password: password
+          password: password,
+          remember: !!remember
         })
       });
       res = await r.json();
@@ -274,7 +285,14 @@
 
     _currentPlayer = res.player;
     _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
-    return { success: true, player: _currentPlayer, playerId: res.player.id };
+    return { success: true, player: _currentPlayer, playerId: res.player.id, session: sessionFrom(res) };
+  }
+
+  // The worker session fields from a sign-in response, or null when absent (an older
+  // worker, or a mint that failed server side).
+  function sessionFrom(res){
+    if(!res || typeof res.sessionToken !== 'string' || !res.sessionToken) return null;
+    return { sessionToken: res.sessionToken, sessionExpiresAt: Number(res.sessionExpiresAt) || 0 };
   }
 
   async function handleLoginClick(){
@@ -288,12 +306,13 @@
     btnEl.disabled = true;
     btnEl.textContent = 'Logging in...';
     try {
-      const res = await attemptLogin(emailEl.value, pwEl.value);
+      const keep = !!(keepEl && keepEl.checked);
+      const res = await attemptLogin(emailEl.value, pwEl.value, keep);
       if(!res.success){
         errEl.textContent = res.error || 'Login failed';
         return;
       }
-      persistSession(res.playerId, !!(keepEl && keepEl.checked), (res.player && (res.player.email || (res.player.emails && res.player.emails.primary))) || '');
+      persistSession(res.playerId, keep, (res.player && (res.player.email || (res.player.emails && res.player.emails.primary))) || '', res.session);
       pwEl.value = '';
       hideLogin();
       if(typeof _onLogin === 'function') _onLogin(res.player);
@@ -349,7 +368,7 @@
   // Remember-me: localStorage with exp (75 days). Default: sessionStorage,
   // which clears on browser close. Writing one always clears the other so
   // there is exactly one source of truth for the active session.
-  function persistSession(playerId, keepSignedIn, email){
+  function persistSession(playerId, keepSignedIn, email, session){
     const now = Date.now();
     // Persist the owner's own email alongside the session so auto-login can serve
     // it without reading the public players node, which no longer carries email
@@ -357,6 +376,16 @@
     // device; it is never another player's data.
     const base = { playerId, ts: now };
     if(email) base.email = email;
+    // A token the worker just issued for this same sign-in is verified by definition.
+    if(session && session.sessionToken){
+      base.sessionToken = session.sessionToken;
+      base.sessionExpiresAt = session.sessionExpiresAt;
+      _sessionToken = session.sessionToken;
+      _verified = true;
+    } else {
+      _sessionToken = null;
+      _verified = false;
+    }
     if(keepSignedIn){
       base.exp = now + 75 * 24 * 60 * 60 * 1000;
       try { localStorage.setItem(SS_KEY, JSON.stringify(base)); } catch(e){}
@@ -367,7 +396,60 @@
     }
   }
 
+  // Which store holds the session: 'local', 'session', or '' when neither does.
+  function storedSessionWhere(){
+    try { if(localStorage.getItem(SS_KEY)) return 'local'; } catch(e){}
+    try { if(sessionStorage.getItem(SS_KEY)) return 'session'; } catch(e){}
+    return '';
+  }
+
+  // Edit the stored session in place, in whichever store holds it. Never moves it.
+  function updateStoredSession(fn){
+    const where = storedSessionWhere();
+    if(!where) return;
+    const store = where === 'local' ? localStorage : sessionStorage;
+    try {
+      const p = JSON.parse(store.getItem(SS_KEY));
+      if(!p || !p.playerId) return;
+      fn(p);
+      store.setItem(SS_KEY, JSON.stringify(p));
+    } catch(e){}
+  }
+
+  // Forget the worker token only. The playerId session (and every feature that uses
+  // it today) is left exactly as it was.
+  function dropSessionToken(){
+    _sessionToken = null;
+    _verified = false;
+    updateStoredSession(function(p){ delete p.sessionToken; delete p.sessionExpiresAt; });
+  }
+
+  // Ask the worker to confirm a stored token. Resolves to 'ok' (with the worker's
+  // player), 'rejected' (401), or 'error' (network, timeout, anything else).
+  async function checkSessionToken(token){
+    let ctl = null, timer = null;
+    try { ctl = new AbortController(); timer = setTimeout(function(){ ctl.abort(); }, 6000); } catch(e){ ctl = null; }
+    try {
+      const r = await fetch(AUTH_WORKER + '/auth/player-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token }),
+        signal: ctl ? ctl.signal : undefined
+      });
+      if(r.status === 401) return { result: 'rejected' };
+      if(!r.ok) return { result: 'error' };
+      const j = await r.json();
+      return (j && j.ok === true && j.player) ? { result: 'ok', player: j.player } : { result: 'error' };
+    } catch(e){
+      return { result: 'error' };
+    } finally {
+      if(timer) clearTimeout(timer);
+    }
+  }
+
   async function autoLogin(){
+    _sessionToken = null;
+    _verified = false;
     // Prefer localStorage (keep-signed-in) over sessionStorage. Expired
     // localStorage entries are dropped and we fall through to sessionStorage.
     let parsed = null;
@@ -391,6 +473,16 @@
       } catch(e){ return null; }
     }
     if(!parsed || !parsed.playerId) return null;
+    // Start the worker check now so it runs alongside the roster read below. An
+    // expired token is not worth a call; it is dropped.
+    let tokenCheck = null;
+    if(typeof parsed.sessionToken === 'string' && parsed.sessionToken){
+      if(typeof parsed.sessionExpiresAt === 'number' && parsed.sessionExpiresAt <= Date.now()){
+        dropSessionToken();
+      } else {
+        tokenCheck = checkSessionToken(parsed.sessionToken);
+      }
+    }
     try {
       const snap = await _db.ref(_rosterPath + '/' + parsed.playerId).once('value');
       const player = snap.val();
@@ -408,6 +500,17 @@
       if(parsed.email){
         _currentPlayer.email = parsed.email;
         _currentPlayer.emails = Object.assign({}, _currentPlayer.emails, { primary: parsed.email });
+      }
+      // Verified only when the worker confirms the token AND it belongs to this same
+      // playerId. A 401 drops the token; a network error just leaves it unverified.
+      if(tokenCheck){
+        const chk = await tokenCheck;
+        if(chk.result === 'ok' && chk.player && chk.player.id === parsed.playerId){
+          _sessionToken = parsed.sessionToken;
+          _verified = true;
+        } else if(chk.result === 'rejected' || chk.result === 'ok'){
+          dropSessionToken();
+        }
       }
       return _currentPlayer;
     } catch(e) {
@@ -439,7 +542,32 @@
 
   function currentPlayer(){ return _currentPlayer; }
 
+  function getSessionToken(){ return _verified ? _sessionToken : null; }
+  function isVerified(){ return _verified; }
+
+  // The stored token, verified or not, so logout can end it on the worker.
+  function storedSessionToken(){
+    let token = '';
+    updateStoredSession(function(p){ token = typeof p.sessionToken === 'string' ? p.sessionToken : ''; });
+    return token || _sessionToken || '';
+  }
+
   function logout(){
+    // Best effort and not awaited: storage is cleared either way, and keepalive lets
+    // the request finish if the page navigates away.
+    const token = storedSessionToken();
+    if(token){
+      try {
+        fetch(AUTH_WORKER + '/auth/player-logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token }),
+          keepalive: true
+        }).catch(function(){});
+      } catch(e){}
+    }
+    _sessionToken = null;
+    _verified = false;
     try { sessionStorage.removeItem(SS_KEY); } catch(e) {}
     try { localStorage.removeItem(SS_KEY); } catch(e) {}
     _currentPlayer = null;
@@ -463,7 +591,7 @@
       const r = await fetch(AUTH_WORKER + '/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: _rosterPath, playerId: (_currentPlayer && _currentPlayer.id) || '', email: email, oldPassword: oldPw, newPassword: newPw })
+        body: JSON.stringify({ rosterPath: _rosterPath, playerId: (_currentPlayer && _currentPlayer.id) || '', email: email, oldPassword: oldPw, newPassword: newPw, remember: storedSessionWhere() === 'local' })
       });
       res = await r.json();
     } catch(e) {
@@ -473,6 +601,17 @@
     if(!res || res.ok !== true){
       // Map worker codes onto the codes the UI already understands.
       return { ok:false, code: (res && res.code === 'invalid') ? 'wrong_password' : 'failed' };
+    }
+
+    // The worker ended every session for this account, this device's included, and
+    // issued a fresh one. Keep it in the same store; without one, drop the old token.
+    const fresh = sessionFrom(res);
+    if(fresh){
+      updateStoredSession(function(p){ p.sessionToken = fresh.sessionToken; p.sessionExpiresAt = fresh.sessionExpiresAt; });
+      _sessionToken = fresh.sessionToken;
+      _verified = true;
+    } else {
+      dropSessionToken();
     }
 
     // Queue the password_changed notification via the worker /notify endpoint
@@ -577,7 +716,8 @@
           skillLevel: skillLevel,
           gender: genderVal || '',
           leaguePlayerId: leagueMatch,
-          tenant: (tenantSlug || tenantName) ? { slug: tenantSlug, name: tenantName } : null
+          tenant: (tenantSlug || tenantName) ? { slug: tenantSlug, name: tenantName } : null,
+          remember: !!o.keepSignedIn
         })
       });
       reg = await rr.json();
@@ -619,7 +759,7 @@
     // Set session so the new account is immediately logged in. keepSignedIn
     // defaults to false to preserve prior behavior for callers that omit it;
     // the in-overlay register flow passes the checkbox value explicitly.
-    persistSession(playerKey, !!o.keepSignedIn, emailLower);
+    persistSession(playerKey, !!o.keepSignedIn, emailLower, sessionFrom(reg));
 
     _currentPlayer = Object.assign({ id: playerKey }, playerRecord);
     _currentPlayer.name = normalizedName(_currentPlayer); // guarantee name is a string downstream
@@ -703,6 +843,8 @@
     currentPlayer,
     logout,
     changePassword,
-    createPlayer
+    createPlayer,
+    getSessionToken,
+    isVerified
   };
 })(typeof window !== 'undefined' ? window : globalThis);

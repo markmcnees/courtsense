@@ -14,7 +14,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-<script src="/auth.js?v=187f7235"></script>
+<script src="/auth.js?v=dbbd5380"></script>
 <!-- Shared site nav: home-only escape hatch for this mid-flow page. -->
 <script>window.COURTSENSE_NAV = { variant: 'home-only' };</script>
 <script src="/nav.js?v=c4011a9d"></script>
@@ -243,14 +243,21 @@ function setErr(field, msg){
 // Session writer: identical to auth.js persistSession (single 'courtsenseAuth'
 // key; localStorage + exp when keep-signed-in, else sessionStorage). Same as
 // activate/index.html. The profile page's auth.js autoLogin restores from it.
-function persistSession(playerId, keepSignedIn){
+// The worker session token (when the worker issued one) rides along on the same
+// key, and auth.js autoLogin confirms it with the worker.
+function persistSession(playerId, keepSignedIn, res){
   const now = Date.now();
+  const base = { playerId, ts: now };
+  if(res && typeof res.sessionToken === 'string' && res.sessionToken){
+    base.sessionToken = res.sessionToken;
+    base.sessionExpiresAt = Number(res.sessionExpiresAt) || 0;
+  }
   if(keepSignedIn){
-    const exp = now + 75 * 24 * 60 * 60 * 1000;
-    try { localStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now, exp })); } catch(e){}
+    base.exp = now + 75 * 24 * 60 * 60 * 1000;
+    try { localStorage.setItem(SS_KEY, JSON.stringify(base)); } catch(e){}
     try { sessionStorage.removeItem(SS_KEY); } catch(e){}
   } else {
-    try { sessionStorage.setItem(SS_KEY, JSON.stringify({ playerId, ts: now })); } catch(e){}
+    try { sessionStorage.setItem(SS_KEY, JSON.stringify(base)); } catch(e){}
     try { localStorage.removeItem(SS_KEY); } catch(e){}
   }
 }
@@ -385,12 +392,13 @@ async function doLogin(e){
   try {
     // Verify server-side: the worker reads the credentials node and checks the
     // password. The client never reads passwordHash. Mirrors auth.js attemptLogin.
+    const keep = !!($('f-login-keep') && $('f-login-keep').checked);
     let res;
     try {
       const r = await fetch(AUTH_WORKER + '/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterPath: ROSTER_PATH, email: enteredEmail, password: pw })
+        body: JSON.stringify({ rosterPath: ROSTER_PATH, email: enteredEmail, password: pw, remember: keep })
       });
       res = await r.json();
     } catch(err){
@@ -403,8 +411,7 @@ async function doLogin(e){
       return false;
     }
 
-    const keep = !!($('f-login-keep') && $('f-login-keep').checked);
-    persistSession(res.player.id, keep);
+    persistSession(res.player.id, keep, res);
     window.location.href = '/community/dashboard/';
     return false;
   } finally {
