@@ -784,7 +784,7 @@ function initTabs(){
 function refreshAll(){fillWeekSels();refreshTab(tab);}
 function refreshTab(t){
   if(t==='standings') renderStandings();
-  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();}
+  else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();}
   else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();}
   else if(t==='ratings'){renderRatings();renderRatingsHeader();}
 }
@@ -2969,6 +2969,148 @@ async function laRestore(scope){
   return false;
 }
 
+// ─── LINK PLAYER ACCOUNTS (Admin tab) ───
+// Each roster player can be linked to a CourtSense account, so later features (weather
+// votes, marking yourself out) know who is who. The links live in the worker only
+// (league_links), and every call carries the league admin session token. A stale or
+// missing session opens the PIN pad and retries the same call. Names only: no email or
+// phone is ever sent here.
+let _lnRows=null, _lnSide=null, _lnSig='', _lnLoading=false, _lnFind=null, _lnResults=[], _lnPending=null, _lnTimer=null;
+async function lnCall(path, body){
+  const s=laGet(LA_SCOPE);
+  if(!s) return { status:401, j:null };
+  try{
+    const r=await fetch(LA_WORKER+path, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({ token:s.token, scope:LA_SCOPE }, body))
+    });
+    let j=null; try{ j=await r.json(); }catch(e){}
+    return { status:r.status, j:j };
+  }catch(e){ return { status:0, j:null }; }
+}
+// Runs a links call; on 401 asks for the PIN and replays it.
+async function lnRun(path, body, onOk){
+  const res=await lnCall(path, body);
+  if(res.status===401){
+    laClear(LA_SCOPE);
+    _lnPending=function(){ lnRun(path, body, onOk); };
+    _pinAction='links';_pinEntry='';updatePinDots();$('pin-error').textContent='';
+    $('pin-modal-title').textContent='Admin PIN: Link Accounts';$('pin-modal').classList.add('on');
+    return;
+  }
+  if(res.status===0){ toast(LA_MSG_NET); return; }
+  if(!res.j || res.j.ok!==true){ toast((res.j && res.j.error) || 'Something went wrong. Try again.'); return; }
+  onOk(res.j);
+}
+function lnRosterSig(){
+  const P=D[SIDE].players||{};
+  return Object.keys(P).sort().map(k=>k+':'+((P[k]&&P[k].name)||'')).join('|');
+}
+// Called on every planner refresh. Loads only when the side or the roster changed, and
+// never while a search box is open, so typing is not interrupted by live updates.
+function renderLinkAccounts(){
+  if(!$('linklist')) return;
+  if(_lnLoading || _lnFind) return;
+  if(_lnRows && _lnSide===SIDE && _lnSig===lnRosterSig()) return;
+  lnReload();
+}
+function lnReload(){
+  if(!$('linklist')) return;
+  const side=SIDE;
+  _lnLoading=true; _lnFind=null;
+  if(_lnSide!==side){ _lnRows=null; $('linklist').innerHTML='<p style="font-size:13px;color:var(--gray);">Loading...</p>'; }
+  lnRun('/league/links/list', { sub:side }, function(j){
+    if(side!==SIDE) return;
+    _lnRows=Array.isArray(j.rows)?j.rows:[]; _lnSide=side; _lnSig=lnRosterSig();
+    drawLinks();
+  }).finally(function(){ _lnLoading=false; });
+}
+function drawLinks(){
+  const el=$('linklist'); if(!el) return;
+  const rows=_lnRows||[];
+  const nSug=rows.filter(r=>!r.linked&&r.suggest).length;
+  const nLinked=rows.filter(r=>r.linked).length;
+  if($('linkcnt')) $('linkcnt').textContent=rows.length?(nLinked+' of '+rows.length+' linked'):'';
+  const all=$('link-confirm-all');
+  if(all){ all.disabled=!nSug; all.textContent=nSug?('Confirm all suggestions ('+nSug+')'):'Confirm all suggestions'; }
+  if(!rows.length){ el.innerHTML='<p style="font-size:13px;color:var(--gray);">No players on this roster yet.</p>'; return; }
+  el.innerHTML=rows.map(function(r){
+    const id=escAttr(r.rosterId);
+    let status, acts;
+    if(r.linked){
+      status='Linked: '+esc(r.linked.name);
+      acts='<button class="btn btn-g btn-sm" onclick="lnUnlink(\''+id+'\')">Unlink</button>';
+    } else if(r.suggest){
+      status='Suggested: '+esc(r.suggest.name);
+      acts='<button class="btn btn-a btn-sm" onclick="lnConfirm(\''+id+'\')">Confirm</button><button class="btn btn-g btn-sm" onclick="lnOpenFind(\''+id+'\')">Find</button>';
+    } else {
+      status='Not linked';
+      acts='<button class="btn btn-g btn-sm" onclick="lnOpenFind(\''+id+'\')">Find</button>';
+    }
+    let html='<div class="pitem"><div style="flex:1;min-width:0;"><div class="pname2">'+esc(r.label)+'</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-top:2px;">'+status+'</div></div>'
+      +'<div class="pacts">'+acts+'</div></div>';
+    if(_lnFind===r.rosterId){
+      html+='<div style="margin:-2px 0 10px;padding:10px;border:1.5px solid var(--sand-border);border-radius:10px;">'
+        +'<div style="display:flex;gap:8px;"><input class="inp" id="ln-q" placeholder="Type a name" style="flex:1;" oninput="lnSearch(this.value)">'
+        +'<button class="btn btn-g btn-sm" onclick="lnCloseFind()">Cancel</button></div>'
+        +'<div id="ln-res" style="margin-top:8px;"></div></div>';
+    }
+    return html;
+  }).join('');
+  if(_lnFind && $('ln-q')) $('ln-q').focus();
+}
+function lnRow(id){ return (_lnRows||[]).filter(r=>r.rosterId===id)[0]||null; }
+function lnOpenFind(id){ _lnFind=id; _lnResults=[]; drawLinks(); }
+function lnCloseFind(){ _lnFind=null; _lnResults=[]; drawLinks(); }
+function lnSearch(v){
+  clearTimeout(_lnTimer);
+  const q=String(v||'').trim();
+  if(q.length<2){ _lnResults=[]; lnDrawResults(q.length?'Keep typing...':''); return; }
+  _lnTimer=setTimeout(function(){
+    lnRun('/league/links/search', { q:q }, function(j){
+      _lnResults=Array.isArray(j.results)?j.results:[];
+      lnDrawResults(_lnResults.length?'':'No accounts match that name.');
+    });
+  }, 300);
+}
+function lnDrawResults(note){
+  const box=$('ln-res'); if(!box) return;
+  if(note){ box.innerHTML='<div style="font-size:13px;color:var(--gray);">'+esc(note)+'</div>'; return; }
+  box.innerHTML=_lnResults.map(function(x,i){
+    return '<button class="btn btn-g btn-sm" style="margin:0 6px 6px 0;" onclick="lnPick('+i+')">'+esc(x.name)+'</button>';
+  }).join('');
+}
+function lnPick(i){
+  const x=_lnResults[i]; if(!x || !_lnFind) return;
+  lnSet(_lnFind, x.accountId, 'manual');
+}
+function lnConfirm(id){
+  const r=lnRow(id); if(!r || !r.suggest) return;
+  lnSet(id, r.suggest.accountId, 'confirm');
+}
+function lnUnlink(id){
+  const r=lnRow(id); if(!r || !r.linked) return;
+  if(!confirm('Unlink '+r.label+' from '+r.linked.name+'?')) return;
+  lnSet(id, null, 'manual');
+}
+function lnSet(id, accountId, via){
+  lnRun('/league/links/set', { sub:SIDE, rosterId:id, accountId:accountId, via:via }, function(){
+    toast(accountId?'Linked':'Unlinked');
+    _lnFind=null; _lnResults=[];
+    lnReload();
+  });
+}
+function lnConfirmAll(){
+  const n=(_lnRows||[]).filter(r=>!r.linked&&r.suggest).length;
+  if(!n) return;
+  if(!confirm('Link '+n+' player'+(n===1?'':'s')+' to their suggested account'+(n===1?'':'s')+'? Check the suggestions first; you can unlink any of them later.')) return;
+  lnRun('/league/links/confirm-all', { sub:SIDE }, function(j){
+    toast('Linked '+(j.linked||0)+' player'+(j.linked===1?'':'s'));
+    lnReload();
+  });
+}
+
 let _pinBusy=false;
 function pinTap(v){
   if(_pinBusy)return;
@@ -3016,6 +3158,7 @@ function _pinUnlocked(){
     else toast('Scoring unlocked for this session');
   }
   else if(_pinAction==='boarddelete'){ doBoardDelete(); }
+  else if(_pinAction==='links'){ const retry=_lnPending; _lnPending=null; if(retry) retry(); }
 }
 function _openPlanner(){
   const t=window._pendingTab;

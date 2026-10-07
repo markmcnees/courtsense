@@ -311,6 +311,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
 
     <div class="card">
+      <div class="ctitle"><span class="bar"></span>Link player accounts <span id="linkcnt" style="font-size:13px;font-weight:400;color:var(--gray);margin-left:6px;"></span></div>
+      <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Link each player to their CourtSense account so they can vote on weather calls and mark themselves out.</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <button class="btn btn-a btn-sm" id="link-confirm-all" onclick="lnConfirmAll()" disabled>Confirm all suggestions</button>
+        <button class="btn btn-g btn-sm" onclick="lnReload()">Refresh</button>
+      </div>
+      <div id="linklist"><p style="font-size:13px;color:var(--gray);">Loading...</p></div>
+    </div>
+
+    <div class="card">
       <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 5</span>Weekly Schedule</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <select class="inp" id="week-sel" style="flex:1;min-width:160px;" onchange="pickPlannerWeek()">
@@ -488,7 +498,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=d0b1cbca"></script>
+<script src="/kotb-app.js?v=78d80a52"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">
