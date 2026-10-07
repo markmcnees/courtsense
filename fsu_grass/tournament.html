@@ -1535,9 +1535,13 @@ function renderResults(p, i){
   var taken = {};
   slotsOf(p).forEach(function(o, k){ if(k !== i && o.mode === 'picked') taken[o.ref] = true; });
   var list = s.results.filter(function(x){ return !taken[x.ref]; });
+  // Name matches already on a team in this division: say so, never suggest adding them as new.
+  var onTeam = (s.onTeam || []).filter(function(n){ return typeof n === 'string' && n.trim(); });
+  var onTeamMsg = !onTeam.length ? '' : onTeam.length === 1 ? onTeam[0] + ' is already on a team in this division.'
+    : 'Already on a team in this division: ' + onTeam.join(', ') + '.';
   if(!list.length){
     var e = document.createElement('div'); e.className = 'search-note';
-    e.textContent = 'No one by that name is available for this division. Try another spelling, or add them as new.';
+    e.textContent = onTeamMsg || 'No one by that name is available for this division. Try another spelling, or add them as new.';
     box.appendChild(e); return;
   }
   list.forEach(function(x){
@@ -1548,6 +1552,7 @@ function renderResults(p, i){
     b.onclick = function(){ slotPick(p, i, x); };
     box.appendChild(b);
   });
+  if(onTeamMsg){ var t = document.createElement('div'); t.className = 'search-note'; t.style.fontSize = '13px'; t.textContent = onTeamMsg; box.appendChild(t); }
 }
 
 function slotQuery(p, i, v){
@@ -1568,13 +1573,13 @@ async function runSearch(p, i, q){
   if(seq !== _seq[key]) return; // a newer search is on its way
   s = slotsOf(p)[i]; if(!s || s.mode !== 'search') return;
   var j = res.j;
-  s.note = ''; s.results = null;
+  s.note = ''; s.results = null; s.onTeam = [];
   if(res.net) s.note = 'We could not reach the server. Check your connection and try again.';
   else if(j && j.ok === true && j.closed){
     if(p === 'r'){ showClosed(); return; }
     s.note = 'Name search is only open during registration. Add them as new with their email below, and we link their account if they have one.';
   }
-  else if(j && j.ok === true) s.results = Array.isArray(j.results) ? j.results : [];
+  else if(j && j.ok === true){ s.results = Array.isArray(j.results) ? j.results : []; s.onTeam = Array.isArray(j.onTeam) ? j.onTeam.slice(0, 5) : []; }
   else s.note = genericErr(res.r, j);
   renderResults(p, i);
 }
