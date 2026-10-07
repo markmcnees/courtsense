@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.181';
+const APP_VERSION='1.1.182';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -15171,7 +15171,8 @@ function renderClubLife(){
 // A card at the top of Club Life for every club tournament whose registration is open
 // (meta.status 'registration', date today or later), linking to the public registration page
 // and to the CourtSense partner page. One read of DB_ROOT/tournaments, kept for 60 seconds and
-// deliberately not mapped into D. Read only, and nothing personal is shown: just the
+// deliberately not mapped into D. Read only. A member already on a team (before game day)
+// sees their own team card instead of the register links; everyone else sees the
 // tournament name, date, and two links.
 var _clTn={ts:0, data:null, loading:false};
 function clTnRender(){
@@ -15199,13 +15200,18 @@ function clTnRender(){
   var card=function(title,body){ return '<div class="card" style="border:2px solid var(--red);"><div class="card-title"><span class="bar"></span> \u{1F3C6} '+title+'</div>'+body+'</div>'; };
   var ids=Object.keys(T).filter(function(tid){ return T[tid]&&T[tid].meta&&/^[A-Za-z0-9_-]{1,64}$/.test(tid); })
     .sort(function(a,b){ return String(T[a].meta.date||'').localeCompare(String(T[b].meta.date||'')); });
+  var partnerLink='<a href="'+esc(TN_PARTNER_PAGE)+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px 0 2px;color:var(--red);font-weight:700;font-size:14px;text-decoration:underline;">Need a partner? Find one</a>';
+  var acct=tnMyAccountId();
   var out=[];
   ids.forEach(function(tid){
     var m=T[tid].meta, st=m.status, d=String(m.date||''), w=when(m.date), live=TN_LIVE_PAGE+'?t='+encodeURIComponent(tid);
     var head='<div style="font-size:16px;font-weight:700;color:var(--charcoal);">'+esc(m.name||'Club tournament')+(w?', '+esc(w):'')+'</div>';
-    if(st==='registration'&&(!d||d>=today)){
+    var myTeam=((st==='registration'&&(!d||d>=today))||(st==='setup'&&d>today))?tnMemberTeam(T[tid],acct):'';
+    if(myTeam){
+      out.push(card("You're registered", head+clTnTeamHtml(T[tid],myTeam,acct,esc,partnerLink)));
+    } else if(st==='registration'&&(!d||d>=today)){
       out.push(card('Tournament registration is open', head+bigBtn(TN_REG_PAGE+'?t='+encodeURIComponent(tid),'Register a team')
-        +'<a href="'+esc(TN_PARTNER_PAGE)+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px 0 2px;color:var(--red);font-weight:700;font-size:14px;text-decoration:underline;">Need a partner? Find one</a>'));
+        +partnerLink));
     } else if(st==='pools'||st==='playoffs'||(d===today&&st!=='final')){
       var mm=tnMemberMatches(T[tid],tnMyAccountId());
       out.push(card('Tournament today', head+(m.location?'<div style="font-size:13px;color:var(--gray);">'+esc(m.location)+'</div>':'')+bigBtn(live,'Watch live')
@@ -15218,6 +15224,37 @@ function clTnRender(){
     }
   });
   el.innerHTML=out.join('');
+}
+// Body of the "You're registered" card: times, location, team, division, teammates (names
+// only, never the member), and where the team stands. Lines with no data are left out.
+function clTnTeamHtml(t,teamId,acct,esc,partnerLink){
+  var m=(t&&t.meta)||{}, tm=((t&&t.teams)||{})[teamId]||{}, dv=tnDivs(t)[tm.divId]||{};
+  var line=function(label,val){ return val?'<div style="font-size:14px;margin-top:6px;"><span style="color:var(--gray);">'+label+':</span> '+esc(val)+'</div>':''; };
+  var ci=m.checkInTime?tnTimeLabel(m.checkInTime):'', sp=m.startTime?tnTimeLabel(m.startTime):'';
+  var times=[ci?'Check in '+ci:'', sp?(ci?'play starts ':'Play starts ')+sp:''].filter(Boolean).join(', ');
+  var players=tnArr(tm.players).filter(function(p){ return p&&typeof p==='object'; });
+  var mates=players.filter(function(p){ return p.accountId!==acct; }).map(function(p){ return String(p.name||'').trim(); }).filter(Boolean).join(', ');
+  var status='';
+  if(tm.status==='registered') status='Complete';
+  else if(tm.status==='incomplete'){
+    var need=[], short=(Number(dv.teamSize)||0)-players.length;
+    if(short>0) need.push(short+' more player'+(short===1?'':'s'));
+    if(dv.category==='coed'&&dv.coed){
+      var g=Number(dv.coed.minGuys)||0, f=Number(dv.coed.minGirls)||0;
+      var hasG=players.filter(function(p){ return p.gender==='M'; }).length, hasF=players.filter(function(p){ return p.gender==='F'; }).length;
+      if(hasG<g) need.push('at least '+g+' guy'+(g===1?'':'s'));
+      if(hasF<f) need.push('at least '+f+' girl'+(f===1?'':'s'));
+    }
+    status=need.length?'Needs '+need.join(' and '):'Incomplete';
+  }
+  return (times?'<div style="font-size:13px;color:var(--gray);margin-top:2px;">'+esc(times)+'</div>':'')
+    +(m.location?'<div style="font-size:13px;color:var(--gray);">'+esc(m.location)+'</div>':'')
+    +line('Team',String(tm.name||'').trim())
+    +line('Division',String(dv.name||'').trim())
+    +line('Teammates',mates)
+    +line('Status',status)
+    +(tm.status==='incomplete'?partnerLink:'')
+    +'<div style="font-size:12px;color:var(--gray);margin-top:10px;">Need to change your team? Use the link in your registration email.</div>';
 }
 
 // ---- A member's tournament: shared by Club Life and the Live Scoring tab --------------
