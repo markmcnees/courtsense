@@ -3440,7 +3440,7 @@ document.addEventListener('visibilitychange', function(){
 // upcoming night, or back in, until the night locks (first score) or first serve. The
 // worker holds the record and writes weeks/{wid}/out, which the Score tab reads to mark
 // their slots Sub for everyone.
-let _oc={side:null,data:null,at:0,loading:false};
+let _oc={side:null,data:null,at:0,loading:false,reauth:false};
 function ocMaybeLoad(){
   if(_oc.loading) return;
   if(_oc.side===SIDE && Date.now()-_oc.at<30000) return;
@@ -3452,7 +3452,10 @@ async function ocLoad(){
   try{
     await Promise.race([_authReady, new Promise(function(r){ setTimeout(r, 6000); })]);
     const tok=pcToken();
-    if(!tok){ _oc.side=side; _oc.at=Date.now(); _oc.data=null; ocDraw(); return; }
+    // Signed in from before player sessions: a current player, but no verified session
+    // token. The card asks them to sign in again instead of staying hidden.
+    if(!tok){ _oc.side=side; _oc.at=Date.now(); _oc.data=null; _oc.reauth=ocNeedsReauth(); ocDraw(); return; }
+    _oc.reauth=false;
     const res=await pcFetch('/league/absence/mine', { sessionToken:tok, scope:LA_SCOPE, sub:side });
     if(side!==SIDE) return;
     _oc.side=side; _oc.at=Date.now();
@@ -3461,8 +3464,27 @@ async function ocLoad(){
     scorerOutCheck();
   } finally { _oc.loading=false; }
 }
+function ocNeedsReauth(){
+  try{
+    const A=window.CourtSenseAuth;
+    return !!(A&&A.currentPlayer&&A.currentPlayer()&&A.isVerified&&!A.isVerified());
+  }catch(e){ return false; }
+}
+// Ends the old-style sign-in and opens the login form. logout() fires the onLogout hook
+// (which reloads this card) and the login form; after signing in, lcOnLogin reloads it.
+function ocSignInAgain(){
+  const A=window.CourtSenseAuth; if(!A) return;
+  try{ A.logout(); }catch(e){}
+  try{ A.showLogin(); }catch(e){}
+}
 function ocDraw(){
   const el=$('out-player'); if(!el) return;
+  if(_oc.side===SIDE&&!_oc.data&&_oc.reauth){
+    el.innerHTML='<div class="card"><div class="ctitle"><span class="bar"></span>Your nights</div>'
+      +'<p style="font-size:13px;color:var(--gray);margin-bottom:10px;">'+esc('Sign in again to mark yourself out for a night.')+'</p>'
+      +'<button class="btn btn-p btn-sm" onclick="ocSignInAgain()">Sign in</button></div>';
+    return;
+  }
   const d=_oc.side===SIDE?_oc.data:null;
   if(!d||!Array.isArray(d.entries)||!d.entries.length||!Array.isArray(d.nights)||!d.nights.length){ el.innerHTML=''; return; }
   const many=d.entries.length>1;
