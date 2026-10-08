@@ -3584,22 +3584,49 @@ function _openPlanner(){
   window._pendingTab=null;
 }
 function updatePinDots(){for(let i=0;i<4;i++){const d=$('pd'+i);if(d)d.classList.toggle('filled',i<_pinEntry.length);}}
+// The makeup week for a cancel, the same rule the worker uses: the latest date across
+// every week (any state) plus 7 days, then another 7 while that date is a skip date or a
+// week already has it, at most 52 steps. The key is w{max weekNum + 1}, or the next one
+// not already taken, so an existing week is never overwritten. null when no date is found.
+function kotbMakeupPlan(weeks, skipDates){
+  const W=weeks||{};
+  const addDays=function(ymd,n){ const p=ymd.split('-').map(Number); const d=new Date(Date.UTC(p[0],p[1]-1,p[2]+n,12)); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0'); };
+  const dates=Object.values(W).map(w=>w&&w.date).filter(d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d));
+  if(!dates.length) return null;
+  const taken=new Set(dates), skips=Array.isArray(skipDates)?skipDates.map(String):[];
+  let d=addDays(dates.slice().sort()[dates.length-1],7), date=null;
+  for(let i=0;i<52;i++){ if(skips.indexOf(d)<0&&!taken.has(d)){ date=d; break; } d=addDays(d,7); }
+  if(!date) return null;
+  let max=0;
+  Object.keys(W).forEach(k=>{ const n=W[k]&&typeof W[k].weekNum==='number'?W[k].weekNum:0; if(n>max) max=n; });
+  let num=max+1;
+  while(Object.prototype.hasOwnProperty.call(W,'w'+num)) num++;
+  return {key:'w'+num, num, date};
+}
 function doCancelNight(){
   if(!liveWeek)return;
-  if(!confirm('Are you sure? This will mark the night as cancelled and extend the season by one week. You can undo this with Uncancel Night.'))return;
-  const allW=Object.values(D[SIDE].weeks||{}).sort((a,b)=>a.weekNum-b.weekNum);
-  const last=allW[allW.length-1];
-  let makeupId=null;
-  if(last){
-    const ld=new Date(last.date+'T12:00:00');ld.setDate(ld.getDate()+7);
-    const ds=ld.getFullYear()+'-'+String(ld.getMonth()+1).padStart(2,'0')+'-'+String(ld.getDate()).padStart(2,'0');
-    const nid='w'+(last.weekNum+1);
-    makeupId=nid;
-    fbSet(SIDE+'/weeks/'+nid,{id:nid,weekNum:last.weekNum+1,date:ds,absences:[],subs:null,rounds:null,skipped:false,cancelled:false});
-  }
-  fbSet(SIDE+'/weeks/'+liveWeek+'/cancelled',true);
-  if(makeupId)fbSet(SIDE+'/weeks/'+liveWeek+'/cancelMakeupId',makeupId);
-  toast('Night cancelled -- new week added.');
+  // Side and week are pinned for the whole run, in case the header is tapped meanwhile.
+  const side=SIDE, wid=liveWeek;
+  const week=((D[side]||{}).weeks||{})[wid];
+  if(!week)return;
+  // The same refusals the worker's cancel makes.
+  if(week.cancelled){ toast('This night is already cancelled'); return; }
+  if(week.locked===true){ alert('Week '+week.weekNum+' is locked, so it cannot be cancelled.\n\nUnlock the week first if it really was rained out.'); return; }
+  const nRes=weekResultCount(wid, side);
+  if(nRes>0){ alert('Week '+week.weekNum+' has '+nRes+' recorded result'+(nRes===1?'':'s')+', so it cannot be cancelled.\n\nDelete those results first if the night really was rained out.'); return; }
+  const plan=kotbMakeupPlan(D[side].weeks, (D[side].config||{}).skipDates);
+  if(!plan){ alert('No open date was found for a makeup night, so nothing was changed.\n\nCheck the skip dates in League Settings.'); return; }
+  if(!confirm('Are you sure? This will mark the night as cancelled and add a makeup night on '+fD(plan.date)+'. You can undo this with Uncancel Night.'))return;
+  if(!db){ alert('Not connected, so nothing was changed.\n\nCheck your connection and try again.'); return; }
+  // One atomic multi-path update: the cancel flag, the makeup link and the new week land
+  // together or not at all.
+  const updates={};
+  updates[side+'/weeks/'+wid+'/cancelled']=true;
+  updates[side+'/weeks/'+wid+'/cancelMakeupId']=plan.key;
+  updates[side+'/weeks/'+plan.key]={id:plan.key,weekNum:plan.num,date:plan.date,skipped:false,cancelled:false};
+  return db.ref(DB_ROOT).update(updates)
+    .then(function(){ toast('Night cancelled. Makeup night added for '+fD(plan.date)+'.'); })
+    .catch(function(err){ _fbWriteFailed('save', side+'/weeks/'+wid, err); });
 }
 
 function promptUncancelNight(){_pinAction='uncancel';_pinEntry='';updatePinDots();$('pin-modal').style.display='flex';}

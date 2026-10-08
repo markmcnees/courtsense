@@ -3119,12 +3119,16 @@ function renderArchiveCard(){
 // console output in the browser.
 const CANCEL_DRYRUN = false;
 
-// Pure helper. Given the cancelled week, the season's last week, and the results
-// map, returns { makeupNum, makeupKey, record } for the makeup week, or null if
-// there are no unplayed matchups (so no makeup is needed). No Firebase access.
+// Pure helper. Given the cancelled week, the whole schedule, the results map, the
+// known matchup ids and the division's skip dates, returns { makeupNum, makeupKey,
+// record } for the makeup week, null if there are no unplayed matchups (so no makeup
+// is needed), or { error: 'no_date' } when no open date turns up. No Firebase access.
 // existingIds is the set of every matchup id already present in DIV/results or
 // any schedule week, used to guarantee cloned ids never collide.
-function buildMakeupWeek4v4(cancelledWeek, lastWeek, resultsMap, existingIds){
+// The date follows the same rule as the worker: the latest date across every week (any
+// state) plus 7 days, then another 7 while that date is a skip date or a week already
+// has it, at most 52 steps. The week number is the next one not already in use.
+function buildMakeupWeek4v4(cancelledWeek, sched, resultsMap, existingIds, skipDates){
   const W = cancelledWeek.week;
   const results = resultsMap || {};
   const unplayed = (cancelledWeek.matchups || []).filter(m => {
@@ -3137,7 +3141,17 @@ function buildMakeupWeek4v4(cancelledWeek, lastWeek, resultsMap, existingIds){
     return true;
   });
   if(!unplayed.length) return null;
-  const makeupNum = lastWeek.week + 1;
+  const S = sched || {};
+  const weeks = Object.values(S).filter(w => w && w.week);
+  const dates = weeks.map(w => w.date).filter(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d));
+  if(!dates.length) return { error: 'no_date' };
+  const taken = new Set(dates), skips = Array.isArray(skipDates) ? skipDates.map(String) : [];
+  let d = addDays(dates.slice().sort()[dates.length - 1], 7), date = null;
+  for(let i = 0; i < 52; i++){ if(skips.indexOf(d) < 0 && !taken.has(d)){ date = d; break; } d = addDays(d, 7); }
+  if(!date) return { error: 'no_date' };
+  const used = new Set(weeks.map(w => w.week));
+  let makeupNum = Math.max(0, ...Array.from(used)) + 1;
+  while(used.has(makeupNum) || S[String(makeupNum)] != null) makeupNum++;
   const makeupKey = String(makeupNum);
   const seen = existingIds instanceof Set ? existingIds : new Set();
   const matchups = unplayed.map(m => {
@@ -3150,7 +3164,7 @@ function buildMakeupWeek4v4(cancelledWeek, lastWeek, resultsMap, existingIds){
   });
   const record = {
     week: makeupNum,
-    date: addDays(lastWeek.date, 7),
+    date: date,
     matchups: matchups,
     byes: [],
     isMakeup: true,
@@ -3185,12 +3199,14 @@ function doCancelNight4v4(weekNum){
   if(week.cancelled){ toast('Already cancelled'); return; }
   const W = week.week;
 
-  // Season's final week (largest .week), used as the anchor the makeup follows.
-  const weeks = Object.values(sched).filter(w => w && w.week).sort((a,b) => a.week - b.week);
-  const lastWeek = weeks[weeks.length - 1];
+  const makeup = buildMakeupWeek4v4(week, sched, D[DIV].results || {}, _allMatchupIds4v4(), (D[DIV].config || {}).skipDates);
+  if(makeup && makeup.error){
+    toast('No open date was found for a makeup week. Nothing was changed.');
+    return;
+  }
 
-  const makeup = buildMakeupWeek4v4(week, lastWeek, D[DIV].results || {}, _allMatchupIds4v4());
-
+  // The helper already picks an unused slot; this stays as a last guard so an existing
+  // week can never be overwritten.
   if(makeup && sched[makeup.makeupKey]){
     toast('Makeup week slot already exists. Aborted.');
     console.warn('[cancel] makeup key collision', makeup.makeupKey);
