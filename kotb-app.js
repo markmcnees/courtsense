@@ -3236,7 +3236,9 @@ function pollCountsLine(c){
   if(!c) return '';
   return c.cast+' of '+c.eligible+' voted (needs '+pollNeeds(c.eligible)+'). Cancel '+c.cancel+', Play '+c.play+'.';
 }
-function pollWhen(d){ return d.date===td()?'tonight':('on '+(d.dateLabel||'')); }
+// The worker says 'tonight' or the date (Eastern), so the device clock never decides.
+function pollPhrase(d){ return d.nightPhrase||d.dateLabel||''; }
+function pollWhen(d){ const n=pollPhrase(d); return n==='tonight'?n:('on '+n); }
 
 function renderPollAdmin(){
   if(!$('poll-admin')) return;
@@ -3373,7 +3375,7 @@ function pcDraw(){
     if(d.you&&d.you.eligible){
       const on=v=>d.you.vote===v;
       b+='<div style="display:flex;gap:8px;margin:8px 0;">'
-        +'<button class="btn btn-sm" style="flex:1;background:#b42318;color:#fff;'+(on('cancel')?'outline:3px solid #d4a843;':'opacity:'+(d.you.vote?'.55':'1')+';')+'" onclick="pcVote(\'cancel\')">'+(on('cancel')?'&#10003; ':'')+'Cancel tonight</button>'
+        +'<button class="btn btn-sm" style="flex:1;background:#b42318;color:#fff;'+(on('cancel')?'outline:3px solid #d4a843;':'opacity:'+(d.you.vote?'.55':'1')+';')+'" onclick="pcVote(\'cancel\')">'+(on('cancel')?'&#10003; ':'')+'Cancel '+esc(pollPhrase(d))+'</button>'
         +'<button class="btn btn-sm" style="flex:1;background:#1e7e34;color:#fff;'+(on('play')?'outline:3px solid #d4a843;':'opacity:'+(d.you.vote?'.55':'1')+';')+'" onclick="pcVote(\'play\')">'+(on('play')?'&#10003; ':'')+'Let\'s play</button></div>';
       b+=gray(pollCountsLine(d.counts));
     } else if(d.you){

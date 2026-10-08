@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Weather Vote · CourtSense</title>
-<meta name="description" content="Vote on tonight's league weather call.">
+<meta name="description" content="Vote on the league weather call.">
 <meta name="robots" content="noindex">
 
 <link rel="icon" href="/favicon.ico">
@@ -93,7 +93,7 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
         <button class="btn btn-play" id="btn-play" onclick="castVote('play')">Let's play</button>
       </div>
       <div class="form-err" id="vote-err"></div>
-      <p class="note">You can change your vote until voting closes. If at least 60% of players vote and two-thirds say cancel, the night is canceled.</p>
+      <p class="note" id="vote-rule">You can change your vote until voting closes. If at least 60% of players vote and two-thirds say cancel, the night is canceled.</p>
     </div>
   </section>
 
@@ -145,7 +145,9 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
 // carries u instead. The secret is read once and then removed from the address bar.
 // This page never reads or writes Firebase; every call goes to the worker.
 const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
-const VOTE_LABEL = { cancel: 'Cancel tonight', play: "Let's play" };
+// "Cancel tonight" when the night is today, "Cancel Tue, Oct 13" otherwise. The worker
+// decides which (nightPhrase, Eastern), so the device clock never matters.
+function voteLabel(v){ return v === 'cancel' ? 'Cancel ' + ((current && current.nightPhrase) || 'tonight') : (v === 'play' ? "Let's play" : v); }
 
 const q = new URLSearchParams(window.location.search);
 const link = { scope: q.get('s') || '', sub: q.get('d') || '', n: q.get('n') || '', a: q.get('a') || '', m: q.get('m') || '' };
@@ -192,14 +194,16 @@ function baseFacts(j){
 function render(j){
   current = j;
   if(!j || j.code === 'invalid_link'){ show('state-invalid'); return; }
+  $('btn-cancel').textContent = voteLabel('cancel');
+  $('vote-rule').textContent = 'You can change your vote until voting closes. If at least 60% of ' + (j.voters === 'captains' ? 'captains' : 'players') + ' vote and two-thirds say cancel, the night is canceled.';
   if(j.code === 'net'){ show('state-invalid'); $('state-invalid').querySelector('.facts').textContent = "Can't reach CourtSense right now. Try the link again in a moment."; return; }
   if(j.status === 'open'){
     if(j.myVote){
-      $('voted-big').textContent = 'Thanks, your vote is in: ' + (VOTE_LABEL[j.myVote] || j.myVote);
+      $('voted-big').textContent = 'Thanks, your vote is in: ' + voteLabel(j.myVote);
       $('voted-big').className = 'big ' + (j.myVote === 'cancel' ? 'cancel' : 'play');
       setFacts($('voted-facts'), baseFacts(j).concat([['So far', countsLine(j.counts)]]));
       const other = j.myVote === 'cancel' ? 'play' : 'cancel';
-      $('btn-switch').textContent = 'Switch my vote to: ' + VOTE_LABEL[other];
+      $('btn-switch').textContent = 'Switch my vote to: ' + voteLabel(other);
       $('voted-err').textContent = '';
       show('state-voted');
     } else {
@@ -213,11 +217,11 @@ function render(j){
   let big = 'Voting is closed', cls = 'navy';
   if(j.status === 'closing') big = 'Voting closed. Making the call now.';
   else if(j.status === 'undone'){ big = 'League is back on'; cls = 'play'; }
-  else if(j.decision === 'cancel'){ big = 'Canceled tonight'; cls = 'cancel'; }
-  else if(j.decision === 'play'){ big = 'League is on tonight'; cls = 'play'; }
+  else if(j.decision === 'cancel'){ big = 'Canceled ' + (j.nightPhrase || 'tonight'); cls = 'cancel'; }
+  else if(j.decision === 'play'){ big = 'League is on ' + (j.nightPhrase || 'tonight'); cls = 'play'; }
   $('closed-big').textContent = big;
   $('closed-big').className = 'big ' + cls;
-  setFacts($('closed-facts'), baseFacts(j).concat([['Votes', countsLine(j.counts)], ['Your vote', j.myVote ? VOTE_LABEL[j.myVote] : '']]));
+  setFacts($('closed-facts'), baseFacts(j).concat([['Votes', countsLine(j.counts)], ['Your vote', j.myVote ? voteLabel(j.myVote) : '']]));
   show('state-closed');
 }
 
