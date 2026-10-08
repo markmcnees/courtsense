@@ -327,7 +327,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <p style="font-size:13px;color:var(--gray);margin-bottom:12px;">Used for weather calls. Start time is first serve. The director gets an email when a night is canceled.</p>
       <div class="row2">
         <div class="fg" style="margin:0;"><label class="lbl">Start time</label><input class="inp" type="time" id="st-time"></div>
-        <div class="fg" style="margin:0;"><label class="lbl">Venue</label><select class="inp" id="st-venue" onchange="stVenueChange()"></select></div>
+        <div class="fg" style="margin:0;"><label class="lbl">Venue</label><select class="inp" id="st-venue" onchange="stVenueChange()"></select><div id="st-farea" style="display:none;font-size:12px;color:var(--gray);margin-top:4px;"></div></div>
       </div>
       <div id="st-custom" style="display:none;margin-bottom:10px;">
         <div class="fg" style="margin:0 0 8px;"><label class="lbl">Venue name</label><input class="inp" id="st-vname" maxlength="80" placeholder="Park name"></div>
@@ -532,7 +532,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=de36003a"></script>
+<script src="/kotb-app.js?v=cc6393aa"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">

@@ -3135,6 +3135,9 @@ function stFill(j){
   $('st-vlat').value=(v&&v.key==='custom')?String(v.lat):'';
   $('st-vlon').value=(v&&v.key==='custom')?String(v.lon):'';
   stVenueChange();
+  // Where the weather check reads its forecast, so a mistyped custom venue stands out.
+  const fa=$('st-farea');
+  if(fa){ fa.textContent=v&&v.forecastCity?('Forecast area: '+v.forecastCity):''; fa.style.display=v&&v.forecastCity?'block':'none'; }
   $('st-email').value='';
   $('st-email').placeholder=j.directorEmailMasked||'Not set';
   stDrawScorekeepers(Array.isArray(j.scorekeepers)?j.scorekeepers:[]);
