@@ -215,6 +215,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <!-- STANDINGS -->
   <div class="pane on" id="pane-standings">
     <div id="poll-player"></div>
+    <div id="out-player"></div>
     <div class="card" style="padding:0;overflow:hidden;">
       <div style="overflow-x:auto;">
         <table class="tbl" id="stbl">
@@ -505,6 +506,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   </div>
 </div>
 
+<div class="overlay" id="out-modal">
+  <div class="modal">
+    <div class="mtitle"><span>Out tonight</span><button class="mclose" onclick="closeModal('out-modal')">✕</button></div>
+    <p id="out-body" style="font-size:15px;line-height:1.5;"></p>
+    <button class="btn btn-p btn-w" style="margin-top:16px;" onclick="closeModal('out-modal')">OK</button>
+  </div>
+</div>
+
 <!-- EDIT RESULT MODAL -->
 <div class="overlay" id="edit-result-modal">
   <div class="modal">
@@ -532,7 +541,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=cc6393aa"></script>
+<script src="/kotb-app.js?v=0b3da32d"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">

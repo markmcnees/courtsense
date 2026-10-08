@@ -298,6 +298,18 @@ function pNR(v){const p=gP(v);return p?p.name:(typeof v==='string'&&v.trim()?v:'
 // string '__SUB__'; current code stores true. Accept both so a page left open across
 // a deploy keeps working.
 function isSubMark(v){return v===true||v==='__SUB__';}
+// Players who marked themselves out for a week (written by the worker, never by a page).
+function weekOut(wid){ const w=((D[SIDE]||{}).weeks||{})[wid]; return (w&&w.out&&typeof w.out==='object')?w.out:{}; }
+// Sub marks for one court: the week's out list, then this device's own marks on top. A
+// device mark is an explicit true or false, so a scorer can clear a pre-mark when the
+// player turns up after all.
+function courtSubsFor(wid, round, idx){
+  const own=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+idx])||{};
+  const out=weekOut(wid), m={};
+  Object.keys(out).forEach(pid=>{ if(out[pid]) m[pid]=true; });
+  Object.keys(own).forEach(pid=>{ m[pid]=own[pid]===false?false:isSubMark(own[pid]); });
+  return m;
+}
 function closeModal(id){$(id).classList.remove('on');}
 
 // ─── WEEK LOCK ───
@@ -784,9 +796,9 @@ function initTabs(){
 
 function refreshAll(){fillWeekSels();refreshTab(tab);}
 function refreshTab(t){
-  if(t==='standings'){ renderStandings(); pcMaybeLoad(); }
+  if(t==='standings'){ renderStandings(); pcMaybeLoad(); ocMaybeLoad(); }
   else if(t==='planner'){renderRoster();renderPlannerCfg();loadWeekDetail();renderArchives();renderLinkAccounts();renderLeagueSettings();renderPollAdmin();}
-  else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();}
+  else if(t==='score'){fillWeekSels();renderScoreAbsencePanel();renderWeekActions();renderRoundPills();renderLiveCourts();ocMaybeLoad();}
   else if(t==='ratings'){renderRatings();renderRatingsHeader();}
 }
 
@@ -1219,6 +1231,10 @@ function loadWeekDetail(){
     <strong>Week ${week.weekNum}</strong> · ${fD(week.date)}`;
   const abNames=absences.map(id=>pN(id)).filter(n=>n!=='?');
   if(abNames.length) h+=`<div class="chip-grp">${abNames.map(n=>`<span class="abs-chip">📵 ${n}</span>`).join('')}</div>`;
+  // Players who marked themselves out from the app, kept apart from the admin's own list.
+  const outNow=week.out||{};
+  const outNames=Object.keys(outNow).filter(id=>outNow[id]).map(id=>pN(id)).filter(n=>n!=='?');
+  if(outNames.length) h+=`<div class="chip-grp">${outNames.map(n=>`<span class="abs-chip">Out (self): ${esc(n)}</span>`).join('')}</div>`;
   const subNames=(subs||[]).map(s=>`${s.name} ➜ ${pN(s.forPlayerId)}`);
   if(subNames.length) h+=`<div class="chip-grp">${subNames.map(n=>`<span class="abs-chip sub-chip">🔄 ${n}</span>`).join('')}</div>`;
   h+='</div>';
@@ -2170,8 +2186,9 @@ function renderLiveCourts(){
 
   let h='';
   (rd.courts||[]).forEach((c,idx)=>{
-    // Get overridden players for this court (sub swaps done on the score screen)
-    const overrides = window._courtSubs[liveWeek+':'+liveRound+':'+idx] || {};
+    // Sub marks for this court: players marked out for the week, plus this device's marks.
+    const overrides = courtSubsFor(liveWeek, liveRound, idx);
+    const outNow = weekOut(liveWeek);
 
     // Build team arrays. The scheduled player's name is always what shows: a sub is
     // indicated by the marker styling, never by substituting a different name.
@@ -2180,7 +2197,8 @@ function renderLiveCourts(){
       return {
         id,
         displayName: isRegistered?pN(id):pNR(id),
-        isSub: !isRegistered||isSubMark(overrides[id])
+        isSub: !isRegistered||isSubMark(overrides[id]),
+        out: isRegistered&&!!outNow[id]
       };
     });
     const t1r = resolveTeam(c.t1);
@@ -2191,10 +2209,12 @@ function renderLiveCourts(){
     const t2AllSubs = t2r.every(p => p.isSub);
     const isForfeit = t1AllSubs || t2AllSubs;
 
+    // A player who marked themselves out reads "Name (out)"; a mark made on this device
+    // alone keeps the "Name*" form.
     const teamHTML = (team) => team.map(p =>
       p.isSub
-        ? `<span style="color:#92400e;font-style:italic;">${p.displayName}*</span>`
-        : p.displayName
+        ? `<span style="color:#92400e;font-style:italic;">${esc(p.displayName)}${p.out?' (out)':'*'}</span>`
+        : esc(p.displayName)
     ).join(' &amp; ');
 
     const t1html = teamHTML(t1r);
@@ -2255,6 +2275,7 @@ function renderLiveCourts(){
     h += `<div class="card" style="opacity:.65;"><div style="font-size:14px;color:var(--gray);">Sitting out Round ${rd.round}: <strong>${rd.sitting.map(id=>pN(id)).join(', ')}</strong></div></div>`;
   }
   cont.innerHTML = h;
+  scorerOutCheck();
 }
 
 // ─── SUB MARK MODAL ───
@@ -2264,7 +2285,7 @@ function renderLiveCourts(){
 let _swapCtx = null;
 function openSubSwap(weekId, round, idx, t1s, t2s){
   _swapCtx = {weekId, round, idx, t1:t1s.split(',').filter(Boolean), t2:t2s.split(',').filter(Boolean)};
-  const overrides = window._courtSubs[weekId+':'+round+':'+idx] || {};
+  const overrides = courtSubsFor(weekId, round, idx);
 
   let h = `<div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1.5px;color:var(--gray);margin-bottom:14px;">Tap Sub for anyone who is out tonight and had someone fill in. Their name stays on the card, and the game will not count for them.</div>`;
 
@@ -2313,11 +2334,12 @@ function applySubSwap(){
   if(!_swapCtx) return;
   const key = _swapCtx.weekId+':'+_swapCtx.round+':'+_swapCtx.idx;
   if(!window._courtSubs) window._courtSubs = {};
-  // Marks only. The value is always true, so nothing here can become a team slot.
+  // Marks only, true or false for every slot on the court, so nothing here can become a
+  // team slot and an unchecked box clears a pre-mark from the week's out list.
   const overrides = {};
   [..._swapCtx.t1, ..._swapCtx.t2].forEach(pid => {
     const cb = document.getElementById('issub-'+pid);
-    if(cb && cb.checked) overrides[pid] = true;
+    overrides[pid] = !!(cb && cb.checked);
   });
   window._courtSubs[key] = overrides;
   $('abs-modal').classList.remove('on');
@@ -2389,7 +2411,7 @@ async function saveScore(wid,round,court,t1s,t2s,idx){
   const t1=t1s.split(',').filter(Boolean);
   const t2=t2s.split(',').filter(Boolean);
   const id=gi('r');
-  const ov=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+idx])||{};
+  const ov=courtSubsFor(wid,round,idx);
   // The teams stored are ALWAYS the scheduled player ids. A marked slot keeps its id
   // and is recorded in subSlots, which is what calcStats and the rating resolver skip.
   // Nothing from the override map is ever written into a team, so a slot cannot hold
@@ -2434,7 +2456,7 @@ async function saveForfeit(wid,round,court,t1s,t2s,t1forfeit,idx){
   // Same rule saveScore follows. This path used to map the override value straight
   // into the team, which is how the literal marker string reached storage as a team
   // member. The teams are the scheduled ids and the marks go to subSlots.
-  const overrides=(window._courtSubs&&window._courtSubs[wid+':'+round+':'+(idx||0)])||{};
+  const overrides=courtSubsFor(wid,round,idx||0);
   const subSlots=[...t1,...t2].filter(pid=>isSubMark(overrides[pid]));
   const st1=t1.slice(),st2=t2.slice();
   const s1=t1forfeit?10:15, s2=t1forfeit?15:10;
@@ -3413,6 +3435,93 @@ document.addEventListener('visibilitychange', function(){
   if(document.visibilityState==='visible' && _pc.data && _pc.data.status==='open') pcLoad();
 });
 
+// ─── YOUR NIGHTS (self-absence) ───
+// A signed-in player linked to roster entries on this side marks them out for an
+// upcoming night, or back in, until the night locks (first score) or first serve. The
+// worker holds the record and writes weeks/{wid}/out, which the Score tab reads to mark
+// their slots Sub for everyone.
+let _oc={side:null,data:null,at:0,loading:false};
+function ocMaybeLoad(){
+  if(_oc.loading) return;
+  if(_oc.side===SIDE && Date.now()-_oc.at<30000) return;
+  ocLoad();
+}
+async function ocLoad(){
+  const side=SIDE;
+  _oc.loading=true;
+  try{
+    await Promise.race([_authReady, new Promise(function(r){ setTimeout(r, 6000); })]);
+    const tok=pcToken();
+    if(!tok){ _oc.side=side; _oc.at=Date.now(); _oc.data=null; ocDraw(); return; }
+    const res=await pcFetch('/league/absence/mine', { sessionToken:tok, scope:LA_SCOPE, sub:side });
+    if(side!==SIDE) return;
+    _oc.side=side; _oc.at=Date.now();
+    _oc.data=(res.j&&res.j.ok===true)?res.j:null;
+    ocDraw();
+    scorerOutCheck();
+  } finally { _oc.loading=false; }
+}
+function ocDraw(){
+  const el=$('out-player'); if(!el) return;
+  const d=_oc.side===SIDE?_oc.data:null;
+  if(!d||!Array.isArray(d.entries)||!d.entries.length||!Array.isArray(d.nights)||!d.nights.length){ el.innerHTML=''; return; }
+  const many=d.entries.length>1;
+  let h='<div class="card"><div class="ctitle"><span class="bar"></span>Your nights</div>'
+    +'<p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Can\'t make a night? Mark yourself out and your games show as Sub for everyone.</p>';
+  d.nights.forEach(function(n){
+    h+='<div style="padding:8px 0;border-top:1px solid var(--sand-border);">'
+      +'<div style="font-weight:700;font-size:14px;">'+esc(n.dateLabel||n.date||'')+(n.firstServe?('<span style="font-weight:400;color:var(--gray);">, first serve '+esc(n.firstServe)+'</span>'):'')+'</div>';
+    d.entries.forEach(function(e){
+      const isOut=!!(n.out&&n.out[e.rosterId]);
+      const label=n.cutoffPassed?'Locked':(isOut?'Back in':"I'm out");
+      const style=n.cutoffPassed?'background:var(--gray-lighter);color:var(--gray);cursor:not-allowed;':(isOut?'background:#1e7e34;color:#fff;':'background:#b42318;color:#fff;');
+      h+='<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">'
+        +'<span style="flex:1;font-size:13px;">'+(many?esc(e.name)+': ':'')+(isOut?'<strong style="color:#b42318;">Out</strong>':'Playing')+'</span>'
+        +'<button class="btn btn-sm" style="'+style+'"'+(n.cutoffPassed?' disabled':'')
+        +' onclick="ocSet(\''+esc(n.wid)+'\',\''+esc(e.rosterId)+'\','+(!isOut)+')">'+esc(label)+'</button></div>';
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h+'</div>';
+}
+async function ocSet(wid, rosterId, out){
+  const d=_oc.data; if(!d) return;
+  const n=(d.nights||[]).filter(function(x){ return x.wid===wid; })[0]; if(!n||n.cutoffPassed) return;
+  const tok=pcToken(); if(!tok){ toast('Sign in again'); return; }
+  const before=Object.assign({}, n.out||{});
+  n.out=Object.assign({}, n.out||{}); if(out) n.out[rosterId]=true; else delete n.out[rosterId];
+  ocDraw();
+  const res=await pcFetch('/league/absence/set', { sessionToken:tok, scope:LA_SCOPE, sub:_oc.side, wid:wid, rosterId:rosterId, out:out });
+  if(res.j&&res.j.ok===true&&res.j.night){
+    const i=d.nights.indexOf(n); if(i>=0) d.nights[i]=res.j.night;
+    ocDraw();
+    toast(out?"You're marked out":"You're back in");
+    return;
+  }
+  n.out=before; ocDraw();
+  toast((res.j&&res.j.error)||'Could not save. Try again.');
+  if(res.status===409) ocLoad();
+}
+// Scorer pop-up: on tonight's week, for a device with scoring unlocked or a signed-in
+// scorekeeper, list who is out. Once per night per device, and again if the list changes.
+function scorerOutCheck(){
+  if(tab!=='score'||!liveWeek) return;
+  const week=((D[SIDE]||{}).weeks||{})[liveWeek];
+  if(!week||week.date!==td()) return;
+  const sk=(_oc.side===SIDE&&_oc.data&&_oc.data.scorekeeper===true)||(_pc.side===SIDE&&_pc.data&&_pc.data.you&&_pc.data.you.scorekeeper===true);
+  if(!_scoreUnlocked&&!sk) return;
+  const out=week.out||{};
+  const ids=Object.keys(out).filter(function(id){ return out[id]; }).sort();
+  if(!ids.length||!$('out-modal')) return;
+  const key='kotb_outseen_'+SIDE+'_'+liveWeek, val=ids.join(',');
+  let seen=null; try{ seen=localStorage.getItem(key); }catch(e){}
+  if(seen===val) return;
+  try{ localStorage.setItem(key, val); }catch(e){}
+  const names=ids.map(function(id){ return pN(id); }).filter(function(x){ return x!=='?'; });
+  $('out-body').textContent=ids.length+' player'+(ids.length===1?'':'s')+' out tonight: '+names.join(', ')+'. Their games are marked Sub. Line up fillers before first serve.';
+  $('out-modal').classList.add('on');
+}
+
 let _pinBusy=false;
 function pinTap(v){
   if(_pinBusy)return;
@@ -3453,6 +3562,7 @@ function _pinUnlocked(){
   else if(_pinAction==='score'){
     // Unlock first, so the replayed call passes the gate instead of reopening it.
     _scoreUnlocked=true;
+    scorerOutCheck();
     const replay=_pendingScoreAction; _pendingScoreAction=null;
     // A replayed action reports its own outcome, so the coach sees the real save
     // feedback rather than an unlock message that reads like a save confirmation.
@@ -3557,11 +3667,13 @@ function lcOnLogin(player){
   if(_lcPendingOpen){ _lcPendingOpen = false; openLeagueChat(); }
   else if(_lcOpen){ $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : ''; }
   pcLoad(); // the weather poll card shows the signed-in player's vote
+  ocLoad();
 }
 function lcOnLogout(){
   _lcPid = null; _lcName = '';
   if(_lcOpen) closeLeagueChat();
   pcLoad();
+  ocLoad();
 }
 
 function openLeagueChat(){
