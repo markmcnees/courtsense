@@ -72,7 +72,10 @@
     });
   }
 
+  // A VAPID public key is exactly 87 base64url characters (a 65 byte P-256 point).
+  // Anything else is refused here, before atob, with its own code.
   function keyBytes(b64){
+    if(typeof b64 !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(b64)) throw new Error('bad_key');
     var s = b64.replace(/-/g, '+').replace(/_/g, '/');
     s += '==='.slice((s.length + 3) % 4);
     var bin = atob(s), out = new Uint8Array(bin.length);
@@ -110,8 +113,20 @@
     });
   }
 
+  // Tag a rejection with the failure code the card shows, keeping the first tag set.
+  function failWith(code){
+    return function(e){
+      if(e && e.csCode) throw e;
+      var err = new Error(code); err.csCode = code; throw err;
+    };
+  }
+
   // Call from a tap handler. requestPermission runs first, before any other await,
   // because Safari only honors it as the direct result of a user gesture.
+  // Failure codes: unsupported, adult_required, unauthorized, denied, dismissed,
+  // sw_failed (service worker did not register), not_configured, bad_key (the worker's
+  // public key is malformed), push_refused (the browser's push service said no),
+  // network (a request to CourtSense failed), or the worker's own error code.
   function subscribe(adultConfirmed){
     if(!supported()) return Promise.resolve({ ok: false, code: 'unsupported' });
     if(adultConfirmed !== true) return Promise.resolve({ ok: false, code: 'adult_required' });
@@ -120,22 +135,29 @@
     var permP = Notification.requestPermission();
     return Promise.resolve(permP).then(function(perm){
       if(perm !== 'granted') return { ok: false, code: perm === 'denied' ? 'denied' : 'dismissed' };
-      return Promise.all([register(), publicKey()]).then(function(v){
+      var keyP = publicKey().catch(function(e){
+        return failWith(e && e.message === 'not_configured' ? 'not_configured' : 'network')(e);
+      });
+      return Promise.all([register(), keyP]).then(function(v){
         var r = v[0], key = v[1];
-        if(!r || !r.pushManager) return { ok: false, code: 'unsupported' };
+        if(!r || !r.pushManager) return { ok: false, code: 'sw_failed' };
+        var appKey;
+        try { appKey = keyBytes(key); } catch(e){ return { ok: false, code: 'bad_key' }; }
         return r.pushManager.getSubscription().then(function(existing){
-          return existing || r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
-        }).then(function(sub){
-          return post('/push/subscribe', { sessionToken: tok, subscription: sub.toJSON(), adultConfirmed: true }).then(function(j){
-            if(j.ok === true) return { ok: true };
-            // The worker refused: do not leave a browser subscription nobody can reach.
-            sub.unsubscribe().catch(function(){});
-            return { ok: false, code: j.code || ('http_' + j._status), error: j.error };
-          });
+          return existing || r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+        }).catch(failWith('push_refused')).then(function(sub){
+          return post('/push/subscribe', { sessionToken: tok, subscription: sub.toJSON(), adultConfirmed: true })
+            .catch(failWith('network'))
+            .then(function(j){
+              if(j.ok === true) return { ok: true };
+              // The worker refused: do not leave a browser subscription nobody can reach.
+              sub.unsubscribe().catch(function(){});
+              return { ok: false, code: j.code || ('http_' + j._status), error: j.error };
+            });
         });
       });
     }).catch(function(e){
-      return { ok: false, code: (e && e.message === 'not_configured') ? 'not_configured' : 'failed' };
+      return { ok: false, code: (e && e.csCode) || 'failed' };
     });
   }
 

@@ -22,7 +22,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/push.js?v=e85732fb"></script>
+<script src="/push.js?v=fcbf37e8"></script>
 <!-- Shared site nav: three links only; page keeps its own Log Out (authControl:false). -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false };</script>
 <script src="/nav.js?v=c4011a9d"></script>
@@ -1601,11 +1601,23 @@ async function doPushOn(){
   if(r.code === 'hs_account'){ pushShow('hs'); return; }
   if(r.code === 'denied'){ pushShow('denied'); return; }
   if(r.code === 'unauthorized'){ pushShow('signin'); return; }
-  if(r.code === 'not_configured'){ pushShow('notready'); return; }
+  if(r.code === 'not_configured' || r.code === 'bad_key'){ pushShow('notready'); return; }
   btn.disabled = !$('push-adult').checked;
-  $('push-err').textContent = r.code === 'dismissed'
-    ? 'Tap Allow when your phone asks, so CourtSense can send alerts.'
-    : (r.error || 'Could not turn on alerts. Try again in a moment.');
+  const known = {
+    dismissed: 'Tap Allow when your phone asks, so CourtSense can send alerts.',
+    sw_failed: 'This browser could not start notifications. Try Chrome, or reload the page.',
+    push_refused: "Your phone's notification service did not accept the request. Check that notifications are allowed for this site, then try again.",
+    network: 'Could not reach CourtSense. Check your connection and try again.'
+  };
+  const el = $('push-err');
+  if(known[r.code]){ el.textContent = known[r.code]; return; }
+  // Anything else: the worker's message when it sent one, otherwise the generic one,
+  // plus the code in small text so it can be reported.
+  el.textContent = r.error || 'Could not turn on alerts. Try again in a moment.';
+  const code = document.createElement('div');
+  code.style.cssText = 'font-size:11px;font-weight:400;color:var(--gray);margin-top:4px;';
+  code.textContent = 'Code: ' + (r.code || 'unknown');
+  el.appendChild(code);
 }
 
 async function doPushTest(){
