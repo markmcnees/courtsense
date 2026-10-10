@@ -2170,6 +2170,7 @@ function isRoundDone(rd){
 }
 
 function renderLiveCourts(){
+  renderOutChip();
   const cont=$('live-courts');
   const week=D[SIDE].weeks[liveWeek];
   if(!week){cont.innerHTML=`<div class="empty"><div class="eico">📅</div><p class="etxt">Select a week to load tonight's games.</p></div>`;return;}
@@ -3524,24 +3525,56 @@ async function ocSet(wid, rosterId, out){
   toast((res.j&&res.j.error)||'Could not save. Try again.');
   if(res.status===409) ocLoad();
 }
+// Today's date in Tallahassee, as YYYY-MM-DD to match week.date. Used only for the
+// out-tonight pop-up and chip, so a device in another time zone agrees with the league.
+// Falls back to the device date if the browser cannot format the zone.
+function easternToday(){
+  try{
+    const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    const g=function(t){ return (p.find(function(x){ return x.type===t; })||{}).value||''; };
+    const s=g('year')+'-'+g('month')+'-'+g('day');
+    return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:td();
+  }catch(e){ return td(); }
+}
+// The out list for liveWeek when this device should see it: the week is tonight and the
+// viewer is a signed-in scorekeeper or has scoring unlocked. Otherwise null.
+function outTonightIds(){
+  if(!liveWeek) return null;
+  const week=((D[SIDE]||{}).weeks||{})[liveWeek];
+  if(!week||week.date!==easternToday()) return null;
+  const sk=(_oc.side===SIDE&&_oc.data&&_oc.data.scorekeeper===true)||(_pc.side===SIDE&&_pc.data&&_pc.data.you&&_pc.data.you.scorekeeper===true);
+  if(!_scoreUnlocked&&!sk) return null;
+  const out=weekOut(liveWeek);
+  return Object.keys(out).filter(function(id){ return out[id]; }).sort();
+}
+// Fills and opens the out-tonight modal. The pop-up and the chip both land here.
+function showOutModal(ids){
+  if(!$('out-modal')||!$('out-body')) return;
+  if(!ids){ const out=weekOut(liveWeek); ids=Object.keys(out).filter(function(id){ return out[id]; }).sort(); }
+  if(!ids.length) return;
+  const names=ids.map(function(id){ return pN(id); }).filter(function(x){ return x!=='?'; });
+  $('out-body').textContent=ids.length+' player'+(ids.length===1?'':'s')+' out tonight: '+names.join(', ')+'. Their games are marked Sub. Line up fillers before first serve.';
+  $('out-modal').classList.add('on');
+}
+// "Out tonight (n)" chip beside the round pills. Same audience as the pop-up, hidden at
+// zero, and a tap always reopens the list (no show-once).
+function renderOutChip(){
+  const el=$('out-chip'); if(!el) return;
+  const ids=outTonightIds();
+  el.innerHTML=(ids&&ids.length)?`<button class="rpill out-chip" onclick="showOutModal()">Out tonight (${ids.length})</button>`:'';
+}
 // Scorer pop-up: on tonight's week, for a device with scoring unlocked or a signed-in
 // scorekeeper, list who is out. Once per night per device, and again if the list changes.
 function scorerOutCheck(){
   if(tab!=='score'||!liveWeek) return;
-  const week=((D[SIDE]||{}).weeks||{})[liveWeek];
-  if(!week||week.date!==td()) return;
-  const sk=(_oc.side===SIDE&&_oc.data&&_oc.data.scorekeeper===true)||(_pc.side===SIDE&&_pc.data&&_pc.data.you&&_pc.data.you.scorekeeper===true);
-  if(!_scoreUnlocked&&!sk) return;
-  const out=week.out||{};
-  const ids=Object.keys(out).filter(function(id){ return out[id]; }).sort();
-  if(!ids.length||!$('out-modal')) return;
+  renderOutChip();
+  const ids=outTonightIds();
+  if(!ids||!ids.length||!$('out-modal')) return;
   const key='kotb_outseen_'+SIDE+'_'+liveWeek, val=ids.join(',');
   let seen=null; try{ seen=localStorage.getItem(key); }catch(e){}
   if(seen===val) return;
   try{ localStorage.setItem(key, val); }catch(e){}
-  const names=ids.map(function(id){ return pN(id); }).filter(function(x){ return x!=='?'; });
-  $('out-body').textContent=ids.length+' player'+(ids.length===1?'':'s')+' out tonight: '+names.join(', ')+'. Their games are marked Sub. Line up fillers before first serve.';
-  $('out-modal').classList.add('on');
+  showOutModal(ids);
 }
 
 let _pinBusy=false;

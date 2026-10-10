@@ -123,6 +123,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 .rpill{padding:9px 16px;border-radius:24px;border:1.5px solid var(--gray-light);background:var(--white);font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;cursor:pointer;min-height:44px;color:var(--gray);}
 .rpill.on{background:var(--primary);border-color:var(--primary);color:#fff;}
 .rpill.done{background:var(--sand);border-color:var(--sand-border);color:var(--win);}
+.round-row{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px;}
+.round-row .round-pills{margin-bottom:0;}
+.rpill.out-chip{background:#fef3c7;border-color:#f59e0b;color:#92400e;}
 .matchup{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:14px;}
 .tname{font-weight:700;font-size:15px;line-height:1.2;}
 .tname.right{text-align:right;}
@@ -413,7 +416,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
     <div id="score-absence-panel" style="display:none;margin-bottom:12px;"></div>
     <div id="score-week-actions" style="display:none;margin-bottom:12px;"></div>
-    <div class="round-pills" id="round-pills"></div>
+    <div class="round-row"><div class="round-pills" id="round-pills"></div><div id="out-chip"></div></div>
     <div id="live-courts"></div>
   </div>
 
@@ -541,7 +544,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=5df541e2"></script>
+<script src="/kotb-app.js?v=3a4dd1d0"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">
