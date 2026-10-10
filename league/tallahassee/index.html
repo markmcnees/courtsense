@@ -282,6 +282,7 @@ body{
 }
 .btn-primary:hover{background:var(--gold-deep);transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.15);}
 .btn-primary:active{transform:translateY(0);}
+.btn-primary.btn-closed,.btn-primary.btn-closed:hover{background:var(--gold);opacity:0.5;cursor:default;transform:none;box-shadow:none;}
 
 /* CALM STATE */
 .calm{
@@ -1019,6 +1020,25 @@ function renderLeagues(cards){
     '</div>';
   }).join('');
 }
+// Where the season stands today, in Eastern time: 'open' (as before), 'closed' (the
+// registration deadline has passed) or 'ended' (the season end date has passed).
+// Dates are YYYY-MM-DD and compare as strings; a missing or malformed date never
+// closes anything, so the card falls back to its plain view.
+const SEASON_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function easternTodayYmd(){
+  try{
+    return new Intl.DateTimeFormat('en-CA', {timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
+  }catch(e){ return ''; }
+}
+function seasonPhase(cfg, today){
+  if(!SEASON_DATE_RE.test(today || '')) return 'open';
+  const end = SEASON_DATE_RE.test(cfg.seasonEnd || '') ? cfg.seasonEnd : '';
+  const deadline = SEASON_DATE_RE.test(cfg.registrationDeadline || '') ? cfg.registrationDeadline : '';
+  if(end && today > end) return 'ended';
+  if(deadline && today > deadline) return 'closed';
+  return 'open';
+}
+
 function renderSeason(cfg){
   const section = $('season-section');
   const nameEl = $('season-name');
@@ -1078,13 +1098,32 @@ function renderSeason(cfg){
   }
 
   const regUrl = safeUrl(cfg.registrationUrl);
-  if(regUrl){
+  const phase = seasonPhase(cfg, easternTodayYmd());
+  if(regUrl && phase === 'closed'){
+    // Deadline passed: a button-shaped label, not a link.
+    registerEl.innerHTML = '<span class="btn-primary btn-closed" aria-disabled="true">Registration closed</span>';
+    registerEl.style.display = 'block';
+    anyVisible = true;
+  }else if(regUrl){
     registerEl.innerHTML = '<a class="btn-primary" href="' + escapeHtml(regUrl) + '" target="_blank" rel="noopener">Register</a>';
     registerEl.style.display = 'block';
     anyVisible = true;
   }else{
     registerEl.innerHTML = '';
     registerEl.style.display = 'none';
+  }
+
+  if(phase === 'ended'){
+    // The season is over: say so, drop the dates, deadline and Register. Contact stays.
+    nameEl.textContent = (cfg.seasonName && cfg.seasonName.trim() ? cfg.seasonName.trim() : 'This season') + ' has ended';
+    nameEl.style.display = '';
+    datesEl.innerHTML = '<div class="season-line">Next season coming soon.</div>';
+    datesEl.style.display = 'block';
+    deadlineEl.innerHTML = '';
+    deadlineEl.style.display = 'none';
+    registerEl.innerHTML = '';
+    registerEl.style.display = 'none';
+    anyVisible = true;
   }
 
   section.style.display = anyVisible ? 'block' : 'none';
