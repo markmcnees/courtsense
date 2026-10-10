@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CourtSense">
+<meta name="theme-color" content="#082A4F">
+<title>Bring CourtSense to Your Program | CourtSense</title>
+<meta name="description" content="CourtSense for high school coaches, parks and rec leagues, and college teams and clubs. Live scores, schedules, standings and one player profile. Request a walkthrough.">
+<link rel="canonical" href="https://courtsense.app/programs/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Bring CourtSense to your program">
+<meta property="og:description" content="Your players get live scores, schedules and one profile. You get your nights back.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/programs/">
+<meta property="og:site_name" content="CourtSense">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;--err:#B42318;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.6;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+.hdr{background:var(--navy);padding:10px 16px;}
+.hdr-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.brand{display:flex;align-items:center;gap:10px;color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2.5px;text-decoration:none;min-height:44px;}
+.brand img{height:30px;width:auto;}
+.back{color:#ffffff;font-weight:600;font-size:15px;text-decoration:none;display:inline-flex;align-items:center;min-height:44px;padding:0 4px;}
+.back:hover{text-decoration:underline;}
+main{max-width:760px;margin:0 auto;padding:28px 16px 56px;}
+.kicker{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2.5px;color:var(--blue);}
+h1{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:1.5px;line-height:1.05;color:var(--navy);margin:4px 0 10px;}
+.lead{font-size:18px;color:var(--ink);margin-bottom:24px;}
+.cards{display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:16px;}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:18px;}
+.card h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.2px;color:var(--navy);margin-bottom:4px;line-height:1.1;}
+.card p{color:var(--slate);font-size:15px;}
+.card.hs{border-top:4px solid var(--navy);}
+.card.parks{border-top:4px solid var(--gold);}
+.card.college{border-top:4px solid var(--teal);}
+.live{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:var(--navy);color:#ffffff;border-left:6px solid var(--gold);border-radius:var(--radius);padding:18px;margin:8px 0 8px;text-decoration:none;}
+.live .lt{display:flex;flex-direction:column;gap:2px;}
+.live .lk{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--gold);}
+.live .ln{font-size:16px;font-weight:600;}
+.live .lgo{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;background:var(--gold);color:var(--navy);border-radius:24px;padding:10px 20px;min-height:44px;display:inline-flex;align-items:center;white-space:nowrap;}
+.live:hover .lgo{filter:brightness(1.05);}
+.tours{display:flex;flex-wrap:wrap;column-gap:22px;margin-bottom:22px;}
+.tour{display:inline-flex;align-items:center;min-height:44px;font-size:15px;color:var(--blue);font-weight:600;}
+.form-card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:20px 18px;}
+.form-card h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.2px;color:var(--navy);line-height:1.1;}
+.form-card .sub{color:var(--slate);font-size:15px;margin:4px 0 16px;}
+.fg{margin-bottom:14px;}
+.lbl{display:block;font-weight:600;font-size:14px;color:var(--ink);margin-bottom:4px;}
+.opt{font-weight:400;color:var(--slate);}
+.inp{width:100%;min-height:48px;padding:10px 12px;font:inherit;font-size:16px;color:var(--ink);background:#ffffff;border:1.5px solid var(--line);border-radius:10px;}
+.inp:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,129,171,0.18);}
+.inp.bad{border-color:var(--err);}
+.ferr{color:var(--err);font-size:13px;font-weight:600;min-height:0;margin-top:4px;}
+.ferr:empty{display:none;}
+.hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;}
+.btn{width:100%;min-height:50px;border:none;border-radius:24px;background:var(--navy);color:#ffffff;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;cursor:pointer;}
+.btn:hover{background:#0b3766;}
+.btn:disabled{opacity:0.6;cursor:default;}
+.form-err{color:var(--err);font-weight:600;font-size:14px;margin-top:10px;}
+.form-err:empty{display:none;}
+.thanks{font-size:18px;font-weight:600;color:var(--navy);padding:8px 0;}
+footer{text-align:center;font-size:14px;color:var(--slate);padding:24px 16px 32px;border-top:1px solid var(--line);}
+footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;display:inline-block;padding:8px 0;}
+footer a:hover{text-decoration:underline;}
+@media (min-width:640px){
+  h1{font-size:52px;}
+  .cards{grid-template-columns:repeat(3,1fr);}
+  .form-card{padding:26px 28px;}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="brand"><img src="/logo.png" alt="" onerror="this.style.display='none'"><span>CourtSense</span></a>
+    <a href="/" class="back">&larr; Back</a>
+  </div>
+</div>
+
+<main>
+  <div class="kicker">For programs</div>
+  <h1>Bring CourtSense to your program</h1>
+  <p class="lead">Your players get live scores, schedules and one profile. You get your nights back.</p>
+
+  <div class="cards">
+    <section class="card hs">
+      <h2>High school coaches</h2>
+      <p>Tryouts to roster to live duals to recruiting page.</p>
+    </section>
+    <section class="card parks">
+      <h2>Parks and rec leagues</h2>
+      <p>Schedules, live scoring, standings, weather calls.</p>
+    </section>
+    <section class="card college">
+      <h2>College teams and clubs</h2>
+      <p>Check-in, Kings nights, dues, tournaments.</p>
+    </section>
+  </div>
+
+  <a class="live" href="/league/tallahassee/">
+    <span class="lt">
+      <span class="lk">See it running</span>
+      <span class="ln">Tallahassee Parks and Rec: Kings, Queens, 4v4 Comp and Rec</span>
+    </span>
+    <span class="lgo">View live &rarr;</span>
+  </a>
+  <div class="tours">
+    <a class="tour" href="/league/">League directors: see the full league tour</a>
+    <a class="tour" href="/teams/">Coaches: see the full team tour</a>
+  </div>
+
+  <section class="form-card" id="request">
+    <h2>Request a walkthrough</h2>
+    <p class="sub">Tell us who you are and we will set up a short walkthrough.</p>
+    <form id="pr-form" novalidate>
+      <div class="fg">
+        <label class="lbl" for="pr-name">Your name</label>
+        <input class="inp" id="pr-name" name="name" type="text" maxlength="120" autocomplete="name" required>
+        <div class="ferr" id="err-name"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="pr-program">Program</label>
+        <input class="inp" id="pr-program" name="program" type="text" maxlength="120" placeholder="School, league or club" autocomplete="organization" required>
+        <div class="ferr" id="err-program"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="pr-email">Email</label>
+        <input class="inp" id="pr-email" name="email" type="email" maxlength="200" autocomplete="email" inputmode="email" required>
+        <div class="ferr" id="err-email"></div>
+      </div>
+      <div class="fg">
+        <label class="lbl" for="pr-role">Role <span class="opt">(optional)</span></label>
+        <select class="inp" id="pr-role" name="role">
+          <option value="">Choose one</option>
+          <option>High school coach</option>
+          <option>Parks and rec</option>
+          <option>College team or club</option>
+          <option>Tournament director</option>
+          <option>Other</option>
+        </select>
+        <div class="ferr" id="err-role"></div>
+      </div>
+      <div class="hp" aria-hidden="true">
+        <label for="pr-website">Website</label>
+        <input id="pr-website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <button class="btn" id="pr-submit" type="submit">Request a walkthrough</button>
+      <div class="form-err" id="pr-err" role="alert"></div>
+    </form>
+  </section>
+</main>
+
+<footer>
+  CourtSense, LLC
+  <br><a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
+</footer>
+
+<script>
+(function(){
+  var WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var FIELDS = ['name', 'program', 'email', 'role'];
+  var form = document.getElementById('pr-form');
+  var btn = document.getElementById('pr-submit');
+  var formErr = document.getElementById('pr-err');
+  function el(id){ return document.getElementById(id); }
+  function val(id){ var e = el(id); return e ? e.value.trim() : ''; }
+  function setErr(field, msg){
+    var e = el('err-' + field), i = el('pr-' + field);
+    if(e) e.textContent = msg || '';
+    if(i) i.classList.toggle('bad', !!msg);
+  }
+  function clearErrs(){ FIELDS.forEach(function(f){ setErr(f, ''); }); formErr.textContent = ''; }
+  function localCheck(d){
+    var ok = true;
+    if(d.name.length < 2){ setErr('name', 'Enter your name.'); ok = false; }
+    if(d.program.length < 2){ setErr('program', 'Enter your school, league or club.'); ok = false; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)){ setErr('email', "That email doesn't look right."); ok = false; }
+    return ok;
+  }
+  function done(){
+    var card = el('request');
+    card.innerHTML = '<h2>Request a walkthrough</h2><p class="thanks" role="status">Thanks. Mark will reach out within a day.</p>';
+  }
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    clearErrs();
+    var d = { name: val('pr-name'), program: val('pr-program'), email: val('pr-email'), role: val('pr-role'), website: el('pr-website').value };
+    if(!localCheck(d)){
+      var first = form.querySelector('.inp.bad');
+      if(first) first.focus();
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    fetch(WORKER + '/programs/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(d)
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ return { status: r.status, j: j || {} }; });
+    }).then(function(res){
+      if(res.j.ok === true){ done(); return; }
+      btn.disabled = false;
+      btn.textContent = 'Request a walkthrough';
+      if(res.status === 429){ formErr.textContent = 'Too many requests. Try again later.'; return; }
+      if(res.j.field && FIELDS.indexOf(res.j.field) >= 0){ setErr(res.j.field, res.j.error || 'Check this field.'); return; }
+      formErr.textContent = 'Something went wrong. Try again in a moment, or email hello@courtsense.app.';
+    }).catch(function(){
+      btn.disabled = false;
+      btn.textContent = 'Request a walkthrough';
+      formErr.textContent = 'Could not reach CourtSense. Check your connection and try again.';
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

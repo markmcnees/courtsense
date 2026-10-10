@@ -162,6 +162,7 @@ main{
 }
 
 /* ── PAGE HEADING ── */
+.pagetitle .nw{white-space:nowrap;}
 .pagetitle{
   font-family:'Bebas Neue',sans-serif;
   font-size:clamp(30px, 6.4vw, 54px);
@@ -188,7 +189,7 @@ main{
 }
 .intro p + p{margin-top:clamp(8px, 1.2vw, 14px);}
 
-/* ── PARTNER CTA: the one full-width call to action above the tiles ── */
+/* ── PARTNER CTA: the one full-width call to action, directly below the tiles ── */
 .partner-cta{
   width:100%;
   max-width:1100px;
@@ -197,7 +198,7 @@ main{
   justify-content:space-between;
   gap:16px;
   flex-wrap:wrap;
-  margin:0 auto clamp(18px, 2.6vw, 30px);
+  margin:clamp(18px, 2.6vw, 30px) auto 0;
   padding:clamp(16px, 2.4vw, 24px) clamp(18px, 3vw, 32px);
   min-height:44px;
   background:linear-gradient(135deg, var(--navy-head) 0%, var(--navy) 100%);
@@ -231,6 +232,28 @@ main{
   align-items:center;
   white-space:nowrap;
 }
+
+/* ── PROGRAMS CTA: secondary to the partner card, right below it ── */
+.programs-cta{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:48px;
+  margin:clamp(18px, 2.6vw, 28px) auto 0;
+  padding:10px 24px;
+  border:2px solid var(--navy-head);
+  border-radius:24px;
+  background:transparent;
+  color:var(--navy-head);
+  font-family:'Barlow',sans-serif;
+  font-weight:600;
+  font-size:15px;
+  text-decoration:none;
+  text-align:center;
+  transition:background 0.2s ease, color 0.2s ease;
+  animation:fadeUp 0.8s 0.25s ease-out backwards;
+}
+.programs-cta:hover,.programs-cta:focus-visible{background:var(--navy-head);color:#ffffff;}
 
 /* ── ONE PROFILE ── */
 .oneprofile{
@@ -274,12 +297,13 @@ footer a:hover{text-decoration:underline;}
   main{padding:24px 12px 50px;}
   .logo{max-width:220px;margin-bottom:24px;}
   .pagetitle{font-size:29px;margin-bottom:14px;}
-  .partner-cta{order:1;margin-bottom:18px;}
+  .pillars{order:1;}
+  .partner-cta{order:2;margin-top:18px;}
   .partner-cta .pc-arrow{width:100%;justify-content:center;}
-  .pillars{order:2;}
-  .intro{order:3;margin:26px auto 0;}
+  .programs-cta{order:3;}
+  .intro{order:4;margin:26px auto 0;}
   .intro p{font-size:13px;line-height:1.5;}
-  .oneprofile{order:4;font-size:13px;line-height:1.5;margin-top:18px;}
+  .oneprofile{order:5;font-size:13px;line-height:1.5;margin-top:18px;}
 }
 </style>
 <script type="application/ld+json">
@@ -299,20 +323,12 @@ footer a:hover{text-decoration:underline;}
 <main>
   <img src="logo.png" alt="" class="logo">
 
-  <h1 class="pagetitle">Beach Volleyball, Organized.</h1>
+  <h1 class="pagetitle">Beach and <span class="nw">Grass Volleyball,</span> <span class="nw">Organized.</span></h1>
 
   <div class="intro">
     <p>CourtSense is a beach volleyball platform for the people who run the game and the people who play it. Coaches manage rosters, lineups, and live scoring for high school and college programs. League directors build schedules, track standings, and run a full season without a spreadsheet. Players find a pickup game, get a rating, and carry one profile across every court they step on.</p>
     <p>It was built courtside in Tallahassee, Florida, by a coach and league director who needed it to work on a phone in the sand. The City of Tallahassee Parks Department runs its summer beach leagues on CourtSense, and Florida high school programs are using it for the 2026 season.</p>
   </div>
-
-  <a href="/partners/" class="partner-cta">
-    <span class="pc-text">
-      <span class="pc-title">Find a tournament partner</span>
-      <span class="pc-sub">See who is looking at upcoming events</span>
-    </span>
-    <span class="pc-arrow">See who is in →</span>
-  </a>
 
   <div class="pillars">
 
@@ -323,11 +339,11 @@ footer a:hover{text-decoration:underline;}
       <span class="arrow">Manage My Team →</span>
     </a>
 
-    <a href="/league/" class="pillar league">
+    <a href="/league/tallahassee/" class="pillar league">
       <span class="beta">Beta</span>
-      <h2>League/Club</h2>
-      <p>For cities, school clubs, and private clubs running a league or a one-day tournament.</p>
-      <span class="arrow">Run a League →</span>
+      <h2>City League</h2>
+      <p>Live scores, standings and ratings for your league.</p>
+      <span class="arrow">Open My League →</span>
     </a>
 
     <a href="/community/" class="pillar community">
@@ -339,11 +355,21 @@ footer a:hover{text-decoration:underline;}
 
   </div>
 
+  <a href="/partners/" class="partner-cta">
+    <span class="pc-text">
+      <span class="pc-title">Find a tournament partner</span>
+      <span class="pc-sub">See who is looking at upcoming events</span>
+    </span>
+    <span class="pc-arrow">See who is in →</span>
+  </a>
+
+  <a href="/programs/" class="programs-cta">Bring CourtSense to your program</a>
+
   <p class="oneprofile">One profile follows a player everywhere. Play a pickup game, join a city league, make a high school roster, and it is the same account and the same rating.</p>
 </main>
 
 <footer>
-  Built in the sand, USA. · <a href="mailto:mark@markmcnees.com">mark@markmcnees.com</a>
+  Built in the sand, USA. · <a href="mailto:hello@courtsense.app">hello@courtsense.app</a>
   <br><a href="/privacy/">Privacy</a> · <a href="/sms-terms/">Text Terms</a>
 </footer>
 
