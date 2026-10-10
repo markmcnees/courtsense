@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<link rel="manifest" href="/pickup/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pickup">
+<meta name="theme-color" content="#082A4F">
+<script>try{localStorage.setItem('cs_last_door','/pickup/');}catch(e){}</script>
 <meta name="robots" content="noindex, follow">
 <title>Tallahassee Beach Volleyball</title>
 <meta name="description" content="Pickup games, King of the Beach nights and sanctioned tournament listings for beach volleyball in Tallahassee. Run by CourtSense.">
@@ -1538,6 +1544,7 @@ function initFB(){
       D.tournaments = s.val()||{};
       trnLoadFailed = false;
       refreshAll();
+      openPendingTrn(true);
     }, e=>{
       console.warn('tournaments read failed', e);
       D.tournaments = {};
@@ -5011,6 +5018,22 @@ let trnDetailFrom = 'list';
 // POST was started from, not on the form that spawned it.
 let createFrom = 'list';
 function createdFromHere(){ return view === 'tournaments' ? 'tournaments' : 'list'; }
+
+// ?trn=<tournamentId>, the link the public /partners/ board uses, opens that
+// tournament's detail once a player is signed in AND the tournaments node has
+// arrived, whichever happens last. The login gate is untouched: a signed-out
+// visitor still meets it, and this only acts after it. Fires once. A tournament
+// that is gone by the time it loads leaves the player on the directory.
+let _pendingTrn = (new URLSearchParams(location.search).get('trn') || '').trim() || null;
+function openPendingTrn(tournamentsLoaded){
+  if(!_pendingTrn) return;
+  if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())) return;
+  if(!(D.tournaments || {})[_pendingTrn]){ if(tournamentsLoaded) _pendingTrn = null; return; }
+  const id = _pendingTrn;
+  _pendingTrn = null;
+  openTournamentDetail(id);
+}
+
 function openTournamentDetail(id){
   if(!(D.tournaments || {})[id]){ toast("Tournament not found"); return; }
   trnDetailFrom = (view === 'tournaments') ? 'tournaments' : 'list';
@@ -9565,6 +9588,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // key, leaving it empty; refreshAll() here corrects that and also covers the
       // invite-detail case the old narrow re-render handled.
       refreshAll();
+      openPendingTrn(false);
     },
     onLogout: () => {
       $('logout-btn').style.display = 'none';

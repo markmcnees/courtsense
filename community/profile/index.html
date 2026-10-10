@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CourtSense">
+<meta name="theme-color" content="#082A4F">
+<script>try{localStorage.setItem('cs_last_door','/community/profile/');}catch(e){}</script>
 <title>My Profile · CourtSense</title>
 <meta name="description" content="Tell us a bit about yourself so we can match you to the right games and partners.">
 <meta name="robots" content="noindex">
@@ -16,6 +22,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/auth.js?v=dbbd5380"></script>
+<script src="/push.js?v=e85732fb"></script>
 <!-- Shared site nav: three links only; page keeps its own Log Out (authControl:false). -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false };</script>
 <script src="/nav.js?v=c4011a9d"></script>
@@ -156,6 +163,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
 .gated{display:none;}
 .gated.on{display:block;}
+
+.sms-status{font-size:14px;color:var(--ink);}
+.sms-agree{display:flex;align-items:flex-start;gap:10px;padding:10px 0;font-size:13px;line-height:1.5;color:var(--ink);cursor:pointer;}
+.sms-agree input{width:18px;height:18px;margin-top:2px;flex-shrink:0;cursor:pointer;}
+.site-foot{text-align:center;font-size:13px;color:var(--gray);padding:8px 16px 32px;}
+.site-foot a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;}
+.site-foot a:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
@@ -269,10 +283,6 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <label class="toggle"><input type="checkbox" id="f-notify-canceled"><span class="tlbl">Game canceled <span class="soon-tag">coming soon</span></span></label>
       <label class="toggle"><input type="checkbox" id="f-notify-changed"><span class="tlbl">Game details changed <span class="soon-tag">coming soon</span></span></label>
     </div>
-    <div class="roadmap-callout" id="notif-roadmap">
-      <span class="rc-lead">What's coming</span>
-      Notifications reach you by email for now. Text messages are coming soon, and a full app is on the way.
-    </div>
     <div class="fg" style="margin-top:14px;">
       <label class="lbl" for="f-mute">Mute notifications until</label>
       <input class="inp" id="f-mute" type="date">
@@ -281,6 +291,76 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="actions" style="margin-top:14px;">
       <button type="button" class="btn btn-p btn-w" id="notif-save-btn" onclick="doSaveNotifications()">Save Notification Settings</button>
     </div>
+  </section>
+
+  <!-- TEXT ALERTS: opt-in for CourtSense Alerts. Status comes from the worker's
+       /auth/contact-status and saves go to /auth/contact in session mode, so the
+       number never touches a client-readable node. -->
+  <section class="section" id="sms-card">
+    <h3>Text alerts</h3>
+    <p class="sub">League and game alerts by text, for the programs you play in.</p>
+    <div id="sms-loading" class="help">Checking your text alert settings...</div>
+    <div id="sms-signin" class="note" style="display:none;">Sign out and back in to manage text alerts.</div>
+    <div id="sms-hs" class="note" style="display:none;">Text alerts are available for adult players. Your coach will keep reaching you by email.</div>
+    <div id="sms-on" style="display:none;">
+      <div class="sms-status">Texts are on to <strong id="sms-on-num"></strong></div>
+      <div class="actions" style="margin-top:12px;">
+        <button type="button" class="btn btn-g btn-w" id="sms-off-btn" onclick="doSmsOff()">Turn off texts</button>
+        <button type="button" class="btn btn-g btn-w" onclick="showSmsForm()">Use a different number</button>
+      </div>
+    </div>
+    <div id="sms-form" style="display:none;">
+      <div class="sms-status" id="sms-off-line">Texts are off.</div>
+      <div class="fg" style="margin-top:12px;">
+        <label class="lbl" for="sms-cell">Cell number</label>
+        <input class="inp" id="sms-cell" type="tel" inputmode="tel" autocomplete="tel" placeholder="(850) 555-0123" maxlength="40">
+        <div class="help" id="sms-cell-help">10 digits, or a plus sign and the full number.</div>
+      </div>
+      <label class="sms-agree">
+        <input type="checkbox" id="sms-consent">
+        <span>Yes, text me CourtSense league and game alerts at this number (weather cancellations, poll results, schedule changes, game-day notices). Message frequency varies. Msg and data rates may apply. Reply STOP to cancel, HELP for help. Consent is not required to play. <a class="help-link" href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a class="help-link" href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+      </label>
+      <label class="sms-agree">
+        <input type="checkbox" id="sms-adult">
+        <span>I am 18 or older.</span>
+      </label>
+      <div class="actions" style="margin-top:6px;">
+        <button type="button" class="btn btn-p btn-w" id="sms-save-btn" onclick="doSmsSave()" disabled>Turn On Text Alerts</button>
+      </div>
+    </div>
+    <div class="err" id="sms-err"></div>
+  </section>
+
+  <!-- PHONE NOTIFICATIONS: Web Push for this device. push.js talks to the worker's
+       /push routes with the same verified session as Text alerts; the worker repeats
+       the 18+ and high school checks. Permission is only requested on the button tap. -->
+  <section class="section" id="push-card">
+    <h3>Phone notifications</h3>
+    <p class="sub">Get league and game alerts on your lock screen: weather cancellations, poll results, and game-day notices.</p>
+    <div id="push-loading" class="help">Checking this device...</div>
+    <div id="push-signin" class="note" style="display:none;">Sign out and back in to manage phone notifications.</div>
+    <div id="push-hs" class="note" style="display:none;">Phone notifications are available for adult players.</div>
+    <div id="push-install" class="note" style="display:none;">To get alerts on iPhone: tap Share, then Add to Home Screen. Open CourtSense from your Home Screen, sign in, and turn on alerts from your profile.</div>
+    <div id="push-unsupported" class="note" style="display:none;">This browser does not support phone notifications. On Android, use Chrome. On iPhone, add CourtSense to your Home Screen first.</div>
+    <div id="push-notready" class="note" style="display:none;">Phone notifications are almost ready. Check back soon.</div>
+    <div id="push-denied" class="note" style="display:none;">Notifications are blocked for CourtSense on this device. To turn them back on: on iPhone, open Settings, then Notifications, then CourtSense, and allow notifications. On Android, open Chrome, tap the three dots, then Settings, then Site settings, then Notifications, and allow courtsense.app. Then come back here.</div>
+    <div id="push-off" style="display:none;">
+      <label class="sms-agree">
+        <input type="checkbox" id="push-adult">
+        <span>I am 18 or older.</span>
+      </label>
+      <div class="actions" style="margin-top:6px;">
+        <button type="button" class="btn btn-p btn-w" id="push-on-btn" onclick="doPushOn()" disabled>Turn on alerts</button>
+      </div>
+    </div>
+    <div id="push-on" style="display:none;">
+      <div class="sms-status">Alerts are on for this device</div>
+      <div class="actions" style="margin-top:12px;">
+        <button type="button" class="btn btn-g btn-w" id="push-test-btn" onclick="doPushTest()">Send me a test</button>
+        <button type="button" class="btn btn-g btn-w" id="push-off-btn" onclick="doPushOff()">Turn off on this device</button>
+      </div>
+    </div>
+    <div class="err" id="push-err"></div>
   </section>
 
   <form id="profile-form" onsubmit="return doSave(event)">
@@ -470,6 +550,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
 </main>
 
+<footer class="site-foot"><a href="/privacy/">Privacy</a> · <a href="/sms-terms/">Text Terms</a></footer>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -483,6 +565,8 @@ const FB_CFG = {
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
 const ROSTER_PATH = 'tally_kotb_pickup/players';
+const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+const SMS_CONSENT_VERSION = 'courtsense-sms-v1';
 const RATINGS_PATH = 'tally_kotb_pickup/ratings';
 const INVITES_PATH = 'tally_kotb_pickup/invites';
 const GROUPS_PATH = 'tally_kotb_pickup/groups';
@@ -1361,6 +1445,189 @@ async function loadOverview(){
   }
 }
 
+// ── Text alerts ──────────────────────────────────────────────────────────────
+// The worker owns every check that matters (session, 18+ confirmation, high
+// school link); this card only mirrors them so the form explains itself.
+
+// MIRRORS the worker's normalizePhone (src/auth.ts) and fsu_grass/signup.html's
+// normalizePhoneLocal. Only decides whether Save is enabled.
+function smsPhoneOk(input){
+  const raw = String(input == null ? '' : input).trim();
+  if(!raw) return false;
+  const digits = raw.replace(/\D/g, '');
+  if(raw.charAt(0) === '+') return digits.length >= 8 && digits.length <= 15;
+  return digits.length === 10 || (digits.length === 11 && digits.charAt(0) === '1');
+}
+
+function smsShow(state){
+  ['sms-loading','sms-signin','sms-hs','sms-on','sms-form'].forEach(function(id){
+    $(id).style.display = (id === 'sms-' + state) ? '' : 'none';
+  });
+}
+
+function smsUpdateSaveBtn(){
+  $('sms-save-btn').disabled = !($('sms-consent').checked && $('sms-adult').checked && smsPhoneOk($('sms-cell').value));
+}
+
+function showSmsForm(){
+  $('sms-off-line').style.display = 'none';
+  $('sms-cell').value = '';
+  $('sms-consent').checked = false;
+  $('sms-adult').checked = false;
+  smsUpdateSaveBtn();
+  smsShow('form');
+}
+
+function smsRenderStatus(j){
+  $('sms-err').textContent = '';
+  if(j.hsBlocked){ smsShow('hs'); return; }
+  if(j.smsConsent && j.last4){
+    $('sms-on-num').textContent = '•••-•••-' + j.last4;
+    smsShow('on');
+    return;
+  }
+  showSmsForm();
+  $('sms-off-line').style.display = '';
+}
+
+async function smsPost(path, payload){
+  const r = await fetch(AUTH_WORKER + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const j = await r.json().catch(function(){ return null; });
+  return { status: r.status, j: j || {} };
+}
+
+async function loadSmsStatus(){
+  $('sms-err').textContent = '';
+  const token = (CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null;
+  if(!currentPid || !token){ smsShow('signin'); return; }
+  $('sms-loading').textContent = 'Checking your text alert settings...';
+  smsShow('loading');
+  try {
+    const res = await smsPost('/auth/contact-status', { sessionToken: token });
+    if(res.status === 401){ smsShow('signin'); return; }
+    if(!res.j.ok) throw new Error('status ' + res.status);
+    smsRenderStatus(res.j);
+  } catch(e){
+    smsShow('loading');
+    $('sms-loading').textContent = 'Could not load your text alert settings. Refresh to try again.';
+  }
+}
+
+// Shared by turn on and turn off. Status codes only in the console, never the number.
+async function smsSave(payload, btn){
+  const token = CourtSenseAuth.getSessionToken();
+  if(!currentPid || !token){ smsShow('signin'); return false; }
+  $('sms-err').textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await smsPost('/auth/contact', Object.assign({
+      rosterPath: ROSTER_PATH, accountId: currentPid, sessionToken: token
+    }, payload));
+    if(res.j.ok === true && !(res.j.malformed && res.j.malformed.length)) return true;
+    if(res.j.code === 'hs_account'){ smsShow('hs'); return false; }
+    if(res.status === 401){ smsShow('signin'); return false; }
+    console.error('text alert save rejected', res.status, res.j.code || '');
+    $('sms-err').textContent = res.j.error || 'Could not save. Try again in a moment.';
+    return false;
+  } catch(e){
+    console.error('text alert save failed to reach the worker');
+    $('sms-err').textContent = 'Could not reach CourtSense. Check your connection and try again.';
+    return false;
+  } finally {
+    btn.disabled = false;
+    if(btn.id === 'sms-save-btn') smsUpdateSaveBtn();
+  }
+}
+
+async function doSmsSave(){
+  const cell = $('sms-cell').value.trim();
+  if(!($('sms-consent').checked && $('sms-adult').checked && smsPhoneOk(cell))){ smsUpdateSaveBtn(); return; }
+  const ok = await smsSave({
+    phone: cell,
+    smsConsent: true,
+    smsConsentVersion: SMS_CONSENT_VERSION,
+    smsConsentSource: 'profile',
+    adultConfirmed: true
+  }, $('sms-save-btn'));
+  if(ok){ toast('Text alerts are on.'); loadSmsStatus(); }
+}
+
+async function doSmsOff(){
+  const ok = await smsSave({ smsConsent: false }, $('sms-off-btn'));
+  if(ok){ toast('Text alerts are off.'); loadSmsStatus(); }
+}
+
+// ── Phone notifications ──────────────────────────────────────────────────────
+// push.js does the work and the worker makes every decision that matters; this
+// only picks which state of the card to show.
+function pushShow(state){
+  ['push-loading','push-signin','push-hs','push-install','push-unsupported','push-notready','push-denied','push-off','push-on'].forEach(function(id){
+    $(id).style.display = (id === 'push-' + state) ? '' : 'none';
+  });
+}
+
+async function loadPushStatus(){
+  $('push-err').textContent = '';
+  if(!window.CourtSensePush){ pushShow('unsupported'); return; }
+  if(!currentPid || !(CourtSenseAuth.isVerified && CourtSenseAuth.isVerified())){ pushShow('signin'); return; }
+  $('push-loading').textContent = 'Checking this device...';
+  pushShow('loading');
+  let s;
+  try { s = await CourtSensePush.status(); }
+  catch(e){ $('push-loading').textContent = 'Could not check phone notifications. Refresh to try again.'; return; }
+  if(!s.signedIn){ pushShow('signin'); return; }
+  if(s.hsBlocked){ pushShow('hs'); return; }
+  if(s.needsInstall){ pushShow('install'); return; }
+  if(!s.supported){ pushShow('unsupported'); return; }
+  if(!s.configured){ pushShow('notready'); return; }
+  if(s.subscribed && s.permission === 'granted'){ pushShow('on'); return; }
+  if(s.permission === 'denied'){ pushShow('denied'); return; }
+  $('push-adult').checked = false;
+  $('push-on-btn').disabled = true;
+  pushShow('off');
+}
+
+// Runs from the button tap, so the permission prompt counts as user initiated.
+async function doPushOn(){
+  if(!$('push-adult').checked) return;
+  const btn = $('push-on-btn');
+  btn.disabled = true;
+  $('push-err').textContent = '';
+  const r = await CourtSensePush.subscribe(true);
+  if(r.ok){ toast('Alerts are on for this device.'); loadPushStatus(); return; }
+  if(r.code === 'hs_account'){ pushShow('hs'); return; }
+  if(r.code === 'denied'){ pushShow('denied'); return; }
+  if(r.code === 'unauthorized'){ pushShow('signin'); return; }
+  if(r.code === 'not_configured'){ pushShow('notready'); return; }
+  btn.disabled = !$('push-adult').checked;
+  $('push-err').textContent = r.code === 'dismissed'
+    ? 'Tap Allow when your phone asks, so CourtSense can send alerts.'
+    : (r.error || 'Could not turn on alerts. Try again in a moment.');
+}
+
+async function doPushTest(){
+  const btn = $('push-test-btn');
+  btn.disabled = true;
+  $('push-err').textContent = '';
+  const r = await CourtSensePush.sendTest();
+  btn.disabled = false;
+  if(r.ok && r.sent){ toast('Test sent. It should arrive in a few seconds.'); return; }
+  if(r.ok){ $('push-err').textContent = 'No active device was found. Turn alerts off and on again here.'; loadPushStatus(); return; }
+  $('push-err').textContent = r.error || 'Could not send a test. Try again in a moment.';
+}
+
+async function doPushOff(){
+  const btn = $('push-off-btn');
+  btn.disabled = true;
+  await CourtSensePush.unsubscribe();
+  btn.disabled = false;
+  toast('Alerts are off for this device.');
+  loadPushStatus();
+}
+
 async function onLogin(player){
   currentPid = player.id;
   currentDisplayName = player.displayName || displayNameOf(player);
@@ -1377,6 +1644,8 @@ async function onLogin(player){
   $('f-vblink').value = (vbCur && vbCur.url) || '';
   renderVbStatus();
   fillNotifications(player);
+  loadSmsStatus();
+  loadPushStatus();
   loadRating(currentDisplayName);
   // Overview is the default tab, so it must render on first paint for a logged-in
   // user. Read-only; defensive (unrated players hit the empty state, not an error).
@@ -1396,6 +1665,10 @@ document.addEventListener('DOMContentLoaded', () => {
   db = firebase.database();
   const pwCur = document.getElementById('pw-current');
   if(pwCur) pwCur.addEventListener('input', () => { pwCurrentTyped = true; });
+  ['sms-cell','sms-consent','sms-adult'].forEach(function(id){
+    $(id).addEventListener(id === 'sms-cell' ? 'input' : 'change', smsUpdateSaveBtn);
+  });
+  $('push-adult').addEventListener('change', function(){ $('push-on-btn').disabled = !$('push-adult').checked; });
   CourtSenseAuth.init({
     firebaseDb: db,
     rosterPath: ROSTER_PATH,

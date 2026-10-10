@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CourtSense">
+<meta name="theme-color" content="#082A4F">
+<title>CourtSense</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>html,body{margin:0;background:#082A4F;}</style>
+<script>
+/* Where the CourtSense Home Screen icon opens. Each door page saves its own path
+   as cs_last_door; this page sends the player back there, or to the homepage.
+   Only same-origin door paths are followed: the fixed doors below, or a single
+   folder registry school path such as /crestview/. */
+(function(){
+  var DOORS=['/kotb/','/4v4/','/pickup/','/partners/','/fsu_grass/','/leon/','/south-walton/','/community/profile/'];
+  var dest='/';
+  try{
+    var p=localStorage.getItem('cs_last_door');
+    if(typeof p==='string'){
+      if(DOORS.indexOf(p)!==-1) dest=p;
+      else if(/^\/[a-z0-9][a-z0-9_-]{0,39}\/$/.test(p) && p!=='/start/') dest=p;
+    }
+  }catch(e){}
+  location.replace(dest);
+})();
+</script>
+</head>
+<body>
+<noscript><a href="/" style="color:#fff;font-family:sans-serif;">Open CourtSense</a></noscript>
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link rel="manifest" href="/partners/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Partners">
+<meta name="theme-color" content="#082A4F">
+<script>try{localStorage.setItem('cs_last_door','/partners/');}catch(e){}</script>
+<title>Find a Tournament Partner | CourtSense</title>
+<meta name="description" content="See who is looking for a beach volleyball partner at upcoming tournaments. Sign in free to reach out or post yourself.">
+<link rel="canonical" href="https://courtsense.app/partners/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Find a Tournament Partner | CourtSense">
+<meta property="og:description" content="See who is looking for a partner at upcoming events.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/partners/">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.55;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+.hdr{background:var(--navy);padding:14px 16px;}
+.hdr-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.brand{display:flex;align-items:center;gap:10px;color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2.5px;text-decoration:none;min-height:44px;}
+.brand img{height:30px;width:auto;}
+.hdr-link{color:#fff;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;text-decoration:none;padding:10px 14px;border-radius:8px;background:rgba(255,255,255,.12);min-height:44px;display:inline-flex;align-items:center;}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px;}
+h1{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:1.5px;line-height:1.05;color:var(--navy);}
+.lead{font-size:16px;color:var(--ink);margin:8px 0 20px;}
+.status{font-size:15px;color:var(--slate);padding:18px 0;}
+.status.err{color:#9b1c1c;font-weight:600;}
+
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;}
+.card.featured{border:2px solid var(--gold);box-shadow:0 8px 24px rgba(8,42,79,.10);}
+.card summary{list-style:none;cursor:pointer;padding:16px 16px 14px;display:block;min-height:44px;}
+.card summary::-webkit-details-marker{display:none;}
+.t-name{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1px;line-height:1.1;color:var(--navy);}
+.t-meta{font-size:14px;color:var(--slate);margin-top:4px;}
+.t-counts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.pill{font-size:12px;font-weight:700;letter-spacing:.3px;border-radius:999px;padding:3px 10px;background:#EEF3F7;color:var(--navy);}
+.pill.gold{background:#FDF1D6;color:#7A5300;}
+.chev{float:right;font-size:13px;color:var(--slate);margin-top:4px;}
+details[open] .chev .closed, details:not([open]) .chev .open{display:none;}
+.body{padding:0 16px 16px;border-top:1px solid var(--line);}
+.sec-h{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.2px;color:var(--navy);margin:16px 0 8px;}
+.divs{font-size:13px;color:var(--slate);}
+.divs div{margin-bottom:2px;}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);}
+.row:last-child{border-bottom:none;}
+.who{font-weight:700;font-size:15px;color:var(--ink);}
+.rating{display:inline-block;margin-left:6px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.5px;color:var(--white);background:var(--navy);border-radius:5px;padding:0 6px;vertical-align:1px;}
+.needs{font-size:13px;color:var(--slate);margin-top:2px;}
+.empty{font-size:14px;color:var(--slate);padding:6px 0 2px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border-radius:10px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.2px;text-decoration:none;white-space:nowrap;border:none;cursor:pointer;}
+.btn-p{background:var(--navy);color:#fff;}
+.btn-o{background:transparent;color:var(--navy);border:1.5px solid var(--navy);}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;}
+.actions .btn{flex:1;min-width:150px;}
+.ext{color:var(--blue);font-weight:600;font-size:14px;}
+.note{font-size:12px;color:var(--slate);margin-top:10px;line-height:1.5;}
+footer{text-align:center;font-size:14px;color:var(--slate);padding:24px 16px 32px;border-top:1px solid var(--line);}
+footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;display:inline-block;min-height:44px;line-height:44px;}
+@media (min-width:600px){h1{font-size:48px;}}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="brand"><img src="/logo.png" alt="" onerror="this.style.display='none'"><span>CourtSense</span></a>
+    <a class="hdr-link" href="/pickup/?view=tournaments">Sign in</a>
+  </div>
+</div>
+
+<main>
+  <h1>Find a tournament partner</h1>
+  <p class="lead">See who is looking for a partner at upcoming events. Sign in free to reach out or post yourself.</p>
+  <div id="board"><div class="status">Loading tournaments...</div></div>
+</main>
+
+<footer>
+  <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
+</footer>
+
+<script>
+// Public partner board. Everything shown comes from the worker's sanitized
+// /pickup/partner-board route: short display names, ratings and division labels.
+// Every value is set through textContent, never innerHTML, and no free text
+// field exists in the response for this page to render.
+(function(){
+  const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  const PICKUP = '/pickup/';
+  const params = new URLSearchParams(location.search);
+  const tid = (params.get('t') || '').trim();
+  const board = document.getElementById('board');
+
+  function el(tag, cls, text){
+    const n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(text != null) n.textContent = text;
+    return n;
+  }
+  function link(cls, text, href){ const a = el('a', cls, text); a.href = href; return a; }
+
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // 'YYYY-MM-DD' read as a calendar date, never through a time zone.
+  function parts(iso){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? { y:+m[1], m:+m[2], d:+m[3] } : null; }
+  function dayShort(iso){
+    const p = parts(iso); if(!p) return '';
+    const wd = new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+    return DAYS[wd] + ', ' + MONTHS[p.m - 1] + ' ' + p.d;
+  }
+  function dateRange(a, b){
+    if(!b || a === b) return dayShort(a);
+    const pa = parts(a), pb = parts(b);
+    if(pa && pb && pa.m === pb.m) return dayShort(a) + ' to ' + pb.d;
+    return dayShort(a) + ' to ' + dayShort(b);
+  }
+  function plural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
+  function trnHref(id){ return PICKUP + '?view=tournaments&trn=' + encodeURIComponent(id); }
+
+  function personRow(p, btnText, href){
+    const row = el('div', 'row');
+    const left = el('div');
+    const who = el('div', 'who', p.display);
+    if(typeof p.rating === 'number') who.appendChild(el('span', 'rating', String(p.rating)));
+    left.appendChild(who);
+    (p.needs || []).forEach(n => left.appendChild(el('div', 'needs', dayShort(n.day) + ': ' + n.label)));
+    row.appendChild(left);
+    row.appendChild(link('btn btn-o', btnText, href));
+    return row;
+  }
+
+  function shareBtn(t){
+    const b = el('button', 'btn btn-gold', 'Share this event');
+    b.type = 'button';
+    b.addEventListener('click', async function(){
+      const url = location.origin + '/partners/?t=' + encodeURIComponent(t.id);
+      const data = { title: t.name + ': find a partner', text: 'Looking for a partner for ' + t.name + '? See who is in on CourtSense.', url: url };
+      try {
+        if(navigator.share){ await navigator.share(data); return; }
+      } catch(e){ if(e && e.name === 'AbortError') return; }
+      try {
+        await navigator.clipboard.writeText(url);
+        b.textContent = 'Link copied';
+      } catch(e){
+        window.prompt('Copy this link', url);
+      }
+      setTimeout(function(){ b.textContent = 'Share this event'; }, 2200);
+    });
+    return b;
+  }
+
+  function card(t, featured, open){
+    const d = el('details', 'card' + (featured ? ' featured' : ''));
+    d.id = 'trn-' + t.id;
+    if(open) d.open = true;
+    const s = el('summary');
+    const chev = el('span', 'chev');
+    chev.appendChild(el('span', 'open', 'Hide'));
+    chev.appendChild(el('span', 'closed', 'Show'));
+    s.appendChild(chev);
+    s.appendChild(el('div', 't-name', t.name));
+    s.appendChild(el('div', 't-meta', dateRange(t.startDate, t.endDate) + (t.location ? ' · ' + t.location : '')));
+    const counts = el('div', 't-counts');
+    counts.appendChild(el('span', 'pill gold', plural(t.posts.length, 'looking for a partner', 'looking for a partner')));
+    counts.appendChild(el('span', 'pill', plural(t.freeAgents.length, 'free agent', 'free agents')));
+    s.appendChild(counts);
+    d.appendChild(s);
+
+    const body = el('div', 'body');
+    if(t.divisionsByDay && t.divisionsByDay.length){
+      body.appendChild(el('div', 'sec-h', 'Divisions'));
+      const dv = el('div', 'divs');
+      t.divisionsByDay.forEach(x => dv.appendChild(el('div', null, dayShort(x.day) + ': ' + x.divisions.join(', '))));
+      body.appendChild(dv);
+    }
+
+    body.appendChild(el('div', 'sec-h', 'Looking for a partner'));
+    if(t.posts.length) t.posts.forEach(p => body.appendChild(personRow(p, 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(p.inviteId))));
+    else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
+
+    body.appendChild(el('div', 'sec-h', 'Free agents'));
+    if(t.freeAgents.length) t.freeAgents.forEach(p => body.appendChild(personRow(p, 'Reach out', trnHref(t.id))));
+    else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
+
+    const actions = el('div', 'actions');
+    actions.appendChild(link('btn btn-p', 'Post yourself', trnHref(t.id)));
+    if(featured) actions.appendChild(shareBtn(t));
+    body.appendChild(actions);
+    if(t.eventLink){
+      const p = el('div', 'note');
+      const a = link('ext', 'Tournament registration page', t.eventLink);
+      a.target = '_blank'; a.rel = 'noopener noreferrer nofollow';
+      p.appendChild(a);
+      body.appendChild(p);
+    }
+    body.appendChild(el('div', 'note', 'Sign in to reach out, offer, or post. Names show as first name and last initial. Junior divisions are not part of partner matching.'));
+    d.appendChild(body);
+    return d;
+  }
+
+  async function fetchBoard(t){
+    const r = await fetch(WORKER + '/pickup/partner-board' + (t ? '?t=' + encodeURIComponent(t) : ''));
+    const j = await r.json().catch(function(){ return null; });
+    if(!r.ok || !j || j.ok !== true || !Array.isArray(j.tournaments)) throw new Error('board ' + r.status);
+    return j.tournaments;
+  }
+
+  async function load(){
+    try {
+      const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid) : Promise.resolve([]), fetchBoard('')]);
+      board.textContent = '';
+      const featured = featuredList[0] || null;
+      if(tid && !featured){
+        board.appendChild(el('div', 'status', 'That event is not on the board any more. Here is everything coming up.'));
+      }
+      if(featured) board.appendChild(card(featured, true, true));
+      const rest = all.filter(t => !featured || t.id !== featured.id);
+      if(!featured && !rest.length){
+        board.appendChild(el('div', 'status', 'No upcoming tournaments are listed yet.'));
+        const a = el('div', 'actions');
+        a.appendChild(link('btn btn-p', 'Add a tournament', PICKUP + '?view=tournaments'));
+        board.appendChild(a);
+        return;
+      }
+      if(featured && rest.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
+      const openAll = !featured && rest.length <= 3;
+      rest.forEach(t => board.appendChild(card(t, false, openAll)));
+    } catch(e){
+      board.textContent = '';
+      board.appendChild(el('div', 'status err', 'Could not load the partner board. Refresh to try again.'));
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>

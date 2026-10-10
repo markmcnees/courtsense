@@ -208,6 +208,12 @@
   .agree input{margin-top:3px;width:18px;height:18px;accent-color:var(--garnet);flex:none;}
   .agree .atext{font-size:13.5px;color:var(--ink);}
   .agree .atext strong{color:var(--garnet);}
+  .agree .atext a{color:var(--garnet);font-weight:600;}
+  .agree.sub-agree{margin:-4px 0 12px 30px;}
+
+  .site-foot{text-align:center;font-size:13px;color:var(--slate);padding:8px 16px 32px;}
+  .site-foot a{color:inherit;font-weight:600;text-decoration:none;margin:0 6px;}
+  .site-foot a:hover{text-decoration:underline;}
 
   .submit-row{padding:8px 28px 30px;}
   .btn{
@@ -406,8 +412,13 @@
           <div class="section-head"><span class="section-num">05</span><span class="section-title">Before you go</span></div>
           <label class="agree">
             <input type="checkbox" id="sms">
-            <span class="atext"><strong>Text messages.</strong> I agree to receive text messages from <strong>FSU Grass Club</strong> about practices and events. Message and data rates may apply, and I can reply STOP to opt out at any time.</span>
+            <span class="atext"><strong>Text messages.</strong> I agree to receive text messages from <strong>FSU Grass Club</strong> about practices and events. Message and data rates may apply, and I can reply STOP to opt out at any time. <a href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a href="/privacy/" target="_blank" rel="noopener">Privacy</a>.</span>
           </label>
+          <label class="agree sub-agree">
+            <input type="checkbox" id="adult">
+            <span class="atext">I am 18 or older. Text messages are only for members 18 or older.</span>
+          </label>
+          <span class="fld-err" id="err-adult" style="margin:-6px 0 12px 30px;"></span>
           <label class="agree">
             <input type="checkbox" id="dues">
             <span class="atext"><strong>Dues.</strong> I understand club dues are due at the start of the season, and my spot is confirmed once dues are paid.</span>
@@ -445,6 +456,8 @@
       </div>
     </div>
   </div>
+
+  <footer class="site-foot"><a href="/privacy/">Privacy</a> · <a href="/sms-terms/">Text Terms</a></footer>
 
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
@@ -561,7 +574,7 @@ function setFieldErr(id, msg){
   if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; }
 }
 function clearErrors(){
-  ['email','pw','first','last','gender','cell','ecphone'].forEach(f => setFieldErr(f, ''));
+  ['email','pw','first','last','gender','cell','ecphone','adult'].forEach(f => setFieldErr(f, ''));
   const fe = $('form-err'); if(fe){ fe.textContent = ''; }
 }
 
@@ -640,7 +653,17 @@ function validateBasics(){
   // Both phone fields are optional, but a filled one has to be storable.
   if(!validatePhoneField('cell','cell phone')) ok = false;
   if(!validatePhoneField('ecphone','emergency contact phone')) ok = false;
+  // Texts are optional, but a box checked for them only counts with the 18+ box.
+  if($('sms').checked && !$('adult').checked){
+    setFieldErr('adult','Check "I am 18 or older" to get text messages, or uncheck Text messages.');
+    ok = false;
+  }
   return ok;
+}
+
+// Text consent only stands when both boxes are checked.
+function smsOptedIn(){
+  return !!($('sms') && $('sms').checked && $('adult') && $('adult').checked);
 }
 
 // Seed a Glicko-2 rating from a 0-10 TruVolley decimal, matching app.js
@@ -664,7 +687,7 @@ function buildClubWrites(accountKey){
   const now = Date.now();
   const first = val('first'), last = val('last');
   const shirt = val('shirt');
-  const duesAgreed = $('dues').checked, waiverAgreed = $('waiver').checked, smsConsent = $('sms').checked;
+  const duesAgreed = $('dues').checked, waiverAgreed = $('waiver').checked;
   const tierChoice = (document.querySelector('input[name="tier"]:checked') || {}).value || null;
   const yearRaw = val('year');
   const truvolleyRaw = val('truvolley');
@@ -685,8 +708,9 @@ function buildClubWrites(accountKey){
     shirtSize: shirt || null,
     duesAgreed: duesAgreed, duesAgreedAt: duesAgreed ? now : null,
     waiverAgreed: waiverAgreed, waiverAgreedAt: waiverAgreed ? now : null,
-    smsConsent: smsConsent, smsConsentAt: smsConsent ? now : null,
-    smsConsentVersion: smsConsent ? SMS_CONSENT_VERSION : null,
+    // Text consent starts off here. It is switched on by writePublicConsent only
+    // after /auth/contact has accepted it (18+, not high school linked, valid number).
+    smsConsent: false, smsConsentAt: null, smsConsentVersion: null,
     joinedAt: now
   };
   // Club roster record carrying status 'prospect'. One record follows the person
@@ -911,23 +935,49 @@ async function saveContactPrivate(accountKey, email, pw){
     phone: val('cell'),
     emergencyName: val('ecname'),
     emergencyPhone: val('ecphone'),
-    smsConsent: !!($('sms') && $('sms').checked),
+    smsConsent: smsOptedIn(),
     smsConsentVersion: SMS_CONSENT_VERSION,
     smsConsentSource: SLUG + '_signup'
   };
+  if(payload.smsConsent) payload.adultConfirmed = true;
   try {
-    const r = await fetch(AUTH_WORKER + '/auth/contact', {
+    let r = await fetch(AUTH_WORKER + '/auth/contact', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
     });
-    const j = await r.json().catch(function(){ return null; });
-    if(j && j.ok === true) return { ok:true, malformed: j.malformed || [] };
+    let j = await r.json().catch(function(){ return null; });
+    // A high school linked account cannot opt in to texts. Save the phone and
+    // emergency contact anyway, without the consent, rather than losing them.
+    // Same for a consent the worker refused for age or number: keep the contact,
+    // drop the consent.
+    if(payload.smsConsent && j && (j.code === 'hs_account' || j.code === 'adult_required' || j.code === 'bad_phone')){
+      payload.smsConsent = false;
+      delete payload.adultConfirmed;
+      r = await fetch(AUTH_WORKER + '/auth/contact', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      j = await r.json().catch(function(){ return null; });
+    }
+    if(j && j.ok === true) return { ok:true, consentAccepted: payload.smsConsent === true, malformed: j.malformed || [] };
     // Status only. Never the payload, which carries a phone and an address.
     console.error('contact save rejected', r.status, (j && j.code) || '');
     return { ok:false };
   } catch(err){
     console.error('contact save failed to reach the worker');
     return { ok:false };
+  }
+}
+
+// The public smsConsent trio on the membership is written true ONLY here, after the
+// worker accepted the consent. Until then it holds the false written with the join.
+async function writePublicConsent(accountKey){
+  try {
+    await db.ref(ROSTER_PATH + '/' + accountKey + '/memberships/' + SLUG).update({
+      smsConsent: true, smsConsentAt: Date.now(), smsConsentVersion: SMS_CONSENT_VERSION
+    });
+  } catch(err){
+    console.error('membership consent write failed');
   }
 }
 
@@ -947,6 +997,7 @@ async function finishJoin(accountKey, email, pw){
   joinLanded = { accountKey:accountKey, email:email, pw:pw };
   const res = await saveContactPrivate(accountKey, email, pw);
   if(res.ok){
+    if(res.consentAccepted) await writePublicConsent(accountKey);
     joinLanded = null;
     hideContactRetry();
     showConfirm();
@@ -962,6 +1013,7 @@ async function retryContactSave(){
   const res = await saveContactPrivate(joinLanded.accountKey, joinLanded.email, joinLanded.pw);
   if(btn){ btn.disabled = false; btn.textContent = 'Try again'; }
   if(res.ok){
+    if(res.consentAccepted) await writePublicConsent(joinLanded.accountKey);
     joinLanded = null;
     hideContactRetry();
     showConfirm();

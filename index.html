@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CourtSense">
+<meta name="theme-color" content="#082A4F">
 <title>CourtSense | Beach Volleyball Team, League, and Community Management</title>
 <meta name="description" content="Beach volleyball software for coaches, league directors, and players. Rosters, live scoring, standings, ratings, and pickup games in one platform.">
 <link rel="canonical" href="https://courtsense.app/">
@@ -183,6 +188,50 @@ main{
 }
 .intro p + p{margin-top:clamp(8px, 1.2vw, 14px);}
 
+/* ── PARTNER CTA: the one full-width call to action above the tiles ── */
+.partner-cta{
+  width:100%;
+  max-width:1100px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+  margin:0 auto clamp(18px, 2.6vw, 30px);
+  padding:clamp(16px, 2.4vw, 24px) clamp(18px, 3vw, 32px);
+  min-height:44px;
+  background:linear-gradient(135deg, var(--navy-head) 0%, var(--navy) 100%);
+  border-left:6px solid #F2B22E;
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  text-decoration:none;
+  transition:all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation:fadeUp 0.8s 0.18s ease-out backwards;
+}
+.partner-cta:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover);}
+.partner-cta .pc-text{display:flex;flex-direction:column;gap:2px;text-align:left;}
+.partner-cta .pc-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(24px, 4vw, 34px);
+  letter-spacing:clamp(1px, 0.25vw, 2px);
+  line-height:1;
+  color:#F2B22E;
+}
+.partner-cta .pc-sub{font-size:clamp(14px, 1.6vw, 16px);color:#ffffff;opacity:0.92;}
+.partner-cta .pc-arrow{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(14px, 1.8vw, 16px);
+  letter-spacing:1.5px;
+  background:#F2B22E;
+  color:var(--navy-head);
+  padding:12px 20px;
+  min-height:44px;
+  border-radius:24px;
+  display:inline-flex;
+  align-items:center;
+  white-space:nowrap;
+}
+
 /* ── ONE PROFILE ── */
 .oneprofile{
   width:100%;
@@ -225,6 +274,8 @@ footer a:hover{text-decoration:underline;}
   main{padding:24px 12px 50px;}
   .logo{max-width:220px;margin-bottom:24px;}
   .pagetitle{font-size:29px;margin-bottom:14px;}
+  .partner-cta{order:1;margin-bottom:18px;}
+  .partner-cta .pc-arrow{width:100%;justify-content:center;}
   .pillars{order:2;}
   .intro{order:3;margin:26px auto 0;}
   .intro p{font-size:13px;line-height:1.5;}
@@ -254,6 +305,14 @@ footer a:hover{text-decoration:underline;}
     <p>CourtSense is a beach volleyball platform for the people who run the game and the people who play it. Coaches manage rosters, lineups, and live scoring for high school and college programs. League directors build schedules, track standings, and run a full season without a spreadsheet. Players find a pickup game, get a rating, and carry one profile across every court they step on.</p>
     <p>It was built courtside in Tallahassee, Florida, by a coach and league director who needed it to work on a phone in the sand. The City of Tallahassee Parks Department runs its summer beach leagues on CourtSense, and Florida high school programs are using it for the 2026 season.</p>
   </div>
+
+  <a href="/partners/" class="partner-cta">
+    <span class="pc-text">
+      <span class="pc-title">Find a tournament partner</span>
+      <span class="pc-sub">See who is looking at upcoming events</span>
+    </span>
+    <span class="pc-arrow">See who is in →</span>
+  </a>
 
   <div class="pillars">
 
@@ -285,6 +344,7 @@ footer a:hover{text-decoration:underline;}
 
 <footer>
   Built in the sand, USA. · <a href="mailto:mark@markmcnees.com">mark@markmcnees.com</a>
+  <br><a href="/privacy/">Privacy</a> · <a href="/sms-terms/">Text Terms</a>
 </footer>
 
 </body>

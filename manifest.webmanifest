@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "CourtSense",
+  "short_name": "CourtSense",
+  "description": "Beach volleyball teams, leagues, pickup, and ratings.",
+  "start_url": "/start/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#082A4F",
+  "background_color": "#082A4F",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

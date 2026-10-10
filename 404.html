@@ -132,6 +132,34 @@
     }
   }
 
+  // Home Screen install as this school. A registry school has no folder for a
+  // manifest file, so the worker builds one from the same config
+  // (/app-manifest?school=<slug>, CORS for courtsense.app, absolute same-origin
+  // start_url). Added only once the slug is known to be a school, so the
+  // not-found page is never installable. iPhone reads the title and icon tags at
+  // Add to Home Screen time, so setting them here works there too.
+  function installAsSchool(cfg,slug){
+    if(!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(slug)) return;
+    try{
+      var full=cfg.displayName || cfg.schoolName || cfg.shortName || 'CourtSense';
+      var shortName=(cfg.displayName && cfg.displayName.length<=12) ? cfg.displayName
+        : (cfg.shortName && cfg.shortName.length<=12) ? cfg.shortName
+        : String(full).slice(0,12).trim();
+      var head=document.head;
+      function add(tag,attrs){
+        var el=document.createElement(tag);
+        for(var k in attrs){ el.setAttribute(k,attrs[k]); }
+        head.appendChild(el);
+      }
+      add('link',{rel:'manifest',href:'https://courtsense-email-worker.markmcnees-479.workers.dev/app-manifest?school='+encodeURIComponent(slug)});
+      add('link',{rel:'apple-touch-icon',href:'/icons/apple-touch-icon-180.png'});
+      add('meta',{name:'apple-mobile-web-app-capable',content:'yes'});
+      add('meta',{name:'apple-mobile-web-app-title',content:shortName});
+      add('meta',{name:'theme-color',content:'#082A4F'});
+    }catch(e){}
+    try{ localStorage.setItem('cs_last_door','/'+slug+'/'); }catch(e){}
+  }
+
   try{
     // Slug = first path segment; second segment 'signup' switches to the coming-soon
     // page. Tolerant of trailing slash and index.html on either path.
@@ -151,6 +179,7 @@
       // guards on firebase.apps.length, so it reuses the app already initialized above.
       cfg.fbConfig=FB_CONFIG;
       window.SCHOOL_CONFIG=cfg;
+      installAsSchool(cfg,slug);
       if(boot && boot.parentNode) boot.parentNode.removeChild(boot);
       var s=document.createElement('script');
       s.src='/app.js?v=1.1.182';
