@@ -9,8 +9,17 @@
  *   window.COURTSENSE_NAV = {
  *     variant: 'full' | 'home-only',  // default 'full'
  *     authControl: true | false,      // default true; ignored by 'home-only'
- *     tournaments: true | false       // default false; adds the Tournaments link
+ *     tournaments: true | false,      // default false; adds the Tournaments link
+ *     render: true | false            // default true; false loads only the helpers below
  *   }
+ *
+ * Signed-in hint (for pages that do not load auth.js, such as the homepage):
+ *   CourtSenseNav.isSignedInHint()     true when this device holds an unexpired
+ *                                      auth.js session ('courtsenseAuth'). Read only:
+ *                                      never verifies, writes or clears anything.
+ *   CourtSenseNav.applyAccountLink(el) when the hint is true, turns el into a
+ *                                      "Profile" link to /community/profile/ and
+ *                                      returns true; otherwise leaves el as it is.
  *
  * Mount priority:
  *   1. an element with id "cs-nav" (explicit page-chosen placement)
@@ -76,7 +85,9 @@
       authControl: c.authControl !== false,
       // tournaments defaults to FALSE: opt in, never opt out. Honoured by both
       // variants, because pickup/join is home-only and still wants the link.
-      tournaments: c.tournaments === true
+      tournaments: c.tournaments === true,
+      // render defaults to true; false skips the nav and keeps only the helpers.
+      render: c.render !== false
     };
   }
 
@@ -234,14 +245,45 @@
     }
   }
 
+  // ── signed-in hint ──
+  // A label hint only. It reads the same key auth.js writes, localStorage first (keep
+  // me signed in), then sessionStorage. The page the link opens does the real check.
+  var AUTH_KEY = 'courtsenseAuth';
+  function readAuthKey(which){
+    try {
+      var store = global[which];
+      var raw = store ? store.getItem(AUTH_KEY) : null;
+      return raw ? JSON.parse(raw) : null;
+    } catch(e){ return null; }
+  }
+  function isSignedInHint(){
+    var now = Date.now();
+    var all = [readAuthKey('localStorage'), readAuthKey('sessionStorage')];
+    for(var i = 0; i < all.length; i++){
+      var p = all[i];
+      if(!p || typeof p !== 'object' || typeof p.playerId !== 'string' || !p.playerId) continue;
+      if(typeof p.exp === 'number' && p.exp <= now) continue;
+      if(typeof p.sessionExpiresAt === 'number' && p.sessionExpiresAt <= now) continue;
+      return true;
+    }
+    return false;
+  }
+  function applyAccountLink(el){
+    if(!el || !isSignedInHint()) return false;
+    el.textContent = 'Profile';
+    if(el.tagName === 'A') el.setAttribute('href', PROFILE);
+    return true;
+  }
+
   function start(){
+    if(cfg().render === false) return;
     try { render(); } catch(e){ /* nav is best-effort; never break the page */ }
     // Best-effort refresh: pages that wire onLogin/onLogout can call refresh()
     // directly; window focus catches the common tab-switch login case otherwise.
     try { global.addEventListener('focus', refresh); } catch(e){}
   }
 
-  global.CourtSenseNav = { render: render, refresh: refresh };
+  global.CourtSenseNav = { render: render, refresh: refresh, isSignedInHint: isSignedInHint, applyAccountLink: applyAccountLink };
 
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', start);

@@ -267,6 +267,25 @@ main{
   animation:fadeUp 0.8s 0.3s ease-out backwards;
 }
 
+/* ── ACCOUNT LINK: top right, Sign in or Profile ── */
+.acct-link{
+  position:absolute;
+  top:10px;
+  right:12px;
+  display:inline-flex;
+  align-items:center;
+  min-height:44px;
+  padding:0 14px;
+  font-family:'Barlow',sans-serif;
+  font-weight:600;
+  font-size:15px;
+  color:var(--navy-head);
+  text-decoration:none;
+  border-radius:22px;
+  z-index:5;
+}
+.acct-link:hover,.acct-link:focus-visible{text-decoration:underline;}
+
 /* ── FOOTER ── */
 footer{
   text-align:center;
@@ -320,6 +339,8 @@ footer a:hover{text-decoration:underline;}
 </head>
 <body>
 
+<a href="/community/profile/" class="acct-link" id="acct-link">Sign in</a>
+
 <main>
   <img src="logo.png" alt="" class="logo">
 
@@ -345,7 +366,7 @@ footer a:hover{text-decoration:underline;}
       <span class="arrow">Open My League →</span>
     </a>
 
-    <a href="/community/" class="pillar community">
+    <a href="/pickup/" class="pillar community">
       <span class="beta">Beta</span>
       <h2>Pickup and Tournaments</h2>
       <p>For players looking for a pickup game, a partner, or a place to play.</p>
@@ -372,5 +393,11 @@ footer a:hover{text-decoration:underline;}
   <br><a href="/privacy/">Privacy</a> · <a href="/sms-terms/">Text Terms</a>
 </footer>
 
+<script>window.COURTSENSE_NAV = { render: false };</script>
+<script src="/nav.js?v=478a7a31"></script>
+<script>
+// Signed-in label only: the profile page does the real sign-in check.
+try { CourtSenseNav.applyAccountLink(document.getElementById('acct-link')); } catch(e){}
+</script>
 </body>
 </html>

@@ -79,7 +79,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
 <div class="hdr">
   <div class="hdr-inner">
     <a href="/" class="brand"><img src="/logo.png" alt="" onerror="this.style.display='none'"><span>CourtSense</span></a>
-    <a class="hdr-link" href="/pickup/?view=tournaments">Sign in</a>
+    <a class="hdr-link" id="hdr-account" href="/pickup/?view=tournaments">Sign in</a>
   </div>
 </div>
 
@@ -246,6 +246,12 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   }
   load();
 })();
+</script>
+<script>window.COURTSENSE_NAV = { render: false };</script>
+<script src="/nav.js?v=478a7a31"></script>
+<script>
+// Signed-in label only: the profile page does the real sign-in check.
+try { CourtSenseNav.applyAccountLink(document.getElementById('hdr-account')); } catch(e){}
 </script>
 </body>
 </html>

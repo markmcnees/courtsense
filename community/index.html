@@ -365,8 +365,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.5;padding-top:12px;}
     <span class="hdr-wordmark">Community</span>
   </a>
   <nav class="hdr-nav">
-    <a class="hdr-login" href="/community/profile/">Log in</a>
-    <a class="hdr-cta" href="/community/signup/">Sign up</a>
+    <a class="hdr-login" id="hdr-login" href="/community/profile/">Log in</a>
+    <a class="hdr-cta" id="hdr-signup" href="/community/signup/">Sign up</a>
   </nav>
 </header>
 
@@ -612,6 +612,17 @@ function submitFeedback(){
 }
 
 initFB();
+</script>
+<script>window.COURTSENSE_NAV = { render: false };</script>
+<script src="/nav.js?v=478a7a31"></script>
+<script>
+// Signed-in label only: the profile page does the real sign-in check.
+try {
+  // Signed in: one Profile button in place of Log in and Sign up.
+  if(CourtSenseNav.applyAccountLink(document.getElementById('hdr-signup'))){
+    var li = document.getElementById('hdr-login'); if(li) li.style.display = 'none';
+  }
+} catch(e){}
 </script>
 </body>
 </html>
