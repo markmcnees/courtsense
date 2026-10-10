@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.182';
+const APP_VERSION='1.1.183';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2641,6 +2641,7 @@ let _currentSeasonId=(new Date()).getFullYear().toString();
 let profilesData={}; // from leon_queens node for AI context
 let pgdNotes={}; // player self-notes per date: pgdNotes[pid][date]
 let _autoLoginDone=false;
+let _rosterLoaded=false; // set on the first DB_ROOT snapshot, so the empty roster card never flashes before data arrives
 
 // ============================================================
 // FIREBASE
@@ -2740,6 +2741,7 @@ function listenData(){if(!db)return;
     }
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
     D.practiceTournaments=(val&&val.practiceTournaments)||{};
+    _rosterLoaded=true;
     refreshCurrent();
     if(typeof knRefreshPlayer==='function')knRefreshPlayer();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();}
@@ -4020,7 +4022,37 @@ function _cmpLast(a,b){
   if(!lb)return -1;  // b has no last name -> sort b after a
   return la.localeCompare(lb);
 }
+// Empty roster state (display only). A brand new school opens to this instead of a
+// blank list, and it goes away as soon as one player exists. Never shown in demo mode.
+function rosterEmptyHTML(){
+  if(currentRole!=='coach') return `<div style="font-size:14px;color:var(--gray);text-align:center;padding:18px 8px;">Your coach has not added the roster yet.</div>`;
+  const canAdd=!!document.getElementById('add-player');
+  const canImport=!!document.getElementById('roster-import-input');
+  const btn='min-height:44px;padding:10px 18px;font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:1.2px;border-radius:10px;flex:1;min-width:150px;';
+  return `<div style="text-align:center;padding:22px 12px 18px;border:2px dashed #F2B22E;border-radius:12px;background:#FFFBF0;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;color:#082A4F;margin-bottom:6px;">Add your roster</div>
+    <p style="font-size:14px;color:var(--gray);line-height:1.55;margin:0 auto 16px;max-width:420px;">Start by adding players one at a time, or import your roster from Excel.</p>
+    ${canAdd||canImport?`<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:420px;margin:0 auto;">
+      ${canAdd?`<button class="btn" style="${btn}background:#082A4F;color:#fff;border:none;" onclick="rosterEmptyAddPlayer()">Add Player</button>`:''}
+      ${canImport?`<button class="btn" style="${btn}background:#F2B22E;color:#082A4F;border:none;" onclick="triggerRosterImport()">Import Excel</button>`:''}
+    </div>`:''}
+  </div>`;
+}
+// Opens the existing Add Player form: Manage, then Import/Export, then focus First Name.
+function rosterEmptyAddPlayer(){
+  const mb=Array.from(document.querySelectorAll('#mode-bar .mode-btn')).find(b=>(b.getAttribute('onclick')||'').indexOf("hsNav('manage'")!==-1);
+  if(typeof hsNav==='function') hsNav('manage', mb||null);
+  const t=document.querySelector('#sub-tabs-hsmanage .tab[data-tab="hsimport"]');
+  if(t) t.click();
+  const f=document.getElementById('new-first');
+  if(f){ f.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>{ try{ f.focus(); }catch(e){} },300); }
+}
 function renderRoster(){
+  if(!SC.demoMode && (!D.players || !D.players.length)){
+    const rl=document.getElementById('roster-list');
+    if(rl) rl.innerHTML=_rosterLoaded?rosterEmptyHTML():`<div style="font-size:13px;color:var(--gray);text-align:center;padding:16px;">Loading roster...</div>`;
+    return;
+  }
   csRankWarm(renderRoster); // account ratings for the CS rank pills; re-renders once when they load
   let sorted=[...D.players].sort((a,b)=>_cmpCourt(a,b)||CO[a.classYear]-CO[b.classYear]||_cmpLast(a,b));
   // Tier filter (Grass Club only). Applied before court grouping; default 'all' shows everyone.
@@ -8785,6 +8817,9 @@ const _elassign_type=document.getElementById('assign-type');if(_elassign_type)_e
 // ONE-TIME MIGRATION (Leon only)
 // ============================================================
 function runMigration(){
+  // Leon-only: this writes Leon's 2/24 game day with Leon player ids. Same node gate as
+  // seedDB and the delayed seeder, so a config flag alone can never aim it at another school.
+  if(DB_ROOT!=='leon_queens_matches')return;
   if(!SC.legacyMigration)return;
   if(!db)return;
   db.ref(DB_ROOT+'/_migrated_gamedays').once('value',snap=>{
