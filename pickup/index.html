@@ -37,7 +37,7 @@
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
-<script src="/nav.js?v=c4011a9d"></script>
+<script src="/nav.js?v=254d0f1d"></script>
 <style>
 :root{
   --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
@@ -53,6 +53,11 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .hdr{background:linear-gradient(150deg,var(--dark) 0%,var(--primary) 100%);padding:14px 16px 0;box-shadow:0 4px 20px rgba(0,0,0,0.25);position:relative;z-index:50;}
 .hdr-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .brand{font-family:'Bebas Neue';font-size:20px;letter-spacing:3px;color:var(--accent);display:flex;align-items:center;gap:8px;cursor:pointer;}
+/* CourtSense logo, top left, back to the homepage. The crown title beside it keeps its
+   in-app back behavior (goHome). */
+.hdr-left{display:flex;align-items:center;gap:8px;min-width:0;}
+.cs-home{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin-left:-6px;flex-shrink:0;cursor:pointer;}
+.cs-home img{width:30px;height:30px;border-radius:7px;display:block;}
 .event-title{font-size:14px;color:#fff;letter-spacing:1px;font-family:'Bebas Neue';opacity:.9;}
 .sync{width:8px;height:8px;border-radius:50%;}
 .sync.on{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:blink 2s infinite;}
@@ -206,11 +211,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
 <div class="hdr">
   <div class="hdr-top">
+    <div class="hdr-left">
+    <a href="/" class="cs-home" aria-label="CourtSense home"><img src="/logo.png" alt=""></a>
     <h1 class="brand" onclick="goHome()" style="font-weight:normal;">
       <span>👑</span>
       <span id="app-name">Tallahassee Beach</span>
       <span class="sync off" id="sync" title="Connecting..."></span>
     </h1>
+    </div>
     <div class="event-title" id="event-title" style="display:none;"></div>
     <div style="display:flex;gap:12px;align-items:center;">
       <span id="cs-nav" style="color:#fff;"></span>
@@ -429,7 +437,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
         </div>
         <div id="iv-inc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Checked players will be emailed an invite. Text messages are coming soon, and a full app is on the way.</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Checked players will be emailed an invite. Turn on phone alerts and text alerts in your <a href="/community/profile/" style="color:inherit;font-weight:700;text-decoration:underline;">Profile settings</a>.</div>
       </div>
 
       <div class="fg" style="margin-top:14px;">

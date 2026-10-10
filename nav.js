@@ -32,7 +32,7 @@
 
   var PROFILE = '/community/profile/';
   var LINKS = [
-    { key: 'home',    label: 'Home',    href: '/community/' },
+    { key: 'home',    label: 'Home',    href: '/' },
     { key: 'pickup',  label: 'Pickup',  href: '/pickup/' },
     { key: 'profile', label: 'Profile', href: PROFILE }
   ];
@@ -93,7 +93,8 @@
         var want = href.slice(qs + 1);
         return path.indexOf(base) === 0 && q.indexOf(want) !== -1;
       }
-      if(href === '/community/') return path === '/community/' || path === '/community';
+      // Every path starts with '/', so Home is current only on the homepage itself.
+      if(href === '/') return path === '/' || path === '/index.html';
       // A plain link loses to its own query-bearing sibling: on
       // /pickup/?view=tournaments the current tab is Tournaments, not Pickup.
       if(path.indexOf(href) === 0 && q){
