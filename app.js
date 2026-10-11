@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.183';
+const APP_VERSION='1.1.184';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1818,6 +1818,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   ${(SC.chatEnabled && !SC.tiersEnabled)?'<div class="pp-panel" id="pp-panel-chat"></div>':''}
   ${SC.tiersEnabled?`<!-- ══ CLUB LIFE PANEL (group-facing: practice schedule, club chat, travel, partner posts) ══ -->
   <div class="pp-panel" id="pp-panel-clublife">
+    ${(SC.emailLogin&&SC.tiersEnabled)?`<div style="font-size:12px;color:var(--gray);margin:0 0 10px;line-height:1.5;">📲 <a href="https://courtsense.app/community/profile/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;display:inline-block;padding:12px 0;margin:-12px 0;">Turn on phone alerts in your CourtSense profile</a> to get club announcements.</div>`:''}
     <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
     ${SC.chatEnabled?'<div id="pp-panel-chat"></div>':''}
@@ -10059,13 +10060,137 @@ function renderExecBroadcast(){
       ${(pin&&pin.text)?'<button class="btn btn-secondary btn-small" onclick="execClearPinned()">Unpin</button>':''}
     </div>
   </div>`;
-  pane.innerHTML=pinnedCard+`<div class="card"><div class="card-title"><span class="bar"></span> 📣 Broadcast</div>
+  pane.innerHTML=phoneAlertCardHTML()+pinnedCard+`<div class="card"><div class="card-title"><span class="bar"></span> 📣 Broadcast</div>
     <p style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5;">Post to a club channel as the Exec voice. These posts show as Exec with the Exec badge, with no personal name attached.</p>
     ${toggle}
     <div style="margin-bottom:12px;">${recent}</div>
     <textarea id="bc-text" maxlength="2000" placeholder="Broadcast a message to ${esc(broadcastChannel)}" style="width:100%;border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;resize:vertical;min-height:64px;box-sizing:border-box;"></textarea>
     <button class="btn btn-primary btn-small" style="margin-top:8px;" onclick="postExecBroadcast()">Broadcast as Exec</button>
   </div>`;
+  paAfterRender();
+}
+
+// ── EXEC PHONE ALERT (club configs with account logins) ─────────────────────
+// A short club-wide phone alert ("Practice is canceled tonight"). Everything that
+// matters happens in the worker (/club/announce): it checks the exec session (the
+// shared PIN is refused), rate limits, picks the members, pushes to the phones that
+// turned alerts on, posts the same text to the All Club chat, and keeps a sent log.
+// This card only collects the text, previews it (a dry run that sends nothing) and
+// sends once the preview matches what is typed. No Firebase writes from here.
+// PA_CLUBS mirrors the worker's allowlist: the card shows only for those clubs.
+const PA_CLUBS={grass_club_matches:'FSU Grass'};
+const PA_TITLE_MAX=50, PA_BODY_MAX=160;
+let _pa={title:'',body:'',prospects:false,previewKey:null,preview:null,busy:false,err:''};
+function paEnabled(){ return !!(SC.tiersEnabled&&SC.emailLogin&&PA_CLUBS[DB_ROOT]); }
+function paSession(){ let s=null; try{s=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){} return (s&&s.token&&s.dbRoot===DB_ROOT)?s:null; }
+function paKey(){ return _pa.title.trim()+'\n'+_pa.body.trim()+'\n'+(_pa.prospects?'1':'0'); }
+function phoneAlertCardHTML(){
+  if(!paEnabled())return '';
+  const head='<div class="card" style="margin-bottom:12px;border-top:3px solid var(--blue);"><div class="card-title"><span class="bar"></span> 📲 Send Phone Alert</div>';
+  const s=paSession();
+  if(!s||!s.accountId){
+    return head+'<p style="font-size:13px;color:var(--gray);line-height:1.5;">Sign in with your exec account to send alerts.</p></div>';
+  }
+  const inp='width:100%;border:1px solid var(--gray-lighter);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14px;';
+  const lbl='display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--charcoal);margin:8px 0 4px;';
+  return head+`<p style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">A short alert to the phones of members who turned on phone alerts. It is also posted to the All Club chat, so everyone sees it.</p>
+    <label for="pa-title" style="${lbl}"><span>Title</span><span id="pa-title-ct" style="font-weight:400;color:var(--gray);"></span></label>
+    <input id="pa-title" maxlength="${PA_TITLE_MAX}" placeholder="Practice canceled tonight" oninput="paChanged()" style="${inp}min-height:44px;">
+    <label for="pa-body" style="${lbl}"><span>Message</span><span id="pa-body-ct" style="font-weight:400;color:var(--gray);"></span></label>
+    <textarea id="pa-body" maxlength="${PA_BODY_MAX}" rows="3" placeholder="Lightning in the area. See you Thursday." oninput="paChanged()" style="${inp}resize:vertical;"></textarea>
+    <label style="display:flex;align-items:center;gap:8px;min-height:44px;font-size:13px;cursor:pointer;"><input type="checkbox" id="pa-prospects" onchange="paChanged()" style="width:18px;height:18px;accent-color:var(--blue);"> Include tryout prospects</label>
+    <div id="pa-preview"></div>
+    <div id="pa-err" style="color:var(--red);font-size:13px;font-weight:600;margin-top:6px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="btn btn-secondary btn-small" id="pa-preview-btn" onclick="paPreview()" style="min-height:44px;">Preview</button>
+      <button class="btn btn-primary btn-small" id="pa-send-btn" onclick="paSend()" disabled style="min-height:44px;">Send</button>
+    </div>
+  </div>`;
+}
+// The pane is re-rendered whenever club data changes, so the card repaints from _pa.
+function paAfterRender(){
+  const t=document.getElementById('pa-title'); if(!t)return;
+  t.value=_pa.title;
+  const b=document.getElementById('pa-body'); if(b)b.value=_pa.body;
+  const p=document.getElementById('pa-prospects'); if(p)p.checked=_pa.prospects;
+  paPaint();
+}
+function paChanged(){
+  const t=document.getElementById('pa-title'), b=document.getElementById('pa-body'), p=document.getElementById('pa-prospects');
+  if(t)_pa.title=t.value; if(b)_pa.body=b.value; if(p)_pa.prospects=!!p.checked;
+  _pa.err='';
+  paPaint();
+}
+function paPaint(){
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tc=document.getElementById('pa-title-ct'); if(tc)tc.textContent=_pa.title.length+'/'+PA_TITLE_MAX;
+  const bc=document.getElementById('pa-body-ct'); if(bc)bc.textContent=_pa.body.length+'/'+PA_BODY_MAX;
+  const fresh=!!_pa.preview&&_pa.previewKey===paKey();
+  const pv=document.getElementById('pa-preview');
+  if(pv){
+    pv.innerHTML=fresh
+      ? '<div style="background:#1f2937;color:#fff;border-radius:12px;padding:10px 12px;margin-top:6px;">'
+        +'<div style="font-weight:700;font-size:13px;">'+esc(PA_CLUBS[DB_ROOT]+': '+_pa.title.trim())+'</div>'
+        +'<div style="font-size:13px;opacity:.9;margin-top:2px;">'+esc(_pa.body.trim())+'</div></div>'
+        +'<div style="font-size:12px;color:var(--charcoal);margin-top:6px;">Goes to '+_pa.preview.withAlerts+' phone'+(_pa.preview.withAlerts===1?'':'s')+' (of '+_pa.preview.members+' members). Also posted to All Club chat.</div>'
+      : '';
+  }
+  const er=document.getElementById('pa-err'); if(er)er.textContent=_pa.err||'';
+  const send=document.getElementById('pa-send-btn');
+  if(send){
+    send.disabled=!fresh||_pa.busy;
+    send.textContent=fresh?('Send to '+_pa.preview.withAlerts+' phone'+(_pa.preview.withAlerts===1?'':'s')):'Send';
+  }
+  const prev=document.getElementById('pa-preview-btn'); if(prev)prev.disabled=_pa.busy;
+}
+function paMessage(status,j){
+  const code=j&&j.code;
+  if(status===429)return (j&&j.error)||'Too many alerts. Try again later.';
+  if(code==='exec_login_required')return 'Sign in with your exec account to send alerts.';
+  if(code==='forbidden')return 'Your session expired. Log out and sign in again.';
+  if(code==='bad_title'||code==='bad_body')return j.error;
+  if(code==='bad_club')return 'Phone alerts are not set up for this club yet.';
+  return 'Something went wrong. Try again in a moment.';
+}
+async function paCall(dryRun){
+  const s=paSession();
+  if(!s){ return {status:403,j:{code:'forbidden'}}; }
+  try{
+    const r=await fetch(AUTH_WORKER+'/club/announce',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({dbRoot:DB_ROOT,token:s.token,title:_pa.title.trim(),body:_pa.body.trim(),includeProspects:_pa.prospects,dryRun:dryRun})});
+    const j=await r.json().catch(()=>null);
+    return {status:r.status,j:j||{}};
+  }catch(e){ return {status:0,j:null}; }
+}
+async function paPreview(){
+  if(_pa.busy)return;
+  paChanged();
+  if(!_pa.title.trim()){ _pa.err='Give the alert a title.'; paPaint(); return; }
+  if(!_pa.body.trim()){ _pa.err='Write a short message.'; paPaint(); return; }
+  _pa.busy=true; paPaint();
+  const key=paKey();
+  const r=await paCall(true);
+  _pa.busy=false;
+  if(r.status===0){ _pa.err='Could not reach CourtSense. Check your connection and try again.'; paPaint(); return; }
+  if(r.j&&r.j.ok===true){ _pa.preview={members:r.j.members||0,withAlerts:r.j.withAlerts||0}; _pa.previewKey=key; _pa.err=''; }
+  else { _pa.preview=null; _pa.previewKey=null; _pa.err=paMessage(r.status,r.j); }
+  paPaint();
+}
+async function paSend(){
+  if(_pa.busy||!_pa.preview||_pa.previewKey!==paKey())return;
+  _pa.busy=true; paPaint();
+  const r=await paCall(false);
+  _pa.busy=false;
+  if(r.status===0){ _pa.err='Could not reach CourtSense. Check your connection and try again.'; paPaint(); return; }
+  if(r.j&&r.j.ok===true){
+    const sent=r.j.sent||0;
+    toast('Sent to '+sent+' phone'+(sent===1?'':'s')+'. Posted to All Club.'+((r.j.pending||0)>0?' The rest go out within 15 minutes.':''));
+    _pa={title:'',body:'',prospects:false,previewKey:null,preview:null,busy:false,err:''};
+    paAfterRender();
+    return;
+  }
+  _pa.err=paMessage(r.status,r.j);
+  paPaint();
 }
 // Pin one announcement to the top of every member portal, replacing any current pin. Stored at
 // DB_ROOT/pinned (a sub-key of the live *_matches node; no new node, no rules change).
