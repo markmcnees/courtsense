@@ -353,7 +353,7 @@
       '<p class="fnote">Confirm the slug and set a unique coach PIN, then generate the config. The slug is permanent once the school saves data.</p>'+
       '<div class="frow">'+
         '<div class="ff" data-f="slug"><label>URL slug</label><input class="f-slug" value="'+esc(slugGuess||'school')+'"><div class="ferr">Enter a slug (lowercase, dashes ok).</div></div>'+
-        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="8" placeholder="4+ digits"><div class="ferr">Set a unique PIN, 4 to 8 digits.</div></div>'+
+        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="4" placeholder="4 digits"><div class="ferr">The PIN must be exactly 4 digits.</div></div>'+
         '<div class="ff" data-f="emoji"><label>Team emoji</label><input class="f-emoji" maxlength="4" value="\uD83C\uDFD0"></div>'+
       '</div>'+
       '<button class="genbtn">Create their app</button>'+
@@ -635,11 +635,20 @@
     var btn=card.querySelector('.genbtn');
     var out=card.querySelector('.gen-out');
 
-    // validate (unchanged)
+    // validate
     var ok=true;
     slugFF.classList.remove('bad'); pinFF.classList.remove('bad');
     if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); ok=false; }
-    if(!/^\d{4,8}$/.test(pin)){ pinFF.classList.add('bad'); ok=false; }
+    // Same rule and wording as the worker's PIN policy: exactly 4 digits, no repeat
+    // and no straight run. The worker also refuses public values and says why.
+    var pinErr=pinFF.querySelector('.ferr');
+    if(!/^\d{4}$/.test(pin)){
+      if(pinErr) pinErr.textContent='The PIN must be exactly 4 digits.';
+      pinFF.classList.add('bad'); ok=false;
+    } else if(/^(\d)\1+$/.test(pin)||'0123456789'.indexOf(pin)>=0||'9876543210'.indexOf(pin)>=0){
+      if(pinErr) pinErr.textContent="Pick a PIN that isn't a repeat or a straight run like 1234.";
+      pinFF.classList.add('bad'); ok=false;
+    }
     if(!ok) return;
 
     var key=ensureAdminKey();
