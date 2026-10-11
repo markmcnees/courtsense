@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/fsu_grass/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FSU Grass">
+<meta name="theme-color" content="#082A4F">
+<script>try{localStorage.setItem('cs_last_door','/fsu_grass/');}catch(e){}</script>
+<meta name="robots" content="noindex, nofollow">
+<title>FSU Grass Alert · CourtSense</title>
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --garnet:#782F40;--garnet-dark:#5e2432;--gold:#CEB888;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.55;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;min-height:100vh;}
+.hdr{background:linear-gradient(150deg,var(--garnet-dark) 0%,var(--garnet) 100%);padding:8px 16px;}
+.hdr-inner{max-width:640px;margin:0 auto;display:flex;align-items:center;gap:10px;}
+.home{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;}
+.home img{width:30px;height:30px;border-radius:7px;display:block;}
+.club{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--gold);}
+main{max-width:640px;margin:0 auto;padding:24px 16px 48px;}
+.kicker{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--garnet);}
+.card{background:var(--white);border:1px solid var(--line);border-top:4px solid var(--garnet);border-radius:var(--radius);padding:20px 18px;margin:8px 0 20px;}
+h1{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1.2px;line-height:1.05;color:var(--ink);}
+.msg{font-size:18px;margin-top:10px;white-space:pre-line;overflow-wrap:anywhere;}
+.meta{font-size:14px;color:var(--slate);margin-top:14px;}
+.status{font-size:16px;color:var(--slate);}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border-radius:26px;background:var(--garnet);color:#ffffff;font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:1.5px;text-decoration:none;}
+.btn:hover{background:var(--garnet-dark);}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-inner">
+    <a href="/" class="home" aria-label="CourtSense home"><img src="/logo.png" alt=""></a>
+    <span class="club">FSU Grass</span>
+  </div>
+</div>
+
+<main>
+  <div class="kicker">Club alert</div>
+  <div class="card" id="alert" aria-live="polite">
+    <p class="status">Loading the alert...</p>
+  </div>
+  <a class="btn" href="/fsu_grass/?view=chat">Open club app</a>
+</main>
+
+<script>
+// Shows one exec alert by id. The worker returns only the words and the time, never
+// who received it. No login and no Firebase on this page.
+(function(){
+  var WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var box = document.getElementById('alert');
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function gone(){
+    box.innerHTML = '<p class="status">This alert is no longer available. Open the club app to see club news.</p>';
+  }
+  function when(ms){
+    try {
+      return new Date(ms).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch(e){ return ''; }
+  }
+  var id = '';
+  try { id = new URLSearchParams(location.search).get('id') || ''; } catch(e){}
+  if(!/^ca[A-Za-z0-9_-]{4,40}$/.test(id)){ gone(); return; }
+  fetch(WORKER + '/club/alert?club=grass_club_matches&id=' + encodeURIComponent(id))
+    .then(function(r){ return r.json().catch(function(){ return null; }); })
+    .then(function(j){
+      if(!j || j.ok !== true){ gone(); return; }
+      var t = when(j.at);
+      box.innerHTML = '<h1>' + esc(j.title) + '</h1>'
+        + '<p class="msg">' + esc(j.body) + '</p>'
+        + '<p class="meta">' + (t ? esc(t) + ' ET · ' : '') + 'From ' + esc(j.senderDisplay || 'FSU Grass execs') + '</p>';
+      try { document.title = j.title + ' · FSU Grass'; } catch(e){}
+    })
+    .catch(gone);
+})();
+</script>
+
+</body>
+</html>
