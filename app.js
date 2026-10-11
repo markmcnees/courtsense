@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.186';
+const APP_VERSION='1.1.187';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -5684,12 +5684,11 @@ function addPlayerGoal(){
   const goalLabel=GOAL_LABELS[goalType]||goalType;
   fbSet('goals/'+pid+'/'+gid,{goalType,label:goalLabel,selectedAt:td(),aiFeedback:null});
   sel.value='';toast('Goal added!');
-  try{
-    const p=gP(pid);const pname=p?p.firstName+' '+p.lastName:pid;
-    const subj=encodeURIComponent('SC.schoolName — New Goal: '+pname);
-    const body=encodeURIComponent('Player: '+pname+'\nGoal: '+goalLabel+'\nDate: '+td()+'\n\nLog in to create an AI development plan.');
-    const a=document.createElement('a');a.href='mailto:<a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="94f9f5e6fff9f7faf1f1e7d4f3f9f5fdf8baf7fbf9">[email&#160;protected]</a>?subject='+subj+'&body='+body;a.style.display='none';document.body.appendChild(a);a.click();document.body.removeChild(a);
-  }catch(e){}
+  const p=gP(pid);const pname=p?p.firstName+' '+p.lastName:pid;
+  notifyCoaches(
+    SC.schoolName+': New goal for '+pname,
+    'Player: '+pname+'\nGoal: '+goalLabel+'\nDate: '+td()+'\n\nLog in to create an AI development plan.'
+  );
 }
 
 function removeGoal(pid,gid){
@@ -5855,7 +5854,7 @@ function approveGoal(pid,gid){
   const _ap=gP(pid);
   const _ag=D.goals?.[pid]?.[gid];
   reportNotifyMisses([notifyPlayer(pid,'plan',
-    'SC.schoolName — Your Training Plan is Ready',
+    SC.schoolName+': Your training plan is ready',
     'Hi '+(_ap?_ap.firstName:'there')+',\n\n'+COACH_LABEL+' has approved your AI training plan for: '+(_ag?_ag.label||_ag.goalType:'your goal')+'.\n\nLog in to the app to view your personalized feedback and next steps.'
   )],'the training plan');
 }
