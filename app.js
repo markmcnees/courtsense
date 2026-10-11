@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.184';
+const APP_VERSION='1.1.185';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1819,6 +1819,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   ${SC.tiersEnabled?`<!-- ══ CLUB LIFE PANEL (group-facing: practice schedule, club chat, travel, partner posts) ══ -->
   <div class="pp-panel" id="pp-panel-clublife">
     ${(SC.emailLogin&&SC.tiersEnabled)?`<div style="font-size:12px;color:var(--gray);margin:0 0 10px;line-height:1.5;">📲 <a href="https://courtsense.app/community/profile/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;display:inline-block;padding:12px 0;margin:-12px 0;">Turn on phone alerts in your CourtSense profile</a> to get club announcements.</div>`:''}
+    <div id="pp-latest-alert"></div>
     <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
     ${SC.chatEnabled?'<div id="pp-panel-chat"></div>':''}
@@ -4796,7 +4797,10 @@ async function autoLogin(){
   // anyone mid-session still inside.
   if(!PLAYER_LOGIN_ON){ sessionStorage.removeItem('leonAuth'); return; }
   try{
-    const auth=JSON.parse(sessionStorage.getItem('leonAuth'));
+    let auth=JSON.parse(sessionStorage.getItem('leonAuth'));
+    // Club configs: no member session in this tab, but the device may already hold a
+    // CourtSense sign-in (for example after tapping a club alert). See clubAccountSession.
+    if(!auth) auth=await clubAccountSession();
     if(!auth)return;
     if(auth.role==='player'&&auth.pid){currentPlayerId=auth.pid;currentRole='player';
       document.getElementById('login-overlay').classList.add('hidden');
@@ -4920,6 +4924,78 @@ function ppRenderRating(){
     if(currentPlayerId===pid) ppRenderRating();
   });
 }
+// ── Club alert landing (club configs with account logins) ───────────────────
+// Club configs only: a member already signed in to their CourtSense account on this
+// device (auth.js, "keep me signed in") opens the club app signed in. The worker
+// confirms the stored token, and exactly one active roster record in this club must
+// carry that account. Read only on the CourtSense side: courtsenseAuth is never
+// written. Anything unexpected returns null and the normal login screen shows.
+async function clubAccountSession(){
+  if(!(SC.tiersEnabled&&SC.emailLogin))return null;
+  let tok='';
+  try{
+    const p=JSON.parse(localStorage.getItem('courtsenseAuth')||'null');
+    const now=Date.now();
+    if(p&&typeof p.sessionToken==='string'&&p.sessionToken&&(typeof p.exp!=='number'||p.exp>now)&&(typeof p.sessionExpiresAt!=='number'||p.sessionExpiresAt>now))tok=p.sessionToken;
+  }catch(e){}
+  if(!tok)return null;
+  let j=null;
+  try{
+    const r=await fetch(AUTH_WORKER+'/auth/player-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok})});
+    if(!r.ok)return null;
+    j=await r.json().catch(()=>null);
+  }catch(e){return null;}
+  const aid=j&&j.ok===true&&j.player&&j.player.id;
+  if(!aid)return null;
+  const recs=(D.players||[]).filter(p=>p&&p.accountId===aid&&p.active!==false);
+  if(recs.length!==1)return null;
+  const auth={role:'player',pid:recs[0].id};
+  try{ sessionStorage.setItem('leonAuth',JSON.stringify(auth)); }catch(e){}
+  return auth;
+}
+// ?view=chat (the alert page's "Open club app"): read once and cleaned from the address
+// bar like ?tryout. After login, Club Life opens on the All Club chat.
+let _ppOpenChat=false;
+try{
+  const _vq=new URLSearchParams(location.search);
+  if(_vq.get('view')==='chat'){
+    _ppOpenChat=true;
+    _vq.delete('view');
+    const _rest=_vq.toString();
+    history.replaceState(null,'',location.pathname+(_rest?'?'+_rest:'')+location.hash);
+  }
+}catch(e){}
+function ppShowAllClubChat(){
+  if(SC.chatEnabled&&typeof setChatChannel==='function') setChatChannel('allclub');
+  setTimeout(function(){
+    const el=document.getElementById('pp-panel-chat');
+    if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'start'});
+  },60);
+}
+// Latest alert: the newest All Club post an exec sent as a phone alert (via:'alert') in the
+// last 24 hours, at the top of Club Life. Read from the chat data already loaded.
+function renderLatestAlert(){
+  const el=document.getElementById('pp-latest-alert'); if(!el)return;
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const msgs=(D.chat&&D.chat.allclub)||{};
+  const since=Date.now()-24*3600000;
+  let best=null;
+  Object.keys(msgs).forEach(function(k){
+    const m=msgs[k];
+    if(m&&typeof m==='object'&&m.via==='alert'&&typeof m.text==='string'&&(m.createdAt||0)>=since&&(!best||(m.createdAt||0)>(best.createdAt||0)))best=m;
+  });
+  if(!best){ el.innerHTML=''; return; }
+  const nl=best.text.indexOf('\n');
+  const title=nl<0?best.text:best.text.slice(0,nl);
+  const body=nl<0?'':best.text.slice(nl+1);
+  el.innerHTML='<div class="card" style="border-top:3px solid var(--red);margin-bottom:12px;">'
+    +'<div style="font-family:\'Bebas Neue\';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:4px;">📲 Latest alert</div>'
+    +'<div style="font-weight:700;font-size:15px;color:var(--charcoal);">'+esc(title)+'</div>'
+    +(body?'<div style="font-size:14px;color:var(--charcoal);white-space:pre-line;line-height:1.5;margin-top:2px;">'+esc(body)+'</div>':'')
+    +(SC.chatEnabled?'<a href="javascript:void(0)" onclick="ppShowAllClubChat()" style="display:inline-block;padding:12px 0;margin:-4px 0 -12px;font-size:13px;font-weight:600;color:var(--blue);">See in All Club chat</a>':'')
+    +'</div>';
+}
+
 // After a member logs in or a session is restored: re-read their rating, and on the club open
 // Club Life (the club chats) instead of My Info. Every other shell keeps its default tab.
 function ppAfterLogin(){
@@ -4928,6 +5004,7 @@ function ppAfterLogin(){
   if(!SC.tiersEnabled) return;
   var btn=document.querySelector('.pp-tab-btn[onclick*="clublife"]');
   if(btn) switchPPTab('clublife',btn);
+  if(_ppOpenChat){ _ppOpenChat=false; ppShowAllClubChat(); }
 }
 // ---- Kings Night season leaderboard and nightly results (club) ------------------------
 // Execs (Manage > Stats) and members (the portal's Kings Night tab) get the same two views, built
@@ -9819,6 +9896,7 @@ function toggleCommentComposer(postId){
 function renderClubChat(){
   const panel=document.getElementById('pp-panel-chat');
   if(!panel)return;
+  renderLatestAlert(); // club only: the card exists only in the Club Life panel
   ensureVisibleChannel();
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   // Layer 5d author rendering: an exec-voice item (authorRole 'exec', no authorId) shows as Exec with the Exec badge; otherwise resolve the person via gP. Applies to posts and comments.
@@ -10103,7 +10181,7 @@ function phoneAlertCardHTML(){
     <div id="pa-err" style="color:var(--red);font-size:13px;font-weight:600;margin-top:6px;"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-secondary btn-small" id="pa-preview-btn" onclick="paPreview()" style="min-height:44px;">Preview</button>
-      <button class="btn btn-primary btn-small" id="pa-send-btn" onclick="paSend()" disabled style="min-height:44px;">Send</button>
+      <button class="btn btn-primary btn-small" id="pa-send-btn" onclick="paSend()" disabled aria-disabled="true" style="min-height:44px;opacity:.45;cursor:not-allowed;">Preview first</button>
     </div>
   </div>`;
 }
@@ -10138,8 +10216,13 @@ function paPaint(){
   const er=document.getElementById('pa-err'); if(er)er.textContent=_pa.err||'';
   const send=document.getElementById('pa-send-btn');
   if(send){
-    send.disabled=!fresh||_pa.busy;
-    send.textContent=fresh?('Send to '+_pa.preview.withAlerts+' phone'+(_pa.preview.withAlerts===1?'':'s')):'Send';
+    // Until a preview matches the typed text the button says so and looks unavailable.
+    const off=!fresh||_pa.busy;
+    send.disabled=off;
+    send.setAttribute('aria-disabled',off?'true':'false');
+    send.style.opacity=off?'.45':'';
+    send.style.cursor=off?'not-allowed':'';
+    send.textContent=fresh?('Send to '+_pa.preview.withAlerts+' phone'+(_pa.preview.withAlerts===1?'':'s')):'Preview first';
   }
   const prev=document.getElementById('pa-preview-btn'); if(prev)prev.disabled=_pa.busy;
 }
@@ -15319,6 +15402,7 @@ function renderMemberTravel(){
 // then travel, then tournament partner posts, into the containers nested in pp-panel-clublife. Each
 // renderer targets its own id, so nesting them under one tab does not change how they draw.
 function renderClubLife(){
+  renderLatestAlert();
   var p=gP(currentPlayerId);
   var pr=document.getElementById('pp-practice'); if(pr&&p) pr.innerHTML=memberPracticeHtml(p);
   if(SC.chatEnabled && typeof renderClubChat==='function') renderClubChat();
