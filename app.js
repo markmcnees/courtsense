@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.185';
+const APP_VERSION='1.1.186';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2442,7 +2442,7 @@ async function changeCoachPin(){
   const statusEl=document.getElementById('pin-change-status');
   const cur=curEl?curEl.value.trim():'';
   const newPin=newEl?newEl.value.trim():'';
-  if(!newPin||newPin.length<4){if(statusEl)statusEl.textContent='PIN must be at least 4 digits';return;}
+  if(!/^\d{4}$/.test(newPin)){if(statusEl)statusEl.textContent='The PIN must be exactly 4 digits.';return;}
   let session=null; try{session=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   const token=session&&session.token;
   if(!token){if(statusEl)statusEl.textContent='';toast('Session expired, log in again');logout();return;}
@@ -2456,6 +2456,9 @@ async function changeCoachPin(){
       setTimeout(()=>{if(statusEl)statusEl.textContent='';},2000);
     }else if(j&&j.code==='bad_pin'){
       if(statusEl)statusEl.textContent='Current PIN is incorrect';
+    }else if(r.status===400&&j&&j.error){
+      // The worker's PIN policy says why (format, repeat or run, or a public value).
+      if(statusEl)statusEl.textContent=j.error;
     }else{
       if(statusEl)statusEl.textContent='Could not update PIN. Try again.';
     }
