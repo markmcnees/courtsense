@@ -69,6 +69,31 @@ details[open] .chev .closed, details:not([open]) .chev .open{display:none;}
 .actions .btn{flex:1;min-width:150px;}
 .ext{color:var(--blue);font-weight:600;font-size:14px;}
 .note{font-size:12px;color:var(--slate);margin-top:10px;line-height:1.5;}
+/* Reach out, teams and conversations */
+.panel{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:0 0 16px;}
+.compose{background:#F7F3EA;border:1px solid var(--line);border-radius:10px;padding:12px;margin:4px 0 12px;}
+.compose label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:6px 0 4px;}
+.compose select,.compose textarea,.panel textarea,.panel input[type=text]{width:100%;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink);}
+.compose textarea,.panel textarea{min-height:84px;resize:vertical;}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ink);margin:8px 0;}
+.chk input{margin-top:3px;width:18px;height:18px;flex:none;}
+.count{font-size:12px;color:var(--slate);text-align:right;}
+.msg-err{font-size:13px;color:#9b1c1c;font-weight:600;margin-top:6px;}
+.msg-ok{font-size:13px;color:var(--teal);font-weight:600;margin-top:6px;}
+.team{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);}
+.team:last-child{border-bottom:none;}
+.team .who{font-size:15px;}
+.done{color:var(--teal);font-weight:700;font-size:13px;}
+.thread-msg{padding:10px 12px;border-radius:10px;margin:8px 0;background:#EEF3F7;max-width:92%;}
+.thread-msg.mine{background:#FDF1D6;margin-left:auto;}
+.thread-msg.sys{background:transparent;color:var(--slate);font-size:13px;text-align:center;max-width:100%;padding:4px;}
+.thread-msg .from{font-size:12px;font-weight:700;color:var(--slate);margin-bottom:2px;}
+.thread-msg .text{white-space:pre-wrap;word-wrap:break-word;font-size:15px;}
+.linkbtn{background:none;border:none;color:var(--slate);font:inherit;font-size:12px;text-decoration:underline;cursor:pointer;padding:6px 0;min-height:32px;}
+.req{border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0;}
+.req .state{font-size:13px;color:var(--slate);margin-top:2px;}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.btns .btn{flex:1;min-width:90px;}
 footer{text-align:center;font-size:14px;color:var(--slate);padding:24px 16px 32px;border-top:1px solid var(--line);}
 footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;display:inline-block;min-height:44px;line-height:44px;}
 @media (min-width:600px){h1{font-size:48px;}}
@@ -86,6 +111,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
 <main>
   <h1>Find a tournament partner</h1>
   <p class="lead">See who is looking for a partner at upcoming events. Sign in free to reach out or post yourself.</p>
+  <div id="panel"></div>
   <div id="board"><div class="status">Loading tournaments...</div></div>
 </main>
 
@@ -95,9 +121,11 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
 
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
-// /pickup/partner-board route: short display names, ratings and division labels.
-// Every value is set through textContent, never innerHTML, and no free text
-// field exists in the response for this page to render.
+// /pickup/partner-board route: short display names, ratings, division labels, team
+// cards and opaque refs. Signed-in players can Reach out, Ask to join, and read and
+// answer their conversations through the /partners/* worker routes, which check the
+// stored session token on every call. Every value, including message text, is set
+// through textContent, never innerHTML.
 (function(){
   const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
   const PICKUP = '/pickup/';
@@ -131,7 +159,10 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   function plural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
   function trnHref(id){ return PICKUP + '?view=tournaments&trn=' + encodeURIComponent(id); }
 
-  function personRow(p, btnText, href){
+  // One person on the board. actions is a list of buttons or links for the right side;
+  // a compose box, when opened, goes right under the row.
+  function personRow(p, actions){
+    const wrap = el('div');
     const row = el('div', 'row');
     const left = el('div');
     const who = el('div', 'who', p.display);
@@ -139,8 +170,166 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     left.appendChild(who);
     (p.needs || []).forEach(n => left.appendChild(el('div', 'needs', dayShort(n.day) + ': ' + n.label)));
     row.appendChild(left);
-    row.appendChild(link('btn btn-o', btnText, href));
-    return row;
+    const right = el('div');
+    right.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:stretch;';
+    actions.forEach(a => right.appendChild(a));
+    row.appendChild(right);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  // ── Signed-in player, read from the stored session (no Firebase, no auth.js). The
+  // worker checks the token on every call, so nothing here is trusted on its own. ──
+  const SIGN_IN = PICKUP + '?view=tournaments';
+  function storedToken(){
+    for(const store of [localStorage, sessionStorage]){
+      try {
+        const p = JSON.parse(store.getItem('courtsenseAuth') || 'null');
+        if(p && typeof p.sessionToken === 'string' && /^[a-f0-9]{64}$/.test(p.sessionToken)){
+          if(typeof p.sessionExpiresAt === 'number' && p.sessionExpiresAt && p.sessionExpiresAt <= Date.now()) continue;
+          return p.sessionToken;
+        }
+      } catch(e){}
+    }
+    return '';
+  }
+  const token = storedToken();
+  let me = null; // { display, adult, hsBlocked, partnerEmails, teamsEnabled, configured } when signed in
+
+  async function post(path, data){
+    try {
+      const r = await fetch(WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ sessionToken: token }, data || {})) });
+      const j = await r.json().catch(function(){ return null; });
+      return { status: r.status, j: j || { ok: false, error: 'Something went wrong. Try again.' } };
+    } catch(e){
+      return { status: 0, j: { ok: false, error: 'Could not reach CourtSense. Check your connection.' } };
+    }
+  }
+  async function loadMe(){
+    if(!token) return null;
+    const r = await post('/partners/me');
+    return r.status === 200 && r.j.ok ? r.j : null;
+  }
+  const canMessage = () => !!(me && me.configured && !me.hsBlocked);
+  function signInLink(text){ return link('btn btn-o', text, SIGN_IN); }
+  function btn(cls, text, onClick){
+    const b = el('button', 'btn ' + cls, text);
+    b.type = 'button';
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  function threadHref(id){ return '/partners/?thread=' + encodeURIComponent(id); }
+
+  // Text box with a live count, capped at 500 like the worker.
+  function textBox(placeholder){
+    const ta = el('textarea');
+    ta.maxLength = 500;
+    ta.placeholder = placeholder;
+    const count = el('div', 'count', '0/500');
+    ta.addEventListener('input', function(){ count.textContent = ta.value.length + '/500'; });
+    return { ta: ta, count: count };
+  }
+  // The one-time 18+ box, shown only until the worker has a confirmation.
+  function adultBox(){
+    if(me && me.adult) return null;
+    const lab = el('label', 'chk');
+    const cb = el('input'); cb.type = 'checkbox';
+    lab.appendChild(cb);
+    lab.appendChild(el('span', null, 'I am 18 or older. Partner messaging is for adult players.'));
+    return { lab: lab, cb: cb };
+  }
+
+  // Compose under a row: Reach out to a person (with a division picker) or Ask to join a team.
+  function openCompose(host, opts){
+    const existing = host.querySelector('.compose');
+    if(existing){ existing.remove(); return; }
+    const box = el('div', 'compose');
+    let pick = null;
+    if(opts.divs && opts.divs.length > 1){
+      box.appendChild(el('label', null, 'Division'));
+      pick = el('select');
+      opts.divs.forEach(d => { const o = el('option', null, d.label); o.value = d.div; pick.appendChild(o); });
+      box.appendChild(pick);
+    }
+    box.appendChild(el('label', null, opts.prompt));
+    const t = textBox(opts.placeholder);
+    box.appendChild(t.ta); box.appendChild(t.count);
+    const adult = adultBox();
+    if(adult) box.appendChild(adult.lab);
+    box.appendChild(el('div', 'note', 'Keep it short. Links are removed. Your email and phone are never shared.'));
+    const out = el('div');
+    const row = el('div', 'btns');
+    const send = btn('btn-p', opts.sendText, async function(){
+      out.textContent = '';
+      if(!t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Write a short message first.')); return; }
+      if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
+      send.disabled = true;
+      const r = await post('/partners/message', { tid: opts.tid, div: pick ? pick.value : (opts.divs && opts.divs[0] ? opts.divs[0].div : ''), ref: opts.ref, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
+      send.disabled = false;
+      if(!r.j.ok){ out.appendChild(el('div', 'msg-err', r.j.error || 'That did not send.')); return; }
+      if(me) me.adult = true;
+      box.textContent = '';
+      box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. They will get an email' + (r.j.request ? ' and can accept or decline.' : '.')));
+      box.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
+    });
+    row.appendChild(send);
+    row.appendChild(btn('btn-o', 'Cancel', function(){ box.remove(); }));
+    box.appendChild(row);
+    box.appendChild(out);
+    host.appendChild(box);
+    t.ta.focus();
+  }
+
+  // Division choices for a person: every division behind their needs, labelled the
+  // way the tournament lists it.
+  function personDivs(t, p){
+    const byId = {};
+    (t.divisions || []).forEach(d => { byId[d.div] = d; });
+    const out = [];
+    (p.needs || []).forEach(n => (n.divs || []).forEach(id => { if(byId[id]) out.push({ div: id, label: dayShort(byId[id].day) + ': ' + byId[id].label }); }));
+    return out;
+  }
+  function reachOutBtn(t, p, holder){
+    if(!p.ref) return null;
+    if(!token || !me) return signInLink('Sign in to reach out');
+    if(!canMessage()) return null;
+    const divs = personDivs(t, p);
+    if(!divs.length) return null;
+    return btn('btn-o', 'Reach out', function(){
+      openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' });
+    });
+  }
+
+  // Teams forming and complete, by division.
+  function teamsSection(t){
+    const divs = (t.divisions || []).filter(d => d.teams && d.teams.length);
+    if(!divs.length) return null;
+    const sec = el('div');
+    sec.appendChild(el('div', 'sec-h', 'Teams'));
+    divs.forEach(d => {
+      sec.appendChild(el('div', 'needs', dayShort(d.day) + ': ' + d.label + ' (' + d.size + 's)'));
+      d.teams.forEach(tm => {
+        const wrap = el('div');
+        const row = el('div', 'team');
+        const left = el('div');
+        left.appendChild(el('div', 'who', tm.members.join(' + ')));
+        if(tm.status === 'complete') left.appendChild(el('div', 'done', 'Team complete'));
+        else left.appendChild(el('div', 'needs', 'Looking for ' + tm.need + ' more'));
+        if(tm.sizeChanged) left.appendChild(el('div', 'needs', 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.'));
+        row.appendChild(left);
+        if(tm.status === 'complete'){
+          if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; row.appendChild(a); }
+        } else if(tm.ref){
+          if(!token || !me) row.appendChild(signInLink('Sign in to ask'));
+          else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
+            openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], prompt: 'Message to the team', placeholder: 'Tell them a bit about your game.', sendText: 'Ask to join' });
+          }));
+        }
+        wrap.appendChild(row);
+        sec.appendChild(wrap);
+      });
+    });
+    return sec;
   }
 
   function shareBtn(t){
@@ -188,12 +377,26 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       body.appendChild(dv);
     }
 
+    const teams = teamsSection(t);
+    if(teams) body.appendChild(teams);
+
     body.appendChild(el('div', 'sec-h', 'Looking for a partner'));
-    if(t.posts.length) t.posts.forEach(p => body.appendChild(personRow(p, 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(p.inviteId))));
+    if(t.posts.length) t.posts.forEach(p => {
+      let row = null;
+      const acts = [link('btn btn-o', 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(p.inviteId))];
+      if(token && me){ const b = reachOutBtn(t, p, () => row); if(b) acts.push(b); }
+      row = personRow(p, acts);
+      body.appendChild(row);
+    });
     else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
 
     body.appendChild(el('div', 'sec-h', 'Free agents'));
-    if(t.freeAgents.length) t.freeAgents.forEach(p => body.appendChild(personRow(p, 'Reach out', trnHref(t.id))));
+    if(t.freeAgents.length) t.freeAgents.forEach(p => {
+      let row = null;
+      const b = reachOutBtn(t, p, () => row);
+      row = personRow(p, [b || link('btn btn-o', 'View event', trnHref(t.id))]);
+      body.appendChild(row);
+    });
     else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
 
     const actions = el('div', 'actions');
@@ -207,7 +410,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       p.appendChild(a);
       body.appendChild(p);
     }
-    body.appendChild(el('div', 'note', 'Sign in to reach out, offer, or post. Names show as first name and last initial. Junior divisions are not part of partner matching.'));
+    body.appendChild(el('div', 'note', 'Sign in to reach out, offer, or post. Names show as first name and last initial. Messages stay inside CourtSense, so nobody sees your email or phone. Partner messaging is for players 18 and older. Junior divisions are not part of partner matching.'));
     d.appendChild(body);
     return d;
   }
@@ -219,8 +422,178 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return j.tournaments;
   }
 
+  // ── One conversation (?thread=) ───────────────────────────────────────────
+  const panel = document.getElementById('panel');
+  const threadId = (params.get('thread') || '').trim();
+  function when(ms){
+    try { return new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch(e){ return ''; }
+  }
+  async function renderThread(){
+    panel.textContent = '';
+    const box = el('div', 'panel');
+    panel.appendChild(box);
+    if(!token || !me){
+      box.appendChild(el('div', 'sec-h', 'Your conversation'));
+      box.appendChild(el('p', 'needs', 'Sign in to read and reply. Your messages stay inside CourtSense.'));
+      const a = el('div', 'actions'); a.appendChild(link('btn btn-p', 'Sign in', SIGN_IN)); box.appendChild(a);
+      return;
+    }
+    box.appendChild(el('div', 'status', 'Loading conversation...'));
+    const r = await post('/partners/thread', { threadId: threadId });
+    box.textContent = '';
+    if(!r.j.ok){ box.appendChild(el('div', 'status err', r.j.error || 'That conversation is not available.')); return; }
+    const th = r.j;
+    box.appendChild(el('div', 't-name', th.tournamentName));
+    box.appendChild(el('div', 't-meta', (th.divLabel ? th.divLabel + ' · ' : '') + 'You and ' + (th.people.join(', ') || 'a player')));
+
+    // The team this conversation is about, when there is one.
+    if(th.team){
+      const tb = el('div', 'req');
+      tb.appendChild(el('div', 'who', th.team.members.join(' + ')));
+      tb.appendChild(el('div', th.team.status === 'complete' ? 'done' : 'state', th.team.status === 'complete' ? 'Team complete' : 'Looking for ' + th.team.need + ' more (' + th.team.size + 's)'));
+      if(th.team.sizeChanged) tb.appendChild(el('div', 'state', 'This team formed as ' + th.team.size + 's. The event has since changed its format.'));
+      const bs = el('div', 'btns');
+      if(th.team.status === 'complete' && th.registrationLink){ const a = link('btn btn-gold', 'Register your team', th.registrationLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; bs.appendChild(a); }
+      if(th.team.mine && th.team.ref) bs.appendChild(btn('btn-o', 'Leave team', async function(){
+        if(!window.confirm('Leave this team? Your teammates will be told and the spot opens up.')) return;
+        const x = await post('/partners/leave', { tid: th.tid, teamRef: th.team.ref });
+        if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
+        renderThread();
+      }));
+      if(bs.childNodes.length) tb.appendChild(bs);
+      box.appendChild(tb);
+    }
+
+    // Invites and asks to join: yes, no or maybe for the one answering; withdraw for
+    // the one who asked. Ignoring is simply not answering.
+    (th.requests || []).forEach(q => {
+      const rb = el('div', 'req');
+      rb.appendChild(el('div', 'who', q.label));
+      rb.appendChild(el('div', 'state', q.state));
+      if(q.canRespond){
+        const t = textBox('Add a note (optional for yes or no, needed for maybe)');
+        rb.appendChild(t.ta); rb.appendChild(t.count);
+        const adult = adultBox();
+        if(adult) rb.appendChild(adult.lab);
+        const out = el('div');
+        const bs = el('div', 'btns');
+        const answer = async function(ans){
+          out.textContent = '';
+          if(ans === 'maybe' && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Add your question or condition for a maybe.')); return; }
+          if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
+          const x = await post('/partners/team/respond', { tid: th.tid, reqId: q.id, answer: ans, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
+          if(!x.j.ok){ out.appendChild(el('div', 'msg-err', x.j.error || 'That did not work.')); return; }
+          if(me) me.adult = true;
+          renderThread();
+        };
+        bs.appendChild(btn('btn-p', 'Yes', function(){ answer('yes'); }));
+        bs.appendChild(btn('btn-o', 'Maybe', function(){ answer('maybe'); }));
+        bs.appendChild(btn('btn-o', 'No thanks', function(){ answer('no'); }));
+        rb.appendChild(bs);
+        rb.appendChild(out);
+      }
+      if(q.canWithdraw){
+        const bs = el('div', 'btns');
+        bs.appendChild(btn('btn-o', 'Withdraw request', async function(){
+          const x = await post('/partners/team/withdraw', { reqId: q.id });
+          if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
+          renderThread();
+        }));
+        rb.appendChild(bs);
+      }
+      box.appendChild(rb);
+    });
+
+    // Messages, oldest first. Report sits on everything someone else wrote.
+    const list = el('div');
+    (th.messages || []).forEach(m => {
+      const mb = el('div', 'thread-msg' + (m.kind === 'system' ? ' sys' : m.mine ? ' mine' : ''));
+      if(m.kind !== 'system') mb.appendChild(el('div', 'from', (m.mine ? 'You' : m.from) + ' · ' + when(m.at)));
+      mb.appendChild(el('div', 'text', m.text));
+      if(!m.mine && m.kind !== 'system'){
+        const rep = el('button', 'linkbtn', 'Report');
+        rep.type = 'button';
+        rep.addEventListener('click', function(){
+          if(mb.querySelector('.compose')) return;
+          const f = el('div', 'compose');
+          f.appendChild(el('label', null, 'What is wrong with this message?'));
+          const why = el('input'); why.type = 'text'; why.maxLength = 300;
+          f.appendChild(why);
+          const o = el('div');
+          const bs = el('div', 'btns');
+          bs.appendChild(btn('btn-p', 'Send report', async function(){
+            const x = await post('/partners/report', { threadId: th.threadId, msgId: m.id, reason: why.value });
+            f.textContent = '';
+            f.appendChild(el('div', x.j.ok ? 'msg-ok' : 'msg-err', x.j.ok ? 'Thanks. We will take a look.' : (x.j.error || 'That did not send.')));
+          }));
+          bs.appendChild(btn('btn-o', 'Cancel', function(){ f.remove(); }));
+          f.appendChild(bs); f.appendChild(o);
+          mb.appendChild(f);
+        });
+        mb.appendChild(rep);
+      }
+      list.appendChild(mb);
+    });
+    box.appendChild(list);
+
+    // Reply.
+    const t = textBox('Write a reply');
+    box.appendChild(t.ta); box.appendChild(t.count);
+    const adult = adultBox();
+    if(adult) box.appendChild(adult.lab);
+    const out = el('div');
+    const bs = el('div', 'btns');
+    const send = btn('btn-p', 'Send', async function(){
+      out.textContent = '';
+      if(!t.ta.value.trim()) return;
+      if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
+      send.disabled = true;
+      const x = await post('/partners/reply', { threadId: th.threadId, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
+      send.disabled = false;
+      if(!x.j.ok){ out.appendChild(el('div', 'msg-err', x.j.error || 'That did not send.')); return; }
+      if(me) me.adult = true;
+      renderThread();
+    });
+    bs.appendChild(send);
+    box.appendChild(bs);
+    box.appendChild(out);
+    const fine = el('div', 'note', 'Links are removed from messages. Your email and phone are never shared. ');
+    fine.appendChild(link('ext', 'Email settings', '/partners/?settings=1'));
+    box.appendChild(fine);
+    const back = el('div', 'actions'); back.appendChild(link('btn btn-o', 'Back to the board', '/partners/' + (th.tid ? '?t=' + encodeURIComponent(th.tid) : ''))); box.appendChild(back);
+  }
+
+  // ── Partner email setting (?settings=1) ───────────────────────────────────
+  function renderSettings(){
+    panel.textContent = '';
+    const box = el('div', 'panel');
+    box.appendChild(el('div', 'sec-h', 'Partner emails'));
+    panel.appendChild(box);
+    if(!token || !me){
+      box.appendChild(el('p', 'needs', 'Sign in to change your partner email setting.'));
+      const a = el('div', 'actions'); a.appendChild(link('btn btn-p', 'Sign in', SIGN_IN)); box.appendChild(a);
+      return;
+    }
+    const state = el('p', 'needs', me.partnerEmails ? 'Partner emails are on. You get an email when someone reaches out, answers, or your team changes.' : 'Partner emails are off. Messages still wait for you on CourtSense.');
+    box.appendChild(state);
+    const out = el('div');
+    const bs = el('div', 'btns');
+    bs.appendChild(btn(me.partnerEmails ? 'btn-o' : 'btn-p', me.partnerEmails ? 'Turn off partner emails' : 'Turn on partner emails', async function(){
+      const x = await post('/partners/prefs', { partnerEmails: !me.partnerEmails });
+      if(!x.j.ok){ out.textContent = ''; out.appendChild(el('div', 'msg-err', x.j.error || 'That did not save.')); return; }
+      me.partnerEmails = x.j.partnerEmails;
+      renderSettings();
+    }));
+    box.appendChild(bs);
+    box.appendChild(out);
+  }
+
   async function load(){
     try {
+      me = await loadMe();
+      if(threadId) await renderThread();
+      else if(params.get('settings') === '1') renderSettings();
+      else if(me && me.hsBlocked){ panel.appendChild(el('div', 'status', 'Partner messaging is for adult players.')); }
       const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid) : Promise.resolve([]), fetchBoard('')]);
       board.textContent = '';
       const featured = featuredList[0] || null;
