@@ -94,6 +94,12 @@ details[open] .chev .closed, details:not([open]) .chev .open{display:none;}
 .req .state{font-size:13px;color:var(--slate);margin-top:2px;}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
 .btns .btn{flex:1;min-width:90px;}
+.req .quote{margin:8px 0;padding:10px 12px;border-left:4px solid var(--gold);background:#FAF7EF;white-space:pre-wrap;word-wrap:break-word;font-size:15px;}
+.req.pinned{border:2px solid var(--gold);background:#FFFDF8;}
+.opts{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 6px;}
+.opts .btn{flex:1;min-width:70px;}
+.opts .btn.sel{background:var(--navy);color:#fff;border-color:var(--navy);}
+.req label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:8px 0 4px;}
 footer{text-align:center;font-size:14px;color:var(--slate);padding:24px 16px 32px;border-top:1px solid var(--line);}
 footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;display:inline-block;min-height:44px;line-height:44px;}
 @media (min-width:600px){h1{font-size:48px;}}
@@ -239,11 +245,14 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return { lab: lab, cb: cb };
   }
 
-  // Compose under a row: Reach out to a person (with a division picker) or Ask to join a team.
+  // Compose under a row: Ask to team up with a person (with a division picker) or Ask
+  // to join a team. With team forming on the note is optional; it becomes the first
+  // message of the conversation.
   function openCompose(host, opts){
     const existing = host.querySelector('.compose');
     if(existing){ existing.remove(); return; }
     const box = el('div', 'compose');
+    if(opts.title) box.appendChild(el('div', 'who', opts.title));
     let pick = null;
     if(opts.divs && opts.divs.length > 1){
       box.appendChild(el('label', null, 'Division'));
@@ -261,7 +270,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     const row = el('div', 'btns');
     const send = btn('btn-p', opts.sendText, async function(){
       out.textContent = '';
-      if(!t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Write a short message first.')); return; }
+      if(!opts.optional && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Write a short message first.')); return; }
       if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
       send.disabled = true;
       const r = await post('/partners/message', { tid: opts.tid, div: pick ? pick.value : (opts.divs && opts.divs[0] ? opts.divs[0].div : ''), ref: opts.ref, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
@@ -269,7 +278,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       if(!r.j.ok){ out.appendChild(el('div', 'msg-err', r.j.error || 'That did not send.')); return; }
       if(me) me.adult = true;
       box.textContent = '';
-      box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. They will get an email' + (r.j.request ? ' and can accept or decline.' : '.')));
+      box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. ' + (r.j.request ? 'They will get an email and can answer yes, maybe or no.' : 'They will get an email.')));
       box.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
     });
     row.appendChild(send);
@@ -291,10 +300,14 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   }
   function reachOutBtn(t, p, holder){
     if(!p.ref) return null;
-    if(!token || !me) return signInLink('Sign in to reach out');
+    const teamUp = !!(me && me.teamsEnabled);
+    if(!token || !me) return signInLink('Sign in to team up');
     if(!canMessage()) return null;
     const divs = personDivs(t, p);
     if(!divs.length) return null;
+    if(teamUp) return btn('btn-o', 'Ask to team up', function(){
+      openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, optional: true, title: 'Ask ' + p.display + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' });
+    });
     return btn('btn-o', 'Reach out', function(){
       openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' });
     });
@@ -312,9 +325,10 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         const wrap = el('div');
         const row = el('div', 'team');
         const left = el('div');
-        left.appendChild(el('div', 'who', tm.members.join(' + ')));
+        const who = el('div', 'who', tm.members.join(' + '));
+        if(tm.status !== 'complete') who.appendChild(el('span', 'needs', ' · looking for ' + tm.need + ' more'));
+        left.appendChild(who);
         if(tm.status === 'complete') left.appendChild(el('div', 'done', 'Team complete'));
-        else left.appendChild(el('div', 'needs', 'Looking for ' + tm.need + ' more'));
         if(tm.sizeChanged) left.appendChild(el('div', 'needs', 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.'));
         row.appendChild(left);
         if(tm.status === 'complete'){
@@ -322,7 +336,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         } else if(tm.ref){
           if(!token || !me) row.appendChild(signInLink('Sign in to ask'));
           else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
-            openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], prompt: 'Message to the team', placeholder: 'Tell them a bit about your game.', sendText: 'Ask to join' });
+            openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + tm.members.join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' });
           }));
         }
         wrap.appendChild(row);
@@ -422,8 +436,133 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return j.tournaments;
   }
 
-  // ── One conversation (?thread=) ───────────────────────────────────────────
+  // ── The team-up request card, used by the email link view (?req=) and pinned at the
+  // top of a conversation. q: { label, state, note, canRespond, canWithdraw }.
+  // ctx: { where, preset, send(answer, text, adultConfirmed) -> {ok, error}, withdraw() }.
+  // Ignore never calls the worker: it only says so and closes the card. ──
+  const ANSWERS = [['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No'], ['ignore', 'Ignore']];
+  function requestCard(q, ctx){
+    const rb = el('div', 'req pinned');
+    rb.appendChild(el('div', 'who', q.label));
+    if(ctx.where) rb.appendChild(el('div', 'state', ctx.where));
+    if(q.note) rb.appendChild(el('div', 'quote', q.note));
+    if(!q.canRespond){
+      rb.appendChild(el('div', 'state', q.state));
+      if(q.canWithdraw && ctx.withdraw){
+        const bs = el('div', 'btns');
+        bs.appendChild(btn('btn-o', 'Withdraw request', ctx.withdraw));
+        rb.appendChild(bs);
+      }
+      return rb;
+    }
+    let choice = ANSWERS.some(a => a[0] === ctx.preset) ? ctx.preset : '';
+    const opts = el('div', 'opts');
+    const lab = el('label');
+    const t = textBox('');
+    const adult = adultBox();
+    const out = el('div');
+    function paint(){
+      Array.prototype.forEach.call(opts.childNodes, b => { b.className = 'btn btn-o' + (b.dataset.a === choice ? ' sel' : ''); });
+      lab.textContent = choice === 'maybe' ? 'Your question or condition' : 'Add a message (optional)';
+      t.ta.placeholder = choice === 'maybe' ? 'Ask a question or set a condition' : 'Add a message (optional)';
+      const quiet = choice === 'ignore';
+      [lab, t.ta, t.count].forEach(n => { n.style.display = quiet ? 'none' : ''; });
+      if(adult) adult.lab.style.display = quiet ? 'none' : '';
+    }
+    ANSWERS.forEach(a => {
+      const b = btn('btn-o', a[1], function(){ choice = a[0]; out.textContent = ''; paint(); });
+      b.dataset.a = a[0];
+      opts.appendChild(b);
+    });
+    rb.appendChild(opts);
+    rb.appendChild(lab); rb.appendChild(t.ta); rb.appendChild(t.count);
+    if(adult) rb.appendChild(adult.lab);
+    const bs = el('div', 'btns');
+    const send = btn('btn-p', 'Send', async function(){
+      out.textContent = '';
+      if(!choice){ out.appendChild(el('div', 'msg-err', 'Pick an answer first.')); return; }
+      if(choice === 'ignore'){
+        rb.textContent = '';
+        rb.appendChild(el('div', 'msg-ok', 'No problem, nothing was sent.'));
+        return;
+      }
+      if(choice === 'maybe' && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Add your question or condition for a maybe.')); return; }
+      if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
+      send.disabled = true;
+      const x = await ctx.send(choice, t.ta.value, adult ? adult.cb.checked : undefined);
+      send.disabled = false;
+      if(!x.ok){ out.appendChild(el('div', 'msg-err', x.error || 'That did not work.')); return; }
+      if(me) me.adult = true;
+    });
+    bs.appendChild(send);
+    rb.appendChild(bs);
+    rb.appendChild(out);
+    paint();
+    return rb;
+  }
+
+  // ── A request from an email link (?req=token&answer=yes|maybe|no|ignore) ─────
+  // Opening the link changes nothing: the card loads read only and the answer is only
+  // sent with Send. Ignore makes no call at all.
   const panel = document.getElementById('panel');
+  const reqToken = (params.get('req') || '').trim();
+  const presetAnswer = (params.get('answer') || '').trim();
+  const RETURN_KEY = 'cs_partner_return';
+  function renderIgnored(){
+    panel.textContent = '';
+    const box = el('div', 'panel');
+    box.appendChild(el('div', 'msg-ok', 'No problem, nothing was sent.'));
+    box.appendChild(el('p', 'needs', 'They will not be told. If you change your mind, the request stays open in your email.'));
+    const a = el('div', 'actions'); a.appendChild(link('btn btn-o', 'See the partner board', '/partners/')); box.appendChild(a);
+    panel.appendChild(box);
+  }
+  async function renderRequest(){
+    panel.textContent = '';
+    const box = el('div', 'panel');
+    panel.appendChild(box);
+    if(!token || !me){
+      // Keep this page (and its answer) to come back to after signing in.
+      try { localStorage.setItem(RETURN_KEY, JSON.stringify({ url: location.pathname + location.search, at: Date.now() })); } catch(e){}
+      box.appendChild(el('div', 'sec-h', 'Team-up request'));
+      box.appendChild(el('p', 'needs', 'Sign in to answer. Your answer is not sent until you press Send.'));
+      const a = el('div', 'actions');
+      const s = link('btn btn-p', 'Sign in', SIGN_IN); s.target = '_blank'; s.rel = 'noopener';
+      a.appendChild(s);
+      a.appendChild(btn('btn-o', 'I signed in, continue', function(){ location.reload(); }));
+      box.appendChild(a);
+      return;
+    }
+    try { localStorage.removeItem(RETURN_KEY); } catch(e){}
+    if(me.hsBlocked){ box.appendChild(el('div', 'status', 'Partner messaging is for adult players.')); return; }
+    box.appendChild(el('div', 'status', 'Loading the request...'));
+    const r = await post('/partners/request', { req: reqToken });
+    box.textContent = '';
+    if(!r.j.ok){ box.appendChild(el('div', 'status err', r.j.error || 'That request is not available.')); return; }
+    const q = r.j;
+    box.appendChild(el('div', 't-name', q.tournamentName));
+    box.appendChild(el('div', 't-meta', (q.divLabel ? q.divLabel + ' · ' : '') + q.size + 's'));
+    if(q.team) box.appendChild(el('div', 'needs', 'Their team: ' + q.team.members.join(' + ') + (q.team.need ? ' · looking for ' + q.team.need + ' more' : '')));
+    const result = el('div');
+    box.appendChild(requestCard({ label: q.label, state: q.state, note: q.note, canRespond: q.open }, {
+      preset: presetAnswer,
+      send: async function(answer, text, adultConfirmed){
+        const x = await post('/partners/team/respond', { req: reqToken, answer: answer, text: text, adultConfirmed: adultConfirmed });
+        if(!x.j.ok) return x.j;
+        box.querySelector('.req').remove();
+        const msg = answer === 'yes'
+          ? (x.j.complete ? 'You said yes. Your team is complete.' : 'You said yes. You are a team' + (x.j.need ? ', looking for ' + x.j.need + ' more.' : '.'))
+          : answer === 'no' ? 'You said no thanks. They have been told.'
+            : 'Sent. They can answer your question in the conversation.';
+        result.appendChild(el('div', 'msg-ok', msg));
+        try { history.replaceState(null, '', '/partners/?thread=' + encodeURIComponent(x.j.threadId || q.threadId)); } catch(e){}
+        return x.j;
+      },
+    }));
+    box.appendChild(result);
+    const a = el('div', 'actions'); a.appendChild(link('btn btn-o', 'Open the conversation', threadHref(q.threadId))); box.appendChild(a);
+  }
+
+  // ── One conversation (?thread=) ───────────────────────────────────────────
   const threadId = (params.get('thread') || '').trim();
   function when(ms){
     try { return new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch(e){ return ''; }
@@ -446,6 +585,33 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     box.appendChild(el('div', 't-name', th.tournamentName));
     box.appendChild(el('div', 't-meta', (th.divLabel ? th.divLabel + ' · ' : '') + 'You and ' + (th.people.join(', ') || 'a player')));
 
+    // The newest team-up request, pinned: Yes / Maybe / No / Ignore for the one
+    // answering; for the one who asked, where it stands, with Withdraw while open.
+    // Once answered, the recipient sees it only while it is still open.
+    const reqs = th.requests || [];
+    const pin = reqs[reqs.length - 1];
+    if(pin && (pin.mine || pin.status === 'pending' || pin.status === 'maybe')){
+      box.appendChild(requestCard(pin, {
+        where: (th.divLabel ? th.divLabel + ' at ' : '') + th.tournamentName,
+        preset: '',
+        send: async function(answer, text, adultConfirmed){
+          const x = await post('/partners/team/respond', { tid: th.tid, reqId: pin.id, answer: answer, text: text, adultConfirmed: adultConfirmed });
+          if(x.j.ok) renderThread();
+          return x.j;
+        },
+        withdraw: async function(){
+          const x = await post('/partners/team/withdraw', { reqId: pin.id });
+          if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
+          renderThread();
+        },
+      }));
+    } else if(pin){
+      const rb = el('div', 'req');
+      rb.appendChild(el('div', 'who', pin.label));
+      rb.appendChild(el('div', 'state', pin.state));
+      box.appendChild(rb);
+    }
+
     // The team this conversation is about, when there is one.
     if(th.team){
       const tb = el('div', 'req');
@@ -464,43 +630,11 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       box.appendChild(tb);
     }
 
-    // Invites and asks to join: yes, no or maybe for the one answering; withdraw for
-    // the one who asked. Ignoring is simply not answering.
-    (th.requests || []).forEach(q => {
+    // Earlier requests in this conversation, one line each. The newest is pinned above.
+    (th.requests || []).slice(0, -1).forEach(q => {
       const rb = el('div', 'req');
       rb.appendChild(el('div', 'who', q.label));
       rb.appendChild(el('div', 'state', q.state));
-      if(q.canRespond){
-        const t = textBox('Add a note (optional for yes or no, needed for maybe)');
-        rb.appendChild(t.ta); rb.appendChild(t.count);
-        const adult = adultBox();
-        if(adult) rb.appendChild(adult.lab);
-        const out = el('div');
-        const bs = el('div', 'btns');
-        const answer = async function(ans){
-          out.textContent = '';
-          if(ans === 'maybe' && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Add your question or condition for a maybe.')); return; }
-          if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
-          const x = await post('/partners/team/respond', { tid: th.tid, reqId: q.id, answer: ans, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
-          if(!x.j.ok){ out.appendChild(el('div', 'msg-err', x.j.error || 'That did not work.')); return; }
-          if(me) me.adult = true;
-          renderThread();
-        };
-        bs.appendChild(btn('btn-p', 'Yes', function(){ answer('yes'); }));
-        bs.appendChild(btn('btn-o', 'Maybe', function(){ answer('maybe'); }));
-        bs.appendChild(btn('btn-o', 'No thanks', function(){ answer('no'); }));
-        rb.appendChild(bs);
-        rb.appendChild(out);
-      }
-      if(q.canWithdraw){
-        const bs = el('div', 'btns');
-        bs.appendChild(btn('btn-o', 'Withdraw request', async function(){
-          const x = await post('/partners/team/withdraw', { reqId: q.id });
-          if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
-          renderThread();
-        }));
-        rb.appendChild(bs);
-      }
       box.appendChild(rb);
     });
 
@@ -590,8 +724,17 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
 
   async function load(){
     try {
+      // Ignore from an email: say so and stop. No worker call of any kind.
+      if(reqToken && presetAnswer === 'ignore'){ board.textContent = ''; renderIgnored(); return; }
       me = await loadMe();
-      if(threadId) await renderThread();
+      // Back from signing in after opening a request link: return to it once.
+      if(me && !reqToken && !threadId){
+        let back = null;
+        try { back = JSON.parse(localStorage.getItem(RETURN_KEY) || 'null'); localStorage.removeItem(RETURN_KEY); } catch(e){}
+        if(back && typeof back.url === 'string' && back.url.indexOf('/partners/?req=') === 0 && Date.now() - back.at < 3600000){ location.replace(back.url); return; }
+      }
+      if(reqToken) await renderRequest();
+      else if(threadId) await renderThread();
       else if(params.get('settings') === '1') renderSettings();
       else if(me && me.hsBlocked){ panel.appendChild(el('div', 'status', 'Partner messaging is for adult players.')); }
       const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid) : Promise.resolve([]), fetchBoard('')]);
