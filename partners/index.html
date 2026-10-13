@@ -217,6 +217,9 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return r.status === 200 && r.j.ok ? r.j : null;
   }
   const canMessage = () => !!(me && me.configured && !me.hsBlocked);
+  // The signed-in player's own rows and teams, by the refs the worker hands back on
+  // /partners/me. Nobody gets Ask to team up on their own row or Ask to join on their own team.
+  const isMine = (tid, ref) => !!(me && me.selfRefs && ref && (me.selfRefs[tid] || []).indexOf(ref) !== -1);
   function signInLink(text){ return link('btn btn-o', text, SIGN_IN); }
   function btn(cls, text, onClick){
     const b = el('button', 'btn ' + cls, text);
@@ -275,7 +278,11 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       send.disabled = true;
       const r = await post('/partners/message', { tid: opts.tid, div: pick ? pick.value : (opts.divs && opts.divs[0] ? opts.divs[0].div : ''), ref: opts.ref, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
       send.disabled = false;
-      if(!r.j.ok){ out.appendChild(el('div', 'msg-err', r.j.error || 'That did not send.')); return; }
+      if(!r.j.ok){
+        out.appendChild(el('div', 'msg-err', r.j.error || 'That did not send.'));
+        if(r.j.threadId) out.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
+        return;
+      }
       if(me) me.adult = true;
       box.textContent = '';
       box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. ' + (r.j.request ? 'They will get an email and can answer yes, maybe or no.' : 'They will get an email.')));
@@ -299,7 +306,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return out;
   }
   function reachOutBtn(t, p, holder){
-    if(!p.ref) return null;
+    if(!p.ref || isMine(t.id, p.ref)) return null;
     const teamUp = !!(me && me.teamsEnabled);
     if(!token || !me) return signInLink('Sign in to team up');
     if(!canMessage()) return null;
@@ -333,6 +340,8 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         row.appendChild(left);
         if(tm.status === 'complete'){
           if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; row.appendChild(a); }
+        } else if(tm.ref && isMine(t.id, tm.ref)){
+          row.appendChild(el('div', 'done', 'Your team'));
         } else if(tm.ref){
           if(!token || !me) row.appendChild(signInLink('Sign in to ask'));
           else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
