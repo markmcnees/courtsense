@@ -34,6 +34,7 @@
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
+<script src="/partner-contact.js?v=1"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -87,6 +88,22 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .btn-w{width:100%;}
 .btn-sm{padding:9px 14px;font-size:12px;min-height:40px;}
 .btn:disabled{opacity:.4;cursor:not-allowed;}
+/* Pool roster contact box (partner-contact.js builds it with these class names). */
+.csp-box{flex-basis:100%;}
+.csp-box .compose{background:var(--sand);border:1px solid var(--sand-border);border-radius:10px;padding:12px;margin:6px 0 4px;}
+.csp-box .compose .who{font-weight:700;font-size:14px;margin-bottom:4px;}
+.csp-box .compose label{display:block;font-size:13px;font-weight:600;margin:6px 0 4px;}
+.csp-box .compose select,.csp-box .compose textarea{width:100%;font:inherit;font-size:16px;border:1px solid var(--sand-border);border-radius:8px;padding:8px 10px;background:#fff;}
+.csp-box .compose textarea{min-height:84px;resize:vertical;}
+.csp-box .chk{display:flex;gap:8px;align-items:flex-start;font-weight:400;}
+.csp-box .chk input{margin-top:3px;width:18px;height:18px;flex:none;}
+.csp-box .count{font-size:12px;color:var(--gray);text-align:right;}
+.csp-box .note{font-size:12px;color:var(--gray);margin-top:8px;line-height:1.5;}
+.csp-box .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.csp-box .ext{color:var(--primary);font-weight:600;font-size:14px;display:inline-block;margin-top:6px;}
+.csp-err{font-size:13px;color:#b91c1c;font-weight:600;margin-top:6px;}
+.csp-box .msg-err{font-size:13px;color:#b91c1c;font-weight:600;margin-top:6px;}
+.csp-box .msg-ok{font-size:13px;color:#059669;font-weight:600;margin-top:6px;}
 
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
@@ -5303,6 +5320,105 @@ function renderTournamentDetail(){
   h += trnPoolCardsHTML(t);
 
   cont.innerHTML = h;
+  cspHydrate();
+}
+
+// ── POOL ROSTER CONTACT ─────────────────────────────────────────────────────
+// Ask to team up on a pool row, through the same worker routes and compose box as
+// /partners/ (partner-contact.js). POST /partners/me with this tournament's id says
+// who may be asked, by pool key: the worker leaves out the viewer's own rows,
+// players already on a team that day and high school players, the same rules as
+// the partner board. Nothing here writes to Firebase.
+//
+// The detail view re-renders on every Firebase change, so the worker answer is kept
+// per tournament and token, and an open compose box is moved into the new row
+// rather than lost (typed text survives).
+let _csp = null;     // { tid, token, me, pool, fail, loading }
+let _cspOpen = null; // { pk, box } the compose box open on a row
+function cspSignIn(){
+  if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin();
+  else toast('Sign-in is not available right now. Refresh to try again.');
+}
+function cspState(tid){
+  const PC = window.CourtSensePartner;
+  const token = PC ? PC.storedToken() : '';
+  if(_csp && _csp.tid === tid && _csp.token === token) return _csp;
+  const s = _csp = { tid: tid, token: token, me: null, pool: {}, fail: null, loading: !!(PC && token) };
+  _cspOpen = null;
+  if(!PC){ s.fail = { reason: 'error', error: 'Messaging could not load. Refresh to try again.' }; return s; }
+  if(token){
+    PC.loadMe(token, tid).then(r => {
+      if(_csp !== s) return;
+      s.loading = false; s.me = r.me; s.pool = (r.me && r.me.pool) || {}; s.fail = r.me ? null : r;
+      cspHydrate();
+    }).catch(() => {
+      if(_csp !== s) return;
+      s.loading = false; s.fail = { reason: 'error', error: 'Could not check your sign-in right now. Refresh to try again.' };
+      cspHydrate();
+    });
+  }
+  return s;
+}
+function cspHydrate(){
+  const status = document.querySelector('[data-csp-status]');
+  if(!status) return;
+  const t = activeTournament ? (D.tournaments || {})[activeTournament] : null;
+  if(!t) return;
+  const tid = t.id || activeTournament;
+  const s = cspState(tid);
+  const me = s.me;
+  const ok = !!(me && me.configured && !me.hsBlocked);
+
+  status.innerHTML = '';
+  const line = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; status.appendChild(d); };
+  if(s.loading){ /* buttons appear when the worker answers */ }
+  else if(s.fail && s.fail.error){
+    line('csp-err', s.fail.error);
+    if(s.fail.reason === 'expired'){ const b = document.createElement('button'); b.className = 'btn btn-g btn-sm'; b.style.marginTop = '6px'; b.textContent = 'Sign in again'; b.onclick = cspSignIn; status.appendChild(b); }
+  }
+  else if(me && me.hsBlocked) line('csp-err', 'Partner messaging is for adult players.');
+  else if(me && !me.configured) line('csp-err', 'Messaging is not set up yet.');
+  status.style.marginBottom = status.childNodes.length ? '8px' : '';
+
+  // No worker token (an older sign-in) or a refused one: sign in again from the row.
+  const needSignIn = !s.token || (s.fail && s.fail.reason === 'expired');
+  document.querySelectorAll('[data-csp-btn]').forEach(slot => {
+    const pk = slot.getAttribute('data-csp-btn');
+    const name = slot.getAttribute('data-csp-name') || 'this player';
+    const hit = ok ? s.pool[pk] : null;
+    slot.innerHTML = '';
+    let b = null;
+    if(needSignIn){ b = document.createElement('button'); b.textContent = 'Sign in to team up'; b.onclick = cspSignIn; }
+    else if(hit){
+      b = document.createElement('button');
+      b.textContent = me.teamsEnabled ? 'Ask to team up' : 'Reach out';
+      b.onclick = () => cspOpenCompose(pk, name, hit, t);
+    }
+    if(!b) return;
+    b.type = 'button';
+    b.className = 'btn btn-p btn-sm';
+    b.style.cssText = 'display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;';
+    slot.appendChild(b);
+  });
+  // A box open before this render goes back into its row, typed text and all. One
+  // closed with Cancel has no parent and stays closed.
+  if(_cspOpen && _cspOpen.box.parentNode){
+    const host = document.querySelector('[data-csp-box="' + CSS.escape(_cspOpen.pk) + '"]');
+    if(host && !host.contains(_cspOpen.box)) host.appendChild(_cspOpen.box);
+  }
+}
+function cspOpenCompose(pk, name, hit, t){
+  const host = document.querySelector('[data-csp-box="' + CSS.escape(pk) + '"]');
+  if(!host || !_csp || !_csp.me) return;
+  const me = _csp.me;
+  const divs = (hit.divs || []).map(d => ({ div: d.div, label: dayShort(d.day) + ': ' + d.label }));
+  const opts = me.teamsEnabled
+    ? { tid: _csp.tid, ref: hit.ref, divs: divs, optional: true, title: 'Ask ' + name + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }
+    : { tid: _csp.tid, ref: hit.ref, divs: divs, prompt: 'Message to ' + name, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' };
+  const box = CourtSensePartner.openCompose(host, opts, {
+    me: me, token: _csp.token, ui: { primary: 'btn btn-p btn-sm', secondary: 'btn btn-g btn-sm' }, onSignIn: cspSignIn,
+  });
+  _cspOpen = box ? { pk: pk, box: box } : null;
 }
 
 // ── PARTNER POSTS, INDEXED BY TOURNAMENT ──────────────────────────────────
@@ -5568,10 +5684,11 @@ function renderNeedsYou(){
 // playable subset, exactly as viewerDivIdsFor computes it. That shape already
 // survived day-as-unit and is not redesigned here.
 //
-// The pool is display only, same as the post-level pool was. Joining sends
-// nothing, asks nobody and pairs nobody: every ask path is rooted at
-// invites/{id} and needs a post behind it, so a roster row links to the
-// person's post when they have one rather than inventing one.
+// Joining the pool sends nothing, asks nobody and pairs nobody. Players reach a
+// pool member through Ask to team up on the roster row, which goes through the
+// partner board's worker routes (partner-contact.js, POST /partners/message), not
+// through invites/{id}. A roster row also links to the person's post when they
+// have one.
 //
 // No expiry path is needed. The pool lives INSIDE the tournament record, so a
 // tournament that drops out of the directory on endDate takes its pool with it.
@@ -5677,10 +5794,10 @@ function trnPoolEntryDays(e){
   }).filter(Boolean);
 }
 
-// The roster cannot ask anybody. Every ask path writes to invites/{id}/asks and
-// the worker refuses anything whose postType is not 'partner', so an ask from
-// here would have to invent a post and a hostId. It does not: it points at the
-// post this player already has, when they have one still looking.
+// The roster never writes an ask into invites/{id}/asks: that path needs a post
+// behind it. Ask to team up on a row goes through the partner board's worker
+// routes instead (cspHydrate), and this points at the post the player already
+// has, when they have one still looking.
 // Now routed through the same predicate as the count and the list. It used to
 // check everything EXCEPT isChatEligible, so a roster row could offer a link to a
 // club-scoped post the viewer was not in the circle for. The button alone would
@@ -6046,7 +6163,8 @@ function trnPoolCardsHTML(t){
     + '<div class="ctitle"><span class="bar"></span>Looking for a Partner' + (pool.length ? ' (' + pool.length + ')' : '') + '</div>'
     + (!isAuthed
         ? '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
-        : (pool.length
+          + '<button class="btn btn-g btn-sm" onclick="cspSignIn()">Sign in to team up</button>'
+        : '<div data-csp-status="1"></div>' + (pool.length
             ? pool.map(([k, e, days]) => {
                 const post = trnOpenPostFor(t, k, e.accountId);
                 // The viewer's own row is about THEM, so it reads that way. It used
@@ -6060,10 +6178,13 @@ function trnPoolCardsHTML(t){
                   +   (post
                         ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">' + (isMe ? 'Manage your post ' : 'They have a post open ') + String.fromCharCode(8594) + '</button>'
                         : '')
+                  // Ask to team up goes here once the worker answers (cspHydrate).
+                  +   (isMe ? '' : '<span data-csp-btn="' + escapeHTML(k) + '" data-csp-name="' + escapeHTML(e.name) + '" style="display:block;"></span>')
                   + '</span>'
                   + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                   +   days.map(d => chip(escapeHTML(dayShort(d.day) + ': ' + d.label).toUpperCase())).join('')
                   + '</span>'
+                  + (isMe ? '' : '<div class="csp-box" data-csp-box="' + escapeHTML(k) + '"></div>')
                   + '</div>';
               }).join('')
             : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet. Be first.</p>'))
@@ -8285,7 +8406,10 @@ function openInviteDetail(id){
   askPickerDay = null;
   askPickerSelected = new Set();
   askPickerFilter = '';
-  ensureProfilesLoaded().then(()=>showView('invite-detail'));
+  ensureProfilesLoaded().then(()=>showView('invite-detail')).catch(e=>{
+    console.warn('openInviteDetail: profiles read failed', e);
+    toast('Could not open that post. Check your connection and try again.');
+  });
 }
 
 // Resolve the GAMEPLAY key for the current user. Gameplay data (ratings/{nameKey},
@@ -9568,6 +9692,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // cold load from another page of the site and not only on an in-app tap.
   if(_deepLinkParams.get('view') === 'tournaments') showView('tournaments');
 
+  // ?return=/partners/... : Sign in to team up on the partner board signs in here and
+  // goes back. Only /partners/ paths are honored. A sign-in that has no worker token
+  // (one from before player sessions) cannot message, so the login box opens once
+  // more instead of bouncing back to a board that would still say sign in.
+  const _returnTo = (function(r){ return /^\/partners\/(\?[A-Za-z0-9_\-=&%.]*)?$/.test(r || '') ? r : ''; })(_deepLinkParams.get('return'));
+  let _returnAsked = false;
+  function returnAfterLogin(){
+    if(!_returnTo) return false;
+    if(window.CourtSensePartner && CourtSensePartner.storedToken()){ location.replace(_returnTo); return true; }
+    if(!_returnAsked){
+      _returnAsked = true;
+      toast('Sign in again to message players.');
+      CourtSenseAuth.showLogin();
+    } else {
+      toast('Signed in, but messaging could not start. Go back to the partner board and try again.');
+    }
+    return false;
+  }
+
   // CourtSense auth gate (D.40). Players need a passwordHash on their
   // tally_kotb_pickup/players/{key} record (set by admin-players Approve
   // or Reset Password). The overlay blocks the UI until login succeeds;
@@ -9590,6 +9733,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const dn = nameStr(player);
         if(dn) Identity.setCurrent(dn, player.id || undefined);
       }
+      if(returnAfterLogin()) return;
       // Re-render whatever view is active now that auth has resolved, so the list
       // (and any other view) repaints with the correct gameplayKey(). On a fresh
       // reload the list first paints before auth resolves, using a stale identity

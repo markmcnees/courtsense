@@ -125,6 +125,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
+<script src="/partner-contact.js?v=1"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -185,42 +186,32 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   }
 
   // ── Signed-in player, read from the stored session (no Firebase, no auth.js). The
-  // worker checks the token on every call, so nothing here is trusted on its own. ──
-  const SIGN_IN = PICKUP + '?view=tournaments';
-  function storedToken(){
-    for(const store of [localStorage, sessionStorage]){
-      try {
-        const p = JSON.parse(store.getItem('courtsenseAuth') || 'null');
-        if(p && typeof p.sessionToken === 'string' && /^[a-f0-9]{64}$/.test(p.sessionToken)){
-          if(typeof p.sessionExpiresAt === 'number' && p.sessionExpiresAt && p.sessionExpiresAt <= Date.now()) continue;
-          return p.sessionToken;
-        }
-      } catch(e){}
-    }
-    return '';
-  }
-  const token = storedToken();
+  // worker checks the token on every call, so nothing here is trusted on its own.
+  // Token, worker calls and the compose box live in /partner-contact.js, shared with
+  // the pickup pool roster. ──
+  const PC = window.CourtSensePartner;
+  // Sign-in happens on pickup; return= brings the player back here afterward.
+  function signInHref(back){ return PICKUP + '?view=tournaments&return=' + encodeURIComponent(back || (location.pathname + location.search)); }
+  const SIGN_IN = signInHref();
+  const token = PC.storedToken();
   let me = null; // { display, adult, hsBlocked, partnerEmails, teamsEnabled, configured } when signed in
+  let meFail = null; // { reason, error } when a stored token was refused or could not be checked
 
-  async function post(path, data){
-    try {
-      const r = await fetch(WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ sessionToken: token }, data || {})) });
-      const j = await r.json().catch(function(){ return null; });
-      return { status: r.status, j: j || { ok: false, error: 'Something went wrong. Try again.' } };
-    } catch(e){
-      return { status: 0, j: { ok: false, error: 'Could not reach CourtSense. Check your connection.' } };
-    }
-  }
+  function post(path, data){ return PC.post(path, data, token); }
   async function loadMe(){
-    if(!token) return null;
-    const r = await post('/partners/me');
-    return r.status === 200 && r.j.ok ? r.j : null;
+    const r = await PC.loadMe(token);
+    if(!r.me && r.reason !== 'no_token') meFail = r;
+    return r.me;
   }
   const canMessage = () => !!(me && me.configured && !me.hsBlocked);
   // The signed-in player's own rows and teams, by the refs the worker hands back on
   // /partners/me. Nobody gets Ask to team up on their own row or Ask to join on their own team.
   const isMine = (tid, ref) => !!(me && me.selfRefs && ref && (me.selfRefs[tid] || []).indexOf(ref) !== -1);
-  function signInLink(text){ return link('btn btn-o', text, SIGN_IN); }
+  function signInLink(text, back){ return link('btn btn-o', text, signInHref(back)); }
+  // Back from signing in with ?ask=<ref>: the row's button, opened once the board is drawn.
+  const askRef = (params.get('ask') || '').trim();
+  const askDiv = (params.get('div') || '').trim();
+  let askOpen = null;
   function btn(cls, text, onClick){
     const b = el('button', 'btn ' + cls, text);
     b.type = 'button';
@@ -229,71 +220,16 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   }
   function threadHref(id){ return '/partners/?thread=' + encodeURIComponent(id); }
 
-  // Text box with a live count, capped at 500 like the worker.
-  function textBox(placeholder){
-    const ta = el('textarea');
-    ta.maxLength = 500;
-    ta.placeholder = placeholder;
-    const count = el('div', 'count', '0/500');
-    ta.addEventListener('input', function(){ count.textContent = ta.value.length + '/500'; });
-    return { ta: ta, count: count };
-  }
-  // The one-time 18+ box, shown only until the worker has a confirmation.
-  function adultBox(){
-    if(me && me.adult) return null;
-    const lab = el('label', 'chk');
-    const cb = el('input'); cb.type = 'checkbox';
-    lab.appendChild(cb);
-    lab.appendChild(el('span', null, 'I am 18 or older. Partner messaging is for adult players.'));
-    return { lab: lab, cb: cb };
-  }
+  function textBox(placeholder){ return PC.textBox(placeholder); }
+  function adultBox(){ return PC.adultBox(me); }
 
-  // Compose under a row: Ask to team up with a person (with a division picker) or Ask
-  // to join a team. With team forming on the note is optional; it becomes the first
-  // message of the conversation.
+  // Compose under a row (partner-contact.js): Ask to team up with a person or Ask to
+  // join a team. A 401 on send offers Sign in again, which comes back to this row.
   function openCompose(host, opts){
-    const existing = host.querySelector('.compose');
-    if(existing){ existing.remove(); return; }
-    const box = el('div', 'compose');
-    if(opts.title) box.appendChild(el('div', 'who', opts.title));
-    let pick = null;
-    if(opts.divs && opts.divs.length > 1){
-      box.appendChild(el('label', null, 'Division'));
-      pick = el('select');
-      opts.divs.forEach(d => { const o = el('option', null, d.label); o.value = d.div; pick.appendChild(o); });
-      box.appendChild(pick);
-    }
-    box.appendChild(el('label', null, opts.prompt));
-    const t = textBox(opts.placeholder);
-    box.appendChild(t.ta); box.appendChild(t.count);
-    const adult = adultBox();
-    if(adult) box.appendChild(adult.lab);
-    box.appendChild(el('div', 'note', 'Keep it short. Links are removed. Your email and phone are never shared.'));
-    const out = el('div');
-    const row = el('div', 'btns');
-    const send = btn('btn-p', opts.sendText, async function(){
-      out.textContent = '';
-      if(!opts.optional && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Write a short message first.')); return; }
-      if(adult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
-      send.disabled = true;
-      const r = await post('/partners/message', { tid: opts.tid, div: pick ? pick.value : (opts.divs && opts.divs[0] ? opts.divs[0].div : ''), ref: opts.ref, text: t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined });
-      send.disabled = false;
-      if(!r.j.ok){
-        out.appendChild(el('div', 'msg-err', r.j.error || 'That did not send.'));
-        if(r.j.threadId) out.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
-        return;
-      }
-      if(me) me.adult = true;
-      box.textContent = '';
-      box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. ' + (r.j.request ? 'They will get an email and can answer yes, maybe or no.' : 'They will get an email.')));
-      box.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
+    PC.openCompose(host, opts, {
+      me: me, token: token, ui: { primary: 'btn btn-p', secondary: 'btn btn-o' },
+      onSignIn: function(){ location.href = signInHref('/partners/?t=' + encodeURIComponent(opts.tid) + '&ask=' + encodeURIComponent(opts.ref)); },
     });
-    row.appendChild(send);
-    row.appendChild(btn('btn-o', 'Cancel', function(){ box.remove(); }));
-    box.appendChild(row);
-    box.appendChild(out);
-    host.appendChild(box);
-    t.ta.focus();
   }
 
   // Division choices for a person: every division behind their needs, labelled the
@@ -308,16 +244,16 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   function reachOutBtn(t, p, holder){
     if(!p.ref || isMine(t.id, p.ref)) return null;
     const teamUp = !!(me && me.teamsEnabled);
-    if(!token || !me) return signInLink('Sign in to team up');
-    if(!canMessage()) return null;
     const divs = personDivs(t, p);
+    // Back to this tournament, with this player's box opened and the division kept.
+    if(!token || !me) return signInLink('Sign in to team up', '/partners/?t=' + encodeURIComponent(t.id) + '&ask=' + encodeURIComponent(p.ref) + (divs[0] ? '&div=' + encodeURIComponent(divs[0].div) : ''));
+    if(!canMessage()) return null;
     if(!divs.length) return null;
-    if(teamUp) return btn('btn-o', 'Ask to team up', function(){
-      openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, optional: true, title: 'Ask ' + p.display + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' });
-    });
-    return btn('btn-o', 'Reach out', function(){
-      openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' });
-    });
+    const open = teamUp
+      ? function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, preset: askDiv, optional: true, title: 'Ask ' + p.display + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }); }
+      : function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, preset: askDiv, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' }); };
+    if(askRef && p.ref === askRef && !askOpen) askOpen = { open: open, holder: holder };
+    return btn('btn-o', teamUp ? 'Ask to team up' : 'Reach out', open);
   }
 
   // Teams forming and complete, by division.
@@ -343,7 +279,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         } else if(tm.ref && isMine(t.id, tm.ref)){
           row.appendChild(el('div', 'done', 'Your team'));
         } else if(tm.ref){
-          if(!token || !me) row.appendChild(signInLink('Sign in to ask'));
+          if(!token || !me) row.appendChild(signInLink('Sign in to ask', '/partners/?t=' + encodeURIComponent(t.id)));
           else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
             openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + tm.members.join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' });
           }));
@@ -742,10 +678,18 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         try { back = JSON.parse(localStorage.getItem(RETURN_KEY) || 'null'); localStorage.removeItem(RETURN_KEY); } catch(e){}
         if(back && typeof back.url === 'string' && back.url.indexOf('/partners/?req=') === 0 && Date.now() - back.at < 3600000){ location.replace(back.url); return; }
       }
+      // A stored sign-in the worker refused or could not check: say so, with a way back in.
+      if(meFail && !reqToken && !threadId){
+        const box = el('div', 'panel');
+        box.appendChild(el('div', 'status err', meFail.error));
+        if(meFail.reason === 'expired'){ const a = el('div', 'actions'); a.appendChild(link('btn btn-p', 'Sign in again', SIGN_IN)); box.appendChild(a); }
+        panel.appendChild(box);
+      }
       if(reqToken) await renderRequest();
       else if(threadId) await renderThread();
       else if(params.get('settings') === '1') renderSettings();
       else if(me && me.hsBlocked){ panel.appendChild(el('div', 'status', 'Partner messaging is for adult players.')); }
+      else if(me && !me.configured){ panel.appendChild(el('div', 'status', 'Messaging is not set up yet.')); }
       const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid) : Promise.resolve([]), fetchBoard('')]);
       board.textContent = '';
       const featured = featuredList[0] || null;
@@ -764,6 +708,14 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       if(featured && rest.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
       const openAll = !featured && rest.length <= 3;
       rest.forEach(t => board.appendChild(card(t, false, openAll)));
+      if(askOpen){
+        const host = askOpen.holder();
+        const d = host && host.closest('details');
+        if(d) d.open = true;
+        askOpen.open();
+        if(host) host.scrollIntoView({ block: 'center' });
+        try { history.replaceState(null, '', '/partners/' + (tid ? '?t=' + encodeURIComponent(tid) : '')); } catch(e){}
+      }
     } catch(e){
       board.textContent = '';
       board.appendChild(el('div', 'status err', 'Could not load the partner board. Refresh to try again.'));
