@@ -125,7 +125,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=1"></script>
+<script src="/partner-contact.js?v=2"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -223,13 +223,22 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   function textBox(placeholder){ return PC.textBox(placeholder); }
   function adultBox(){ return PC.adultBox(me); }
 
-  // Compose under a row (partner-contact.js): Ask to team up with a person or Ask to
-  // join a team. A 401 on send offers Sign in again, which comes back to this row.
+  // Compose under a row (partner-contact.js): Ask to team up with a person, invite
+  // them to your team, or Ask to join a team. A 401 on send offers Sign in again,
+  // which comes back to this row. The open box is kept by ref so a board refresh
+  // puts it back in the redrawn row instead of losing it.
+  let kept = null; // { ref, box }
   function openCompose(host, opts){
-    PC.openCompose(host, opts, {
+    const box = PC.openCompose(host, opts, {
       me: me, token: token, ui: { primary: 'btn btn-p', secondary: 'btn btn-o' },
       onSignIn: function(){ location.href = signInHref('/partners/?t=' + encodeURIComponent(opts.tid) + '&ask=' + encodeURIComponent(opts.ref)); },
+      onSent: function(){ refresh(); },
     });
+    kept = box ? { ref: opts.ref, box: box } : null;
+  }
+  // A box closed with Cancel has no parent and stays closed.
+  function reattach(host, ref){
+    if(kept && kept.ref === ref && kept.box.parentNode && !host.contains(kept.box)) host.appendChild(kept.box);
   }
 
   // Division choices for a person: every division behind their needs, labelled the
@@ -238,7 +247,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     const byId = {};
     (t.divisions || []).forEach(d => { byId[d.div] = d; });
     const out = [];
-    (p.needs || []).forEach(n => (n.divs || []).forEach(id => { if(byId[id]) out.push({ div: id, label: dayShort(byId[id].day) + ': ' + byId[id].label }); }));
+    (p.needs || []).forEach(n => (n.divs || []).forEach(id => { if(byId[id]) out.push({ div: id, day: byId[id].day, label: dayShort(byId[id].day) + ': ' + byId[id].label }); }));
     return out;
   }
   function reachOutBtn(t, p, holder){
@@ -248,12 +257,30 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     // Back to this tournament, with this player's box opened and the division kept.
     if(!token || !me) return signInLink('Sign in to team up', '/partners/?t=' + encodeURIComponent(t.id) + '&ask=' + encodeURIComponent(p.ref) + (divs[0] ? '&div=' + encodeURIComponent(divs[0].div) : ''));
     if(!canMessage()) return null;
-    if(!divs.length) return null;
-    const open = teamUp
-      ? function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, preset: askDiv, optional: true, title: 'Ask ' + p.display + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }); }
-      : function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: divs, preset: askDiv, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' }); };
-    if(askRef && p.ref === askRef && !askOpen) askOpen = { open: open, holder: holder };
-    return btn('btn-o', teamUp ? 'Ask to team up' : 'Reach out', open);
+    // On a forming team that day in their division: Invite to your team. On a complete
+    // team (or one in another division) that day: nothing for that day.
+    const plan = teamUp ? PC.contactPlan(t, me.selfRefs && me.selfRefs[t.id], divs) : (divs.length ? { kind: 'ask', divs: divs } : null);
+    if(!plan) return null;
+    const open = plan.kind === 'invite'
+      ? function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: plan.divs, optional: true, title: PC.inviteTitle(p.display, plan.team), prompt: 'Add a note (optional)', placeholder: 'Say hi and why they would fit the team.', sendText: 'Send invite' }); }
+      : teamUp
+        ? function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: plan.divs, preset: askDiv, optional: true, title: 'Ask ' + p.display + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }); }
+        : function(){ openCompose(holder(), { tid: t.id, ref: p.ref, divs: plan.divs, preset: askDiv, prompt: 'Message to ' + p.display, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' }); };
+    if(askRef && p.ref === askRef && !askOpen && !askDone) askOpen = { open: open, holder: holder };
+    return btn('btn-o', plan.kind === 'invite' ? 'Invite to your team' : teamUp ? 'Ask to team up' : 'Reach out', open);
+  }
+  let askDone = false;
+
+  // Leave a team from its board row. Confirmed first; the result shows in the row.
+  function leaveBtn(t, tm, out){
+    return btn('btn-o', 'Leave team', async function(){
+      if(!window.confirm('Leave ' + tm.members.join(' + ') + '? Your teammates will be told and the spot opens up.')) return;
+      out.textContent = '';
+      const x = await post('/partners/leave', { tid: t.id, teamRef: tm.ref });
+      if(!x.j.ok){ out.appendChild(el('div', 'msg-err', x.j.error || 'That did not work. Try again.')); return; }
+      out.appendChild(el('div', 'msg-ok', 'You left the team.'));
+      refresh();
+    });
   }
 
   // Teams forming and complete, by division.
@@ -274,10 +301,20 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         if(tm.status === 'complete') left.appendChild(el('div', 'done', 'Team complete'));
         if(tm.sizeChanged) left.appendChild(el('div', 'needs', 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.'));
         row.appendChild(left);
+        const out = el('div');
+        const mineTm = !!(tm.ref && isMine(t.id, tm.ref));
         if(tm.status === 'complete'){
-          if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; row.appendChild(a); }
-        } else if(tm.ref && isMine(t.id, tm.ref)){
-          row.appendChild(el('div', 'done', 'Your team'));
+          const acts = el('div');
+          acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:stretch;';
+          if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; acts.appendChild(a); }
+          if(mineTm && token && me) acts.appendChild(leaveBtn(t, tm, out));
+          if(acts.childNodes.length) row.appendChild(acts);
+        } else if(mineTm){
+          const acts = el('div');
+          acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-end;';
+          acts.appendChild(el('div', 'done', 'Your team'));
+          if(token && me) acts.appendChild(leaveBtn(t, tm, out));
+          row.appendChild(acts);
         } else if(tm.ref){
           if(!token || !me) row.appendChild(signInLink('Sign in to ask', '/partners/?t=' + encodeURIComponent(t.id)));
           else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
@@ -285,6 +322,8 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
           }));
         }
         wrap.appendChild(row);
+        wrap.appendChild(out);
+        if(tm.ref) reattach(wrap, tm.ref);
         sec.appendChild(wrap);
       });
     });
@@ -345,6 +384,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       const acts = [link('btn btn-o', 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(p.inviteId))];
       if(token && me){ const b = reachOutBtn(t, p, () => row); if(b) acts.push(b); }
       row = personRow(p, acts);
+      if(p.ref) reattach(row, p.ref);
       body.appendChild(row);
     });
     else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
@@ -354,6 +394,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       let row = null;
       const b = reachOutBtn(t, p, () => row);
       row = personRow(p, [b || link('btn btn-o', 'View event', trnHref(t.id))]);
+      if(p.ref) reattach(row, p.ref);
       body.appendChild(row);
     });
     else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
@@ -374,12 +415,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return d;
   }
 
-  async function fetchBoard(t){
-    const r = await fetch(WORKER + '/pickup/partner-board' + (t ? '?t=' + encodeURIComponent(t) : ''));
-    const j = await r.json().catch(function(){ return null; });
-    if(!r.ok || !j || j.ok !== true || !Array.isArray(j.tournaments)) throw new Error('board ' + r.status);
-    return j.tournaments;
-  }
+  function fetchBoard(t, fresh){ return PC.fetchBoard(t, fresh); }
 
   // ── The team-up request card, used by the email link view (?req=) and pinned at the
   // top of a conversation. q: { label, state, note, canRespond, canWithdraw }.
@@ -493,6 +529,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       send: async function(answer, text, adultConfirmed){
         const x = await post('/partners/team/respond', { req: reqToken, answer: answer, text: text, adultConfirmed: adultConfirmed });
         if(!x.j.ok) return x.j;
+        refresh();
         box.querySelector('.req').remove();
         const msg = answer === 'yes'
           ? (x.j.complete ? 'You said yes. Your team is complete.' : 'You said yes. You are a team' + (x.j.need ? ', looking for ' + x.j.need + ' more.' : '.'))
@@ -529,6 +566,9 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     const th = r.j;
     box.appendChild(el('div', 't-name', th.tournamentName));
     box.appendChild(el('div', 't-meta', (th.divLabel ? th.divLabel + ' · ' : '') + 'You and ' + (th.people.join(', ') || 'a player')));
+    // Withdraw and Leave team failures show here.
+    const threadErr = el('div');
+    box.appendChild(threadErr);
 
     // The newest team-up request, pinned: Yes / Maybe / No / Ignore for the one
     // answering; for the one who asked, where it stands, with Withdraw while open.
@@ -541,13 +581,14 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
         preset: '',
         send: async function(answer, text, adultConfirmed){
           const x = await post('/partners/team/respond', { tid: th.tid, reqId: pin.id, answer: answer, text: text, adultConfirmed: adultConfirmed });
-          if(x.j.ok) renderThread();
+          if(x.j.ok){ renderThread(); refresh(); }
           return x.j;
         },
         withdraw: async function(){
           const x = await post('/partners/team/withdraw', { reqId: pin.id });
-          if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
+          if(!x.j.ok){ threadErr.textContent = ''; threadErr.appendChild(el('div', 'msg-err', x.j.error || 'That did not work. Try again.')); return; }
           renderThread();
+          refresh();
         },
       }));
     } else if(pin){
@@ -568,8 +609,9 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       if(th.team.mine && th.team.ref) bs.appendChild(btn('btn-o', 'Leave team', async function(){
         if(!window.confirm('Leave this team? Your teammates will be told and the spot opens up.')) return;
         const x = await post('/partners/leave', { tid: th.tid, teamRef: th.team.ref });
-        if(!x.j.ok) window.alert(x.j.error || 'That did not work.');
+        if(!x.j.ok){ threadErr.textContent = ''; threadErr.appendChild(el('div', 'msg-err', x.j.error || 'That did not work. Try again.')); return; }
         renderThread();
+        refresh();
       }));
       if(bs.childNodes.length) tb.appendChild(bs);
       box.appendChild(tb);
@@ -690,35 +732,65 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       else if(params.get('settings') === '1') renderSettings();
       else if(me && me.hsBlocked){ panel.appendChild(el('div', 'status', 'Partner messaging is for adult players.')); }
       else if(me && !me.configured){ panel.appendChild(el('div', 'status', 'Messaging is not set up yet.')); }
-      const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid) : Promise.resolve([]), fetchBoard('')]);
-      board.textContent = '';
-      const featured = featuredList[0] || null;
-      if(tid && !featured){
-        board.appendChild(el('div', 'status', 'That event is not on the board any more. Here is everything coming up.'));
-      }
-      if(featured) board.appendChild(card(featured, true, true));
-      const rest = all.filter(t => !featured || t.id !== featured.id);
-      if(!featured && !rest.length){
-        board.appendChild(el('div', 'status', 'No upcoming tournaments are listed yet.'));
-        const a = el('div', 'actions');
-        a.appendChild(link('btn btn-p', 'Add a tournament', PICKUP + '?view=tournaments'));
-        board.appendChild(a);
-        return;
-      }
-      if(featured && rest.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
-      const openAll = !featured && rest.length <= 3;
-      rest.forEach(t => board.appendChild(card(t, false, openAll)));
-      if(askOpen){
-        const host = askOpen.holder();
-        const d = host && host.closest('details');
-        if(d) d.open = true;
-        askOpen.open();
-        if(host) host.scrollIntoView({ block: 'center' });
-        try { history.replaceState(null, '', '/partners/' + (tid ? '?t=' + encodeURIComponent(tid) : '')); } catch(e){}
-      }
+      await drawBoard(false);
     } catch(e){
       board.textContent = '';
-      board.appendChild(el('div', 'status err', 'Could not load the partner board. Refresh to try again.'));
+      board.appendChild(el('div', 'status err', (e && e.message) || 'Could not load the partner board. Refresh to try again.'));
+    }
+  }
+
+  // After a team action (send, answer, leave): reload who the viewer is (their team
+  // refs change) and redraw the board from a fresh copy, so the change shows at once.
+  // An open compose box is put back in its row. A failure says so above the board and
+  // leaves the last board in place.
+  let refreshing = null;
+  function refresh(){
+    if(refreshing) return refreshing;
+    refreshing = (async function(){
+      try {
+        const m = await loadMe();
+        if(m) me = m;
+        await drawBoard(true);
+      } catch(e){
+        const s = el('div', 'status err', ((e && e.message) || 'Could not refresh the board.') + ' Refresh the page to see the latest.');
+        board.insertBefore(s, board.firstChild);
+      } finally {
+        refreshing = null;
+      }
+    })();
+    return refreshing;
+  }
+
+  async function drawBoard(fresh){
+    const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid, fresh) : Promise.resolve([]), fetchBoard('', fresh)]);
+    // Cards keep whether they were open across a redraw.
+    const wasOpen = {};
+    board.querySelectorAll('details.card').forEach(d => { wasOpen[d.id] = d.open; });
+    board.textContent = '';
+    const featured = featuredList[0] || null;
+    if(tid && !featured){
+      board.appendChild(el('div', 'status', 'That event is not on the board any more. Here is everything coming up.'));
+    }
+    if(featured) board.appendChild(card(featured, true, true));
+    const rest = all.filter(t => !featured || t.id !== featured.id);
+    if(!featured && !rest.length){
+      board.appendChild(el('div', 'status', 'No upcoming tournaments are listed yet.'));
+      const a = el('div', 'actions');
+      a.appendChild(link('btn btn-p', 'Add a tournament', PICKUP + '?view=tournaments'));
+      board.appendChild(a);
+      return;
+    }
+    if(featured && rest.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
+    const openAll = !featured && rest.length <= 3;
+    rest.forEach(t => board.appendChild(card(t, false, ('trn-' + t.id) in wasOpen ? wasOpen['trn-' + t.id] : openAll)));
+    if(askOpen){
+      const host = askOpen.holder();
+      const d = host && host.closest('details');
+      if(d) d.open = true;
+      askOpen.open();
+      askOpen = null; askDone = true;
+      if(host) host.scrollIntoView({ block: 'center' });
+      try { history.replaceState(null, '', '/partners/' + (tid ? '?t=' + encodeURIComponent(tid) : '')); } catch(e){}
     }
   }
   load();

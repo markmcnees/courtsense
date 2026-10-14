@@ -122,6 +122,7 @@
       box.textContent = '';
       box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. ' + (r.j.request ? 'They will get an email and can answer yes, maybe or no.' : 'They will get an email.')));
       box.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
+      if(ctx.onSent) ctx.onSent(r.j);
     });
     row.appendChild(send);
     row.appendChild(btn(ui.secondary, 'Cancel', function(){ box.remove(); }));
@@ -132,5 +133,54 @@
     return box;
   }
 
-  global.CourtSensePartner = { storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref };
+  // The public partner board, for one tournament or all. fresh skips the browser's
+  // cached copy: after a team change the worker has already rebuilt its own, so this
+  // shows the change at once. Throws with a message a player can read.
+  async function fetchBoard(tid, fresh){
+    let r, j = null;
+    try {
+      r = await fetch(WORKER + '/pickup/partner-board' + (tid ? '?t=' + encodeURIComponent(tid) : ''), fresh ? { cache: 'no-store' } : undefined);
+      j = await r.json().catch(function(){ return null; });
+    } catch(e){
+      throw new Error('Could not reach CourtSense. Check your connection.');
+    }
+    if(!r.ok || !j || j.ok !== true || !Array.isArray(j.tournaments)) throw new Error((j && j.error) || 'Could not load the partner board. Refresh to try again.');
+    return j.tournaments;
+  }
+
+  // ── Teams ───────────────────────────────────────────────────────────────────
+  // The viewer's active team on each day of one board tournament, found by the team
+  // refs /partners/me hands back (selfRefs for that tournament):
+  // { day: { div, divLabel, ref, members, need, size, status } }.
+  function myTeamsByDay(t, selfRefs){
+    const out = {};
+    const mine = selfRefs || [];
+    (t && t.divisions || []).forEach(d => (d.teams || []).forEach(tm => {
+      if(tm.ref && mine.indexOf(tm.ref) !== -1) out[d.day] = { div: d.div, divLabel: d.label, ref: tm.ref, members: tm.members, need: tm.need, size: tm.size, status: tm.status };
+    }));
+    return out;
+  }
+  // What a free agent's button does for this viewer, from their divisions
+  // ([{ div, day, label }]): invite them onto the viewer's forming team (only that
+  // team's division), ask them to team up (divisions on days the viewer is free), or
+  // null when there is nothing to offer (the viewer's team that day is complete or
+  // in another division). The worker decides the same way; this only labels it.
+  function contactPlan(t, selfRefs, divs){
+    const byDay = myTeamsByDay(t, selfRefs);
+    const invite = [], ask = [];
+    let team = null;
+    (divs || []).forEach(d => {
+      const tm = byDay[d.day];
+      if(!tm) ask.push(d);
+      else if(tm.status !== 'complete' && tm.div === d.div){ invite.push(d); team = team || tm; }
+    });
+    if(invite.length) return { kind: 'invite', divs: invite, team: team };
+    if(ask.length) return { kind: 'ask', divs: ask };
+    return null;
+  }
+  // 'Mark M. + Test A., looking for 2 more', or just the names when complete.
+  function teamLine(tm){ return tm.members.join(' + ') + (tm.status === 'complete' ? '' : ', looking for ' + tm.need + ' more'); }
+  function inviteTitle(name, tm){ return 'Invite ' + name + ' to join ' + tm.members.join(' + ') + ' (looking for ' + tm.need + ' more)'; }
+
+  global.CourtSensePartner = { storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, inviteTitle };
 })(window);

@@ -34,7 +34,7 @@
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/partner-contact.js?v=1"></script>
+<script src="/partner-contact.js?v=2"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -5323,58 +5323,113 @@ function renderTournamentDetail(){
   cspHydrate();
 }
 
-// ── POOL ROSTER CONTACT ─────────────────────────────────────────────────────
-// Ask to team up on a pool row, through the same worker routes and compose box as
-// /partners/ (partner-contact.js). POST /partners/me with this tournament's id says
-// who may be asked, by pool key: the worker leaves out the viewer's own rows,
-// players already on a team that day and high school players, the same rules as
-// the partner board. Nothing here writes to Firebase.
+// ── POOL ROSTER CONTACT AND TEAMS ───────────────────────────────────────────
+// Ask to team up on a pool row, Invite to your team, Ask to join a team and Leave
+// team, all through the same worker routes and compose box as /partners/
+// (partner-contact.js). Nothing here writes to Firebase.
 //
-// The detail view re-renders on every Firebase change, so the worker answer is kept
-// per tournament and token, and an open compose box is moved into the new row
-// rather than lost (typed text survives).
-let _csp = null;     // { tid, token, me, pool, fail, loading }
-let _cspOpen = null; // { pk, box } the compose box open on a row
+// Two worker answers per tournament: POST /partners/me with this tournament's id
+// (who may be asked, by pool key, and teamDays: which pool rows are on a team on
+// which day) and the public board (the teams themselves). The roster hides a pool
+// row on the days its player is on a team; the pool entry stays, so leaving the
+// team brings them back.
+//
+// The detail view re-renders on every Firebase change, so both answers are kept per
+// tournament and token, and an open compose box is moved into the new row rather
+// than lost (typed text survives). After a send or a leave both are fetched again,
+// the board bypassing the browser cache, so the change shows at once.
+let _csp = null;     // { tid, token, me, pool, teamDays, fail, loading, board, boardErr }
+let _cspOpen = null; // { key, box } the open compose box: a pool key, or 'team:' + ref
 function cspSignIn(){
   if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin();
   else toast('Sign-in is not available right now. Refresh to try again.');
 }
-function cspState(tid){
+function cspTid(t){ return (t && t.id) || activeTournament; }
+// The kept answers for this tournament, or null before the first fetch.
+function cspFor(t){ return _csp && _csp.tid === cspTid(t) ? _csp : null; }
+// The viewer's teams on this tournament, one per day: [{ day, members, need, status, ... }].
+function cspMyTeams(s){
+  const PC = window.CourtSensePartner;
+  if(!PC || !s.board || !s.me) return [];
+  const byDay = PC.myTeamsByDay(s.board, (s.me.selfRefs || {})[s.tid]);
+  return Object.keys(byDay).sort().map(day => Object.assign({ day: day }, byDay[day]));
+}
+function cspRerender(){ if(view === 'tournament-detail') renderTournamentDetail(); }
+function cspState(tid, fresh){
   const PC = window.CourtSensePartner;
   const token = PC ? PC.storedToken() : '';
-  if(_csp && _csp.tid === tid && _csp.token === token) return _csp;
-  const s = _csp = { tid: tid, token: token, me: null, pool: {}, fail: null, loading: !!(PC && token) };
-  _cspOpen = null;
-  if(!PC){ s.fail = { reason: 'error', error: 'Messaging could not load. Refresh to try again.' }; return s; }
+  const prev = _csp;
+  const same = !!(prev && prev.tid === tid && prev.token === token);
+  if(same && !fresh) return prev;
+  // A refresh keeps showing the last answers until the new ones land.
+  const s = _csp = {
+    tid: tid, token: token, fail: null, boardErr: '',
+    me: same ? prev.me : null, pool: same ? prev.pool : {}, teamDays: same ? prev.teamDays : {}, board: same ? prev.board : null,
+    loading: !same && !!(PC && token),
+  };
+  if(!same) _cspOpen = null;
+  if(!PC){ s.loading = false; s.fail = { reason: 'error', error: 'Messaging could not load. Refresh to try again.' }; return s; }
   if(token){
     PC.loadMe(token, tid).then(r => {
       if(_csp !== s) return;
-      s.loading = false; s.me = r.me; s.pool = (r.me && r.me.pool) || {}; s.fail = r.me ? null : r;
-      cspHydrate();
+      s.loading = false;
+      if(r.me){ s.me = r.me; s.pool = r.me.pool || {}; s.teamDays = r.me.teamDays || {}; s.fail = null; }
+      else { s.me = null; s.pool = {}; s.teamDays = {}; s.fail = r; }
+      cspRerender();
     }).catch(() => {
       if(_csp !== s) return;
       s.loading = false; s.fail = { reason: 'error', error: 'Could not check your sign-in right now. Refresh to try again.' };
-      cspHydrate();
+      cspRerender();
     });
   }
+  PC.fetchBoard(tid, !!fresh).then(list => {
+    if(_csp !== s) return;
+    s.board = list[0] || null; s.boardErr = '';
+    cspRerender();
+  }).catch(e => {
+    if(_csp !== s) return;
+    s.boardErr = (e && e.message) || 'Could not load teams. Refresh to try again.';
+    cspRerender();
+  });
   return s;
 }
+// After a send or a leave: fetch both answers again, the board fresh.
+function cspRefresh(){ if(_csp) cspState(_csp.tid, true); }
+
+function cspBtn(text, cls, fn){
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn ' + cls + ' btn-sm';
+  b.style.cssText = 'display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;';
+  b.textContent = text;
+  b.onclick = fn;
+  return b;
+}
+function cspEl(tag, css, text){
+  const n = document.createElement(tag);
+  if(css) n.style.cssText = css;
+  if(text != null) n.textContent = text;
+  return n;
+}
+
 function cspHydrate(){
   const status = document.querySelector('[data-csp-status]');
   if(!status) return;
   const t = activeTournament ? (D.tournaments || {})[activeTournament] : null;
   if(!t) return;
-  const tid = t.id || activeTournament;
+  const tid = cspTid(t);
   const s = cspState(tid);
+  const PC = window.CourtSensePartner;
   const me = s.me;
   const ok = !!(me && me.configured && !me.hsBlocked);
+  const mine = (me && me.selfRefs && me.selfRefs[tid]) || [];
 
   status.innerHTML = '';
   const line = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; status.appendChild(d); };
   if(s.loading){ /* buttons appear when the worker answers */ }
   else if(s.fail && s.fail.error){
     line('csp-err', s.fail.error);
-    if(s.fail.reason === 'expired'){ const b = document.createElement('button'); b.className = 'btn btn-g btn-sm'; b.style.marginTop = '6px'; b.textContent = 'Sign in again'; b.onclick = cspSignIn; status.appendChild(b); }
+    if(s.fail.reason === 'expired') status.appendChild(cspBtn('Sign in again', 'btn-g', cspSignIn));
   }
   else if(me && me.hsBlocked) line('csp-err', 'Partner messaging is for adult players.');
   else if(me && !me.configured) line('csp-err', 'Messaging is not set up yet.');
@@ -5382,43 +5437,115 @@ function cspHydrate(){
 
   // No worker token (an older sign-in) or a refused one: sign in again from the row.
   const needSignIn = !s.token || (s.fail && s.fail.reason === 'expired');
+  cspDrawTeams(t, s, ok, needSignIn, mine);
+
   document.querySelectorAll('[data-csp-btn]').forEach(slot => {
     const pk = slot.getAttribute('data-csp-btn');
     const name = slot.getAttribute('data-csp-name') || 'this player';
     const hit = ok ? s.pool[pk] : null;
     slot.innerHTML = '';
-    let b = null;
-    if(needSignIn){ b = document.createElement('button'); b.textContent = 'Sign in to team up'; b.onclick = cspSignIn; }
-    else if(hit){
-      b = document.createElement('button');
-      b.textContent = me.teamsEnabled ? 'Ask to team up' : 'Reach out';
-      b.onclick = () => cspOpenCompose(pk, name, hit, t);
-    }
-    if(!b) return;
-    b.type = 'button';
-    b.className = 'btn btn-p btn-sm';
-    b.style.cssText = 'display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;';
-    slot.appendChild(b);
+    if(needSignIn){ slot.appendChild(cspBtn('Sign in to team up', 'btn-p', cspSignIn)); return; }
+    if(!hit) return;
+    // On a forming team that day in their division: Invite to your team. On a
+    // complete team (or one in another division) that day: nothing for that day.
+    const plan = me.teamsEnabled && PC ? PC.contactPlan(s.board, mine, hit.divs) : { kind: 'ask', divs: hit.divs || [] };
+    if(!plan || !plan.divs.length) return;
+    const label = plan.kind === 'invite' ? 'Invite to your team' : me.teamsEnabled ? 'Ask to team up' : 'Reach out';
+    slot.appendChild(cspBtn(label, 'btn-p', () => cspOpenCompose(pk, name, plan, t)));
   });
   // A box open before this render goes back into its row, typed text and all. One
   // closed with Cancel has no parent and stays closed.
   if(_cspOpen && _cspOpen.box.parentNode){
-    const host = document.querySelector('[data-csp-box="' + CSS.escape(_cspOpen.pk) + '"]');
+    const host = document.querySelector('[data-csp-box="' + CSS.escape(_cspOpen.key) + '"]');
     if(host && !host.contains(_cspOpen.box)) host.appendChild(_cspOpen.box);
   }
 }
-function cspOpenCompose(pk, name, hit, t){
+
+// Teams on this tournament, above the roster: "Mark M. + Test A., looking for 2
+// more" with Ask to join for other players, Your team plus Leave team for members,
+// or Team complete (no asking).
+function cspDrawTeams(t, s, ok, needSignIn, mine){
+  const host = document.querySelector('[data-csp-teams]');
+  if(!host) return;
+  const PC = window.CourtSensePartner;
+  host.innerHTML = '';
+  host.style.marginBottom = '';
+  if(s.boardErr){
+    const e = cspEl('div', '', 'Could not load teams. ' + s.boardErr);
+    e.className = 'csp-err';
+    host.appendChild(e);
+    host.style.marginBottom = '8px';
+    return;
+  }
+  const divs = ((s.board && s.board.divisions) || []).filter(d => d.teams && d.teams.length);
+  if(!divs.length || !PC) return;
+  host.style.marginBottom = '10px';
+  host.appendChild(cspEl('div', "font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:2px 0 2px;", 'TEAMS'));
+  divs.forEach(d => d.teams.forEach(tm => {
+    const isMine = !!(tm.ref && mine.indexOf(tm.ref) !== -1);
+    const row = cspEl('div', 'display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMine ? 'background:var(--light);' : ''));
+    const left = cspEl('span', 'flex:1;min-width:140px;font-weight:600;font-size:14px;');
+    left.appendChild(cspEl('div', '', PC.teamLine(tm)));
+    left.appendChild(cspEl('div', 'font-size:12px;color:var(--gray);font-weight:400;', dayShort(d.day) + ': ' + d.label + ' (' + tm.size + 's)'));
+    if(tm.status === 'complete') left.appendChild(cspEl('div', 'font-size:12px;color:#059669;font-weight:700;', 'Team complete'));
+    if(isMine) left.appendChild(cspEl('div', 'font-size:12px;color:var(--primary);font-weight:700;', 'Your team'));
+    const out = cspEl('div', 'flex-basis:100%;');
+    if(isMine){
+      if(!needSignIn && s.me) left.appendChild(cspBtn('Leave team', 'btn-g', () => cspLeave(tm, out)));
+    } else if(tm.status !== 'complete' && tm.ref){
+      if(needSignIn) left.appendChild(cspBtn('Sign in to ask', 'btn-p', cspSignIn));
+      else if(ok && s.me.teamsEnabled) left.appendChild(cspBtn('Ask to join', 'btn-p', () => cspOpenTeamCompose(t, d, tm)));
+    }
+    row.appendChild(left);
+    row.appendChild(out);
+    const box = cspEl('div');
+    box.className = 'csp-box';
+    box.setAttribute('data-csp-box', 'team:' + tm.ref);
+    row.appendChild(box);
+    host.appendChild(row);
+  }));
+}
+
+function cspComposeCtx(){
+  return { me: _csp.me, token: _csp.token, ui: { primary: 'btn btn-p btn-sm', secondary: 'btn btn-g btn-sm' }, onSignIn: cspSignIn, onSent: cspRefresh };
+}
+function cspOpenCompose(pk, name, plan, t){
   const host = document.querySelector('[data-csp-box="' + CSS.escape(pk) + '"]');
   if(!host || !_csp || !_csp.me) return;
   const me = _csp.me;
-  const divs = (hit.divs || []).map(d => ({ div: d.div, label: dayShort(d.day) + ': ' + d.label }));
-  const opts = me.teamsEnabled
-    ? { tid: _csp.tid, ref: hit.ref, divs: divs, optional: true, title: 'Ask ' + name + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }
-    : { tid: _csp.tid, ref: hit.ref, divs: divs, prompt: 'Message to ' + name, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' };
-  const box = CourtSensePartner.openCompose(host, opts, {
-    me: me, token: _csp.token, ui: { primary: 'btn btn-p btn-sm', secondary: 'btn btn-g btn-sm' }, onSignIn: cspSignIn,
-  });
-  _cspOpen = box ? { pk: pk, box: box } : null;
+  const hit = _csp.pool[pk];
+  if(!hit) return;
+  const divs = plan.divs.map(d => ({ div: d.div, label: dayShort(d.day) + ': ' + d.label }));
+  const opts = plan.kind === 'invite'
+    ? { tid: _csp.tid, ref: hit.ref, divs: divs, optional: true, title: CourtSensePartner.inviteTitle(name, plan.team), prompt: 'Add a note (optional)', placeholder: 'Say hi and why they would fit the team.', sendText: 'Send invite' }
+    : me.teamsEnabled
+      ? { tid: _csp.tid, ref: hit.ref, divs: divs, optional: true, title: 'Ask ' + name + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: 'Say hi and why you would make a good team.', sendText: 'Send request' }
+      : { tid: _csp.tid, ref: hit.ref, divs: divs, prompt: 'Message to ' + name, placeholder: 'Say hi and why you would make a good team.', sendText: 'Send' };
+  const box = CourtSensePartner.openCompose(host, opts, cspComposeCtx());
+  _cspOpen = box ? { key: pk, box: box } : null;
+}
+function cspOpenTeamCompose(t, d, tm){
+  const key = 'team:' + tm.ref;
+  const host = document.querySelector('[data-csp-box="' + CSS.escape(key) + '"]');
+  if(!host || !_csp || !_csp.me) return;
+  const opts = { tid: _csp.tid, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + tm.members.join(' + ') + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' };
+  const box = CourtSensePartner.openCompose(host, opts, cspComposeCtx());
+  _cspOpen = box ? { key: key, box: box } : null;
+}
+// Leave a team from its row. Confirmed first; a failure shows in the row.
+async function cspLeave(tm, out){
+  if(!_csp) return;
+  if(!window.confirm('Leave ' + tm.members.join(' + ') + '? Your teammates will be told and the spot opens up.')) return;
+  out.textContent = '';
+  const x = await CourtSensePartner.post('/partners/leave', { tid: _csp.tid, teamRef: tm.ref }, _csp.token);
+  if(!x.j.ok){
+    const e = cspEl('div', '', x.j.error || 'That did not work. Try again.');
+    e.className = 'csp-err';
+    out.appendChild(e);
+    return;
+  }
+  toast('You left the team.');
+  cspRefresh();
 }
 
 // ── PARTNER POSTS, INDEXED BY TOURNAMENT ──────────────────────────────────
@@ -6123,9 +6250,16 @@ function trnPoolCardsHTML(t){
 
   const isAuthed = !!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer());
   const myKey = gameplayKey();
+  // The worker's answers for this tournament (cspState), once they are in: which pool
+  // rows are on a team on which day, and the viewer's own team.
+  const cs = cspFor(t);
+  const teamDays = (cs && cs.teamDays) || {};
+  const myTeams = cs ? cspMyTeams(cs) : [];
   const pool = Object.entries(t.pool || {})
     .filter(([k, e]) => e && e.name)
-    .map(([k, e]) => [k, e, trnPoolEntryDays(e)])
+    // A player on a team that day is off the roster for that day. The pool entry
+    // stays, so leaving the team brings them back.
+    .map(([k, e]) => [k, e, trnPoolEntryDays(e).filter(d => (teamDays[k] || []).indexOf(d.day) === -1)])
     // A row whose divisions all filtered out is dropped entirely. A name with no
     // divisions says nothing and invites a message nobody can act on.
     .filter(([k, e, days]) => days.length)
@@ -6139,6 +6273,15 @@ function trnPoolCardsHTML(t){
     av = '<div style="font-weight:700;margin-bottom:6px;">Looking for a partner?</div>'
       + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to say which days you would play. Everyone looking for this tournament shows up in one place.</div>'
       + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
+  } else if(mine && myTeams.length){
+    // On a team: that is what the viewer is offering now, not the pool.
+    av = myTeams.map(tm => '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">'
+        + escapeHTML(tm.status === 'complete'
+          ? 'You are on a team for ' + dayShort(tm.day) + ': ' + tm.members.join(' + ') + '. Your team is complete.'
+          : 'You are on a team for ' + dayShort(tm.day) + ': ' + tm.members.join(' + ') + ', looking for ' + tm.need + ' more.')
+        + '</div>').join('')
+      + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">You are off the roster while you are on the team. Leave the team and you are back in the pool.</div>'
+      + '<button class="btn btn-g btn-w" onclick="leaveTournamentPool()">Leave pool</button>';
   } else if(mine){
     av = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(mine).join(', ') || 'this tournament') + '.</div>'
       + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Anyone playing this tournament can see you and reach out.</div>'
@@ -6164,7 +6307,7 @@ function trnPoolCardsHTML(t){
     + (!isAuthed
         ? '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
           + '<button class="btn btn-g btn-sm" onclick="cspSignIn()">Sign in to team up</button>'
-        : '<div data-csp-status="1"></div>' + (pool.length
+        : '<div data-csp-teams="1"></div><div data-csp-status="1"></div>' + (pool.length
             ? pool.map(([k, e, days]) => {
                 const post = trnOpenPostFor(t, k, e.accountId);
                 // The viewer's own row is about THEM, so it reads that way. It used
