@@ -14,7 +14,7 @@
 <link rel="canonical" href="https://courtsense.app/partners/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Find a Tournament Partner | CourtSense">
-<meta property="og:description" content="See who is looking for a partner at upcoming events.">
+<meta property="og:description" content="See who is looking for a team at upcoming events.">
 <meta property="og:image" content="https://courtsense.app/og-image.png">
 <meta property="og:url" content="https://courtsense.app/partners/">
 <link rel="icon" type="image/png" href="/favicon_large.png">
@@ -116,7 +116,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
 
 <main>
   <h1>Find a tournament partner</h1>
-  <p class="lead">See who is looking for a partner at upcoming events. Sign in free to reach out or post yourself.</p>
+  <p class="lead">See who is looking for a team at upcoming events. Sign in free to reach out or post yourself.</p>
   <div id="panel"></div>
   <div id="board"><div class="status">Loading tournaments...</div></div>
 </main>
@@ -283,49 +283,53 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     });
   }
 
-  // Teams forming and complete, by division.
+  // Every team on the tournament, forming first and complete after, each in
+  // division order with its division under the names.
+  function teamRows(t){
+    const rows = [];
+    (t.divisions || []).forEach(d => (d.teams || []).forEach(tm => rows.push([d, tm])));
+    return rows.sort((a, b) => (a[1].status === 'complete' ? 1 : 0) - (b[1].status === 'complete' ? 1 : 0));
+  }
   function teamsSection(t){
-    const divs = (t.divisions || []).filter(d => d.teams && d.teams.length);
-    if(!divs.length) return null;
+    const rows = teamRows(t);
+    if(!rows.length) return null;
     const sec = el('div');
-    sec.appendChild(el('div', 'sec-h', 'Teams'));
-    divs.forEach(d => {
-      sec.appendChild(el('div', 'needs', dayShort(d.day) + ': ' + d.label + ' (' + d.size + 's)'));
-      d.teams.forEach(tm => {
-        const wrap = el('div');
-        const row = el('div', 'team');
-        const left = el('div');
-        const who = el('div', 'who', tm.members.join(' + '));
-        if(tm.status !== 'complete') who.appendChild(el('span', 'needs', ' · looking for ' + tm.need + ' more'));
-        left.appendChild(who);
-        if(tm.status === 'complete') left.appendChild(el('div', 'done', 'Team complete'));
-        if(tm.sizeChanged) left.appendChild(el('div', 'needs', 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.'));
-        row.appendChild(left);
-        const out = el('div');
-        const mineTm = !!(tm.ref && isMine(t.id, tm.ref));
-        if(tm.status === 'complete'){
-          const acts = el('div');
-          acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:stretch;';
-          if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; acts.appendChild(a); }
-          if(mineTm && token && me) acts.appendChild(leaveBtn(t, tm, out));
-          if(acts.childNodes.length) row.appendChild(acts);
-        } else if(mineTm){
-          const acts = el('div');
-          acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-end;';
-          acts.appendChild(el('div', 'done', 'Your team'));
-          if(token && me) acts.appendChild(leaveBtn(t, tm, out));
-          row.appendChild(acts);
-        } else if(tm.ref){
-          if(!token || !me) row.appendChild(signInLink('Sign in to ask', '/partners/?t=' + encodeURIComponent(t.id)));
-          else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
-            openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + tm.members.join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' });
-          }));
-        }
-        wrap.appendChild(row);
-        wrap.appendChild(out);
-        if(tm.ref) reattach(wrap, tm.ref);
-        sec.appendChild(wrap);
-      });
+    sec.appendChild(el('div', 'sec-h', 'Teams looking for players (' + rows.length + ')'));
+    rows.forEach(([d, tm]) => {
+      const wrap = el('div');
+      const row = el('div', 'team');
+      const left = el('div');
+      const who = el('div', 'who', tm.members.join(' + '));
+      if(tm.status !== 'complete') who.appendChild(el('span', 'needs', ' · looking for ' + tm.need + ' more'));
+      left.appendChild(who);
+      left.appendChild(el('div', 'needs', dayShort(d.day) + ': ' + d.label + ' (' + tm.size + 's)'));
+      if(tm.status === 'complete') left.appendChild(el('div', 'done', 'Team complete'));
+      if(tm.sizeChanged) left.appendChild(el('div', 'needs', 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.'));
+      row.appendChild(left);
+      const out = el('div');
+      const mineTm = !!(tm.ref && isMine(t.id, tm.ref));
+      if(tm.status === 'complete'){
+        const acts = el('div');
+        acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:stretch;';
+        if(t.eventLink){ const a = link('btn btn-o', 'Register', t.eventLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; acts.appendChild(a); }
+        if(mineTm && token && me) acts.appendChild(leaveBtn(t, tm, out));
+        if(acts.childNodes.length) row.appendChild(acts);
+      } else if(mineTm){
+        const acts = el('div');
+        acts.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-end;';
+        acts.appendChild(el('div', 'done', 'Your team'));
+        if(token && me) acts.appendChild(leaveBtn(t, tm, out));
+        row.appendChild(acts);
+      } else if(tm.ref){
+        if(!token || !me) row.appendChild(signInLink('Sign in to ask', '/partners/?t=' + encodeURIComponent(t.id)));
+        else if(canMessage() && me.teamsEnabled) row.appendChild(btn('btn-o', 'Ask to join', function(){
+          openCompose(wrap, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + tm.members.join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' });
+        }));
+      }
+      wrap.appendChild(row);
+      wrap.appendChild(out);
+      if(tm.ref) reattach(wrap, tm.ref);
+      sec.appendChild(wrap);
     });
     return sec;
   }
@@ -335,7 +339,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     b.type = 'button';
     b.addEventListener('click', async function(){
       const url = location.origin + '/partners/?t=' + encodeURIComponent(t.id);
-      const data = { title: t.name + ': find a partner', text: 'Looking for a partner for ' + t.name + '? See who is in on CourtSense.', url: url };
+      const data = { title: t.name + ': find a team', text: 'Looking for a team for ' + t.name + '? See who is in on CourtSense.', url: url };
       try {
         if(navigator.share){ await navigator.share(data); return; }
       } catch(e){ if(e && e.name === 'AbortError') return; }
@@ -350,6 +354,21 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return b;
   }
 
+  // Free agents and partner posts as one list, each player once. The board gives
+  // no shared id across the two, so a post and a free agent with the same display
+  // name (and no ratings that disagree) are one player: one row, with both the
+  // free agent's button and the post's Offer to partner.
+  function playersFor(t){
+    const out = t.freeAgents.map(p => ({ p: p, fa: true, post: null }));
+    t.posts.forEach(post => {
+      const hit = out.find(x => x.fa && !x.post && x.p.display === post.display &&
+        (typeof x.p.rating !== 'number' || typeof post.rating !== 'number' || x.p.rating === post.rating));
+      if(hit) hit.post = post;
+      else out.push({ p: post, fa: false, post: post });
+    });
+    return out.sort((a, b) => a.p.display.localeCompare(b.p.display));
+  }
+
   function card(t, featured, open){
     const d = el('details', 'card' + (featured ? ' featured' : ''));
     d.id = 'trn-' + t.id;
@@ -362,8 +381,10 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     s.appendChild(el('div', 't-name', t.name));
     s.appendChild(el('div', 't-meta', dateRange(t.startDate, t.endDate) + (t.location ? ' · ' + t.location : '')));
     const counts = el('div', 't-counts');
-    counts.appendChild(el('span', 'pill gold', plural(t.posts.length, 'looking for a partner', 'looking for a partner')));
-    counts.appendChild(el('span', 'pill', plural(t.freeAgents.length, 'free agent', 'free agents')));
+    const players = playersFor(t);
+    const nTeams = teamRows(t).length;
+    counts.appendChild(el('span', 'pill gold', plural(players.length, 'looking for a team', 'looking for a team')));
+    if(nTeams) counts.appendChild(el('span', 'pill', plural(nTeams, 'team', 'teams')));
     s.appendChild(counts);
     d.appendChild(s);
 
@@ -378,26 +399,21 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     const teams = teamsSection(t);
     if(teams) body.appendChild(teams);
 
-    body.appendChild(el('div', 'sec-h', 'Looking for a partner'));
-    if(t.posts.length) t.posts.forEach(p => {
+    // The buttons are the ones each list had: a post keeps Offer to partner (and,
+    // signed in, its own reach out); a free agent keeps theirs, or View event.
+    if(players.length) body.appendChild(el('div', 'sec-h', 'Players looking for a team (' + players.length + ')'));
+    players.forEach(x => {
       let row = null;
-      const acts = [link('btn btn-o', 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(p.inviteId))];
-      if(token && me){ const b = reachOutBtn(t, p, () => row); if(b) acts.push(b); }
-      row = personRow(p, acts);
-      if(p.ref) reattach(row, p.ref);
+      const acts = [];
+      if(x.post) acts.push(link('btn btn-o', 'Offer to partner', PICKUP + '?invite=' + encodeURIComponent(x.post.inviteId)));
+      const b = (x.fa || (token && me)) ? reachOutBtn(t, x.p, () => row) : null;
+      if(b) acts.push(b);
+      if(x.fa && !b) acts.push(link('btn btn-o', 'View event', trnHref(t.id)));
+      row = personRow(x.p, acts);
+      if(x.p.ref) reattach(row, x.p.ref);
       body.appendChild(row);
     });
-    else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
-
-    body.appendChild(el('div', 'sec-h', 'Free agents'));
-    if(t.freeAgents.length) t.freeAgents.forEach(p => {
-      let row = null;
-      const b = reachOutBtn(t, p, () => row);
-      row = personRow(p, [b || link('btn btn-o', 'View event', trnHref(t.id))]);
-      if(p.ref) reattach(row, p.ref);
-      body.appendChild(row);
-    });
-    else body.appendChild(el('div', 'empty', 'No one has posted yet. Be the first.'));
+    if(!teams && !players.length) body.appendChild(el('div', 'empty', 'No one is looking yet. Join the pool to be first.'));
 
     const actions = el('div', 'actions');
     actions.appendChild(link('btn btn-p', 'Post yourself', trnHref(t.id)));

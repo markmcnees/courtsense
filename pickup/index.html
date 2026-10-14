@@ -592,7 +592,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <select class="inp" id="trn-preset" onchange="trnApplyPreset(this.value)"></select>
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">A preset fills the grid. Everything stays editable after.</div>
       </div>
-      <div id="trn-grid-help" style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Tick every division the tournament runs. If one is listed but registration is not actually open, tap <strong>Mark no reg</strong> on that row so players know not to plan around it.</div>
+      <div id="trn-grid-help" style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Tick every division the tournament runs. If one is listed but sign-ups are not actually open, tap <strong>Mark not open yet</strong> on that row so players know not to plan around it.</div>
       <div id="trn-edit-note" style="display:none;font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">Dates and divisions can't be changed yet. Registration status can still be updated from the tournament page.</div>
       <div id="trn-grid"></div>
     </div>
@@ -897,8 +897,8 @@ const TRN_FORMATS = ['2v2','3v3','4v4'];
 // a division the organizer never opens registration for; a player who joins a pool
 // for one of those has no way to actually play. Stored as a slug on each division.
 const TRN_REG_STATUSES = ['open','advertised'];
-const TRN_REG_LABEL = { 'open':'Registration open', 'advertised':'Advertised only' };
-const TRN_REG_SHORT = { 'open':'OPEN', 'advertised':'NO REG' };
+const TRN_REG_LABEL = { 'open':'Registration open', 'advertised':'Sign-ups not open yet' };
+const TRN_REG_SHORT = { 'open':'OPEN', 'advertised':'SIGN-UPS NOT OPEN YET' };
 function trnRegLabel(r){ return TRN_REG_LABEL[r] || TRN_REG_LABEL.open; }
 function trnRegShort(r){ return TRN_REG_SHORT[r] || TRN_REG_SHORT.open; }
 // Absent, unknown or malformed all read as 'open', so a record written before
@@ -906,6 +906,106 @@ function trnRegShort(r){ return TRN_REG_SHORT[r] || TRN_REG_SHORT.open; }
 function trnRegOf(d){
   const r = d && d.regStatus;
   return TRN_REG_STATUSES.indexOf(r) === -1 ? 'open' : r;
+}
+// ── SIGN-UP TIMES ─────────────────────────────────────────────────────────
+// Optional, per division: when sign-ups open and when they close, as epoch ms,
+// entered and shown in Eastern time. Stored BESIDE the divisions, never inside
+// them, at tournaments/{id}/regTimes/{divId} = { opensAt, closesAt } (either may
+// be absent): a division node only takes the fields the rules name, while
+// regTimes sits under the tournament's open $other. Only the lister and the admin
+// set them (trnCanEditStructure), the same gate as changing divisions.
+const TRN_TZ = 'America/New_York';
+function trnTzParts(ms){
+  const o = {};
+  new Intl.DateTimeFormat('en-US', { timeZone: TRN_TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(new Date(ms)).forEach(p => { o[p.type] = p.value; });
+  return o;
+}
+// Eastern wall clock minus UTC at that instant, in ms.
+function trnTzOffset(ms){
+  const p = trnTzParts(ms);
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+}
+// 'YYYY-MM-DDTHH:MM' read as Eastern, to epoch ms. null when blank or malformed.
+function trnEasternToMs(s){
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(s || ''));
+  if(!m) return null;
+  const wall = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  if(!isFinite(wall)) return null;
+  let ms = wall - trnTzOffset(wall);
+  // Second pass for a time near a daylight saving change.
+  const off = trnTzOffset(ms);
+  if(wall - off !== ms) ms = wall - off;
+  return ms;
+}
+// Epoch ms to the 'YYYY-MM-DDTHH:MM' a datetime-local input takes, in Eastern.
+function trnMsToEastern(ms){
+  if(typeof ms !== 'number' || !isFinite(ms)) return '';
+  const p = trnTzParts(ms);
+  return p.year + '-' + p.month + '-' + p.day + 'T' + String(+p.hour % 24).padStart(2, '0') + ':' + p.minute;
+}
+// 'Oct 20, 9:00 AM', Eastern.
+function trnFmtEastern(ms){
+  try { return new Date(ms).toLocaleString('en-US', { timeZone: TRN_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+  catch(e){ return ''; }
+}
+function trnRegTimesOf(t, divId){
+  const w = t && t.regTimes && t.regTimes[divId];
+  if(!w || typeof w !== 'object') return null;
+  const o = (typeof w.opensAt === 'number' && isFinite(w.opensAt)) ? w.opensAt : null;
+  const c = (typeof w.closesAt === 'number' && isFinite(w.closesAt)) ? w.closesAt : null;
+  return (o === null && c === null) ? null : { opensAt: o, closesAt: c };
+}
+// By the clock: { text, kind } with kind 'soon', 'open' or 'closed', or null when
+// no time is set.
+function trnRegTimeTag(t, divId, now){
+  const w = trnRegTimesOf(t, divId);
+  if(!w) return null;
+  now = now || Date.now();
+  if(w.opensAt !== null && now < w.opensAt) return { text: 'Sign-ups open ' + trnFmtEastern(w.opensAt), kind: 'soon' };
+  if(w.closesAt !== null && now >= w.closesAt) return { text: 'Sign-ups closed', kind: 'closed' };
+  return { text: 'Sign-ups open', kind: 'open' };
+}
+const TRN_TAG_STYLE = {
+  soon: 'background:#fef3c7;color:#92400e;border:1px dashed #d97706;',
+  open: 'background:#d1fae5;color:#065f46;border:1px solid #059669;',
+  closed: 'background:var(--gray-lighter);color:var(--gray);border:1px solid var(--sand-border);'
+};
+const TRN_TAG_COLOR = { soon: '#92400e', open: '#065f46', closed: 'var(--gray)' };
+// The one tag a division shows: its sign-up time when one is set (the clock is the
+// better answer), else Sign-ups not open yet when somebody marked it, else nothing.
+// Never set reads as nothing, not as open.
+function trnDivTag(t, d){
+  if(!d) return null;
+  const tm = trnRegTimeTag(t, d.id);
+  if(tm) return tm;
+  if(trnRegOf(d) === 'advertised') return { text: TRN_REG_LABEL.advertised, kind: 'soon' };
+  return null;
+}
+function trnDivTagHTML(t, d){
+  const tag = trnDivTag(t, d);
+  if(!tag) return '';
+  return '<span style="flex-shrink:0;' + TRN_TAG_STYLE[tag.kind] + 'font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:2px 7px;border-radius:4px;white-space:nowrap;">' + escapeHTML(tag.text.toUpperCase()) + '</span>';
+}
+// Tags switch by the clock with no reload: one timer, armed for the next open or
+// close on the tournament on screen, repaints whichever view shows its tags.
+let _trnRegTimer = null;
+function trnArmRegTick(t){
+  if(_trnRegTimer){ clearTimeout(_trnRegTimer); _trnRegTimer = null; }
+  const now = Date.now();
+  let next = Infinity;
+  Object.keys((t && t.regTimes) || {}).forEach(divId => {
+    const w = trnRegTimesOf(t, divId);
+    if(w) [w.opensAt, w.closesAt].forEach(x => { if(x !== null && x > now && x < next) next = x; });
+  });
+  if(next === Infinity) return;
+  // Capped, so a far-off time re-arms on the next paint rather than overflowing
+  // setTimeout.
+  _trnRegTimer = setTimeout(function(){
+    _trnRegTimer = null;
+    if(view === 'tournament-detail') renderTournamentDetail();
+    else if(view === 'partner-setup') ppRenderNeeds();
+  }, Math.min(next - now + 500, 6 * 3600 * 1000));
 }
 // ── THE REGISTRATION LINK ─────────────────────────────────────────────────
 // A tournament in this directory has to be verifiably real. Anyone logged in can
@@ -1156,6 +1256,10 @@ let trnSelectedDivs = new Set();
 // Selection keys whose division is advertised only. Absence means 'open', so a
 // freshly checked cell defaults to open without needing an entry here.
 let trnAdvertisedDivs = new Set();
+// Sign-up times on the form, by selection key, as the input strings
+// ({ open, close }, 'YYYY-MM-DDTHH:MM' Eastern), so a grid repaint keeps them.
+let trnRegTimes = {};
+let trnRegTimesShown = false;
 let trnDays = [];
 // The tournament being EDITED, null on a create. Same single-variable shape as
 // inviteEditId: only one form is open at a time, so one flag covers it.
@@ -3929,11 +4033,10 @@ function ppRenderNeeds(){
       if(d.category === 'coed') anyCoed = true;
       const checked = ppNeeds.has(d.id);
       const safe = escapeHTML(d.id).replace(/'/g, '&#39;');
-      const adv = trnRegOf(d) === 'advertised';
       return '<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
         + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="ppToggleNeed(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
         + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(trnDivLabel(d)) + '</span>'
-        + (adv ? '<span style="flex-shrink:0;background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:2px 7px;border-radius:4px;">NO REG</span>' : '')
+        + trnDivTagHTML(t, d)
         + '</label>';
     }).join('');
     return '<div style="margin-bottom:10px;">'
@@ -3944,6 +4047,7 @@ function ppRenderNeeds(){
   if(anyCoed) h += COED_UNRATED_NOTE;
   if(nJunior) h += JUNIOR_NO_MATCH_NOTE;
   grid.innerHTML = h;
+  trnArmRegTick(t);
 }
 
 // Visibility defaults to the poster's club when they belong to one; widening to
@@ -4265,6 +4369,8 @@ function startNewTournament(returnToPartner){
   }
   trnSelectedDivs = new Set();
   trnAdvertisedDivs = new Set();
+  trnRegTimes = {};
+  trnRegTimesShown = false;
   trnDays = [];
   trnRenderGrid();
   showView("tournament-setup");
@@ -4340,15 +4446,19 @@ function startEditTournament(id){
   // reverses it with trnSelParts and re-derives the same divIds.
   trnSelectedDivs = new Set();
   trnAdvertisedDivs = new Set();
+  trnRegTimes = {};
   Object.values(t.divisions || {}).forEach(d => {
     if(!d || !d.day || !d.category) return;
     const level = trnIsAgeCategory(d.category) ? null : (d.level || null);
     const key = trnSelKey(d.day, d.category, level);
     trnSelectedDivs.add(key);
+    const w = trnRegTimesOf(t, divIdFor(d.day, d.category, level));
+    if(w) trnRegTimes[key] = { open: trnMsToEastern(w.opensAt), close: trnMsToEastern(w.closesAt) };
     // trnRegOf collapses absent, unknown and malformed to 'open', so a division
     // written before regStatus existed seeds as open rather than vanishing.
     if(trnRegOf(d) === "advertised") trnAdvertisedDivs.add(key);
   });
+  trnRegTimesShown = Object.keys(trnRegTimes).length > 0;
   trnDays = (Array.isArray(t.days) && t.days.length)
     ? t.days.slice()
     : trnDayList(t.startDate, t.endDate || t.startDate);
@@ -4388,7 +4498,7 @@ function trnOnDatesChanged(){
   let dropped = 0;
   [...trnSelectedDivs].forEach(key => {
     const day = trnDivDayOf(key);
-    if(!day || !live.has(day)){ trnSelectedDivs.delete(key); trnAdvertisedDivs.delete(key); dropped++; }
+    if(!day || !live.has(day)){ trnSelectedDivs.delete(key); trnAdvertisedDivs.delete(key); delete trnRegTimes[key]; dropped++; }
   });
   if(dropped) toast("Dropped " + dropped + " division" + (dropped===1?"":"s") + " on days no longer in range");
   trnRenderGrid();
@@ -4407,6 +4517,7 @@ function trnToggleDiv(key, isChecked){
     // Unchecking clears the flag as well, so re-checking starts from the
     // default rather than silently restoring a stale advertised-only mark.
     trnAdvertisedDivs.delete(decoded);
+    delete trnRegTimes[decoded];
   }
   trnRenderGrid();
 }
@@ -4427,7 +4538,7 @@ function trnApplyPreset(key){
   const preset = TRN_PRESETS[key];
   if(!preset) return;
   // Blank means blank: nothing selected, so nothing can carry a posture either.
-  if(key === "blank"){ trnSelectedDivs = new Set(); trnAdvertisedDivs = new Set(); trnRenderGrid(); return; }
+  if(key === "blank"){ trnSelectedDivs = new Set(); trnAdvertisedDivs = new Set(); trnRegTimes = {}; trnRenderGrid(); return; }
   if(!trnDays.length){ toast("Pick the dates first"); if($("trn-preset")) $("trn-preset").value = "blank"; return; }
   // A preset states the SELECTION, not the registration posture. Wiping the
   // advertised set here silently threw away every no-registration mark the
@@ -4442,6 +4553,7 @@ function trnApplyPreset(key){
     dayDivs.forEach(pair => trnSelectedDivs.add(trnSelKey(day, pair[0], pair[1])));
   });
   [...trnAdvertisedDivs].forEach(k => { if(!trnSelectedDivs.has(k)) trnAdvertisedDivs.delete(k); });
+  Object.keys(trnRegTimes).forEach(k => { if(!trnSelectedDivs.has(k)) delete trnRegTimes[k]; });
   trnRenderGrid();
   if(skipped) toast("Filled what fits. " + skipped + " division" + (skipped===1?"":"s") + " skipped, the range is shorter than this preset.");
 }
@@ -4476,12 +4588,12 @@ function trnRenderGrid(){
       // The hit area is 44px tall (the published minimum) while the visible chip
       // stays small, so the row keeps its density without being a dart-throw.
       const regBtn = checked
-        ? '<button type="button" ' + (locked ? 'disabled' : 'onclick="trnToggleReg(\'' + safe + '\')"') + ' aria-pressed="' + (advertised ? "true" : "false") + '" title="' + (locked ? "Registration status is edited from the tournament page." : (advertised ? "Registration is not open for this division. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.")) + '" style="flex-shrink:0;display:flex;align-items:center;min-height:44px;padding:0 10px;background:none;border:none;cursor:' + (locked ? "default" : "pointer") + ';">'
+        ? '<button type="button" ' + (locked ? 'disabled' : 'onclick="trnToggleReg(\'' + safe + '\')"') + ' aria-pressed="' + (advertised ? "true" : "false") + '" title="' + (locked ? "Registration status is edited from the tournament page." : (advertised ? "Marked sign-ups not open yet. Tap to clear it." : "Tap to mark sign-ups not open yet.")) + '" style="flex-shrink:0;display:flex;align-items:center;min-height:44px;padding:0 10px;background:none;border:none;cursor:' + (locked ? "default" : "pointer") + ';">'
         +   '<span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:6px;white-space:nowrap;'
         +     (advertised
                 ? "background:#fef3c7;color:#92400e;border:1px solid #d97706;"
                 : "background:#fff;color:var(--gray);border:1px solid var(--sand-border);")
-        +   '">' + (advertised ? "NO REG \u2713" : "MARK NO REG") + '</span>'
+        +   '">' + (advertised ? "SIGN-UPS NOT OPEN YET \u2713" : "MARK NOT OPEN YET") + '</span>'
         + '</button>'
         : "";
       return '<div style="display:flex;align-items:center;border-bottom:1px solid var(--sand-border);background:' + (checked?"var(--light)":"transparent") + ';">'
@@ -4497,7 +4609,76 @@ function trnRenderGrid(){
       + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + (n ? ' <span style="color:var(--gray);font-weight:400;">(' + n + ')</span>' : "") + '</div>'
       + '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;">' + rows + '</div>'
       + '</div>';
-  }).join("");
+  }).join("") + trnRegTimesEditorHTML(locked);
+}
+
+// Sign-up times, one row per ticked division, folded under the grid. Optional;
+// blank means no time. Locked (an edit by somebody other than the lister) shows
+// them disabled.
+function trnRegTimesEditorHTML(locked){
+  const cells = [];
+  trnDays.forEach(day => trnCellsForDay(day).forEach(c => { if(trnSelectedDivs.has(c.key)) cells.push(c); }));
+  if(!cells.length) return "";
+  const inp = (c, which) => {
+    const w = trnRegTimes[c.key] || {};
+    const safe = escapeHTML(c.key).replace(/'/g, "&#39;");
+    return '<label style="flex:1;min-width:150px;font-size:11px;color:var(--gray);">' + (which === "open" ? "Sign-ups open" : "Sign-ups close")
+      + '<input type="datetime-local" class="inp" ' + (locked ? "disabled " : "") + 'value="' + escapeHTML(w[which] || "") + '" oninput="trnSetRegTime(\'' + safe + '\',\'' + which + '\',this.value)" style="display:block;width:100%;box-sizing:border-box;margin-top:2px;font-size:13px;">'
+      + '</label>';
+  };
+  return '<details ' + (trnRegTimesShown ? "open " : "") + 'ontoggle="trnRegTimesShown=this.open" style="margin:4px 0 12px;border:1px solid var(--sand-border);border-radius:8px;padding:8px 10px;">'
+    + '<summary style="font-weight:700;font-size:13px;cursor:pointer;min-height:32px;display:flex;align-items:center;">Sign-up times (optional)</summary>'
+    + '<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Eastern time. Leave a box blank if you do not know. Players see when sign-ups open, then Sign-ups open, then Sign-ups closed, by the clock.'
+    +   (locked ? ' Only the person who listed this tournament can change these.' : '') + '</div>'
+    + cells.map(c => '<div style="padding:6px 0;border-top:1px solid var(--sand-border);">'
+        + '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">' + escapeHTML(dayShort(c.day) + ': ' + trnDivLabel(c)) + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + inp(c, "open") + inp(c, "close") + '</div>'
+        + '</div>').join("")
+    + '</details>';
+}
+function trnSetRegTime(key, which, value){
+  const decoded = trnDecodeKey(key);
+  if(!trnSelectedDivs.has(decoded) || (which !== "open" && which !== "close")) return;
+  if(!trnRegTimes[decoded]) trnRegTimes[decoded] = {};
+  trnRegTimes[decoded][which] = value || "";
+}
+// The times to store, by divId, from the form: { map, error }. Only ticked
+// divisions count.
+function trnCollectRegTimes(){
+  const map = {};
+  let error = null;
+  [...trnSelectedDivs].forEach(key => {
+    const w = trnRegTimes[key];
+    if(!w) return;
+    const p = trnSelParts(key);
+    const level = trnIsAgeCategory(p.category) ? null : p.level;
+    const divId = divIdFor(p.day, p.category, level);
+    const o = w.open ? trnEasternToMs(w.open) : null;
+    const c = w.close ? trnEasternToMs(w.close) : null;
+    if((w.open && o === null) || (w.close && c === null)){ error = error || "Check the sign-up times"; return; }
+    if(o !== null && c !== null && c <= o){ error = error || "Sign-ups have to close after they open"; return; }
+    if(o === null && c === null) return;
+    const rec = {};
+    if(o !== null) rec.opensAt = o;
+    if(c !== null) rec.closesAt = c;
+    map[divId] = rec;
+  });
+  return { map: map, error: error };
+}
+// What an edit changes: divId to the new { opensAt, closesAt }, or null to clear.
+// Only divisions ticked now or being removed, so an orphaned entry from some
+// other edit never turns a text-only save into a structure change.
+function trnDiffRegTimes(t, map, diff){
+  const out = {};
+  const same = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+  Object.keys(diff.wanted).forEach(divId => {
+    const have = trnRegTimesOf(t, divId);
+    const want = map[divId] || null;
+    const norm = have ? Object.assign({}, have.opensAt !== null ? { opensAt: have.opensAt } : {}, have.closesAt !== null ? { closesAt: have.closesAt } : {}) : null;
+    if(!same(norm, want)) out[divId] = want;
+  });
+  diff.removed.forEach(divId => { if(t && t.regTimes && t.regTimes[divId]) out[divId] = null; });
+  return out;
 }
 
 // Pure builder: reads the DOM and returns the record, validating nothing. Same
@@ -4846,6 +5027,9 @@ async function saveTournament(){
   const rec = buildTournamentRecord();
   const problem = trnValidate(rec);
   if(problem){ toast(problem); return; }
+  const times = trnCollectRegTimes();
+  if(times.error){ toast(times.error); return; }
+  if(Object.keys(times.map).length) rec.regTimes = times.map;
 
   // Duplicate check BEFORE the write, never blocking. Same posture as the court
   // conflict warning in saveInvite: tell them what we found, let them decide.
@@ -4925,6 +5109,9 @@ function buildTournamentEditUpdates(id, patch, diff, canStructure){
   diff.reposted.forEach(divId => {
     updates[base + '/divisions/' + divId + '/regStatus'] = diff.wanted[divId].regStatus;
   });
+  // One path per division under regTimes: an object sets that division's times,
+  // null clears them. Never regTimes as a whole.
+  Object.keys(diff.times || {}).forEach(divId => { updates[base + '/regTimes/' + divId] = diff.times[divId]; });
   return updates;
 }
 
@@ -4939,7 +5126,7 @@ function trnRemovalBlockMessage(t, refs, removed){
     const label = d ? trnDivLabel(d) : id;
     const n = refs.live[id];
     return label + " can't be removed because " + n + ' player' + (n === 1 ? '' : 's') +
-           ' ' + (n === 1 ? 'is' : 'are') + ' using it. Mark it No Reg instead.';
+           ' ' + (n === 1 ? 'is' : 'are') + ' using it. Mark it not open yet instead.';
   }).join(' ');
 }
 
@@ -4974,13 +5161,16 @@ async function saveTournamentEdit(){
   // that must not run on a stale yes.
   const canStructure = trnCanEditStructure(existing);
   const diff = trnDiffDivisions(existing);
-  const changedStructure = !!(diff.added.length || diff.removed.length || diff.reposted.length);
+  const times = trnCollectRegTimes();
+  if(times.error){ toast(times.error); return; }
+  diff.times = trnDiffRegTimes(existing, times.map, diff);
+  const changedStructure = !!(diff.added.length || diff.removed.length || diff.reposted.length || Object.keys(diff.times).length);
 
   if(changedStructure && !canStructure){
     // Nothing is saved, not even the text fields. A partial save here would be
     // worse than a refusal: the person asked for one change and would get half of
     // it, with no indication which half.
-    toast('Only the person who listed this tournament can change its divisions');
+    toast('Only the person who listed this tournament can change its divisions or sign-up times');
     return;
   }
 
@@ -5017,6 +5207,10 @@ async function saveTournamentEdit(){
     diff.added.forEach(divId => { existing.divisions[divId] = diff.wanted[divId]; });
     diff.removed.forEach(divId => { delete existing.divisions[divId]; });
     diff.reposted.forEach(divId => { existing.divisions[divId].regStatus = diff.wanted[divId].regStatus; });
+    Object.keys(diff.times).forEach(divId => {
+      if(diff.times[divId]){ if(!existing.regTimes) existing.regTimes = {}; existing.regTimes[divId] = diff.times[divId]; }
+      else if(existing.regTimes) delete existing.regTimes[divId];
+    });
   }
 
   trnEditId = null;
@@ -5026,7 +5220,8 @@ async function saveTournamentEdit(){
   const bits = [];
   if(diff.added.length) bits.push(diff.added.length + ' added');
   if(diff.removed.length) bits.push(diff.removed.length + ' removed');
-  toast(bits.length ? 'Listing updated. Divisions: ' + bits.join(', ') + '.' : 'Listing updated');
+  const nTimes = Object.keys(diff.times).length;
+  toast((bits.length ? 'Listing updated. Divisions: ' + bits.join(', ') + '.' : 'Listing updated') + (nTimes ? ' Sign-up times saved.' : ''));
   showView("tournament-detail");
 }
 
@@ -5094,7 +5289,7 @@ function trnSetDivReg(divId){
   renderTournamentDetail();
 
   fbSet("tournaments/" + t.id + "/divisions/" + decoded + "/regStatus", next);
-  toast(next === "advertised" ? "Marked no registration" : "Marked registration open");
+  toast(next === "advertised" ? "Marked sign-ups not open yet" : "Cleared Sign-ups not open yet");
 }
 
 function setTrnFilter(kind, v){
@@ -5190,11 +5385,9 @@ function renderTournamentList(){
     const sub = [t.location, t.organizer].filter(Boolean).map(escapeHTML).join(" \u00b7 ");
     // The two numbers that used to require a second section and a second card.
     const idx = partnerIdx[t.id] || { posts: [], mine: 0, asked: 0, offers: 0 };
-    const nPost = idx.posts.length;
-    const nPool = Object.keys(t.pool || {}).length;
+    const nLooking = trnLookingCount(t, idx.posts);
     const who = [];
-    if(nPost) who.push(nPost + ' looking for a partner');
-    if(nPool) who.push(nPool + ' in the pool');
+    if(nLooking) who.push(nLooking + ' looking for a team');
     // One badge, most urgent wins, same precedence the partner cards used.
     const pill2 = (bg, fg, txt) => '<span style="background:' + bg + ';color:' + fg + ';font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;white-space:nowrap;">' + txt + '</span>';
     let badge = '';
@@ -5215,7 +5408,7 @@ function renderTournamentList(){
       // Varies on the counts the card already carries. Promising 'see who is
       // looking' on a tournament nobody has joined would send them to an empty
       // roster; the divisions are what is actually there.
-      + evcardAction((nPost || nPool) ? 'See who is looking' : 'See the divisions')
+      + evcardAction(nLooking ? 'See who is looking' : 'See the divisions')
       + '</div>';
   }).join("");
   h += addBtn;
@@ -5279,12 +5472,13 @@ function renderTournamentDetail(){
     const divChip = d => {
       const label = escapeHTML(trnDivLabel(d)).toUpperCase();
       const adv = trnRegOf(d) === "advertised";
-      const inner = adv
-        ? '<span style="background:#fef3c7;color:#92400e;border:1px dashed #d97706;font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">NO REG</span></span>'
+      const tag = trnDivTag(t, d);
+      const inner = tag
+        ? '<span style="' + TRN_TAG_STYLE[tag.kind] + 'font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + ' <span style="font-size:9px;opacity:.85;">' + escapeHTML(tag.text.toUpperCase()) + '</span></span>'
         : '<span style="background:var(--sand);border:1px solid var(--sand-border);font-family:\'Bebas Neue\';font-size:11px;letter-spacing:1px;padding:3px 9px;border-radius:4px;">' + label + '</span>';
       if(!canEdit) return inner;
       const safe = escapeHTML(d.id).replace(/'/g, "&#39;");
-      return '<button type="button" onclick="trnSetDivReg(\'' + safe + '\')" title="' + (adv ? "Registration is not open. Tap to mark it open." : "Registration is open. Tap to mark it no-registration.") + '" style="display:flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;">' + inner + '</button>';
+      return '<button type="button" onclick="trnSetDivReg(\'' + safe + '\')" title="' + (adv ? "Marked sign-ups not open yet. Tap to clear it." : "Tap to mark sign-ups not open yet.") + '" style="display:flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;">' + inner + '</button>';
     };
     h += days.map(day => {
       // Ladder order, not the arbitrary key order the divisions map came back in.
@@ -5301,26 +5495,25 @@ function renderTournamentDetail(){
       h += '<div style="font-size:12px;color:var(--gray);margin-top:4px;line-height:1.5;">Tap a division to flip whether its registration is open. Anyone can correct a listing.</div>';
     }
     // Legend, shown only when there is actually a mixed set to explain.
-    const nAdv = divs.filter(d => trnRegOf(d) === "advertised").length;
+    // Only for a division actually showing that tag: a set sign-up time wins.
+    const nAdv = divs.filter(d => trnRegOf(d) === "advertised" && !trnRegTimeTag(t, d.id)).length;
     if(nAdv){
       h += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--sand-border);font-size:12px;color:var(--gray);line-height:1.5;">'
-        + '<span style="color:#92400e;font-weight:700;">NO REG</span> means the tournament lists this division but has not opened registration for it. Confirm with the organizer before planning around it.'
+        + '<span style="color:#92400e;font-weight:700;">Sign-ups not open yet</span> means a player marked this division as not taking registrations. Check the registration link to confirm.'
         + '</div>';
     }
   }
   h += '</div>';
 
-  // Partner posts FIRST, then the pool. A post is the heavier, actionable thing
-  // and the directory card's YOUR POST badge promises a route to it, so it sits
-  // where somebody who tapped that badge is already looking.
-  h += trnPostsCardHTML(t);
-
-  // The pool. Appended rather than woven in: this function builds one string
-  // and assigns once, so the roster is more cards on the end.
+  // The pool, teams and partner posts. Appended rather than woven in: this
+  // function builds one string and assigns once, so these are more cards on the
+  // end. Posts are rows in the same Players looking for a team list as the pool,
+  // which keeps the directory card's YOUR POST badge a route to them.
   h += trnPoolCardsHTML(t);
 
   cont.innerHTML = h;
   cspHydrate();
+  trnArmRegTick(t);
 }
 
 // ── POOL ROSTER CONTACT AND TEAMS ───────────────────────────────────────────
@@ -5478,10 +5671,23 @@ function cspDrawTeams(t, s, ok, needSignIn, mine){
     return;
   }
   const divs = ((s.board && s.board.divisions) || []).filter(d => d.teams && d.teams.length);
+  // The one empty line under the players list stands only while there are no
+  // teams either.
+  const empty = document.querySelector('[data-csp-empty]');
+  if(empty) empty.style.display = (divs.length && PC) ? 'none' : '';
   if(!divs.length || !PC) return;
-  host.style.marginBottom = '10px';
-  host.appendChild(cspEl('div', "font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:2px 0 2px;", 'TEAMS'));
-  divs.forEach(d => d.teams.forEach(tm => {
+  host.style.marginBottom = '14px';
+  // Forming teams first, complete ones after, each in division order.
+  const rows = [];
+  divs.forEach(d => d.teams.forEach(tm => rows.push([d, tm])));
+  rows.sort((a, b) => (a[1].status === 'complete' ? 1 : 0) - (b[1].status === 'complete' ? 1 : 0));
+  const head = cspEl('div', 'margin-bottom:4px;');
+  head.className = 'ctitle';
+  head.appendChild(cspEl('span'));
+  head.firstChild.className = 'bar';
+  head.appendChild(document.createTextNode('Teams looking for players (' + rows.length + ')'));
+  host.appendChild(head);
+  rows.forEach(([d, tm]) => {
     const isMine = !!(tm.ref && mine.indexOf(tm.ref) !== -1);
     const row = cspEl('div', 'display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMine ? 'background:var(--light);' : ''));
     const left = cspEl('span', 'flex:1;min-width:140px;font-weight:600;font-size:14px;');
@@ -5503,7 +5709,7 @@ function cspDrawTeams(t, s, ok, needSignIn, mine){
     box.setAttribute('data-csp-box', 'team:' + tm.ref);
     row.appendChild(box);
     host.appendChild(row);
-  }));
+  });
 }
 
 function cspComposeCtx(){
@@ -5650,23 +5856,44 @@ function trnPostBadge(p, myKey){
   return '';
 }
 
-// The card. Rendered only when there is at least one visible post, because an
-// empty one would answer a question nobody asked: the directory card shows no
-// count when there are none, so no promise was made to keep.
-//
-// Every row opens openInviteDetail, which is the route that went missing.
-function trnPostsCardHTML(t){
-  const myKey = gameplayKey();
-  const posts = trnPostsFor(t, myKey);
-  if(!posts.length) return '';
-  const esc = v => escapeHTML(String(v)).replace(/'/g, "\\'");
+// Does this post belong to a pool entry on the tournament? Same match as
+// trnOpenPostFor (account id, else name key), against EVERY pool entry, so a
+// player hidden from the roster for being on a team does not come back as a post.
+function trnPostPoolKey(t, p){
+  const pool = (t && t.pool) || {};
+  for(const k of Object.keys(pool)){
+    const e = pool[k];
+    if(!e || !e.name) continue;
+    if((p.hostId && e.accountId && p.hostId === e.accountId) || Identity.nameKey(p.hostName || '') === k) return k;
+  }
+  return null;
+}
+// Visible posts whose player has no pool entry: one row per player (their first
+// post), oldest first.
+function trnPostOnlyRows(t, myKey){
+  const seen = new Set();
+  return trnPostsFor(t, myKey).filter(p => {
+    if(trnPostPoolKey(t, p)) return false;
+    const who = p.hostId || Identity.nameKey(p.hostName || '');
+    if(seen.has(who)) return false;
+    seen.add(who);
+    return true;
+  });
+}
+// The directory card's count, each player once: pool entries plus posts by
+// players with no pool entry.
+function trnLookingCount(t, posts){
+  const pool = Object.values((t && t.pool) || {}).filter(e => e && e.name).length;
+  const seen = new Set();
+  (posts || []).forEach(p => { if(!trnPostPoolKey(t, p)) seen.add(p.hostId || Identity.nameKey(p.hostName || '')); });
+  return pool + seen.size;
+}
 
-  return '<div class="card">'
-    + '<div class="ctitle"><span class="bar"></span>Partner posts (' + posts.length + ')</div>'
-    + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;line-height:1.5;">'
-    +   'Players who posted for this tournament and said which divisions they need somebody for. Open one to offer, or to manage your own.'
-    + '</div>'
-    + posts.map(p => {
+// A post-only row in Players looking for a team. Opens openInviteDetail, which is
+// the route to offer on a post, answer an ask on it, or manage your own.
+function trnPostOnlyRowHTML(p, myKey, noteHTML){
+  const esc = v => escapeHTML(String(v)).replace(/'/g, "\\'");
+  return [p].map(p => {
         const mine = isLoggedInHost(p);
         const badge = trnPostBadge(p, myKey);
         // WHAT OPENING IT DOES, in words, ending in the same arrow every other
@@ -5688,19 +5915,15 @@ function trnPostsCardHTML(t){
         const action = mine
           ? 'Manage your asks and offers'
           : (askedMe ? 'Answer the ask' : 'Open to offer');
-        return '<div class="evcard" style="margin-bottom:6px;" onclick="openInviteDetail(\'' + esc(p.id) + '\')">'
-          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">'
-          +   '<div style="flex:1;">'
-          +     '<div class="evname">' + (mine ? 'Your post' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName)) + '</div>'
-          +     '<div class="evmeta" style="margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + '</div>'
-          +     '<div class="evmeta" style="margin-top:2px;">' + (mine ? 'Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : 'Posted by ' + escapeHTML(p.hostName || 'Anonymous')) + '</div>'
-          +   '</div>'
-          +   badge
-          + '</div>'
-          + evcardAction(action)
+        return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (mine ? 'background:var(--light);' : '') + '">'
+          + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + (mine ? 'Your post' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName))
+          +   '<span style="display:block;font-size:12px;color:var(--gray);font-weight:400;margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + (mine ? ' \u00b7 Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : '') + '</span>'
+          +   noteHTML(p)
+          +   '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + esc(p.id) + '\')">' + action + ' ' + String.fromCharCode(8594) + '</button>'
+          + '</span>'
+          + badge
           + '</div>';
-      }).join('')
-    + '</div>';
+      }).join('');
 }
 
 // ── DISCOVERY POINTER ───────────────────────────────────
@@ -6056,11 +6279,11 @@ function trnPoolRows(t){
           // Advertised-only is a word, never a block, matching ppToggleNeed. Per
           // division now, so it marks the one that has no registration rather
           // than counting how many in a group do.
-          const noReg = !!d && trnRegOf(d) === 'advertised';
+          const tag = trnDivTag(t, d);
           return '<label style="display:flex;align-items:center;gap:8px;padding:8px;min-height:44px;box-sizing:border-box;cursor:pointer;border-bottom:1px solid var(--sand-border);background:' + (checked?'var(--light)':'transparent') + ';">'
             + '<input type="checkbox" ' + (checked?'checked':'') + ' onchange="trnPoolToggle(\'' + safe + '\',this.checked)" style="width:16px;height:16px;flex-shrink:0;">'
             + '<span style="flex:1;font-size:13px;font-weight:' + (checked?'700':'500') + ';">' + escapeHTML(divIdToLabel(id))
-            +   (noReg ? '<span style="display:block;font-weight:400;font-size:11px;color:#92400e;">No open registration yet</span>' : '')
+            +   (tag ? '<span style="display:block;font-weight:400;font-size:11px;color:' + TRN_TAG_COLOR[tag.kind] + ';">' + escapeHTML(tag.text) + '</span>' : '')
             + '</span>'
             + '</label>';
         }).join('');
@@ -6270,7 +6493,7 @@ function trnPoolCardsHTML(t){
   // ── card one: what the viewer is offering ──
   let av = '';
   if(!isAuthed){
-    av = '<div style="font-weight:700;margin-bottom:6px;">Looking for a partner?</div>'
+    av = '<div style="font-weight:700;margin-bottom:6px;">Looking for a team?</div>'
       + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Log in to say which days you would play. Everyone looking for this tournament shows up in one place.</div>'
       + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
   } else if(mine && myTeams.length){
@@ -6283,7 +6506,7 @@ function trnPoolCardsHTML(t){
       + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">You are off the roster while you are on the team. Leave the team and you are back in the pool.</div>'
       + '<button class="btn btn-g btn-w" onclick="leaveTournamentPool()">Leave pool</button>';
   } else if(mine){
-    av = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are in the pool for ' + escapeHTML(poolEntryNeedLabels(mine).join(', ') || 'this tournament') + '.</div>'
+    av = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">You are looking for a team for ' + escapeHTML(poolEntryNeedLabels(mine).join(', ') || 'this tournament') + '.</div>'
       + '<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Anyone playing this tournament can see you and reach out.</div>'
       + '<button class="btn btn-g btn-w" onclick="leaveTournamentPool()">Leave pool</button>';
   } else {
@@ -6300,14 +6523,24 @@ function trnPoolCardsHTML(t){
     + (juniorDays ? JUNIOR_NO_MATCH_NOTE : '')
     + '</div>';
 
-  // ── card two: the roster ──
+  // ── card two: Teams looking for players, then Players looking for a team ──
+  // Teams come from the worker (cspDrawTeams fills data-csp-teams). Players are
+  // the pool and the partner posts as one list, each player once: somebody with a
+  // pool entry and a post gets their pool row, with the post's note and its link.
+  // A post whose player is on a team (their pool row hidden above) stays hidden.
   const anyCoed = pool.some(([k, e, days]) => days.some(d => needHasCoed(d)));
+  const postOnly = isAuthed ? trnPostOnlyRows(t, myKey) : [];
+  const nPlayers = pool.length + postOnly.length;
+  const noteHTML = p => (p && String(p.description || '').trim())
+    ? '<div style="font-size:12px;color:var(--charcoal);font-weight:400;font-style:italic;margin-top:3px;line-height:1.4;">\u201c' + escapeHTML(String(p.description).trim()) + '\u201d</div>' : '';
   h += '<div class="card">'
-    + '<div class="ctitle"><span class="bar"></span>Looking for a Partner' + (pool.length ? ' (' + pool.length + ')' : '') + '</div>'
     + (!isAuthed
-        ? '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
+        ? '<div class="ctitle"><span class="bar"></span>Players looking for a team</div>'
+          + '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
           + '<button class="btn btn-g btn-sm" onclick="cspSignIn()">Sign in to team up</button>'
-        : '<div data-csp-teams="1"></div><div data-csp-status="1"></div>' + (pool.length
+        : '<div data-csp-teams="1"></div><div data-csp-status="1"></div>'
+          + (nPlayers ? '<div class="ctitle" style="margin-bottom:4px;"><span class="bar"></span>Players looking for a team (' + nPlayers + ')</div>' : '')
+          + (nPlayers
             ? pool.map(([k, e, days]) => {
                 const post = trnOpenPostFor(t, k, e.accountId);
                 // The viewer's own row is about THEM, so it reads that way. It used
@@ -6318,6 +6551,7 @@ function trnPoolCardsHTML(t){
                 return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMe ? 'background:var(--light);' : '') + '">'
                   + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name)
                   +   (isMe ? ' <span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;background:var(--gray-lighter);color:var(--gray);padding:2px 6px;border-radius:4px;vertical-align:middle;">YOU</span>' : '')
+                  +   noteHTML(post)
                   +   (post
                         ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">' + (isMe ? 'Manage your post ' : 'They have a post open ') + String.fromCharCode(8594) + '</button>'
                         : '')
@@ -6330,7 +6564,8 @@ function trnPoolCardsHTML(t){
                   + (isMe ? '' : '<div class="csp-box" data-csp-box="' + escapeHTML(k) + '"></div>')
                   + '</div>';
               }).join('')
-            : '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Nobody has said they are looking yet. Be first.</p>'))
+              + postOnly.map(p => trnPostOnlyRowHTML(p, myKey, noteHTML)).join('')
+            : '<p data-csp-empty="1" style="color:var(--gray);font-size:13px;padding:6px 0;">No one is looking yet. Join the pool to be first.</p>'))
     + (anyCoed ? COED_UNRATED_NOTE : '')
     + '</div>';
 
