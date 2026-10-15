@@ -266,15 +266,22 @@
     '.pb-panel textarea{min-height:76px;resize:vertical;}',
     '.pb-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}',
     '.pb-guest{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:6px;}',
-    '.pb-pick{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 8px;border:1px solid #DCE1E6;border-radius:10px;margin-top:6px;font-size:15px;cursor:pointer;}',
-    '.pb-pick input{width:20px;height:20px;flex:none;}',
-    '.pb-pick-sub{font-size:13px;color:#4A5867;margin-left:auto;}',
     '.pb-hint{font-size:13px;line-height:1.45;color:#4A5867;margin-top:4px;}',
     '.pb-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:4px 0 8px;}',
     '.pb-seg button{min-height:44px;border:1.5px solid #082A4F;border-radius:10px;background:#fff;color:#082A4F;font-family:Barlow,-apple-system,sans-serif;font-size:15px;font-weight:700;cursor:pointer;}',
     '.pb-seg button[aria-pressed=true]{background:#082A4F;color:#fff;}',
-    '.pb-seg button:focus-visible,.pb-panel select:focus-visible,.pb-panel input:focus-visible{outline:3px solid #0081AB;outline-offset:2px;}',
+    '.pb-seg button:focus-visible,.pb-panel select:focus-visible,.pb-panel input:focus-visible,.pb-panel textarea:focus-visible{outline:3px solid #0081AB;outline-offset:2px;}',
     '.pb-fitlist{display:flex;flex-direction:column;gap:8px;}',
+    '.pb-panel input[type=search]{width:100%;box-sizing:border-box;min-height:44px;padding:8px 12px;border:1px solid #B9C7D3;border-radius:22px;background:#fff;color:#13243A;font:inherit;font-size:16px;}',
+    '.pb-results{display:flex;flex-direction:column;gap:6px;margin-top:6px;}',
+    '.pb-res{display:flex;align-items:center;gap:10px;min-height:52px;padding:4px 4px 4px 10px;border:1px solid #DCE1E6;border-radius:10px;background:#fff;}',
+    '.pb-res-who{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;}',
+    '.pb-res-hint{font-size:13px;color:#4A5867;}',
+    '.pb-res .pb-gold{min-width:76px;}',
+    '.pb-xchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}',
+    '.pb-xchip{display:inline-flex;align-items:center;gap:2px;min-height:44px;padding:0 4px 0 12px;border-radius:22px;background:#E6F2F2;border:1px solid #9CCACA;color:#13243A;font-family:Barlow,-apple-system,sans-serif;font-size:14px;font-weight:700;}',
+    '.pb-xchip.pb-you{padding:0 14px;background:#082A4F;border-color:#082A4F;color:#fff;}',
+    '.pb-xchip-name{overflow-wrap:anywhere;}',
     '.pb-divider{display:flex;align-items:center;gap:10px;margin:14px 0 8px;font-family:"Bebas Neue",sans-serif;font-size:18px;letter-spacing:1.1px;color:#082A4F;}',
     '.pb-divider:before,.pb-divider:after{content:"";flex:1;height:1px;background:#BFDCDC;}',
   ].join('\n');
@@ -571,85 +578,122 @@
   }
   const GUEST_GENDERS = [['unknown', 'Not set'], ['woman', 'Woman'], ['man', 'Man']];
 
-  // The needs fields, prefilled from n. read() returns the body the worker takes.
+  // The needs fields, prefilled from n, in the order players think about them: Gender,
+  // Position, Side, Dominant hand, Rating from and to, Note. read() returns the body
+  // the worker takes ('either' and blanks mean not stated).
   function needsFields(n){
     n = n || {};
     const wrap = el('div');
-    const pos = select([['either', 'Either'], ['blocker', 'Blocker'], ['defender', 'Defender']], n.position || 'either');
-    const side = select([['either', 'Either side'], ['left', 'Left'], ['right', 'Right']], n.side || 'either');
     const gen = select([['either', 'Either'], ['woman', 'Woman'], ['man', 'Man']], n.gender || 'either');
+    const pos = select([['either', 'Either'], ['blocker', 'Blocker'], ['defender', 'Defender']], n.position || 'either');
+    const side = select([['either', 'Either'], ['left', 'Left'], ['right', 'Right']], n.side || 'either');
+    const hand = select([['either', 'Either'], ['left', 'Left'], ['right', 'Right']], n.hand || 'either');
     const lo = input('number', n.ratingMin != null ? n.ratingMin : '', { inputmode: 'numeric', min: '0', max: '4000', placeholder: 'Lowest' });
     const hi = input('number', n.ratingMax != null ? n.ratingMax : '', { inputmode: 'numeric', min: '0', max: '4000', placeholder: 'Highest' });
     const note = el('textarea'); note.id = 'pbf' + (++uid); note.maxLength = 300; note.value = n.note || '';
     note.placeholder = 'Anything else players should know (optional)';
-    const two1 = el('div', 'pb-two'); two1.appendChild(field('Position', pos)); two1.appendChild(field('Side', side));
-    const two2 = el('div', 'pb-two'); two2.appendChild(field('Rating from', lo)); two2.appendChild(field('Rating to', hi));
-    wrap.appendChild(two1);
-    wrap.appendChild(two2);
-    wrap.appendChild(field('Player', gen, 'Woman or man only when your team needs one.'));
+    const pair = (a, b) => { const r = el('div', 'pb-two'); r.appendChild(a); r.appendChild(b); return r; };
+    wrap.appendChild(pair(field('Gender', gen), field('Position', pos)));
+    wrap.appendChild(pair(field('Side', side), field('Dominant hand', hand)));
+    wrap.appendChild(pair(field('Rating from', lo), field('Rating to', hi)));
     wrap.appendChild(field('Note', note, 'Up to 300 characters. Links, emails and phone numbers are removed.'));
     return { wrap: wrap, read: function(){
-      return { position: pos.value, side: side.value, gender: gen.value, ratingMin: lo.value.trim(), ratingMax: hi.value.trim(), note: note.value };
+      return { gender: gen.value, position: pos.value, side: side.value, hand: hand.value, ratingMin: lo.value.trim(), ratingMax: hi.value.trim(), note: note.value };
     } };
   }
   function errLine(out, text){ out.textContent = ''; out.appendChild(el('div', 'pb-err', text)); }
   function okLine(out, text){ out.textContent = ''; out.appendChild(el('div', 'pb-ok', text)); }
+  function spotsNote(size){ return 'Teams here are ' + size + 's, so you can add up to ' + (size - 1) + ' people.'; }
+
+  // A removable person: "Ana B." with a Remove button (a full 44px target).
+  function xchip(text, btnText, onRemove, label){
+    const c = el('div', 'pb-xchip');
+    c.appendChild(el('span', 'pb-xchip-name', text));
+    const b = quietBtn(btnText, onRemove);
+    b.setAttribute('aria-label', label || (btnText + ' ' + text));
+    c.appendChild(b);
+    return c;
+  }
+
+  // Search CourtSense players by name (POST /partners/search). Each result is a row
+  // with Add. getDiv(): the division searched for; taken(ref): already added.
+  function searchBox(t, getDiv, ctx, onAdd, taken){
+    const box = el('div', 'pb-search');
+    const q = input('search', '', { placeholder: 'Search by name', autocomplete: 'off', enterkeyhint: 'search', 'aria-label': 'Search CourtSense players by name' });
+    box.appendChild(q);
+    const list = el('div', 'pb-results');
+    list.setAttribute('role', 'status');
+    box.appendChild(list);
+    let timer = null, seq = 0;
+    async function run(){
+      const text = q.value.trim();
+      const my = ++seq;
+      list.textContent = '';
+      if(text.replace(/[^A-Za-z]/g, '').length < 2){ if(text) list.appendChild(el('div', 'pb-hint', 'Type at least 2 letters of their name.')); return; }
+      list.appendChild(el('div', 'pb-hint', 'Searching...'));
+      const r = await post('/partners/search', { tid: t.id, div: getDiv(), q: text }, ctx.token);
+      if(my !== seq) return;
+      list.textContent = '';
+      if(!r.j.ok){ list.appendChild(el('div', 'pb-err', r.j.error || 'Search did not work. Try again.')); return; }
+      const hits = r.j.results || [];
+      if(!hits.length){ list.appendChild(el('div', 'pb-hint', 'No players found. They may already be on a team that day, or not on CourtSense yet (add them as a guest).')); return; }
+      hits.forEach(h => {
+        const row = el('div', 'pb-res');
+        const who = el('div', 'pb-res-who');
+        who.appendChild(el('span', 'pb-name', h.display));
+        if(h.hint) who.appendChild(el('span', 'pb-res-hint', h.hint));
+        row.appendChild(who);
+        if(taken(h.ref)) row.appendChild(el('span', 'pb-res-hint', 'Added'));
+        else row.appendChild(goldBtn('Add', function(){ onAdd(h, row); }));
+        list.appendChild(row);
+      });
+    }
+    q.addEventListener('input', function(){ clearTimeout(timer); timer = setTimeout(run, 300); });
+    q.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); clearTimeout(timer); run(); } });
+    return { box: box, input: q, clear: function(){ q.value = ''; list.textContent = ''; } };
+  }
 
   // ── Post your team ─────────────────────────────────────────────────────────
-  // divs: the board divisions the viewer is free on. Teammates with an account are
-  // picked from this tournament's pool (and club members on a club listing); each gets
-  // an Invite to your team request once the team is posted.
+  // Three steps. 1 Your team: the poster, always on it. 2 Add people you are already
+  // playing with: CourtSense players by search (each gets "<Name> added you to their
+  // team" and joins only after Yes) and guests by first name. 3 Who you need. Pool
+  // players are never listed here and nobody is contacted unless a member adds or
+  // invites them; Players who fit shows under the team once it is posted.
   function postForm(t, divs, ctx, key){
-    const X = ctx.extras || {};
     const f = el('div', 'pb-panel');
     f.setAttribute('role', 'group');
     f.setAttribute('aria-label', 'Post your team');
-    f.appendChild(el('h4', null, 'Post your team'));
     let div = divs[0];
+    const added = [];  // { ref, display }
+    const guests = []; // { name, gender }
+    const spots = () => div.size - 1;
+    const used = () => added.length + guests.length;
+    const out = el('div');
+    const room = el('div', 'pb-hint');
+
+    f.appendChild(el('h4', null, '1. Your team'));
     const pickDiv = divs.length > 1 ? select(divs.map(d => [d.div, ctx.dayLabel(d.day) + ': ' + d.label + ' (' + d.size + 's)']), div.div) : null;
     if(pickDiv) f.appendChild(field('Division', pickDiv));
     else f.appendChild(el('div', 'pb-post-sub', ctx.dayLabel(div.day) + ': ' + div.label + ' (' + div.size + 's)'));
+    const youRow = el('div', 'pb-xchips');
+    youRow.appendChild(el('div', 'pb-xchip pb-you', 'You (' + ((ctx.me && ctx.me.display) || 'you') + ')'));
+    f.appendChild(youRow);
 
-    const mates = el('div', 'pb-field');
-    f.appendChild(mates);
+    f.appendChild(el('h4', null, '2. Add people you are already playing with'));
+    f.appendChild(el('div', 'pb-hint', 'Find them on CourtSense. They get a message that you added them, and they join once they say yes.'));
+    const chips = el('div', 'pb-xchips');
+    const s = searchBox(t, () => div.div, ctx, function(h, row){
+      out.textContent = '';
+      if(used() >= spots()){ errLine(out, spotsNote(div.size)); return; }
+      added.push({ ref: h.ref, display: h.display });
+      row.lastChild.replaceWith(el('span', 'pb-res-hint', 'Added'));
+      draw();
+    }, ref => added.some(a => a.ref === ref));
+    f.appendChild(s.box);
+    f.appendChild(chips);
     const guestsBox = el('div', 'pb-field');
     f.appendChild(guestsBox);
-    const guests = []; // { name, gender, row }
-    const picked = {}; // ref -> { ref, display, div }
-    const spots = () => div.size - 1;
-    const used = () => Object.keys(picked).length + guests.length;
-    const room = el('div', 'pb-hint');
 
-    function drawMates(){
-      mates.textContent = '';
-      mates.appendChild(el('div', 'pb-lab', 'Add CourtSense teammates'));
-      const pool = (t.freeAgents || []).filter(p => p.ref && (ctx.mine || []).indexOf(p.ref) === -1 && (p.needs || []).some(n => (n.divs || []).indexOf(div.div) !== -1));
-      const club = (X.clubMembers || []).filter(m => m.div === div.div);
-      const row = (p, sub) => {
-        const lab = el('label', 'pb-pick');
-        const cb = input('checkbox');
-        cb.checked = !!picked[p.ref];
-        cb.addEventListener('change', function(){
-          if(cb.checked){
-            if(used() >= spots()){ cb.checked = false; errLine(out, 'Your team has ' + div.size + ' spots, so you can add ' + spots() + ' more.'); return; }
-            picked[p.ref] = { ref: p.ref, display: p.display, div: div.div };
-          } else delete picked[p.ref];
-          out.textContent = '';
-          paintRoom();
-        });
-        lab.appendChild(cb);
-        lab.appendChild(el('span', null, p.display));
-        if(sub) lab.appendChild(el('span', 'pb-pick-sub', sub));
-        return lab;
-      };
-      if(!pool.length && !club.length) mates.appendChild(el('div', 'pb-hint', 'No one in this tournament’s pool is looking in this division yet. You can post your team and invite players later.'));
-      pool.forEach(p => mates.appendChild(row(p, typeof p.rating === 'number' ? String(p.rating) : 'In the pool')));
-      if(club.length){
-        mates.appendChild(el('div', 'pb-divider', 'Club members not on a team'));
-        club.forEach(p => mates.appendChild(row(p, typeof p.rating === 'number' ? String(p.rating) : (X.club && X.club.label) || 'Club member')));
-      }
-      mates.appendChild(el('div', 'pb-hint', 'Each one gets an invite to your team and can answer yes, maybe or no.'));
-    }
     function guestRow(g){
       const r = el('div', 'pb-guest');
       const name = input('text', g.name, { maxlength: '20', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'Guest first name' });
@@ -658,57 +702,55 @@
       name.addEventListener('input', function(){ g.name = name.value; });
       gen.addEventListener('change', function(){ g.gender = gen.value; });
       r.appendChild(name); r.appendChild(gen);
-      r.appendChild(quietBtn('Remove', function(){ guests.splice(guests.indexOf(g), 1); drawGuests(); paintRoom(); }));
+      r.appendChild(quietBtn('Remove', function(){ guests.splice(guests.indexOf(g), 1); draw(); }));
       return r;
     }
-    function drawGuests(){
+    function draw(){
+      chips.textContent = '';
+      added.forEach(a => chips.appendChild(xchip(a.display + ' (gets an invite)', 'Remove', function(){ added.splice(added.indexOf(a), 1); s.clear(); draw(); }, 'Remove ' + a.display)));
       guestsBox.textContent = '';
-      guestsBox.appendChild(el('div', 'pb-lab', 'Guests'));
-      guestsBox.appendChild(el('div', 'pb-hint', 'Teammates without CourtSense, by first name. They fill a spot and are never messaged.'));
+      guestsBox.appendChild(el('div', 'pb-lab', 'Not on CourtSense?'));
       guests.forEach(g => guestsBox.appendChild(guestRow(g)));
       guestsBox.appendChild(quietBtn('Add a guest', function(){
-        if(used() >= spots()){ errLine(out, 'Your team has ' + div.size + ' spots, so you can add ' + spots() + ' more.'); return; }
+        out.textContent = '';
+        if(used() >= spots()){ errLine(out, spotsNote(div.size)); return; }
         guests.push({ name: '', gender: 'unknown' });
-        drawGuests(); paintRoom();
+        draw();
         const last = guestsBox.querySelectorAll('input[type=text]');
         if(last.length) last[last.length - 1].focus();
       }));
-    }
-    function paintRoom(){
-      const left = div.size - 1 - used();
-      room.textContent = left > 0 ? 'Looking for ' + left + ' more after this.' : 'Your team is full with these players.';
+      guestsBox.appendChild(el('div', 'pb-hint', 'A guest is a first name only. Guests fill a spot right away and are never messaged.'));
+      const left = div.size - 1 - guests.length;
+      room.textContent = left > 0 ? 'After posting, your team is looking for ' + left + ' more' + (added.length ? ' until your invites say yes.' : '.') : 'Your team is full with your guests.';
     }
     if(pickDiv) pickDiv.addEventListener('change', function(){
       div = divs.filter(d => d.div === pickDiv.value)[0] || divs[0];
-      Object.keys(picked).forEach(k => delete picked[k]);
+      added.length = 0;
       while(guests.length > spots()) guests.pop();
-      drawMates(); drawGuests(); paintRoom();
+      s.clear();
+      draw();
     });
-    f.appendChild(el('h4', null, 'What your team needs'));
+
+    f.appendChild(el('h4', null, '3. Who you need'));
     const nf = needsFields(null);
     f.appendChild(nf.wrap);
     const adult = adultBox(ctx.me);
     if(adult) f.appendChild(adult.lab);
     f.appendChild(room);
-    const out = el('div');
     const bs = el('div', 'pb-quiets');
     const send = goldBtn('Post your team', async function(){
       out.textContent = '';
       if(adult && !adult.cb.checked){ errLine(out, 'Please confirm you are 18 or older.'); return; }
-      const named = guests.filter(g => g.name.trim());
-      if(named.length !== guests.length){ errLine(out, 'Add a first name for each guest, or remove the empty one.'); return; }
+      if(guests.some(g => !g.name.trim())){ errLine(out, 'Add a first name for each guest, or remove the empty one.'); return; }
       send.disabled = true;
-      const r = await post('/partners/team/start', { tid: t.id, div: div.div, guests: named.map(g => ({ name: g.name, gender: g.gender })), needs: nf.read(), adultConfirmed: adult ? adult.cb.checked : undefined }, ctx.token);
-      if(!r.j.ok){ send.disabled = false; errLine(out, r.j.error || 'That did not post. Try again.'); return; }
+      const r = await post('/partners/team/start', { tid: t.id, div: div.div, guests: guests.map(g => ({ name: g.name, gender: g.gender })), addRefs: added.map(a => a.ref), needs: nf.read(), adultConfirmed: adult ? adult.cb.checked : undefined }, ctx.token);
+      send.disabled = false;
+      if(!r.j.ok){ errLine(out, r.j.error || 'That did not post. Try again.'); return; }
       if(ctx.me) ctx.me.adult = true;
-      // Invites, one at a time, each reported.
+      const res = r.j.invites || [];
       const sent = [], failed = [];
-      for(const k of Object.keys(picked)){
-        const p = picked[k];
-        const x = await post('/partners/message', { tid: t.id, div: p.div, ref: p.ref, text: '' }, ctx.token);
-        if(x.j.ok) sent.push(p.display); else failed.push(p.display + ': ' + (x.j.error || 'not sent'));
-      }
-      const msg = 'Your team is posted.' + (sent.length ? ' Invites sent to ' + sent.join(', ') + '.' : '');
+      added.forEach((a, i) => { const x = res[i] || {}; if(x.ok) sent.push(a.display); else failed.push(a.display + ': ' + (x.error || 'not sent')); });
+      const msg = 'Your team is posted.' + (sent.length ? ' ' + sent.join(', ') + ' got your invite.' : '');
       closeForm(key);
       if(failed.length) ctx.onChanged(msg + ' Not sent: ' + failed.join('; '), true);
       else ctx.onChanged(msg);
@@ -717,11 +759,11 @@
     bs.appendChild(quietBtn('Cancel', function(){ closeForm(key); }));
     f.appendChild(bs);
     f.appendChild(out);
-    drawMates(); drawGuests(); paintRoom();
+    draw();
     return f;
   }
 
-  // ── Edit team: guests and needs, by any member ─────────────────────────────
+  // ── Edit team: add people by search, guests and needs, by any member ────────
   function editForm(t, tm, ctx, key){
     const X = ctx.extras || {};
     const detail = (X.myTeams || {})[tm.ref];
@@ -734,13 +776,26 @@
       out.textContent = '';
       const r = await post('/partners/team/edit', Object.assign({ tid: t.id, teamRef: tm.ref }, body), ctx.token);
       if(!r.j.ok){ errLine(out, r.j.error || 'That did not save. Try again.'); return false; }
+      const inv = (r.j.invites || [])[0];
+      if(inv && !inv.ok){ errLine(out, inv.error || 'That invite did not go out.'); return false; }
       // Drawn again from the refreshed team on the next redraw.
       f._stale = true;
       okLine(out, done);
       ctx.onChanged(done);
       return true;
     };
-    f.appendChild(el('h4', null, 'Guests'));
+    const room = () => detail.size - detail.filled;
+    f.appendChild(el('h4', null, 'Add people you are already playing with'));
+    if(room() > 0){
+      const s = searchBox(t, () => detail.div, ctx, async function(h, row){
+        row.lastChild.disabled = true;
+        const ok = await edit({ addRefs: [h.ref] }, h.display + ' got your invite.');
+        if(ok){ row.lastChild.replaceWith(el('span', 'pb-res-hint', 'Invited')); s.clear(); }
+        else row.lastChild.disabled = false;
+      }, ref => false);
+      f.appendChild(s.box);
+    } else f.appendChild(el('div', 'pb-hint', 'Your team is full.'));
+    f.appendChild(el('div', 'pb-lab', 'Guests'));
     (detail.guests || []).forEach(g => {
       const r = el('div', 'pb-guest');
       r.appendChild(el('span', 'pb-name', g.name));
@@ -752,7 +807,7 @@
       f.appendChild(r);
     });
     if(!(detail.guests || []).length) f.appendChild(el('div', 'pb-hint', 'No guests yet.'));
-    if(detail.filled < detail.size){
+    if(room() > 0){
       const r = el('div', 'pb-guest');
       const name = input('text', '', { maxlength: '20', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'New guest first name' });
       const gen = select(GUEST_GENDERS, 'unknown');
@@ -764,11 +819,11 @@
       }));
       f.appendChild(r);
     }
-    f.appendChild(el('h4', null, 'What your team needs'));
+    f.appendChild(el('h4', null, 'Who you need'));
     const nf = needsFields(detail.needs);
     f.appendChild(nf.wrap);
     const bs = el('div', 'pb-quiets');
-    const save = goldBtn('Save needs', async function(){
+    const save = goldBtn('Save', async function(){
       save.disabled = true;
       const ok = await edit({ needs: nf.read() }, 'Team updated.');
       save.disabled = false;
@@ -779,6 +834,25 @@
     f.appendChild(bs);
     f.appendChild(out);
     return f;
+  }
+
+  // Invited and not answered yet, on the member's own card only: "Invited: Ana B."
+  // with Cancel. The public board never has these.
+  function invitedRow(t, tm, ctx, out){
+    const detail = ((ctx.extras || {}).myTeams || {})[tm.ref];
+    const list = (detail && detail.pending) || [];
+    if(!list.length) return null;
+    const wrap = el('div');
+    wrap.appendChild(el('div', 'pb-sub', 'Invited, waiting for a yes:'));
+    const row = el('div', 'pb-xchips');
+    list.forEach(p => row.appendChild(xchip('Invited: ' + p.name, 'Cancel', async function(){
+      out.textContent = '';
+      const r = await post('/partners/team/edit', { tid: t.id, teamRef: tm.ref, cancelInvite: p.reqId }, ctx.token);
+      if(!r.j.ok){ errLine(out, r.j.error || 'That did not cancel. Try again.'); return; }
+      ctx.onChanged('Invite to ' + p.name + ' cancelled.');
+    }, 'Cancel the invite to ' + p.name)));
+    wrap.appendChild(row);
+    return wrap;
   }
 
   // ── Who fits the viewer's own forming team ─────────────────────────────────
@@ -880,6 +954,8 @@
           const editKey = 'edit:' + t.id + ':' + tm.ref;
           c.act.appendChild(quietBtn('Edit team', function(){ toggleForm(editKey, c.box, () => editForm(t, tm, ctx, editKey)); }));
           c.act.appendChild(ctx.leave(tm, c.out));
+          const inv = invitedRow(t, tm, ctx, c.out);
+          if(inv) c.main.appendChild(inv);
           restoreForm(editKey, c.box, () => editForm(t, tm, ctx, editKey));
         }
         if(tm.status === 'complete' && ctx.eventLink) c.act.appendChild(quietLink('Register', ctx.eventLink, true));
