@@ -34,7 +34,7 @@
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/partner-contact.js?v=2"></script>
+<script src="/partner-contact.js?v=3"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -5630,6 +5630,7 @@ function cspHydrate(){
 
   // No worker token (an older sign-in) or a refused one: sign in again from the row.
   const needSignIn = !s.token || (s.fail && s.fail.reason === 'expired');
+  cspDrawRequests(tid, s, ok);
   cspDrawTeams(t, s, ok, needSignIn, mine);
 
   document.querySelectorAll('[data-csp-btn]').forEach(slot => {
@@ -5637,14 +5638,15 @@ function cspHydrate(){
     const name = slot.getAttribute('data-csp-name') || 'this player';
     const hit = ok ? s.pool[pk] : null;
     slot.innerHTML = '';
-    if(needSignIn){ slot.appendChild(cspBtn('Sign in to team up', 'btn-p', cspSignIn)); return; }
+    if(!PC) return;
+    if(needSignIn){ slot.appendChild(PC.goldBtn('Sign in to team up', cspSignIn)); return; }
     if(!hit) return;
     // On a forming team that day in their division: Invite to your team. On a
     // complete team (or one in another division) that day: nothing for that day.
-    const plan = me.teamsEnabled && PC ? PC.contactPlan(s.board, mine, hit.divs) : { kind: 'ask', divs: hit.divs || [] };
+    const plan = me.teamsEnabled ? PC.contactPlan(s.board, mine, hit.divs) : { kind: 'ask', divs: hit.divs || [] };
     if(!plan || !plan.divs.length) return;
     const label = plan.kind === 'invite' ? 'Invite to your team' : me.teamsEnabled ? 'Ask to team up' : 'Reach out';
-    slot.appendChild(cspBtn(label, 'btn-p', () => cspOpenCompose(pk, name, plan, t)));
+    slot.appendChild(PC.goldBtn(label, () => cspOpenCompose(pk, name, plan, t)));
   });
   // A box open before this render goes back into its row, typed text and all. One
   // closed with Cancel has no parent and stays closed.
@@ -5654,62 +5656,68 @@ function cspHydrate(){
   }
 }
 
-// Teams on this tournament, above the roster: "Mark M. + Test A., looking for 2
-// more" with Ask to join for other players, Your team plus Leave team for members,
-// or Team complete (no asking).
+// The viewer's open requests on this tournament, at the top of the partner card:
+// theirs to answer (Yes / Maybe / No / Ignore) and the ones waiting on somebody else.
+// The detail view re-renders on every Firebase change, so the strip is kept while its
+// requests are unchanged and moved into the new card, typed text and all.
+let _cspStrip = null; // { key, node }
+function cspDrawRequests(tid, s, ok){
+  const host = document.querySelector('[data-csp-reqs]');
+  const PC = window.CourtSensePartner;
+  if(!host || !PC) return;
+  const list = (ok && s.me && s.me.requests && s.me.requests[tid]) || [];
+  const key = tid + '|' + JSON.stringify(list);
+  if(!_cspStrip || _cspStrip.key !== key){
+    _cspStrip = { key: key, node: PC.requestStrip(list, { me: s.me, token: s.token, onDone: function(j, msg){ if(msg) toast(msg); cspRefresh(); } }) };
+  }
+  host.innerHTML = '';
+  if(_cspStrip.node) host.appendChild(_cspStrip.node);
+}
+
+// Teams on this tournament, above the roster, always shown: "Mark M. + Test A.",
+// looking for 2 more, with Ask to join for other players; Your team, its
+// conversation and Leave team for members; complete teams last and muted, no button.
 function cspDrawTeams(t, s, ok, needSignIn, mine){
   const host = document.querySelector('[data-csp-teams]');
-  if(!host) return;
   const PC = window.CourtSensePartner;
+  if(!host || !PC) return;
   host.innerHTML = '';
-  host.style.marginBottom = '';
   if(s.boardErr){
+    const sec = PC.section('teams', 'Teams looking for players');
     const e = cspEl('div', '', 'Could not load teams. ' + s.boardErr);
-    e.className = 'csp-err';
-    host.appendChild(e);
-    host.style.marginBottom = '8px';
+    e.className = 'pb-err';
+    sec.list.appendChild(e);
+    host.appendChild(sec.sec);
     return;
   }
-  const divs = ((s.board && s.board.divisions) || []).filter(d => d.teams && d.teams.length);
-  // The one empty line under the players list stands only while there are no
-  // teams either.
-  const empty = document.querySelector('[data-csp-empty]');
-  if(empty) empty.style.display = (divs.length && PC) ? 'none' : '';
-  if(!divs.length || !PC) return;
-  host.style.marginBottom = '14px';
+  if(!s.board){
+    const sec = PC.section('teams', 'Teams looking for players');
+    sec.list.appendChild(PC.emptyLine('Loading teams...'));
+    host.appendChild(sec.sec);
+    return;
+  }
   // Forming teams first, complete ones after, each in division order.
   const rows = [];
-  divs.forEach(d => d.teams.forEach(tm => rows.push([d, tm])));
+  (s.board.divisions || []).forEach(d => (d.teams || []).forEach(tm => rows.push([d, tm])));
   rows.sort((a, b) => (a[1].status === 'complete' ? 1 : 0) - (b[1].status === 'complete' ? 1 : 0));
-  const head = cspEl('div', 'margin-bottom:4px;');
-  head.className = 'ctitle';
-  head.appendChild(cspEl('span'));
-  head.firstChild.className = 'bar';
-  head.appendChild(document.createTextNode('Teams looking for players (' + rows.length + ')'));
-  host.appendChild(head);
+  const sec = PC.section('teams', 'Teams looking for players', rows.length);
+  if(!rows.length) sec.list.appendChild(PC.emptyLine('No teams yet. Ask a player to team up and your team shows here.'));
+  const threads = (s.me && s.me.teamThreads && s.me.teamThreads[s.tid]) || {};
   rows.forEach(([d, tm]) => {
     const isMine = !!(tm.ref && mine.indexOf(tm.ref) !== -1);
-    const row = cspEl('div', 'display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMine ? 'background:var(--light);' : ''));
-    const left = cspEl('span', 'flex:1;min-width:140px;font-weight:600;font-size:14px;');
-    left.appendChild(cspEl('div', '', PC.teamLine(tm)));
-    left.appendChild(cspEl('div', 'font-size:12px;color:var(--gray);font-weight:400;', dayShort(d.day) + ': ' + d.label + ' (' + tm.size + 's)'));
-    if(tm.status === 'complete') left.appendChild(cspEl('div', 'font-size:12px;color:#059669;font-weight:700;', 'Team complete'));
-    if(isMine) left.appendChild(cspEl('div', 'font-size:12px;color:var(--primary);font-weight:700;', 'Your team'));
-    const out = cspEl('div', 'flex-basis:100%;');
+    const c = PC.teamCard({ members: tm.members, need: tm.need, status: tm.status, mine: isMine, sub: dayShort(d.day) + ': ' + d.label + ' (' + tm.size + 's)' });
     if(isMine){
-      if(!needSignIn && s.me) left.appendChild(cspBtn('Leave team', 'btn-g', () => cspLeave(tm, out)));
+      if(threads[tm.ref]) c.act.appendChild(PC.quietLink('Team conversation', PC.threadHref(threads[tm.ref])));
+      if(!needSignIn && s.me) c.act.appendChild(PC.quietBtn('Leave team', () => cspLeave(tm, c.out)));
     } else if(tm.status !== 'complete' && tm.ref){
-      if(needSignIn) left.appendChild(cspBtn('Sign in to ask', 'btn-p', cspSignIn));
-      else if(ok && s.me.teamsEnabled) left.appendChild(cspBtn('Ask to join', 'btn-p', () => cspOpenTeamCompose(t, d, tm)));
+      if(needSignIn) c.act.appendChild(PC.goldBtn('Sign in to ask', cspSignIn));
+      else if(ok && s.me.teamsEnabled) c.act.appendChild(PC.goldBtn('Ask to join', () => cspOpenTeamCompose(t, d, tm)));
     }
-    row.appendChild(left);
-    row.appendChild(out);
-    const box = cspEl('div');
-    box.className = 'csp-box';
-    box.setAttribute('data-csp-box', 'team:' + tm.ref);
-    row.appendChild(box);
-    host.appendChild(row);
+    c.box.className += ' csp-box';
+    c.box.setAttribute('data-csp-box', 'team:' + tm.ref);
+    sec.list.appendChild(c.card);
   });
+  host.appendChild(sec.sec);
 }
 
 function cspComposeCtx(){
@@ -5915,13 +5923,14 @@ function trnPostOnlyRowHTML(p, myKey, noteHTML){
         const action = mine
           ? 'Manage your asks and offers'
           : (askedMe ? 'Answer the ask' : 'Open to offer');
-        return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (mine ? 'background:var(--light);' : '') + '">'
-          + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + (mine ? 'Your post' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName))
-          +   '<span style="display:block;font-size:12px;color:var(--gray);font-weight:400;margin-top:2px;">' + escapeHTML(partnerNeedSummary(p)) + (mine ? ' \u00b7 Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : '') + '</span>'
+        // The player's one action is the gold button; their own post gets a quiet
+        // link and the You badge instead (partner-contact.js pb- styles).
+        return '<div class="pb-card pb-player' + (mine ? ' pb-mine' : '') + '">'
+          + '<div class="pb-main"><div class="pb-name">' + (mine ? 'Your post<span class="pb-badge pb-badge-you">You</span>' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName)) + badge + '</div>'
+          +   '<div class="pb-sub">' + escapeHTML(partnerNeedSummary(p)) + (mine ? ' \u00b7 Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : '') + '</div>'
           +   noteHTML(p)
-          +   '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + esc(p.id) + '\')">' + action + ' ' + String.fromCharCode(8594) + '</button>'
-          + '</span>'
-          + badge
+          + '</div>'
+          + '<div class="pb-act"><button type="button" class="' + (mine ? 'pb-quiet' : 'pb-gold') + '" onclick="openInviteDetail(\'' + esc(p.id) + '\')">' + action + '</button></div>'
           + '</div>';
       }).join('');
 }
@@ -6532,14 +6541,23 @@ function trnPoolCardsHTML(t){
   const postOnly = isAuthed ? trnPostOnlyRows(t, myKey) : [];
   const nPlayers = pool.length + postOnly.length;
   const noteHTML = p => (p && String(p.description || '').trim())
-    ? '<div style="font-size:12px;color:var(--charcoal);font-weight:400;font-style:italic;margin-top:3px;line-height:1.4;">\u201c' + escapeHTML(String(p.description).trim()) + '\u201d</div>' : '';
+    ? '<div class="pb-note">\u201c' + escapeHTML(String(p.description).trim()) + '\u201d</div>' : '';
+  // The two sections share their look with /partners/ (partner-contact.js pb- styles)
+  // and are always shown, each with its own empty line.
+  if(window.CourtSensePartner) CourtSensePartner.ensureStyles();
+  const band = (kind, title) => '<section class="pb-sec pb-sec-' + kind + '"><h3 class="pb-band">' + title + '</h3><div class="pb-list">';
   h += '<div class="card">'
     + (!isAuthed
-        ? '<div class="ctitle"><span class="bar"></span>Players looking for a team</div>'
-          + '<p style="color:var(--gray);font-size:13px;padding:6px 0;">Log in to see who is looking.</p>'
-          + '<button class="btn btn-g btn-sm" onclick="cspSignIn()">Sign in to team up</button>'
-        : '<div data-csp-teams="1"></div><div data-csp-status="1"></div>'
-          + (nPlayers ? '<div class="ctitle" style="margin-bottom:4px;"><span class="bar"></span>Players looking for a team (' + nPlayers + ')</div>' : '')
+        ? band('teams', 'Teams looking for players')
+          + '<div class="pb-empty">Sign in to see the teams and ask to join.</div></div></section>'
+          + band('players', 'Players looking for a team')
+          + '<div class="pb-empty">Log in to see who is looking.</div>'
+          + '<div><button type="button" class="pb-gold" onclick="cspSignIn()">Sign in to team up</button></div>'
+          + '</div></section>'
+        // Open requests (cspHydrate), then teams (cspDrawTeams) once the worker answers.
+        : '<div data-csp-reqs="1"></div><div data-csp-status="1"></div>'
+          + '<div data-csp-teams="1">' + band('teams', 'Teams looking for players') + '<div class="pb-empty">Loading teams...</div></div></section></div>'
+          + band('players', 'Players looking for a team (' + nPlayers + ')')
           + (nPlayers
             ? pool.map(([k, e, days]) => {
                 const post = trnOpenPostFor(t, k, e.accountId);
@@ -6548,24 +6566,27 @@ function trnPoolCardsHTML(t){
                 // reads as somebody else's row and offers a link that sounds like
                 // discovering a stranger's post rather than managing your own.
                 const isMe = !!myKey && k === myKey;
-                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);flex-wrap:wrap;' + (isMe ? 'background:var(--light);' : '') + '">'
-                  + '<span style="flex:1;min-width:140px;font-weight:600;font-size:14px;">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name)
-                  +   (isMe ? ' <span style="font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;background:var(--gray-lighter);color:var(--gray);padding:2px 6px;border-radius:4px;vertical-align:middle;">YOU</span>' : '')
+                const postLink = post
+                  ? '<button type="button" class="pb-quiet" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">' + (isMe ? 'Manage your post' : 'See their post') + '</button>'
+                  : '';
+                return '<div class="pb-card pb-player' + (isMe ? ' pb-mine' : '') + '">'
+                  + '<div class="pb-main">'
+                  +   '<div class="pb-name">' + escapeHTML(e.name) + ratingBadge(e.name, e.accountId) + clubBadge(e.accountId, e.name)
+                  +     (isMe ? '<span class="pb-badge pb-badge-you">You</span>' : '') + '</div>'
+                  +   days.map(d => '<div class="pb-sub">' + escapeHTML(dayShort(d.day) + ': ' + d.label) + '</div>').join('')
                   +   noteHTML(post)
-                  +   (post
-                        ? '<button class="btn btn-g btn-sm" style="display:block;margin-top:4px;padding:3px 10px;min-height:0;font-size:12px;" onclick="openInviteDetail(\'' + escapeHTML(post.id).replace(/'/g, '\\\'') + '\')">' + (isMe ? 'Manage your post ' : 'They have a post open ') + String.fromCharCode(8594) + '</button>'
-                        : '')
-                  // Ask to team up goes here once the worker answers (cspHydrate).
-                  +   (isMe ? '' : '<span data-csp-btn="' + escapeHTML(k) + '" data-csp-name="' + escapeHTML(e.name) + '" style="display:block;"></span>')
-                  + '</span>'
-                  + '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
-                  +   days.map(d => chip(escapeHTML(dayShort(d.day) + ': ' + d.label).toUpperCase())).join('')
-                  + '</span>'
-                  + (isMe ? '' : '<div class="csp-box" data-csp-box="' + escapeHTML(k) + '"></div>')
+                  + '</div>'
+                  // Ask to team up goes in the slot once the worker answers (cspHydrate).
+                  + '<div class="pb-act">'
+                  +   (isMe ? '' : '<span data-csp-btn="' + escapeHTML(k) + '" data-csp-name="' + escapeHTML(e.name) + '"></span>')
+                  +   postLink
+                  + '</div>'
+                  + (isMe ? '' : '<div class="pb-box csp-box" data-csp-box="' + escapeHTML(k) + '"></div>')
                   + '</div>';
               }).join('')
               + postOnly.map(p => trnPostOnlyRowHTML(p, myKey, noteHTML)).join('')
-            : '<p data-csp-empty="1" style="color:var(--gray);font-size:13px;padding:6px 0;">No one is looking yet. Join the pool to be first.</p>'))
+            : '<div class="pb-empty">No one is looking yet. Join the pool to be first.</div>')
+          + '</div></section>')
     + (anyCoed ? COED_UNRATED_NOTE : '')
     + '</div>';
 
