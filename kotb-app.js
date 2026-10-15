@@ -2688,23 +2688,67 @@ function confirmRosterImport(players){
   const existing = new Set(
     Object.values(D[SIDE].players||{}).map(p=>p&&p.name?p.name.toLowerCase().trim():'')
   );
+  // A player already on the roster is skipped, but their contact details still go to
+  // the worker, so importing the same file again fills in what an earlier one missed.
+  const idByName = {};
+  Object.keys(D[SIDE].players||{}).forEach(k=>{ const p=D[SIDE].players[k]; if(p&&p.name) idByName[p.name.toLowerCase().trim()] = p.id || k; });
   let added = 0, skipped = 0;
+  const contacts = [];
   players.forEach(p=>{
     const name  = (p && p.name  ? String(p.name).trim()  : '');
     const email = (p && p.email ? String(p.email).trim() : '');
     const phone = (p && p.phone ? String(p.phone).trim() : '');
     if(!name)return;
-    if(existing.has(name.toLowerCase())){skipped++;return;}
+    if(existing.has(name.toLowerCase())){
+      skipped++;
+      const known = idByName[name.toLowerCase()];
+      if(known && (email || phone)) contacts.push(rosterContactRow(known, email, phone));
+      return;
+    }
     const id = gi('p');
-    fbSet(SIDE+'/players/'+id, {id, name, active:true, email, phone});
+    // The roster is world readable, so it carries the name only. Email and phone go to
+    // the worker, which keeps them where only the league admin can read them.
+    fbSet(SIDE+'/players/'+id, {id, name, active:true});
+    if(email || phone) contacts.push(rosterContactRow(id, email, phone));
     added++;
   });
   $('roster-import-preview').innerHTML = `
     <div style="background:#dcfce7;border-radius:10px;padding:12px;margin-top:8px;font-size:14px;">
       ✅ Added <strong>${added}</strong> player${added!==1?'s':''}${skipped?` · Skipped ${skipped} duplicate${skipped!==1?'s':''}`:''}.
+      <div id="roster-contact-status" style="font-size:12px;margin-top:6px;color:var(--gray);">${contacts.length?'Saving contact details privately...':''}</div>
     </div>`;
   $('roster-file').value='';
   toast(added+' player'+(added!==1?'s':'')+' imported!');
+  if(contacts.length) saveRosterContacts(contacts);
+}
+
+// Only the cells the sheet filled in: an empty cell leaves what is on file alone.
+function rosterContactRow(id, email, phone){
+  const row = { rosterId:id };
+  if(email) row.email = email;
+  if(phone) row.phone = phone;
+  return row;
+}
+
+// Emails and phones from an import, stored privately by the worker under the league
+// admin session (POST /league/contacts/save). The players are already on the roster
+// either way; a failure only says the contact details still need saving.
+async function saveRosterContacts(rows){
+  const el = document.getElementById('roster-contact-status');
+  const say = (msg, bad) => { if(el){ el.textContent = msg; el.style.color = bad ? 'var(--loss)' : 'var(--gray)'; } };
+  const s = laGet(LA_SCOPE);
+  if(!s){ say('Contact details were not saved: your admin session ended. Unlock admin and import the file again.', true); return; }
+  try{
+    const r = await fetch(LA_WORKER+'/league/contacts/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token:s.token, scope:LA_SCOPE, sub:SIDE, rows:rows })
+    });
+    const j = await r.json().catch(()=>null);
+    if(r.ok && j && j.ok){ say('Contact details saved privately. Only league admins can see them.'); return; }
+    say('Contact details were not saved: '+((j && j.error) || 'try the import again.'), true);
+  }catch(e){
+    say('Contact details were not saved: '+LA_MSG_NET, true);
+  }
 }
 
 // ─── EXCEL EXPORT ───

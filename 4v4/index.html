@@ -1195,17 +1195,84 @@ function saveTeam(){
   if(email && !/^\S+@\S+\.\S+$/.test(email)){ toast('Captain email looks invalid'); $('t-email').focus(); return; }
 
   const id = _editingTeamId || ('team_'+slugify(name)+'_'+rand6());
+  // The team record is world readable, so it carries no email or phone. The form is
+  // the source for this captain's contact, so an emptied field clears it.
   const team = {
     id, name,
     captainName:  cap,
-    captainEmail: email || '',
-    captainPhone: phone || '',
     color:        _teamColor || '',
     icon:         _teamIcon || ''
   };
   fbSet(DIV+'/teams/'+id, team);
+  saveTeamContacts(DIV, [{ rosterId: id, email: email, phone: phone }]);
   toast(_editingTeamId ? 'Team updated' : 'Team added');
   clearTeamForm();
+}
+
+// ── Captain contact details, private ─────────────────────────────────────────
+// Captain email and phone live with the worker (POST /league/contacts/save and
+// /league/contacts/list, league admin session), never on tally_4v4. Loaded for the
+// admin per division and cached here. A team written before the move may still carry
+// captainEmail or captainPhone on its public record; that shows only until the
+// cleanup removes it.
+let _teamContacts = {};        // { div: { teamId: { email, phone } } }
+let _teamContactsLoading = {}; // { div: true } while a list call is out
+let _teamContactsFailedAt = {}; // { div: ms } so a failed load waits a minute before retrying
+function teamContact(t){
+  const c = (_teamContacts[DIV] || {})[t.id];
+  return { email: (c && c.email) || t.captainEmail || '', phone: (c && c.phone) || t.captainPhone || '' };
+}
+async function loadTeamContacts(div, force){
+  if(!isAdminAuthed() || _teamContactsLoading[div] || (_teamContacts[div] && !force)) return;
+  if(!force && Date.now() - (_teamContactsFailedAt[div] || 0) < 60000) return;
+  const s = laGet(LA_SCOPE);
+  if(!s) return;
+  _teamContactsLoading[div] = true;
+  try{
+    const r = await fetch(LA_WORKER+'/league/contacts/list', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token:s.token, scope:LA_SCOPE, sub:div })
+    });
+    const j = await r.json().catch(()=>null);
+    if(r.ok && j && j.ok){ _teamContacts[div] = j.contacts || {}; if(div === DIV) renderTeams(); }
+    else _teamContactsFailedAt[div] = Date.now();
+  }catch(e){ _teamContactsFailedAt[div] = Date.now(); }
+  finally{ _teamContactsLoading[div] = false; }
+}
+// Only keys a row carries are written: an import sends just the cells it filled in;
+// the team form sends both, so clearing a field there clears it on file.
+async function saveTeamContacts(div, rows){
+  rows = (rows || []).filter(r => r && r.rosterId && (('email' in r) || ('phone' in r)));
+  if(!rows.length) return true;
+  const s = laGet(LA_SCOPE);
+  if(!s){ toast('Captain contact not saved: your admin session ended. Unlock admin and save again.'); return false; }
+  try{
+    const r = await fetch(LA_WORKER+'/league/contacts/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token:s.token, scope:LA_SCOPE, sub:div, rows:rows })
+    });
+    const j = await r.json().catch(()=>null);
+    if(r.ok && j && j.ok){
+      const cache = _teamContacts[div] = _teamContacts[div] || {};
+      rows.forEach(row => {
+        const c = cache[row.rosterId] = cache[row.rosterId] || { email:'', phone:'' };
+        if('email' in row) c.email = row.email || '';
+        if('phone' in row) c.phone = row.phone || '';
+      });
+      if(div === DIV) renderTeams();
+      return true;
+    }
+    toast('Captain contact not saved: '+((j && j.error) || 'try again.'));
+  }catch(e){
+    toast('Captain contact not saved: '+LA_MSG_NET);
+  }
+  return false;
+}
+function importContactRow(id, email, phone){
+  const row = { rosterId:id };
+  if(email) row.email = email;
+  if(phone) row.phone = phone;
+  return row;
 }
 
 function editTeam(id){
@@ -1215,8 +1282,9 @@ function editTeam(id){
   _editingTeamId = id;
   $('t-name').value  = t.name || '';
   $('t-cap').value   = t.captainName || '';
-  $('t-email').value = t.captainEmail || '';
-  $('t-phone').value = t.captainPhone || '';
+  const tc = teamContact(t);
+  $('t-email').value = tc.email;
+  $('t-phone').value = tc.phone;
   _teamColor = t.color || null;
   _teamIcon = t.icon || null;
   renderSwatches();
@@ -1370,7 +1438,8 @@ function confirmTeamImport(mode){
     if(!confirm(msg)) return;
     // Wipe existing teams, then write imports.
     fbDel(DIV+'/teams');
-    parsed.forEach(t => writeImportedTeam(t.name, t.captain, t.email, t.phone));
+    const rows = parsed.map(t => importContactRow(writeImportedTeam(t.name, t.captain), t.email, t.phone));
+    saveTeamContacts(DIV, rows);
     toast('Imported '+parsed.length+' team'+(parsed.length===1?'':'s')+' (replaced)');
   } else {
     // Add mode. If a team with the same name (case-insensitive) exists, update it; otherwise create.
@@ -1379,22 +1448,25 @@ function confirmTeamImport(mode){
       if(t && t.id && t.name) byLowerName[t.name.toLowerCase().trim()] = t;
     });
     let added = 0, updated = 0;
+    const rows = [];
     parsed.forEach(t => {
       const key = (t.name || '').toLowerCase().trim();
       const dup = byLowerName[key];
       if(dup){
-        const merged = Object.assign({}, dup, {
-          captainName:  t.captain || dup.captainName  || '',
-          captainEmail: t.email   || dup.captainEmail || '',
-          captainPhone: t.phone   || dup.captainPhone || ''
-        });
+        // A legacy public email or phone on the record is carried to the worker when
+        // the sheet has none, and dropped from the public copy either way.
+        const merged = Object.assign({}, dup, { captainName: t.captain || dup.captainName || '' });
+        delete merged.captainEmail;
+        delete merged.captainPhone;
         fbSet(DIV+'/teams/'+dup.id, merged);
+        rows.push(importContactRow(dup.id, t.email || dup.captainEmail || '', t.phone || dup.captainPhone || ''));
         updated++;
       }else{
-        writeImportedTeam(t.name, t.captain, t.email, t.phone);
+        rows.push(importContactRow(writeImportedTeam(t.name, t.captain), t.email, t.phone));
         added++;
       }
     });
+    saveTeamContacts(DIV, rows);
     if(updated > 0){
       toast('Imported '+(added+updated)+' team'+((added+updated)===1?'':'s')+' ('+added+' added, '+updated+' updated)');
     }else{
@@ -1407,18 +1479,19 @@ function confirmTeamImport(mode){
   // Listener will refresh the team list on next snapshot.
 }
 
-// Build a team record matching the existing manual-add shape, generate id the same way, write via fbSet.
-function writeImportedTeam(name, captain, email, phone){
+// Build a team record matching the existing manual-add shape, generate id the same way,
+// write via fbSet. Names only; the caller sends the captain's contact to the worker.
+// Returns the new team id.
+function writeImportedTeam(name, captain){
   const id = 'team_' + slugify(name) + '_' + rand6();
   const team = {
     id: id,
     name: name,
     captainName:  captain || '',
-    captainEmail: email   || '',
-    captainPhone: phone   || '',
     color: ''
   };
   fbSet(DIV+'/teams/'+id, team);
+  return id;
 }
 
 function deleteTeam(id){
@@ -1441,6 +1514,7 @@ function renderTeams(){
   const list = $('teams-list');
   const count = $('teams-count');
   if(!list || !count) return;
+  loadTeamContacts(DIV);
   const teams = Object.values(D[DIV].teams||{})
     .filter(t => t && t.id && t.name)
     .sort((a,b) => (a.name||'').localeCompare(b.name||''));
@@ -1455,8 +1529,12 @@ function renderTeams(){
       : '<span class="team-color empty"></span>');
     const meta = [];
     meta.push('Captain: '+escapeHtml(t.captainName||'?'));
-    if(t.captainEmail) meta.push(escapeHtml(t.captainEmail));
-    if(t.captainPhone) meta.push(escapeHtml(t.captainPhone));
+    // Contact shows to a signed-in admin only (teamContact reads the private copy).
+    if(isAdminAuthed()){
+      const tc = teamContact(t);
+      if(tc.email) meta.push(escapeHtml(tc.email));
+      if(tc.phone) meta.push(escapeHtml(tc.phone));
+    }
     return '<div class="team-item">'
       + color
       + '<div class="team-body">'

@@ -268,23 +268,31 @@ document.addEventListener('DOMContentLoaded', function(){
     if(athletes) ctx.push('Athletes: ' + athletes);
     var packedMsg = (ctx.length ? '[' + ctx.join(' | ') + ']\n\n' : '') + (msg || '(no message)');
 
-    // (a) durable lead record — same shape as league/index.html, plus extras
+    // (a) durable lead record, same shape as league/index.html plus extras. It is
+    // world readable, so it holds no email or phone and the stored message leaves the
+    // phone out. The email and phone go to the worker (POST /contact/lead), which keeps
+    // them privately beside this lead key; the admin email below still carries both.
     var leadKey = now + '_' + slugify(org);
+    var publicCtx = ctx.filter(function(x){ return x.indexOf('Phone: ') !== 0; });
     var lead = {
       name: name,
-      email: email,
       organization: org,
       role: role || '',
-      message: packedMsg,
-      phone: phone || '',
+      message: (publicCtx.length ? '[' + publicCtx.join(' | ') + ']\n\n' : '') + (msg || '(no message)'),
       athleteCount: athletes || '',
       track: trackLabel || '',
       source: 'league_tour_join',
       createdAt: now
     };
     try { db.ref('courtsense_leads/' + leadKey).set(lead); } catch(e){ console.error(e); }
+    try {
+      fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/contact/lead', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadKey: leadKey, email: email, phone: phone || '' })
+      }).catch(function(){ console.warn('lead contact save failed'); });
+    } catch(e){ console.warn('lead contact save failed'); }
 
-    // (b) email-queue item — type lead_received (worker handles this today)
+    // (b) email-queue item: type lead_received (worker handles this today)
     var emailItem = {
       type: 'lead_received',
       to: 'markmcnees@gmail.com',

@@ -433,11 +433,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
     <section class="section">
       <h3>Physical</h3>
-      <p class="sub">Optional. Useful for partner matching once that ships.</p>
+      <p class="sub">Optional. Height, reach and jump touches are private: only you see them, unless you choose to share them below.</p>
       <div class="row two">
         <div class="fg">
           <label class="lbl" for="f-height">Height</label>
-          <input class="inp" id="f-height" placeholder="e.g. 6'2&quot;">
+          <input class="inp" id="f-height" maxlength="12" placeholder="e.g. 6'2&quot;">
         </div>
         <div class="fg">
           <label class="lbl" for="f-hand">Dominant hand</label>
@@ -450,17 +450,22 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         </div>
         <div class="fg">
           <label class="lbl" for="f-reach">Standing reach</label>
-          <input class="inp" id="f-reach" placeholder="e.g. 8'">
+          <input class="inp" id="f-reach" maxlength="12" placeholder="e.g. 8'">
         </div>
         <div class="fg">
           <label class="lbl" for="f-block">Block jump touch</label>
-          <input class="inp" id="f-block" placeholder="e.g. 9'3&quot;">
+          <input class="inp" id="f-block" maxlength="12" placeholder="e.g. 9'3&quot;">
         </div>
         <div class="fg">
           <label class="lbl" for="f-approach">Approach jump touch</label>
-          <input class="inp" id="f-approach" placeholder="e.g. 9'5&quot;">
+          <input class="inp" id="f-approach" maxlength="12" placeholder="e.g. 9'5&quot;">
         </div>
       </div>
+      <label class="toggle">
+        <input type="checkbox" id="f-share-phys">
+        <span class="tlbl">Share height and reach with players I message</span>
+      </label>
+      <div class="help" id="phys-status" style="display:none;"></div>
     </section>
 
     <section class="section">
@@ -718,8 +723,11 @@ function fillFromProfile(profile){
   $('f-avp').value         = profile.avpNumber || '';
   $('f-skill').value       = profile.skillLevel || '';
   $('f-zip').value         = profile.zipCode || '';
-  $('f-height').value      = profile.height || '';
   $('f-hand').value        = profile.dominantHand || '';
+  // Height, reach and jump touches load privately (fillPhysical). A value still on the
+  // public profile from before the move fills in only until the private copy answers,
+  // so nothing a player entered earlier ever looks lost.
+  $('f-height').value      = profile.height || '';
   $('f-reach').value       = profile.reach || '';
   $('f-block').value       = profile.blockJumpTouch || '';
   $('f-approach').value    = profile.approachJumpTouch || '';
@@ -729,6 +737,63 @@ function fillFromProfile(profile){
   $('f-pref-def').value    = profile.preferredDefense || '';
   $('f-indoor').checked    = !!profile.indoorExperience;
   $('f-grass').checked     = !!profile.grassExperience;
+}
+
+// ── Height, reach and jump touches: private ──────────────────────────────
+// Stored by the worker at tally_kotb_pickup_private/{id}/physical, never on the public
+// profile. Loaded from /auth/contact-status (the same answer the Text alerts card
+// reads) and saved through /auth/contact with the verified session. Share is the
+// player's own choice to show them to players they message; off unless they turn it on.
+const PHYSICAL_FIELDS = ['height', 'reach', 'blockJumpTouch', 'approachJumpTouch'];
+const PHYSICAL_INPUTS = { height: 'f-height', reach: 'f-reach', blockJumpTouch: 'f-block', approachJumpTouch: 'f-approach' };
+let physLoaded = false;   // the private copy answered, so a save may write it
+function readPhysical(){
+  const out = { sharePhysical: !!$('f-share-phys').checked };
+  PHYSICAL_FIELDS.forEach(k => { out[k] = ($(PHYSICAL_INPUTS[k]).value || '').trim(); });
+  return out;
+}
+function physStatus(msg){
+  const el = $('phys-status');
+  el.textContent = msg || '';
+  el.style.display = msg ? '' : 'none';
+}
+// The private copy wins once it holds anything; an empty private copy keeps whatever
+// the public profile still showed, so the next save carries it across.
+function fillPhysical(p){
+  p = p || {};
+  const any = PHYSICAL_FIELDS.some(k => p[k]);
+  if(any) PHYSICAL_FIELDS.forEach(k => { $(PHYSICAL_INPUTS[k]).value = p[k] || ''; });
+  $('f-share-phys').checked = p.sharePhysical === true;
+  physLoaded = true;
+  physStatus('');
+}
+function physSignedOut(){
+  physLoaded = false;
+  physStatus('Sign out and back in to edit your height, reach and jump touches.');
+}
+// Resolves true when there was nothing to save or the worker saved it. Values never
+// reach the console; a refusal shows the worker's own message.
+async function savePhysical(physical){
+  const token = (CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null;
+  if(!physLoaded || !token){
+    const typed = PHYSICAL_FIELDS.some(k => physical[k]) || physical.sharePhysical;
+    if(typed){ physSignedOut(); toast('Profile saved. Sign out and back in to save height and reach.'); return false; }
+    return true;
+  }
+  try {
+    const res = await smsPost('/auth/contact', Object.assign({ rosterPath: ROSTER_PATH, accountId: currentPid, sessionToken: token }, physical));
+    if(res.j.ok === true) return true;
+    console.error('physical save rejected', res.status, res.j.code || '', res.j.field || '');
+    if(res.status === 401) physSignedOut();
+    const msg = res.j.error || 'Could not save height and reach. Try again.';
+    $('form-err').textContent = msg;
+    toast(msg);
+    return false;
+  } catch(e){
+    console.error('physical save failed to reach the worker');
+    toast('Could not reach CourtSense to save height and reach. Try again.');
+    return false;
+  }
 }
 
 function nullIfBlank(v){
@@ -752,11 +817,7 @@ function readForm(){
     avpNumber:              nullIfBlank($('f-avp').value),
     skillLevel:             nullIfBlank($('f-skill').value),
     zipCode:                nullIfBlank($('f-zip').value),
-    height:                 nullIfBlank($('f-height').value),
     dominantHand:           nullIfBlank($('f-hand').value),
-    reach:                  nullIfBlank($('f-reach').value),
-    blockJumpTouch:         nullIfBlank($('f-block').value),
-    approachJumpTouch:      nullIfBlank($('f-approach').value),
     usualSide:              nullIfBlank($('f-usual-side').value),
     preferredSide:          nullIfBlank($('f-pref-side').value),
     usualDefense:           nullIfBlank($('f-usual-def').value),
@@ -799,10 +860,12 @@ function doSave(e){
   // Gender is deliberately NOT in this list. It decides what a player may enter, so
   // setting it is not the same kind of act as filling in a jump touch, and it must
   // not be what dismisses the welcome panel.
-  const stringFields = ['avpNumber','skillLevel','zipCode','height',
-                        'dominantHand','reach','blockJumpTouch','approachJumpTouch',
+  const stringFields = ['avpNumber','skillLevel','zipCode',
+                        'dominantHand',
                         'usualSide','preferredSide','usualDefense','preferredDefense'];
-  const hasInput = stringFields.some(k => profile[k] != null) || profile.indoorExperience || profile.grassExperience;
+  const physical = readPhysical();
+  const hasInput = stringFields.some(k => profile[k] != null) || profile.indoorExperience || profile.grassExperience
+    || PHYSICAL_FIELDS.some(k => physical[k]);
   if(hasInput){
     try { localStorage.setItem(WELCOMED_KEY, '1'); } catch(e){}
     $('welcome').style.display = 'none';
@@ -848,9 +911,10 @@ function doSave(e){
       return db.ref(ROSTER_PATH+'/'+currentPid).update({ displayName: nameUpdate, name: nameUpdate })
         .then(() => { currentDisplayName = nameUpdate; $('who-name').textContent = nameUpdate; });
     })
-    .then(() => {
+    .then(() => savePhysical(physical))
+    .then(physOk => {
       submitVolleyballLifeRequest(vb);
-      toast('Profile saved');
+      if(physOk) toast('Profile saved');
     })
     .catch(err => { console.error('profile save failed', err); toast("Couldn't save. Try again."); });
 
@@ -984,8 +1048,11 @@ function renderVbStatus(){
   const APPROVED = 'Your Volleyball Life profile is verified. If your Volleyball Life rating changes, paste the link again and we will take another look.';
   const REJECTED_BASE = 'We could not verify that Volleyball Life link.';
   const REJECTED_TAIL = 'Paste a corrected link and we will review it again.';
-  const rejected = note
-    ? REJECTED_BASE + ' ' + note + ' ' + REJECTED_TAIL
+  // The reviewer's note is their own words, shown as a quoted reason on its own
+  // (Reason: "duplicate".), never dropped into the middle of the sentence.
+  const reason = note.trim().replace(/[.\s]+$/, '');
+  const rejected = reason
+    ? REJECTED_BASE + ' Reason: “' + reason + '”. ' + REJECTED_TAIL
     : REJECTED_BASE + ' ' + REJECTED_TAIL;
 
   if(field){
@@ -1502,13 +1569,17 @@ async function smsPost(path, payload){
 async function loadSmsStatus(){
   $('sms-err').textContent = '';
   const token = (CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null;
-  if(!currentPid || !token){ smsShow('signin'); return; }
+  if(!currentPid || !token){ smsShow('signin'); physSignedOut(); return; }
   $('sms-loading').textContent = 'Checking your text alert settings...';
   smsShow('loading');
   try {
     const res = await smsPost('/auth/contact-status', { sessionToken: token });
-    if(res.status === 401){ smsShow('signin'); return; }
+    if(res.status === 401){ smsShow('signin'); physSignedOut(); return; }
     if(!res.j.ok) throw new Error('status ' + res.status);
+    // The same answer carries the private height, reach and jump touches. A worker
+    // without them yet leaves the fields read only rather than dropping a save.
+    if(res.j.physical) fillPhysical(res.j.physical);
+    else { physLoaded = false; physStatus('Saving height and reach is almost ready. Check back soon.'); }
     smsRenderStatus(res.j);
   } catch(e){
     smsShow('loading');
