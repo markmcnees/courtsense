@@ -266,6 +266,13 @@
     '.pb-panel textarea{min-height:76px;resize:vertical;}',
     '.pb-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}',
     '.pb-guest{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:6px;}',
+    '.pb-gbox{margin-top:8px;padding:8px;border:1px solid #DCE1E6;border-radius:10px;background:#fff;}',
+    '.pb-gnames{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}',
+    '.pb-gnames label{display:block;font-size:13px;font-weight:700;margin:0 0 2px;}',
+    '.pb-grow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}',
+    '.pb-grow select{flex:1 1 160px;width:auto;}',
+    '.pb-gbox .pb-err{margin-top:4px;}',
+    '@media (max-width:480px){.pb-gnames{grid-template-columns:minmax(0,1fr);}}',
     '.pb-hint{font-size:13px;line-height:1.45;color:#4A5867;margin-top:4px;}',
     '.pb-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:4px 0 8px;}',
     '.pb-seg button{min-height:44px;border:1.5px solid #082A4F;border-radius:10px;background:#fff;color:#082A4F;font-family:Barlow,-apple-system,sans-serif;font-size:15px;font-weight:700;cursor:pointer;}',
@@ -424,12 +431,14 @@
     const send = goldBtn('Send', async function(){
       out.textContent = '';
       if(choice === 'maybe' && !t.ta.value.trim()){ out.appendChild(el('div', 'pb-err', 'Add your question or condition for a maybe.')); return; }
-      if(adult && choice !== 'ignore' && !adult.cb.checked){ out.appendChild(el('div', 'pb-err', 'Please confirm you are 18 or older.')); return; }
+      // Only Yes and Maybe need the 18+ box; No and Ignore never do.
+      const needsAdult = choice === 'yes' || choice === 'maybe';
+      if(adult && needsAdult && !adult.cb.checked){ out.appendChild(el('div', 'pb-err', 'Please confirm you are 18 or older.')); return; }
       send.disabled = true;
-      const x = await post('/partners/team/respond', { reqId: q.id, answer: choice, text: choice === 'ignore' ? '' : t.ta.value, adultConfirmed: adult ? adult.cb.checked : undefined }, ctx.token);
+      const x = await post('/partners/team/respond', { reqId: q.id, answer: choice, text: choice === 'ignore' ? '' : t.ta.value, adultConfirmed: adult && needsAdult ? adult.cb.checked : undefined }, ctx.token);
       send.disabled = false;
       if(!x.j.ok){ out.appendChild(el('div', 'pb-err', x.j.error || 'That did not work. Try again.')); return; }
-      if(ctx.me && choice !== 'ignore') ctx.me.adult = true;
+      if(ctx.me && needsAdult) ctx.me.adult = true;
       const said = choice === 'yes'
         ? (x.j.complete ? 'You said yes. Your team is complete.' : 'You said yes. You are a team' + (x.j.need ? ', looking for ' + x.j.need + ' more.' : '.'))
         : choice === 'maybe' ? 'Sent. It is their turn to answer now.'
@@ -450,7 +459,7 @@
       lab.textContent = a === 'maybe' ? 'Your question or condition (they see it)' : 'Add a message (optional)';
       t.ta.placeholder = a === 'maybe' ? 'Ask a question or set a condition' : 'Add a message (optional)';
       [lab, t.ta, t.count].forEach(n => { n.style.display = quiet ? 'none' : ''; });
-      if(adult) adult.lab.style.display = quiet ? 'none' : '';
+      if(adult) adult.lab.style.display = (a === 'yes' || a === 'maybe') ? '' : 'none';
       send.textContent = SEND_TEXT[a];
       form.style.display = '';
       if(!quiet) t.ta.focus();
@@ -576,7 +585,33 @@
     Object.keys(attrs || {}).forEach(k => i.setAttribute(k, attrs[k]));
     return i;
   }
-  const GUEST_GENDERS = [['unknown', 'Not set'], ['woman', 'Woman'], ['man', 'Man']];
+  const GUEST_GENDERS = [['unknown', 'Gender not set'], ['woman', 'Woman'], ['man', 'Man']];
+
+  // A guest's names: First name and Last name side by side (stacked on a phone), each
+  // required, with its own inline error. Returns { box, first, last, read(), check() }:
+  // check() marks what is missing and returns false; read() gives the trimmed values.
+  function guestNames(firstVal, lastVal, labelFor){
+    const box = el('div', 'pb-gnames');
+    const mk = (text, val) => {
+      const w = el('div');
+      const i = input('text', val || '', { maxlength: '20', autocomplete: 'off', autocapitalize: 'words' });
+      const l = el('label', null, text); l.htmlFor = i.id;
+      const e = el('div', 'pb-err'); e.style.display = 'none';
+      i.setAttribute('aria-label', text + (labelFor ? ' for ' + labelFor : ''));
+      i.addEventListener('input', function(){ e.style.display = 'none'; i.removeAttribute('aria-invalid'); });
+      w.appendChild(l); w.appendChild(i); w.appendChild(e);
+      box.appendChild(w);
+      return { i: i, e: e, text: text };
+    };
+    const first = mk('First name', firstVal), last = mk('Last name', lastVal);
+    return { box: box, first: first.i, last: last.i,
+      read: function(){ return { firstName: first.i.value.trim(), lastName: last.i.value.trim() }; },
+      check: function(){
+        let ok = true;
+        [first, last].forEach(x => { if(!x.i.value.trim()){ ok = false; x.e.textContent = 'Add a ' + x.text.toLowerCase() + '.'; x.e.style.display = ''; x.i.setAttribute('aria-invalid', 'true'); } });
+        return ok;
+      } };
+  }
 
   // The needs fields, prefilled from n, in the order players think about them: Gender,
   // Position, Side, Dominant hand, Rating from and to, Note. read() returns the body
@@ -695,14 +730,19 @@
     f.appendChild(guestsBox);
 
     function guestRow(g){
-      const r = el('div', 'pb-guest');
-      const name = input('text', g.name, { maxlength: '20', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'Guest first name' });
+      const r = el('div', 'pb-gbox');
+      const n = guestNames(g.firstName, g.lastName, 'guest ' + (guests.indexOf(g) + 1));
+      g.check = n.check;
+      n.first.addEventListener('input', function(){ g.firstName = n.first.value; });
+      n.last.addEventListener('input', function(){ g.lastName = n.last.value; });
+      r.appendChild(n.box);
+      const row = el('div', 'pb-grow');
       const gen = select(GUEST_GENDERS, g.gender);
       gen.setAttribute('aria-label', 'Guest gender');
-      name.addEventListener('input', function(){ g.name = name.value; });
       gen.addEventListener('change', function(){ g.gender = gen.value; });
-      r.appendChild(name); r.appendChild(gen);
-      r.appendChild(quietBtn('Remove', function(){ guests.splice(guests.indexOf(g), 1); draw(); }));
+      row.appendChild(gen);
+      row.appendChild(quietBtn('Remove', function(){ guests.splice(guests.indexOf(g), 1); draw(); }));
+      r.appendChild(row);
       return r;
     }
     function draw(){
@@ -714,12 +754,12 @@
       guestsBox.appendChild(quietBtn('Add a guest', function(){
         out.textContent = '';
         if(used() >= spots()){ errLine(out, spotsNote(div.size)); return; }
-        guests.push({ name: '', gender: 'unknown' });
+        guests.push({ firstName: '', lastName: '', gender: 'unknown' });
         draw();
         const last = guestsBox.querySelectorAll('input[type=text]');
         if(last.length) last[last.length - 1].focus();
       }));
-      guestsBox.appendChild(el('div', 'pb-hint', 'A guest is a first name only. Guests fill a spot right away and are never messaged.'));
+      guestsBox.appendChild(el('div', 'pb-hint', 'Guests fill a spot right away and are never messaged. Other players see a guest as first name and last initial.'));
       const left = div.size - 1 - guests.length;
       room.textContent = left > 0 ? 'After posting, your team is looking for ' + left + ' more' + (added.length ? ' until your invites say yes.' : '.') : 'Your team is full with your guests.';
     }
@@ -741,9 +781,10 @@
     const send = goldBtn('Post your team', async function(){
       out.textContent = '';
       if(adult && !adult.cb.checked){ errLine(out, 'Please confirm you are 18 or older.'); return; }
-      if(guests.some(g => !g.name.trim())){ errLine(out, 'Add a first name for each guest, or remove the empty one.'); return; }
+      const bad = guests.filter(g => g.check && !g.check()).length;
+      if(bad){ errLine(out, 'Add a first and last name for each guest, or remove the empty one.'); return; }
       send.disabled = true;
-      const r = await post('/partners/team/start', { tid: t.id, div: div.div, guests: guests.map(g => ({ name: g.name, gender: g.gender })), addRefs: added.map(a => a.ref), needs: nf.read(), adultConfirmed: adult ? adult.cb.checked : undefined }, ctx.token);
+      const r = await post('/partners/team/start', { tid: t.id, div: div.div, guests: guests.map(g => ({ firstName: (g.firstName || '').trim(), lastName: (g.lastName || '').trim(), gender: g.gender })), addRefs: added.map(a => a.ref), needs: nf.read(), adultConfirmed: adult ? adult.cb.checked : undefined }, ctx.token);
       send.disabled = false;
       if(!r.j.ok){ errLine(out, r.j.error || 'That did not post. Try again.'); return; }
       if(ctx.me) ctx.me.adult = true;
@@ -797,26 +838,43 @@
     } else f.appendChild(el('div', 'pb-hint', 'Your team is full.'));
     f.appendChild(el('div', 'pb-lab', 'Guests'));
     (detail.guests || []).forEach(g => {
-      const r = el('div', 'pb-guest');
-      r.appendChild(el('span', 'pb-name', g.name));
+      const r = el('div', 'pb-gbox');
+      const first = g.firstName || g.name || '';
+      // A guest saved before last names were asked: the last name comes first.
+      const legacy = !g.lastName;
+      const n = legacy ? guestNames(first, '', first) : null;
+      if(n){ r.appendChild(n.box); r.appendChild(el('div', 'pb-hint', 'Add a last name for ' + first + ' to save any change.')); }
+      else r.appendChild(el('div', 'pb-name', (first + ' ' + g.lastName).trim()));
+      const row = el('div', 'pb-grow');
       const gen = select(GUEST_GENDERS, g.gender || 'unknown');
-      gen.setAttribute('aria-label', 'Gender for ' + g.name);
-      gen.addEventListener('change', function(){ edit({ guestGender: { key: g.key, gender: gen.value } }, 'Guest updated.'); });
-      r.appendChild(gen);
-      r.appendChild(quietBtn('Remove', function(){ edit({ removeGuest: g.key }, g.name + ' removed.'); }));
+      gen.setAttribute('aria-label', 'Gender for ' + first);
+      const save = function(extra){
+        if(n && !n.check()){ gen.value = g.gender || 'unknown'; return; }
+        const up = Object.assign({ key: g.key }, extra || {});
+        if(n) Object.assign(up, n.read());
+        edit({ guestUpdate: up }, 'Guest updated.');
+      };
+      gen.addEventListener('change', function(){ save({ gender: gen.value }); });
+      row.appendChild(gen);
+      if(n) row.appendChild(quietBtn('Save name', function(){ save({}); }));
+      row.appendChild(quietBtn('Remove', function(){ edit({ removeGuest: g.key }, first + ' removed.'); }));
+      r.appendChild(row);
       f.appendChild(r);
     });
     if(!(detail.guests || []).length) f.appendChild(el('div', 'pb-hint', 'No guests yet.'));
     if(room() > 0){
-      const r = el('div', 'pb-guest');
-      const name = input('text', '', { maxlength: '20', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'New guest first name' });
+      const r = el('div', 'pb-gbox');
+      const n = guestNames('', '', 'the new guest');
+      r.appendChild(n.box);
+      const row = el('div', 'pb-grow');
       const gen = select(GUEST_GENDERS, 'unknown');
       gen.setAttribute('aria-label', 'New guest gender');
-      r.appendChild(name); r.appendChild(gen);
-      r.appendChild(quietBtn('Add guest', function(){
-        if(!name.value.trim()){ errLine(out, 'Add a first name for the guest.'); return; }
-        edit({ addGuest: { name: name.value, gender: gen.value } }, 'Guest added.');
+      row.appendChild(gen);
+      row.appendChild(quietBtn('Add guest', function(){
+        if(!n.check()) return;
+        edit({ addGuest: Object.assign(n.read(), { gender: gen.value }) }, 'Guest added.');
       }));
+      r.appendChild(row);
       f.appendChild(r);
     }
     f.appendChild(el('h4', null, 'Who you need'));

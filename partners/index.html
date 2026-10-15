@@ -127,7 +127,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=5"></script>
+<script src="/partner-contact.js?v=6"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -496,7 +496,8 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       t.ta.placeholder = choice === 'maybe' ? 'Ask a question or set a condition' : 'Add a message (optional)';
       const quiet = choice === 'ignore';
       [lab, t.ta, t.count].forEach(n => { n.style.display = quiet ? 'none' : ''; });
-      if(adult) adult.lab.style.display = quiet ? 'none' : '';
+      // Only Yes and Maybe need the 18+ box; No and Ignore never do.
+      if(adult) adult.lab.style.display = (choice === 'yes' || choice === 'maybe') ? '' : 'none';
     }
     ANSWERS.forEach(a => {
       const b = btn('btn-o', a[1], function(){ choice = a[0]; out.textContent = ''; paint(); });
@@ -511,12 +512,13 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       out.textContent = '';
       if(!choice){ out.appendChild(el('div', 'msg-err', 'Pick an answer first.')); return; }
       if(choice === 'maybe' && !t.ta.value.trim()){ out.appendChild(el('div', 'msg-err', 'Add your question or condition for a maybe.')); return; }
-      if(adult && choice !== 'ignore' && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
+      const needsAdult = choice === 'yes' || choice === 'maybe';
+      if(adult && needsAdult && !adult.cb.checked){ out.appendChild(el('div', 'msg-err', 'Please confirm you are 18 or older.')); return; }
       send.disabled = true;
-      const x = await ctx.send(choice, choice === 'ignore' ? '' : t.ta.value, adult && choice !== 'ignore' ? adult.cb.checked : undefined);
+      const x = await ctx.send(choice, choice === 'ignore' ? '' : t.ta.value, adult && needsAdult ? adult.cb.checked : undefined);
       send.disabled = false;
       if(!x.ok){ out.appendChild(el('div', 'msg-err', x.error || 'That did not work.')); return; }
-      if(me && choice !== 'ignore') me.adult = true;
+      if(me && needsAdult) me.adult = true;
     });
     bs.appendChild(send);
     rb.appendChild(bs);
