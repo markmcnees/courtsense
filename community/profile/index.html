@@ -468,6 +468,16 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div class="help" id="phys-status" style="display:none;"></div>
     </section>
 
+    <section class="section" id="club-invites-sec" style="display:none;">
+      <h3>Club tournaments</h3>
+      <label class="toggle">
+        <input type="checkbox" id="f-club-invites" checked>
+        <span class="tlbl">Club teams can invite me to tournaments</span>
+      </label>
+      <div class="help">When this is on, players from your club who are putting a team together for a club tournament can find you and invite you. Your email and phone are never shown.</div>
+      <div class="help" id="club-invites-status" role="status" style="display:none;"></div>
+    </section>
+
     <section class="section">
       <h3>Beach preferences</h3>
       <p class="sub">Where do you usually play, and where do you actually want to play?</p>
@@ -794,6 +804,48 @@ async function savePhysical(physical){
     toast('Could not reach CourtSense to save height and reach. Try again.');
     return false;
   }
+}
+
+// ── Club teams can invite me to tournaments ──────────────────────────────
+// Shown only to players linked to a club (contact-status clubLinked). On unless the
+// player turns it off; stored privately by the worker (clubInvites) and saved the
+// moment it changes. A failed save puts the switch back and says why.
+let clubInvitesWired = false;
+function clubInvitesStatus(msg, bad){
+  const el = $('club-invites-status');
+  el.textContent = msg || '';
+  el.style.display = msg ? '' : 'none';
+  el.style.color = bad ? '#b91c1c' : '';
+}
+function fillClubInvites(j){
+  const sec = $('club-invites-sec');
+  if(!sec) return;
+  if(!j || j.clubLinked !== true){ sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  $('f-club-invites').checked = j.clubInvites !== false;
+  if(clubInvitesWired) return;
+  clubInvitesWired = true;
+  $('f-club-invites').addEventListener('change', async function(){
+    const box = this;
+    const want = box.checked;
+    const token = (CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null;
+    if(!currentPid || !token){ box.checked = !want; clubInvitesStatus('Sign out and back in to change this.', true); return; }
+    box.disabled = true;
+    clubInvitesStatus('Saving...');
+    try {
+      const res = await smsPost('/auth/contact', { rosterPath: ROSTER_PATH, accountId: currentPid, sessionToken: token, clubInvites: want });
+      if(res.j.ok !== true){
+        box.checked = !want;
+        clubInvitesStatus(res.status === 401 ? 'Sign out and back in to change this.' : (res.j.error || 'That did not save. Try again.'), true);
+      } else {
+        clubInvitesStatus(want ? 'Saved. Club teams can invite you.' : 'Saved. Club teams will not see you in their lists.');
+      }
+    } catch(e){
+      box.checked = !want;
+      clubInvitesStatus('Could not reach CourtSense. Check your connection and try again.', true);
+    }
+    box.disabled = false;
+  });
 }
 
 function nullIfBlank(v){
@@ -1580,6 +1632,7 @@ async function loadSmsStatus(){
     // without them yet leaves the fields read only rather than dropping a save.
     if(res.j.physical) fillPhysical(res.j.physical);
     else { physLoaded = false; physStatus('Saving height and reach is almost ready. Check back soon.'); }
+    fillClubInvites(res.j);
     smsRenderStatus(res.j);
   } catch(e){
     smsShow('loading');
