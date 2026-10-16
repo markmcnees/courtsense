@@ -127,7 +127,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=6"></script>
+<script src="/partner-contact.js?v=7"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -305,8 +305,8 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
       reattach: reattach,
       threadOf: function(ref){ return (me && me.teamThreads && me.teamThreads[t.id] && me.teamThreads[t.id][ref]) || ''; },
       leave: function(tm, out){ return leaveBtn(t, tm, out); },
-      askToJoin: function(c, d, tm){
-        openCompose(c.box, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + PC.teamNames(tm).join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' }, 'team:' + tm.ref);
+      askToJoin: function(c, d, tm, cb){
+        openCompose(c.box, { tid: t.id, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: cb ? PC.combineTitle(cb) : 'Ask ' + PC.teamNames(tm).join(' + ') + ' to team up for ' + t.name, prompt: 'Add a note (optional)', placeholder: cb ? 'Say hi and why your teams would work together.' : 'Tell them a bit about your game.', sendText: 'Send request' }, 'team:' + tm.ref);
       },
     };
   }

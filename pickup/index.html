@@ -34,7 +34,7 @@
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/partner-contact.js?v=6"></script>
+<script src="/partner-contact.js?v=7"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -5726,7 +5726,7 @@ function cspDrawTeams(t, s, ok, needSignIn, mine){
     },
     threadOf: ref => threads[ref] || '',
     leave: (tm, out) => PC.quietBtn('Leave team', () => cspLeave(tm, out)),
-    askToJoin: (c, d, tm) => cspOpenTeamCompose(t, d, tm, c.box),
+    askToJoin: (c, d, tm, cb) => cspOpenTeamCompose(t, d, tm, c.box, cb),
   }));
 }
 
@@ -5748,11 +5748,12 @@ function cspOpenCompose(pk, name, plan, t){
   const box = CourtSensePartner.openCompose(host, opts, cspComposeCtx());
   _cspOpen = box ? { key: pk, box: box } : null;
 }
-function cspOpenTeamCompose(t, d, tm, host){
+// cb: a /partners/me combinable entry when this is Ask to combine.
+function cspOpenTeamCompose(t, d, tm, host, cb){
   const key = 'team:' + tm.ref;
   if(!host || !_csp || !_csp.me) return;
   host.classList.add('csp-box');
-  const opts = { tid: _csp.tid, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: 'Ask ' + CourtSensePartner.teamNames(tm).join(' + ') + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: 'Tell them a bit about your game.', sendText: 'Send request' };
+  const opts = { tid: _csp.tid, ref: tm.ref, divs: [{ div: d.div, label: d.label }], optional: true, title: cb ? CourtSensePartner.combineTitle(cb) : 'Ask ' + CourtSensePartner.teamNames(tm).join(' + ') + ' to team up for ' + (t.name || 'this tournament'), prompt: 'Add a note (optional)', placeholder: cb ? 'Say hi and why your teams would work together.' : 'Tell them a bit about your game.', sendText: 'Send request' };
   const box = CourtSensePartner.openCompose(host, opts, cspComposeCtx());
   _cspOpen = box ? { key: key, box: box } : null;
 }

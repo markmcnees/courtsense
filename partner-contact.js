@@ -185,6 +185,8 @@
   // 'Mark M. + Test A., looking for 2 more', or just the names when complete.
   function teamLine(tm){ return teamNames(tm).join(' + ') + (tm.status === 'complete' ? '' : ', looking for ' + tm.need + ' more'); }
   function inviteTitle(name, tm){ return 'Invite ' + name + ' to join ' + teamNames(tm).join(' + ') + ' (looking for ' + tm.need + ' more)'; }
+  // Combine teams, from /partners/me combinable: 'Combine Mark M. + Lydia M. with Jake T. + Sam R. (makes 4 of 4)'.
+  function combineTitle(cb){ return 'Combine ' + (cb.mineNames || []).join(' + ') + ' with ' + (cb.theirNames || []).join(' + ') + ' (makes ' + cb.filled + ' of ' + cb.size + ')'; }
 
   // ── Board look, shared by /partners/ and the pickup tournament page ──────────
   // Two sections, always shown: Teams looking for players (teal band, light teal
@@ -439,7 +441,9 @@
       send.disabled = false;
       if(!x.j.ok){ out.appendChild(el('div', 'pb-err', x.j.error || 'That did not work. Try again.')); return; }
       if(ctx.me && needsAdult) ctx.me.adult = true;
-      const said = choice === 'yes'
+      const said = choice === 'yes' && x.j.combined
+        ? (x.j.complete ? 'You said yes. Your teams combined and the team is complete.' : 'You said yes. Your teams combined' + (x.j.need ? ', looking for ' + x.j.need + ' more.' : '.'))
+        : choice === 'yes'
         ? (x.j.complete ? 'You said yes. Your team is complete.' : 'You said yes. You are a team' + (x.j.need ? ', looking for ' + x.j.need + ' more.' : '.'))
         : choice === 'maybe' ? 'Sent. It is their turn to answer now.'
           : choice === 'no' ? 'You said no thanks. They have been told.'
@@ -495,6 +499,8 @@
     const sub = [q.yourTurn ? '' : q.label, q.divLabel || ''].filter(Boolean).join(' · ');
     if(sub) row.appendChild(el('div', 'pb-req-sub', sub));
     if(!q.yourTurn && q.note) row.appendChild(el('div', 'pb-req-sub', 'Last note: ' + q.note));
+    // Combine teams: who the one team would be.
+    if(q.combine) row.appendChild(el('div', 'pb-req-sub', 'Together: ' + (q.combine.toNames || []).concat(q.combine.fromNames || []).join(' + ') + ' (makes ' + q.combine.filled + ' of ' + q.combine.size + ')'));
     if(q.yourTurn) row.appendChild(answerForm(q, ctx, row));
     const links = el('div', 'pb-quiets');
     links.appendChild(quietLink('Open the conversation', threadHref(q.threadId)));
@@ -538,7 +544,8 @@
   //
   // ctx: { me, token, extras, mine, signedIn, canMessage, dayLabel(day), signIn(text),
   //        onChanged(message), onGender(g), compose(host, opts, key), reattach(host, key),
-  //        threadOf(ref), leave(tm, out), askToJoin(card, d, tm), eventLink }
+  //        threadOf(ref), leave(tm, out), askToJoin(card, d, tm, combine?), eventLink }
+  // askToJoin gets combine (a /partners/me combinable entry) for Ask to combine.
   // Open forms live in openForms by key, so a page that redraws (the pickup page does on
   // every data change) puts the same form back, typed values and all.
   const COED_NOTE = 'Coed divisions are not rated. Ratings shown come from men’s and women’s play, so they are not a guide to coed level.';
@@ -1020,8 +1027,13 @@
       } else if(tm.status === 'complete'){
         if(ctx.eventLink) c.act.appendChild(quietLink('Register', ctx.eventLink, true));
       } else if(tm.ref){
+        // On a team that day already: only teams that fit with it get Ask to combine
+        // (from /partners/me combinable); the rest get no button.
+        const cb = (X.combinable || {})[tm.ref];
         if(!ctx.signedIn){ if(ctx.signIn) c.act.appendChild(ctx.signIn('Sign in to ask')); }
-        else if(ctx.canMessage && ctx.me && ctx.me.teamsEnabled) c.act.appendChild(goldBtn('Ask to join', function(){ ctx.askToJoin(c, d, tm); }));
+        else if(!(ctx.canMessage && ctx.me && ctx.me.teamsEnabled)){ /* nothing to offer */ }
+        else if(byDay[d.day]){ if(cb) c.act.appendChild(goldBtn('Ask to combine', function(){ ctx.askToJoin(c, d, tm, cb); })); }
+        else c.act.appendChild(goldBtn('Ask to join', function(){ ctx.askToJoin(c, d, tm); }));
       }
       if(tm.ref) ctx.reattach(c.box, 'team:' + tm.ref);
       s.list.appendChild(c.card);
@@ -1032,7 +1044,7 @@
   }
 
   global.CourtSensePartner = {
-    storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, teamNames, inviteTitle,
+    storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, teamNames, inviteTitle, combineTitle,
     ensureStyles, section, emptyLine, teamCard, playerCard, goldBtn, goldLink, quietBtn, quietLink, badge, divTag, trnTag, tagEl, requestStrip,
     teamsSection, COED_NOTE,
   };
