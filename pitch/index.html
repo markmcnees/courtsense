@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>CourtSense Live · Pitch</title>
+<meta name="description" content="CourtSense live dual scoring.">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+/* Pitch page only: no fan email signup, and no Close button (coaches use the small link below the roster). */
+#lf-email-section{display:none !important;}
+#school-fans-overlay button[onclick="hideLeonFans()"]{display:none !important;}
+#pitch-coach-link{display:block;margin:28px auto 0;background:none;border:none;color:rgba(255,255,255,0.45);font-family:'Barlow',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;}
+</style>
+</head>
+<body>
+<script>
+// Live pitch page for the Discovery Challenge (Oct 21). Live mode, not demo mode.
+// Every Firebase read and write stays under demo_sand_sharks_matches: profiles and
+// passwords live as children of that node. No allowAutoSeed and no legacyMigration,
+// so the Leon seed and migration paths stay closed. No maxPrepsUrl, so no proxy call.
+window.SCHOOL_CONFIG = {
+  schoolName:      'CourtSense',
+  shortName:       'CourtSense',
+  abbrev:          'CS',
+  displayName:     'CourtSense',
+  title:           'CourtSense Beach Volleyball',
+  defaultPw:       '',
+  fbConfig:{apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'},
+  dbRoots:{matches:'demo_sand_sharks_matches',profiles:'demo_sand_sharks_matches/pitch_profiles',passwords:'demo_sand_sharks_matches/pitch_passwords'},
+  logo:            '/icons/icon-192.png',
+  logoAlt:         'CourtSense',
+  colors:{primary:'#0077b6',primaryDark:'#005f92',primaryDeeper:'#023e8a',primaryLight:'#48cae4',primaryBg:'#caf0f8'},
+  aiProxyUrl:      'https://beach-volleyball-ai.markmcnees-479.workers.dev',
+  courtsenseUrl:   '/quiz/',
+  myStandingsKey:  'CourtSense',
+  homeVenue:       'Discovery Challenge',
+  teamEmoji:       '🏐',
+  exportPrefix:    'courtsense_pitch_',
+  playerLoginEnabled: false,
+  legacyMigration: false
+};
+
+// Private coach PIN. The worker keys coach PINs and sessions by the dbRoot in the
+// request body. The public /demo/ page shares this data node and publishes its PIN,
+// so this page sends its coach auth calls under a separate auth-only key that has its
+// own PIN hash. Data reads and writes are unaffected; they go straight to Firebase.
+(function(){
+  var WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev/';
+  var DATA_ROOT = 'demo_sand_sharks_matches', AUTH_ROOT = 'demo_pitch_matches';
+  var nativeFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      var url = typeof input === 'string' ? input : ((input && input.url) || '');
+      if(url.indexOf(WORKER) === 0 && init && typeof init.body === 'string'){
+        var b = JSON.parse(init.body);
+        if(b && b.dbRoot === DATA_ROOT){
+          b.dbRoot = AUTH_ROOT;
+          init = Object.assign({}, init, { body: JSON.stringify(b) });
+        }
+      }
+    }catch(e){}
+    return nativeFetch(input, init);
+  };
+})();
+</script>
+<script src="/app.js?v=1.1.187"></script>
+<script>
+// Open straight to the fan view, then redraw once the first snapshot lands (the
+// DB_ROOT listener refreshes coach and player screens, not the fan overlay).
+(function(){
+  if(typeof showLeonFans !== 'function') return;
+  if(!(sessionStorage.getItem('csCoachSession'))) showLeonFans();
+  var tries = 0;
+  var t = setInterval(function(){
+    tries++;
+    var ready = false;
+    try{ ready = _rosterLoaded; }catch(e){}
+    if(ready || tries > 150){
+      clearInterval(t);
+      var ol = document.getElementById('school-fans-overlay');
+      if(ready && ol && ol.style.display !== 'none') renderFans();
+    }
+  }, 200);
+  var sec = document.getElementById('lf-email-section');
+  if(sec && sec.parentNode){
+    var a = document.createElement('button');
+    a.id = 'pitch-coach-link';
+    a.type = 'button';
+    a.textContent = 'Coach sign-in';
+    a.onclick = function(){ hideFans(); };
+    sec.parentNode.appendChild(a);
+  }
+})();
+</script>
+</body>
+</html>
