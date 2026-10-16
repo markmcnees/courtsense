@@ -127,7 +127,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=7"></script>
+<script src="/partner-contact.js?v=8"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -240,6 +240,8 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     // Back to this tournament, with this player's box opened and the division kept.
     if(!token || !me) return signInLink('Sign in to team up', '/partners/?t=' + encodeURIComponent(t.id) + '&ask=' + encodeURIComponent(p.ref) + (divs[0] ? '&div=' + encodeURIComponent(divs[0].div) : ''));
     if(!canMessage()) return null;
+    // A request to this player is still open: no second send.
+    if(PC.isSent(me, t.id, p.ref)) return PC.sentBtn();
     // On a forming team that day in their division: Invite to your team. On a complete
     // team (or one in another division) that day: nothing for that day.
     const plan = teamUp ? PC.contactPlan(t, me.selfRefs && me.selfRefs[t.id], divs) : (divs.length ? { kind: 'ask', divs: divs } : null);

@@ -65,6 +65,15 @@
   .btn.ghost .spin,.btn.danger .spin{border-color:rgba(120,47,64,.3);border-top-color:var(--garnet);}
   @keyframes sp{to{transform:rotate(360deg);}}
   .form-err{color:var(--garnet);font-size:14.5px;font-weight:600;text-align:center;margin-top:12px;min-height:20px;line-height:1.4;}
+  /* A failed registration: a clear red box with what to do next. */
+  #r-err:not(:empty){background:#FDECEC;border:1.5px solid #B42318;color:#8A1C14;border-radius:10px;padding:12px 14px;text-align:left;font-size:15px;}
+  /* The registration confirmation. */
+  .done-card{text-align:left;background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:14px 16px 4px;margin:6px 0 14px;}
+  .done-h{font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--slate);margin-top:10px;}
+  .done-mail{font-weight:700;color:var(--green);}
+  #done-status.incomplete{color:#8A1C14;}
+  /* Focus moves to the heading for screen readers; no box drawn around it. */
+  #done-title:focus{outline:none;}
   .divinfo{font-size:14.5px;color:var(--slate);margin-top:-6px;margin-bottom:14px;}
   .slot{border:1.5px solid var(--line);border-radius:12px;padding:14px 14px 6px;margin-bottom:12px;background:var(--paper);}
   .slot.bad{border-color:var(--garnet);box-shadow:0 0 0 3px rgba(120,47,64,0.12);}
@@ -260,10 +269,21 @@
     </section>
 
     <section class="view center" id="v-done" aria-live="polite">
-      <div class="cico" aria-hidden="true">🌱</div>
-      <h2 id="done-title">Your team is in</h2>
-      <ul class="roster" id="done-players" style="text-align:left;"></ul>
+      <div class="cico" aria-hidden="true">✅</div>
+      <h2 id="done-title" tabindex="-1">You're registered!</h2>
+      <div class="done-card">
+        <div class="kv">Team: <b id="done-team"></b></div>
+        <div class="kv">Tournament: <b id="done-trn"></b></div>
+        <div class="kv">Division: <b id="done-div"></b></div>
+        <div class="kv" id="done-when-row">When: <b id="done-when"></b></div>
+        <div class="kv" id="done-where-row">Location: <b id="done-where"></b></div>
+        <div class="kv">Status: <b id="done-status"></b></div>
+        <div class="done-h">Players</div>
+        <ul class="roster" id="done-players"></ul>
+      </div>
+      <p class="done-mail">A confirmation email is on its way.</p>
       <p>Everyone on the team gets an email with their own link to manage the team.</p>
+      <a class="link-btn" id="done-back" href="#">Back to the tournament</a>
       <button class="link-btn" type="button" onclick="startRegister()">Register another team</button>
     </section>
 
@@ -1716,24 +1736,46 @@ async function doRegister(){
   state.busy = true; setBusy('r-btn', true, 'Registering...');
   var res = await post('/club/tournament-register-team', body);
   state.busy = false; setBusy('r-btn', false, 'Register team');
-  if(res.net){ $('r-err').textContent = 'We could not reach the server. Check your connection and try again.'; return; }
+  if(res.net){ regFail('We could not reach the server, so your team is not registered yet. Check your connection and tap Register team again.'); return; }
   var j = res.j;
   if(j && j.ok === true && j.closed){ showClosed(); return; }
-  if(j && j.ok === true && j.teamId){
-    $('done-title').textContent = (j.teamName || 'Your team') + ' is in';
-    fillRoster('done-players', j.players || [], '');
-    show('v-done');
-    return;
-  }
+  if(j && j.ok === true && j.teamId){ showRegistered(j); return; }
   if(j && typeof j.memberIndex === 'number' && idx[j.memberIndex] != null){
     var s = state.slots[idx[j.memberIndex]];
     if(j.code === 'gender_needed' && s.mode === 'picked') s.gNeeded = true;
     s.err = j.error || 'Check this player.';
     renderSlots('r');
-    $('r-err').textContent = 'Check the highlighted player.';
+    regFail('Your team is not registered yet. Fix the highlighted player, then tap Register team again.');
     return;
   }
-  $('r-err').textContent = genericErr(res.r, j);
+  regFail('Your team is not registered yet. ' + genericErr(res.r, j) + ' If it keeps happening, contact the exec team.');
+}
+// A failed registration: the red box under the button, scrolled into view.
+function regFail(msg){
+  var e = $('r-err');
+  e.textContent = msg;
+  try { e.scrollIntoView({ block:'center', behavior:'smooth' }); } catch(x){}
+}
+// The confirmation card: team, tournament, division, when, where, status and players.
+function showRegistered(j){
+  var m = state.meta || {};
+  var d = state.divisions[state.divId] || {};
+  $('done-team').textContent = j.teamName || 'Your team';
+  $('done-trn').textContent = m.name ? String(m.name) : 'this tournament';
+  $('done-div').textContent = d.name ? String(d.name) : '';
+  var ci = timeLabel(m.checkInTime), st = timeLabel(m.startTime);
+  var when = [dateLabel(m.date), ci ? 'check in ' + ci : '', st ? 'play starts ' + st : ''].filter(Boolean).join(', ');
+  $('done-when').textContent = when;
+  $('done-when-row').style.display = when ? '' : 'none';
+  $('done-where').textContent = m.location ? String(m.location) : '';
+  $('done-where-row').style.display = m.location ? '' : 'none';
+  var stEl = $('done-status');
+  stEl.textContent = j.statusText || (j.status === 'registered' ? 'Registered' : 'Incomplete');
+  stEl.className = j.status === 'registered' ? '' : 'incomplete';
+  fillRoster('done-players', j.players || [], '');
+  $('done-back').href = location.pathname + '?t=' + encodeURIComponent(state.tid);
+  show('v-done');
+  try { window.scrollTo(0, 0); $('done-title').focus(); } catch(x){}
 }
 
 function fillRoster(listId, names, you){

@@ -34,7 +34,7 @@
 <script src="/ratings.js?v=248349c0"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/partner-contact.js?v=7"></script>
+<script src="/partner-contact.js?v=8"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -5645,6 +5645,8 @@ function cspHydrate(){
     if(!PC) return;
     if(needSignIn){ slot.appendChild(PC.goldBtn('Sign in to team up', cspSignIn)); return; }
     if(!hit) return;
+    // A request to this player is still open: no second send.
+    if(PC.isSent(me, tid, hit.ref)){ slot.appendChild(PC.sentBtn()); return; }
     // On a forming team that day in their division: Invite to your team. On a
     // complete team (or one in another division) that day: nothing for that day.
     const plan = me.teamsEnabled ? PC.contactPlan(s.board, mine, hit.divs) : { kind: 'ask', divs: hit.divs || [] };

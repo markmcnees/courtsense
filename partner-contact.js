@@ -121,6 +121,11 @@
         return;
       }
       if(ctx.me) ctx.me.adult = true;
+      // The banner outlives the board refresh that follows; the box keeps its own line too.
+      const toWho = r.j.display || opts.toName || 'them';
+      // Short names already end in a period ("Ana B.").
+      const sentTo = toWho + (/\.$/.test(toWho) ? '' : '.');
+      showBanner(r.j.request ? 'Request sent to ' + sentTo + ' They will get an email and can answer yes, maybe or no.' : 'Message sent to ' + sentTo + ' They will get an email.');
       box.textContent = '';
       box.appendChild(el('div', 'msg-ok', 'Sent' + (r.j.linksRemoved ? ' (links removed)' : '') + '. ' + (r.j.request ? 'They will get an email and can answer yes, maybe or no.' : 'They will get an email.')));
       box.appendChild(link('ext', 'Open the conversation', threadHref(r.j.threadId)));
@@ -221,6 +226,12 @@
     '.pb-act{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:0 0 auto;margin-left:auto;}',
     '.pb-gold{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 18px;border:none;border-radius:10px;background:#F2B22E;color:#082A4F;font-family:"Bebas Neue",sans-serif;font-weight:400;font-size:18px;letter-spacing:1.2px;line-height:1;text-decoration:none;white-space:nowrap;cursor:pointer;box-shadow:0 1px 0 rgba(8,42,79,.18);}',
     '.pb-gold:hover{background:#E8A71F;}',
+    // Request sent: the row's button while a request from the viewer is open.
+    '.pb-sent{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 18px;border:1px solid #C9CED6;border-radius:10px;background:#E9ECF0;color:#4A5563;font-family:"Bebas Neue",sans-serif;font-weight:400;font-size:18px;letter-spacing:1.2px;line-height:1;white-space:nowrap;cursor:default;}',
+    // The confirmation banner after a send: fixed to the top of the window, outside every
+    // redrawn list, so a board refresh never wipes it.
+    '.pb-banner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;width:calc(100% - 32px);max-width:560px;box-sizing:border-box;padding:12px 40px 12px 14px;border-radius:12px;background:#E3F3EA;border:1px solid #8CC9A6;color:#0F5B43;font-family:Barlow,-apple-system,sans-serif;font-size:15px;font-weight:700;line-height:1.35;box-shadow:0 6px 18px rgba(8,42,79,.18);}',
+    '.pb-banner-x{position:absolute;top:6px;right:6px;width:32px;height:32px;border:none;background:none;color:#0F5B43;font-size:20px;line-height:1;cursor:pointer;}',
     '.pb-gold:disabled{opacity:.55;cursor:not-allowed;}',
     '.pb-quiet{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;border:none;background:none;color:#145757;font-family:Barlow,-apple-system,sans-serif;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer;}',
     '.pb-gold:focus-visible,.pb-quiet:focus-visible,.pb-ans:focus-visible{outline:3px solid #0081AB;outline-offset:2px;}',
@@ -302,6 +313,29 @@
     document.head.appendChild(s);
   }
   function goldBtn(text, onClick){ return btn('pb-gold', text, onClick); }
+  // A request from the viewer (or their team) to this row is still open, per
+  // /partners/me sentRefs: show a disabled "Request sent" instead of a second send.
+  function isSent(me, tid, ref){ const s = me && me.sentRefs && me.sentRefs[tid]; return !!(ref && s && s.indexOf(ref) !== -1); }
+  function sentBtn(){ const b = el('button', 'pb-sent', 'Request sent'); b.type = 'button'; b.disabled = true; return b; }
+  // The green "Request sent to ..." banner, at least 6 seconds (8 here), tap to close.
+  // One at a time: a new send replaces the last.
+  let bannerTimer = null;
+  function showBanner(text){
+    ensureStyles();
+    const old = document.getElementById('pb-banner');
+    if(old) old.remove();
+    if(bannerTimer) clearTimeout(bannerTimer);
+    const b = el('div', 'pb-banner', text);
+    b.id = 'pb-banner';
+    b.setAttribute('role', 'status');
+    b.setAttribute('aria-live', 'polite');
+    const x = btn('pb-banner-x', '×', function(){ b.remove(); });
+    x.setAttribute('aria-label', 'Close');
+    b.appendChild(x);
+    document.body.appendChild(b);
+    bannerTimer = setTimeout(function(){ b.remove(); }, 8000);
+    return b;
+  }
   function goldLink(text, href){ return link('pb-gold', text, href); }
   function quietBtn(text, onClick){ return btn('pb-quiet', text, onClick); }
   function quietLink(text, href, external){
@@ -925,7 +959,8 @@
     const c = playerCard({ name: m.display, rating: m.rating });
     if(m.badges && m.badges.length) c.main.appendChild(chips(m.badges, 'pb-chip-fit'));
     const key = 'm:' + tm.ref + ':' + m.ref;
-    if(ctx.canMessage) c.act.appendChild(goldBtn('Invite to your team', function(){
+    if(ctx.canMessage && isSent(ctx.me, t.id, m.ref)) c.act.appendChild(sentBtn());
+    else if(ctx.canMessage) c.act.appendChild(goldBtn('Invite to your team', function(){
       ctx.compose(c.box, { tid: t.id, ref: m.ref, divs: [{ div: m.div, label: d.label }], optional: true, title: inviteTitle(m.display, tm), prompt: 'Add a note (optional)', placeholder: 'Say hi and why they would fit the team.', sendText: 'Send invite' }, key);
     }));
     ctx.reattach(c.box, key);
@@ -1032,6 +1067,7 @@
         const cb = (X.combinable || {})[tm.ref];
         if(!ctx.signedIn){ if(ctx.signIn) c.act.appendChild(ctx.signIn('Sign in to ask')); }
         else if(!(ctx.canMessage && ctx.me && ctx.me.teamsEnabled)){ /* nothing to offer */ }
+        else if(isSent(ctx.me, t.id, tm.ref)) c.act.appendChild(sentBtn());
         else if(byDay[d.day]){ if(cb) c.act.appendChild(goldBtn('Ask to combine', function(){ ctx.askToJoin(c, d, tm, cb); })); }
         else c.act.appendChild(goldBtn('Ask to join', function(){ ctx.askToJoin(c, d, tm); }));
       }
@@ -1045,6 +1081,7 @@
 
   global.CourtSensePartner = {
     storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, teamNames, inviteTitle, combineTitle,
+    isSent, sentBtn, showBanner,
     ensureStyles, section, emptyLine, teamCard, playerCard, goldBtn, goldLink, quietBtn, quietLink, badge, divTag, trnTag, tagEl, requestStrip,
     teamsSection, COED_NOTE,
   };
