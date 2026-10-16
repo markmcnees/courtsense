@@ -11,10 +11,31 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>
-/* Pitch page only: no fan email signup, and no Close button (coaches use the small link below the roster). */
-#lf-email-section{display:none !important;}
-#school-fans-overlay button[onclick="hideLeonFans()"]{display:none !important;}
-#pitch-coach-link{display:block;margin:28px auto 0;background:none;border:none;color:rgba(255,255,255,0.45);font-family:'Barlow',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;}
+/* Pitch page only: the fan view is replaced by one full-screen scoreboard (#pb). The standard
+   fan layout (record, courts, roster, results, email signup) stays in the page but is hidden. */
+#school-fans-overlay{background:#082A4F !important;}
+#school-fans-overlay > div:not(#pb){display:none !important;}
+#pb{min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px 18px;color:#fff;text-align:center;}
+#pb-live{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.25);font-family:'Barlow',sans-serif;font-weight:700;font-size:13px;letter-spacing:2px;}
+#pb-live i{width:10px;height:10px;border-radius:50%;background:#4ade80;animation:pbPulse 1.4s ease-in-out infinite;}
+@keyframes pbPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.35;transform:scale(0.75);}}
+#pb-rows{display:flex;flex-direction:column;align-items:center;width:100%;margin:10px 0 4px;}
+.pb-row{display:flex;flex-direction:column;align-items:center;width:100%;}
+.pb-name{font-family:'Bebas Neue',sans-serif;font-size:clamp(28px,8vw,56px);letter-spacing:4px;line-height:1;margin-top:8px;}
+/* Two stacked scores share the screen height, so height sets the size (dvh where supported). */
+.pb-score{font-family:'Bebas Neue',sans-serif;color:#F2B22E;line-height:0.86;font-size:min(92vw,calc((100vh - 240px) / 2));font-size:min(92vw,calc((100dvh - 240px) / 2));}
+#pb-live.off i{background:#94a3b8;animation:none;}
+.pb-score.flash{animation:pbFlash 0.9s ease-out;}
+@keyframes pbFlash{0%{color:#fff;transform:scale(1.08);text-shadow:0 0 40px rgba(242,178,46,0.9);}100%{color:#F2B22E;transform:scale(1);text-shadow:none;}}
+#pb-set{font-family:'Bebas Neue',sans-serif;font-size:clamp(26px,7vw,44px);letter-spacing:4px;margin-top:8px;}
+#pb-sets{font-family:'Barlow',sans-serif;font-size:16px;font-weight:600;color:rgba(255,255,255,0.8);min-height:22px;margin-top:2px;}
+#pb-conn{font-family:'Barlow',sans-serif;font-size:13px;color:#fca5a5;min-height:18px;margin-top:6px;}
+#pitch-coach-link{margin-top:auto;padding-top:18px;background:none;border:none;color:rgba(255,255,255,0.4);font-family:'Barlow',sans-serif;font-size:12px;text-decoration:underline;cursor:pointer;}
+@media (min-aspect-ratio:1/1){
+  #pb-rows{flex-direction:row;justify-content:center;gap:6vw;}
+  .pb-row{width:auto;}
+  .pb-score{font-size:min(30vw,50vh);}
+}
 </style>
 </head>
 <body>
@@ -70,37 +91,97 @@ window.SCHOOL_CONFIG = {
 </script>
 <script src="/app.js?v=1.1.187"></script>
 <script>
-// Open straight to the fan view, then redraw once the first snapshot lands (the
-// DB_ROOT listener refreshes coach and player screens, not the fan overlay).
+// Pitch scoreboard. Fans see one board: CourtSense vs Paper and the live point score of the
+// court in play. Read only. It listens to the same live_scoring slice the coach phone writes
+// (us = CourtSense, them = Paper) and to the saved sets for today, so sets won survive a set
+// change (the coach flow clears a court's live entry when it saves the set).
 (function(){
   if(typeof showLeonFans !== 'function') return;
+  var ROOT = 'demo_sand_sharks_matches', ASG = 'pitch_asg';
+
+  var ol = document.getElementById('school-fans-overlay');
+  if(!ol) return;
+  var pb = document.createElement('div');
+  pb.id = 'pb';
+  pb.innerHTML =
+    '<div id="pb-live"><i></i>LIVE</div>' +
+    '<div id="pb-rows">' +
+      '<div class="pb-row"><div class="pb-name">COURTSENSE</div><div class="pb-score" id="pb-us">0</div></div>' +
+      '<div class="pb-row"><div class="pb-name">PAPER</div><div class="pb-score" id="pb-them">0</div></div>' +
+    '</div>' +
+    '<div id="pb-set">Warming up</div>' +
+    '<div id="pb-sets"></div>' +
+    '<div id="pb-conn"></div>' +
+    '<button type="button" id="pitch-coach-link">Coach sign-in</button>';
+  ol.appendChild(pb);
+  document.getElementById('pitch-coach-link').onclick = function(){ hideFans(); };
+
+  // The coach phone restores its session and goes to the coach screens; everyone else lands here.
   if(!(sessionStorage.getItem('csCoachSession'))) showLeonFans();
-  var tries = 0;
-  var t = setInterval(function(){
-    tries++;
-    var ready = false;
-    try{ ready = _rosterLoaded; }catch(e){}
-    if(ready || tries > 150){
-      clearInterval(t);
-      var ol = document.getElementById('school-fans-overlay');
-      if(ready && ol && ol.style.display !== 'none') renderFans();
+
+  var live = {}, sets = {}, lastCourt = null, shown = { us: 0, them: 0 };
+  var today = function(){ return typeof td === 'function' ? td() : new Date().toISOString().slice(0, 10); };
+
+  function setText(id, v){ var el = document.getElementById(id); if(el && el.textContent !== String(v)) el.textContent = v; }
+  function flash(id){ var el = document.getElementById(id); if(!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+
+  function render(){
+    var d = today();
+    // Live entries for today, keyed by court number.
+    var byCourt = {}, active = null;
+    Object.keys(live || {}).forEach(function(k){
+      var r = live[k];
+      if(!r || r.date !== d || r.court == null) return;
+      byCourt[r.court] = r;
+      if((r.us > 0 || r.them > 0) && (!active || (r.ts || 0) > (active.ts || 0))) active = r;
+    });
+    // Saved sets for today on this dual, keyed by court number.
+    var setsByCourt = {};
+    Object.keys(sets || {}).forEach(function(k){
+      var g = sets[k];
+      if(!g || g.date !== d || (g.assignmentId && g.assignmentId !== ASG)) return;
+      setsByCourt[g.court] = (setsByCourt[g.court] || []).concat(g.sets || []);
+    });
+    // Follow the court with the most recent point; hold it between sets; default to court 1.
+    if(active) lastCourt = active.court;
+    if(lastCourt == null){
+      var withSets = Object.keys(setsByCourt).filter(function(c){ return setsByCourt[c].length; });
+      lastCourt = withSets.length ? parseInt(withSets[0], 10) : 1;
     }
-  }, 200);
-  var sec = document.getElementById('lf-email-section');
-  if(sec && sec.parentNode){
-    var a = document.createElement('button');
-    a.id = 'pitch-coach-link';
-    a.type = 'button';
-    a.textContent = 'Coach sign-in';
-    a.onclick = function(){ hideFans(); };
-    sec.parentNode.appendChild(a);
+    var rec = byCourt[lastCourt] || null;
+    var done = setsByCourt[lastCourt] || [];
+    var wonUs = done.filter(function(s){ return (s.scoreUs || 0) > (s.scoreThem || 0); }).length;
+    var wonThem = done.length - wonUs;
+    var us = rec ? (parseInt(rec.us, 10) || 0) : 0, them = rec ? (parseInt(rec.them, 10) || 0) : 0;
+
+    if(us > shown.us) flash('pb-us');
+    if(them > shown.them) flash('pb-them');
+    shown = { us: us, them: them };
+    setText('pb-us', us);
+    setText('pb-them', them);
+
+    var started = done.length > 0 || us > 0 || them > 0;
+    var final = (wonUs >= 2 || wonThem >= 2) && us === 0 && them === 0;
+    setText('pb-set', final ? 'FINAL' : (started ? 'SET ' + ((rec && rec.setNum) || done.length + 1) : 'Warming up'));
+    setText('pb-sets', done.length ? 'Sets ' + wonUs + ' to ' + wonThem : '');
   }
-  // Points reach this view through a live listener the moment they are written; the
-  // 30 second timer is only a backup redraw, so the "every 30s" label undersells it here.
-  var spans = document.querySelectorAll('#school-fans-overlay span');
-  for(var i = 0; i < spans.length; i++){
-    if(/AUTO-UPDATES EVERY 30s/.test(spans[i].textContent)){ spans[i].textContent = 'LIVE'; break; }
-  }
+
+  var fdb = null;
+  try{ fdb = firebase.database(); }catch(e){}
+  if(!fdb){ setText('pb-conn', 'Reconnecting'); return; }
+  fdb.ref(ROOT + '/live_scoring/' + ASG).on('value', function(s){ live = s.val() || {}; render(); });
+  fdb.ref(ROOT + '/gamedays').on('value', function(s){ sets = s.val() || {}; render(); });
+  // Keep the last score on screen through a dropped connection; just say so.
+  var everConnected = false;
+  fdb.ref('.info/connected').on('value', function(s){
+    var on = s.val() === true;
+    if(on) everConnected = true;
+    var down = !on && everConnected;
+    setText('pb-conn', down ? 'Reconnecting' : '');
+    document.getElementById('pb-live').classList.toggle('off', down);
+  });
+  setTimeout(function(){ if(!everConnected){ setText('pb-conn', 'Reconnecting'); document.getElementById('pb-live').classList.add('off'); } }, 6000);
+  render();
 })();
 </script>
 </body>
