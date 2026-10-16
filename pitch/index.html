@@ -95,6 +95,12 @@ window.SCHOOL_CONFIG = {
     a.onclick = function(){ hideFans(); };
     sec.parentNode.appendChild(a);
   }
+  // Points reach this view through a live listener the moment they are written; the
+  // 30 second timer is only a backup redraw, so the "every 30s" label undersells it here.
+  var spans = document.querySelectorAll('#school-fans-overlay span');
+  for(var i = 0; i < spans.length; i++){
+    if(/AUTO-UPDATES EVERY 30s/.test(spans[i].textContent)){ spans[i].textContent = 'LIVE'; break; }
+  }
 })();
 </script>
 </body>
