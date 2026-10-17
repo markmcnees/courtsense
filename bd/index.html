@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Coach Pipeline</title>
+<title>Business Development</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
@@ -59,7 +59,22 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 .fallback textarea{min-height:80px;font-size:14px;}
 .fallback .h{font-size:14px;font-weight:600;margin-bottom:6px;}
 .list{display:grid;gap:12px;}
-.card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--slate);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;}
+.tabs{position:relative;display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid var(--line);margin-bottom:12px;scrollbar-width:thin;}
+.tab{flex:0 0 auto;min-height:44px;padding:0 14px;background:transparent;color:var(--muted);border-radius:10px 10px 0 0;border-bottom:3px solid transparent;margin-bottom:-2px;}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--gold);background:var(--card);}
+.tab .n{opacity:.75;font-weight:500;margin-left:4px;}
+.card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--slate);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;
+  grid-template-areas:"cat status" "name role" "org org" "city county" "email email" "next next" "notes notes";}
+.card [data-k="category"]{grid-area:cat;}
+.card [data-k="status"]{grid-area:status;}
+.card [data-k="name"]{grid-area:name;}
+.card [data-k="role"]{grid-area:role;}
+.card [data-k="school"]{grid-area:org;}
+.card [data-k="city"]{grid-area:city;}
+.card [data-k="county"]{grid-area:county;}
+.card [data-k="email"]{grid-area:email;}
+.card [data-k="nextStep"]{grid-area:next;}
+.card [data-k="notes"]{grid-area:notes;}
 .card[data-status="Contacted"]{border-left-color:var(--slate);}
 .card[data-status="Interested"]{border-left-color:var(--blue);}
 .card[data-status="Committed"]{border-left-color:var(--gold);}
@@ -67,7 +82,7 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 .card[data-status="Live"]{border-left-color:#1E7A4C;}
 .card[data-status="Not now"]{border-left-color:var(--line);opacity:.85;}
 .card .wide{grid-column:1 / -1;}
-.card .name input{font-weight:700;font-size:18px;}
+.card [data-k="name"] input{font-weight:700;font-size:18px;}
 .meta{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--muted);}
 .state{font-weight:600;}
 .state.ok{color:var(--ok);}
@@ -81,10 +96,8 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 .foot{margin-top:24px;display:flex;justify-content:center;}
 @media (min-width:900px){
   .tools{position:sticky;top:0;z-index:5;}
-  .card{grid-template-columns:1.3fr 1.3fr .8fr 1fr 1.6fr;align-items:end;}
-  .card .wide{grid-column:auto;}
-  .card .nstep{grid-column:1 / 3;}
-  .card .notes{grid-column:3 / -1;}
+  .card{grid-template-columns:repeat(6,1fr);align-items:end;
+    grid-template-areas:"cat name name role org org" "city county status email email email" "next next next notes notes notes";}
   .addform{grid-template-columns:repeat(4,1fr);}
   .addform .wide{grid-column:span 2;}
 }
@@ -93,8 +106,8 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 <body>
 <div class="wrap">
   <div class="top">
-    <h1>Coach Pipeline</h1>
-    <span class="sub">High school beach coaches, 2027 pilot</span>
+    <h1>Business Development</h1>
+    <span class="sub">High schools, parks and rec, college clubs and club teams</span>
   </div>
 
   <div id="gate" class="gate" hidden>
@@ -109,10 +122,11 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 
   <div id="app" hidden>
     <div class="tools">
-      <label class="f">Search<input id="q" type="search" placeholder="Name, school, county, email or notes" autocomplete="off"></label>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Category"></div>
+      <label class="f">Search<input id="q" type="search" placeholder="Name, organization, role, city, county, email or notes" autocomplete="off"></label>
       <div class="chips" id="chips" role="group" aria-label="Filter by status"></div>
       <div class="actions">
-        <button class="b-gold" id="add-btn" type="button">Add coach</button>
+        <button class="b-gold" id="add-btn" type="button">Add contact</button>
         <button class="b-navy" id="bcc-btn" type="button">Copy emails for BCC</button>
         <button class="b-quiet" id="csv-btn" type="button">Export CSV</button>
         <span class="note" id="act-note" role="status" aria-live="polite"></span>
@@ -131,22 +145,38 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 </div>
 
 <script>
-// Coach Pipeline. Admin only: every read and write goes through the worker's
-// /admin/bd/* routes with the admin key, and the coaches live in a node clients
+// Business Development. Admin only: every read and write goes through the worker's
+// /admin/bd/* routes with the admin key, and the contacts live in a node clients
 // cannot read. The key sits in localStorage['courtsenseAdminKey'], the same slot
 // admin-players.html uses, and is checked first through /auth/admin-key-check.
 (function(){
   const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
   const KEY_STORE = 'courtsenseAdminKey';
   const STATUSES = ['Contacted', 'Interested', 'Committed', 'Onboarded', 'Live', 'Not now'];
+  // Category: tab label, and the label of the organization field (stored as "school").
+  const CATEGORIES = [
+    ['high_school', 'High school', 'School'],
+    ['parks_rec', 'Parks and Rec', 'Department'],
+    ['college_club', 'College club', 'University'],
+    ['club_team', 'Club team', 'Club']
+  ];
+  const CAT_IDS = CATEGORIES.map(c => c[0]);
+  const DEFAULT_CAT = 'high_school';
+  const TAB_STORE = 'courtsenseBdTab';
   const SAVE_PAUSE_MS = 1200;
   const MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
   const $ = id => document.getElementById(id);
 
   let KEY = '';
-  let coaches = [];     // { id, name, school, county, email, status, nextStep, notes, lastTouch }
-  let filter = 'All';
+  let coaches = [];     // { id, category, name, role, school, city, county, email, status, nextStep, notes, lastTouch }
+  let tab = 'All';      // 'All' or a category id
+  let filter = 'All';   // status
   let query = '';
+  try{ const t = localStorage.getItem(TAB_STORE); if(t === 'All' || CAT_IDS.indexOf(t) !== -1) tab = t; }catch(e){}
+
+  function catOf(c){ return CAT_IDS.indexOf(c.category) !== -1 ? c.category : DEFAULT_CAT; }
+  function catName(id){ const c = CATEGORIES.find(x => x[0] === id); return c ? c[1] : 'High school'; }
+  function orgLabel(id){ const c = CATEGORIES.find(x => x[0] === id); return c ? c[2] : 'School'; }
 
   function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
   function stored(){ try{ return (localStorage.getItem(KEY_STORE) || '').trim(); }catch(e){ return ''; } }
@@ -203,7 +233,7 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     $('gate').hidden = true; $('app').hidden = false;
     $('load-err').hidden = true;
     $('list').textContent = '';
-    $('list').appendChild(el('div', 'empty', 'Loading coaches...'));
+    $('list').appendChild(el('div', 'empty', 'Loading contacts...'));
     const res = await post('/admin/bd/list');
     if(!KEY) return;
     if(res.status !== 200 || !res.j || !res.j.ok){
@@ -217,10 +247,12 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
   }
 
   // ── Filter, search, counts ────────────────────────────────────────────────
+  function inTab(c){ return tab === 'All' || catOf(c) === tab; }
   function matches(c){
+    if(!inTab(c)) return false;
     if(filter !== 'All' && c.status !== filter) return false;
     if(!query) return true;
-    const hay = [c.name, c.school, c.county, c.email, c.notes].join(' ').toLowerCase();
+    const hay = [c.name, c.role, c.school, c.city, c.county, c.email, c.notes].join(' ').toLowerCase();
     return query.split(/\s+/).every(w => hay.indexOf(w) !== -1);
   }
   function visible(){
@@ -228,10 +260,35 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
       STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status) ||
       (a.school || a.name || a.email).localeCompare(b.school || b.name || b.email));
   }
+  function setTab(t){
+    tab = t;
+    try{ localStorage.setItem(TAB_STORE, t); }catch(e){}
+    render();
+  }
+  function drawTabs(){
+    const box = $('tabs'); box.textContent = '';
+    [['All', 'All']].concat(CATEGORIES.map(c => [c[0], c[1]])).forEach(([id, label]) => {
+      const n = id === 'All' ? coaches.length : coaches.filter(c => catOf(c) === id).length;
+      const b = el('button', 'tab', label);
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(tab === id));
+      b.dataset.tab = id;
+      b.appendChild(el('span', 'n', '(' + n + ')'));
+      b.addEventListener('click', function(){ setTab(id); });
+      box.appendChild(b);
+    });
+    // Keep the selected tab in view when the row scrolls on a phone.
+    const on = box.querySelector('[aria-selected="true"]');
+    if(on && (on.offsetLeft < box.scrollLeft || on.offsetLeft + on.offsetWidth > box.scrollLeft + box.clientWidth)) box.scrollLeft = Math.max(0, on.offsetLeft - 16);
+  }
+  // Tabs and status chips, both counted; status counts are for the current tab.
   function drawChips(){
+    drawTabs();
     const box = $('chips'); box.textContent = '';
+    const pool = coaches.filter(inTab);
     ['All'].concat(STATUSES).forEach(s => {
-      const n = s === 'All' ? coaches.length : coaches.filter(c => c.status === s).length;
+      const n = s === 'All' ? pool.length : pool.filter(c => c.status === s).length;
       const b = el('button', 'chip', s);
       b.type = 'button';
       b.setAttribute('aria-pressed', String(filter === s));
@@ -245,7 +302,7 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     drawChips();
     const list = $('list'); list.textContent = '';
     const rows = visible();
-    if(!rows.length){ list.appendChild(el('div', 'empty', coaches.length ? 'No coaches match.' : 'No coaches yet. Tap Add coach to start.')); return; }
+    if(!rows.length){ list.appendChild(el('div', 'empty', coaches.length ? 'No contacts match.' : 'No contacts yet. Tap Add contact to start.')); return; }
     rows.forEach(c => list.appendChild(card(c)));
   }
   let qTimer = 0;
@@ -254,11 +311,22 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     qTimer = setTimeout(() => { query = $('q').value.trim().toLowerCase(); render(); }, 150);
   });
 
-  // ── One coach, edited in place ────────────────────────────────────────────
-  function field(label, cls, input){
+  // ── One contact, edited in place ──────────────────────────────────────────
+  function field(label, cls, input, key){
     const l = el('label', 'f ' + (cls || ''), label);
+    if(key) l.dataset.k = key;
     l.appendChild(input);
     return l;
+  }
+  function categorySelect(value){
+    const s = document.createElement('select');
+    CATEGORIES.forEach(c => { const o = el('option', null, c[1]); o.value = c[0]; if(c[0] === value) o.selected = true; s.appendChild(o); });
+    return s;
+  }
+  // The organization field's label and placeholder follow the category.
+  function setOrgLabel(label, input, cat){
+    label.firstChild.textContent = orgLabel(cat);
+    input.placeholder = orgLabel(cat);
   }
   function textInput(value, max, type){
     const i = document.createElement('input');
@@ -274,36 +342,46 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     const box = el('div', 'card');
     box.dataset.id = c.id;
     box.dataset.status = c.status;
+    box.dataset.category = catOf(c);
+    const category = categorySelect(catOf(c));
     const name = textInput(c.name, 80);
+    const role = textInput(c.role, 80);
     const school = textInput(c.school, 80);
+    const city = textInput(c.city, 80);
     const county = textInput(c.county, 80);
     const email = textInput(c.email, 200, 'email');
     const status = statusSelect(c.status);
     const nextStep = textInput(c.nextStep, 200);
     const notes = document.createElement('textarea');
     notes.value = c.notes || ''; notes.maxLength = 2000; notes.rows = 2;
-    name.placeholder = 'Coach name'; school.placeholder = 'School'; county.placeholder = 'County';
-    box.appendChild(field('Name', 'name', name));
-    box.appendChild(field('School', '', school));
-    box.appendChild(field('County', '', county));
-    box.appendChild(field('Status', '', status));
-    box.appendChild(field('Email', 'wide', email));
-    box.appendChild(field('Next step', 'wide nstep', nextStep));
-    box.appendChild(field('Notes', 'wide notes', notes));
+    name.placeholder = 'Name'; role.placeholder = 'Role'; city.placeholder = 'City'; county.placeholder = 'County';
+    box.appendChild(field('Category', '', category, 'category'));
+    box.appendChild(field('Name', '', name, 'name'));
+    box.appendChild(field('Role', '', role, 'role'));
+    const orgField = field('School', '', school, 'school');
+    setOrgLabel(orgField, school, catOf(c));
+    box.appendChild(orgField);
+    box.appendChild(field('City', '', city, 'city'));
+    box.appendChild(field('County', '', county, 'county'));
+    box.appendChild(field('Status', '', status, 'status'));
+    box.appendChild(field('Email', '', email, 'email'));
+    box.appendChild(field('Next step', '', nextStep, 'nextStep'));
+    box.appendChild(field('Notes', '', notes, 'notes'));
     const meta = el('div', 'meta');
     const touch = el('span', null, 'Last touch ' + (c.lastTouch || 'not set'));
     const state = el('span', 'state', '');
     state.setAttribute('role', 'status');
     const del = el('button', 'b-link', 'Delete');
     del.type = 'button';
-    del.setAttribute('aria-label', 'Delete ' + (c.name || c.school || 'this coach'));
+    del.setAttribute('aria-label', 'Delete ' + (c.name || c.school || 'this contact'));
     meta.appendChild(touch); meta.appendChild(state); meta.appendChild(del);
     box.appendChild(meta);
     const err = el('div', 'errbox wide', '');
     err.hidden = true; err.setAttribute('role', 'alert');
     box.appendChild(err);
 
-    const inputs = { name, school, county, email, status, nextStep, notes };
+    const inputs = { category, name, role, school, city, county, email, status, nextStep, notes };
+    const SELECTS = { category: 1, status: 1 };
     let timer = 0, busy = false, again = false, dirty = false;
     function read(){
       const o = { id: c.id };
@@ -329,6 +407,7 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
         Object.assign(c, res.j.coach);
         touch.textContent = 'Last touch ' + c.lastTouch;
         box.dataset.status = c.status;
+        box.dataset.category = catOf(c);
         err.hidden = true; email.removeAttribute('aria-invalid');
         if(document.activeElement !== email) email.value = c.email;
         state.textContent = 'Saved'; state.className = 'state ok';
@@ -348,9 +427,10 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     }
     for(const k in inputs){
       const i = inputs[k];
-      i.addEventListener(k === 'status' ? 'change' : 'input', k === 'status' ? function(){ dirty = true; save(); } : touched);
+      i.addEventListener(SELECTS[k] ? 'change' : 'input', SELECTS[k] ? function(){ dirty = true; save(); } : touched);
       i.addEventListener('blur', save);
     }
+    category.addEventListener('change', function(){ setOrgLabel(orgField, school, category.value); });
 
     del.addEventListener('click', function(){
       if(box.querySelector('.confirm')) return;
@@ -381,26 +461,35 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
     return box;
   }
 
-  // ── Add a coach ───────────────────────────────────────────────────────────
+  // ── Add a contact ─────────────────────────────────────────────────────────
   $('add-btn').addEventListener('click', function(){
     const slot = $('add-slot');
     if(slot.firstChild){ slot.querySelector('input').focus(); return; }
     const f = el('form', 'addform');
-    f.setAttribute('aria-label', 'Add a coach');
-    const email = textInput('', 200, 'email'), name = textInput('', 80), school = textInput('', 80), county = textInput('', 80);
+    f.setAttribute('aria-label', 'Add a contact');
+    // Category starts on the current tab (High school when on All).
+    const category = categorySelect(tab === 'All' ? DEFAULT_CAT : tab);
+    const email = textInput('', 200, 'email'), name = textInput('', 80), role = textInput('', 80), school = textInput('', 80);
+    const city = textInput('', 80), county = textInput('', 80);
     const status = statusSelect('Contacted'), nextStep = textInput('', 200);
     const notes = document.createElement('textarea'); notes.maxLength = 2000; notes.rows = 2;
     email.required = true;
-    f.appendChild(field('Email (required)', 'wide', email));
-    f.appendChild(field('Name', '', name));
-    f.appendChild(field('School', '', school));
-    f.appendChild(field('County', '', county));
-    f.appendChild(field('Status', '', status));
-    f.appendChild(field('Next step', 'wide', nextStep));
-    f.appendChild(field('Notes', 'wide', notes));
+    f.appendChild(field('Category', '', category, 'category'));
+    f.appendChild(field('Email (required)', '', email, 'email'));
+    f.appendChild(field('Name', '', name, 'name'));
+    f.appendChild(field('Role', '', role, 'role'));
+    const orgField = field('School', 'wide', school, 'school');
+    setOrgLabel(orgField, school, category.value);
+    category.addEventListener('change', function(){ setOrgLabel(orgField, school, category.value); });
+    f.appendChild(orgField);
+    f.appendChild(field('City', '', city, 'city'));
+    f.appendChild(field('County', '', county, 'county'));
+    f.appendChild(field('Status', '', status, 'status'));
+    f.appendChild(field('Next step', 'wide', nextStep, 'nextStep'));
+    f.appendChild(field('Notes', 'wide', notes, 'notes'));
     const err = el('div', 'errbox row', ''); err.hidden = true; err.setAttribute('role', 'alert');
     const row = el('div', 'row');
-    const go = el('button', 'b-gold', 'Save coach'); go.type = 'submit';
+    const go = el('button', 'b-gold', 'Save contact'); go.type = 'submit';
     const cancel = el('button', 'b-quiet', 'Cancel'); cancel.type = 'button';
     row.appendChild(go); row.appendChild(cancel);
     f.appendChild(err); f.appendChild(row);
@@ -412,13 +501,15 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
       err.hidden = true;
       if(!email.value.trim()){ err.hidden = false; err.textContent = 'Email is required.'; email.focus(); return; }
       go.disabled = true;
-      const res = await post('/admin/bd/save', { coach: { email: email.value, name: name.value, school: school.value, county: county.value, status: status.value, nextStep: nextStep.value, notes: notes.value } });
+      const res = await post('/admin/bd/save', { coach: { category: category.value, email: email.value, name: name.value, role: role.value, school: school.value, city: city.value, county: county.value, status: status.value, nextStep: nextStep.value, notes: notes.value } });
       go.disabled = false;
       if(res.status === 200 && res.j && res.j.ok){
         coaches.push(res.j.coach);
         slot.textContent = '';
         filter = 'All'; query = ''; $('q').value = '';
-        render();
+        // Stay on this tab, or move to the new contact's tab if it belongs elsewhere.
+        if(tab !== 'All' && tab !== catOf(res.j.coach)) setTab(catOf(res.j.coach));
+        else render();
         note('Added ' + (res.j.coach.name || res.j.coach.email) + '.');
         const added = document.querySelector('.card[data-id="' + res.j.coach.id + '"]');
         if(added) added.scrollIntoView({ block: 'center' });
@@ -467,16 +558,18 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
   $('csv-btn').addEventListener('click', function(){
     const rows = visible();
     if(!rows.length){ note('Nothing to export in this view.'); return; }
-    const cols = ['name', 'school', 'county', 'email', 'status', 'nextStep', 'notes', 'lastTouch'];
-    const head = ['Name', 'School', 'County', 'Email', 'Status', 'Next step', 'Notes', 'Last touch'];
-    const csv = [head.join(',')].concat(rows.map(c => cols.map(k => csvCell(c[k])).join(','))).join('\r\n') + '\r\n';
-    const name = 'coach-pipeline-' + (filter === 'All' ? 'all' : filter.toLowerCase().replace(/\s+/g, '-')) + '-' + today() + '.csv';
+    const cols = ['category', 'name', 'role', 'school', 'city', 'county', 'email', 'status', 'nextStep', 'notes', 'lastTouch'];
+    const head = ['Category', 'Name', 'Role', 'Organization', 'City', 'County', 'Email', 'Status', 'Next step', 'Notes', 'Last touch'];
+    const cell = (c, k) => csvCell(k === 'category' ? catName(catOf(c)) : c[k]);
+    const csv = [head.join(',')].concat(rows.map(c => cols.map(k => cell(c, k)).join(','))).join('\r\n') + '\r\n';
+    const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const name = 'business-development-' + slug(tab === 'All' ? 'all' : catName(tab)) + (filter === 'All' ? '' : '-' + slug(filter)) + '-' + today() + '.csv';
     try{
-      const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      const url = URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      note('Exported ' + rows.length + (rows.length === 1 ? ' coach' : ' coaches') + '.');
+      note('Exported ' + rows.length + (rows.length === 1 ? ' contact' : ' contacts') + '.');
     }catch(e){
       showFallback('Download did not start. Copy the CSV below.', csv);
     }
