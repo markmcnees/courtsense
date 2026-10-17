@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.189';
+const APP_VERSION='1.1.190';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -13540,7 +13540,7 @@ function tnEndHtml(t,h){
   var esc=h.esc, btn=h.btn, st=t.meta.status, html='<div style="border-top:1px solid var(--border,#eee);margin-top:16px;padding-top:12px;"><div style="font-weight:700;font-size:15px;">End tournament</div>';
   if(_tnEnd.running) return html+'<div style="font-size:13px;margin-top:6px;">Rating games now. Keep this page open until it finishes.</div></div>';
   if(st!=='final'){
-    html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Closes scoring for everyone, shows final results on the live page, and rates every finished set for 2 player teams. Exec only.</div>';
+    html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Closes scoring for everyone, shows final results on the live page, and rates every finished set. 3s count as half a game and 4s as a quarter. Exec only.</div>';
     var pv=_tnEnd.preview;
     // Primary once every bracket has a champion; before that it still works, with the strong confirm.
     if(!pv) return html+btn('End tournament','tnEndStart()',true,tnEndOpenBrackets(t).length?'':'background:var(--red);color:#fff;')+'</div>';
