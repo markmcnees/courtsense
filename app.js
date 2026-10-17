@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.187';
+const APP_VERSION='1.1.188';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12189,7 +12189,8 @@ function tnPlayerRating(accountId){
   }
   var roster=(D.players||[]).filter(function(p){ return p&&p.accountId===accountId; })[0]||null;
   var val=null, games=0, tv=false;
-  if(rec&&typeof rec.rating==='number'){ val=rec.rating; games=+rec.gamesPlayed||0; tv=rec.seededFromTruVolley!=null; }
+  // Games counted by weight (3s half, 4s a quarter) when the loaded ratings.js knows weights.
+  if(rec&&typeof rec.rating==='number'){ val=rec.rating; games=(window.Ratings&&typeof Ratings.weightedGamesOf==='function')?Ratings.weightedGamesOf(rec):(+rec.gamesPlayed||0); tv=rec.seededFromTruVolley!=null; }
   else if(a&&typeof a.rating==='number'){ val=a.rating; games=+a.gamesPlayed||0; }
   else if(roster&&typeof roster.rating==='number'){ val=roster.rating; tv=typeof roster.truVolley==='number'; }
   if(!tv&&roster&&typeof roster.truVolley==='number'&&typeof roster.rating==='number'&&games<TN_PROVISIONAL_GAMES&&val===roster.rating) tv=true;
@@ -13238,10 +13239,10 @@ function tnPoHtml(t,h){
 //     one record tagged with the account, else exactly one untagged record under the account's
 //     name, else a new tagged record made with ptCreateRating (seeded from the account's rating).
 //     Ambiguity or a key held by someone else skips the result with the reason.
-//   - Only team sizes in TN_RATED_TEAM_SIZES are rated. Ratings.applyGame blends each player with
-//     one teammate, so 3 and 4 player teams are 'deferred' (kept, not rated) until it rates whole
-//     teams; adding 3 and 4 here then rates them on the next run.
-var TN_RATED_TEAM_SIZES=[2];
+//   - Only team sizes in TN_RATED_TEAM_SIZES are rated, each at its weight (ptRateWeight: 2s full,
+//     3s half, 4s a quarter). Results deferred before 3s and 4s were rated come back on the next
+//     Retry and rate at their weight. A page holding an older ratings.js defers them again.
+var TN_RATED_TEAM_SIZES=[2,3,4];
 var TN_RATE_SOURCE='club_tournament';
 var _tnEnd={preview:null, running:false, summary:null};
 function tnRateSizeOk(n){ return TN_RATED_TEAM_SIZES.indexOf(+n)>=0; }
@@ -13287,6 +13288,7 @@ function tnRateCheck(t,mid){
   var demo=function(x,ps){ return x.demo===true||ps.some(function(p){ return String(p.accountId).indexOf('demo_')===0; }); };
   if(demo(a,pa)||demo(b,pb)) return skip('Practice team, not rated');
   if(!tnRateSizeOk(size)) return {kind:'defer', note:'Team size not supported for ratings yet'};
+  if(!ptRateWeightReady(size)) return {kind:'defer', note:'Reload the page to rate '+size+'s'};
   var roster=function(x,ps){
     if(ps.length<size) return String(x.name||'A team')+' has fewer than '+size+' players on record';
     if(ps.length>size) return String(x.name||'A team')+' has a sub on its roster, so who played is not known';
@@ -13294,7 +13296,7 @@ function tnRateCheck(t,mid){
   };
   var bad=roster(a,pa)||roster(b,pb);
   if(bad) return skip(bad);
-  return {kind:'rate', divId:divId, t1:pa, t2:pb, sets:tnArr(r.sets)};
+  return {kind:'rate', divId:divId, size:size, t1:pa, t2:pb, sets:tnArr(r.sets)};
 }
 // One account's rating record, by the same rules as resolveClubRating. null when ratings are not
 // loaded. Otherwise { status:'linked'|'name'|'new'|'ambiguous'|'collision', key, name }.
@@ -13390,7 +13392,7 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
     if(before[k]===keys.length) continue;
     if(before[k]>0){ partial=true; continue; }
     await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gids[k], source:TN_RATE_SOURCE, ts:ts[k],
-      team1Names:names(ck.t1), team2Names:names(ck.t2), s1:+ck.sets[k].a, s2:+ck.sets[k].b});
+      team1Names:names(ck.t1), team2Names:names(ck.t2), s1:+ck.sets[k].a, s2:+ck.sets[k].b, weight:ptRateWeight(ck.size)});
     var after=await ptAppliedCount(keys,gids[k],ts[k]);
     if(!after) return 'stop'; // nothing landed (or unreadable): stays pending and a retry re-checks it
     if(after<keys.length) partial=true;
@@ -17248,20 +17250,26 @@ function ptMirror(updates){
 }
 
 // ---- Schedule builder (local, deterministic) -----------------------------
+// Players per side: meta.teamSize 2, 3 or 4. Missing or anything else is 2, the original format.
+var PT_TEAM_SIZES=[2,3,4];
+function ptTeamSizeOf(m){ var n=+((m||{}).teamSize); return PT_TEAM_SIZES.indexOf(n)>=0?n:2; }
+function ptTeamSize(){ return ptTeamSizeOf(ptMeta()); }
 function ptPv(M,a,b){ return (M[a]&&M[a][b])||0; }
 function ptBump(M,a,b){
   if(!a||!b) return;
   (M[a]=M[a]||{})[b]=(M[a][b]||0)+1;
   (M[b]=M[b]||{})[a]=(M[b][a]||0)+1;
 }
+// Every teammate pair on one team (one pair in 2s).
+function ptBumpTeam(M,t){ for(var i=0;i<t.length;i++) for(var j=i+1;j<t.length;j++) ptBump(M,t[i],t[j]); }
 // Repeat cost of one game given the pairings so far. A repeated partner weighs 3x a repeated
-// opponent, the same balance the league generator uses. gen (Mixed pools only) adds the coed
-// rule: two men against two women carries a penalty no repeat cost can outweigh.
+// opponent, the same balance the league generator uses; every teammate pair counts. gen (Mixed
+// pools only) adds the coed rule as a penalty no repeat cost can outweigh.
 function ptGameCost(pC,oC,g,gen){
   var c=0;
-  [g.t1,g.t2].forEach(function(t){ var p=ptPv(pC,t[0],t[1]); c+=3*p*p; });
+  [g.t1,g.t2].forEach(function(t){ for(var i=0;i<t.length;i++) for(var j=i+1;j<t.length;j++){ var p=ptPv(pC,t[i],t[j]); c+=3*p*p; } });
   g.t1.forEach(function(a){ g.t2.forEach(function(b){ var o=ptPv(oC,a,b); c+=o*o; }); });
-  if(gen&&ptCoedBad(g.t1,g.t2,gen)) c+=PT_COED_PENALTY;
+  if(gen) c+=ptMixCost(g.t1,g.t2,gen);
   return c;
 }
 // Coed rule for Mixed nights: never two known men against two known women. A player with no
@@ -17275,6 +17283,27 @@ function ptCoedBad(t1,t2,gen){
   var x=ptTeamSex(t1,gen), y=ptTeamSex(t2,gen);
   return (x==='MM'&&y==='FF')||(x==='FF'&&y==='MM');
 }
+// Coed rule for Mixed nights of 3s and 4s: every team has at least one woman, and both teams on a
+// court have the same number of women. A player with no gender can count either way. ptMixMiss
+// says how far a game is from that (0 when it meets it), so the penalty grades schedules and a
+// night short on women still gets the most balanced one possible instead of none.
+function ptWomenRange(t,gen){
+  var w=0,u=0;
+  t.forEach(function(id){ if(gen[id]==='F') w++; else if(gen[id]!=='M') u++; });
+  return [w,w+u];
+}
+function ptMixMiss(t1,t2,gen){
+  var a=ptWomenRange(t1,gen), b=ptWomenRange(t2,gen), miss=0;
+  if(a[1]<1) miss++;
+  if(b[1]<1) miss++;
+  if(a[1]<b[0]) miss+=b[0]-a[1]; else if(b[1]<a[0]) miss+=a[0]-b[1];
+  return miss;
+}
+// The coed penalty for one game: the 2s rule exactly as before, the 3s and 4s rule above otherwise.
+function ptMixCost(t1,t2,gen){
+  if(t1.length<=2&&t2.length<=2) return ptCoedBad(t1,t2,gen)?PT_COED_PENALTY:0;
+  return ptMixMiss(t1,t2,gen)*PT_COED_PENALTY;
+}
 // Gender for each player in a pool, from the snapshot taken at start or late add, falling back
 // to the live roster for nights started before snapshots existed. Only Mixed pools get a map.
 function ptGenderNorm(g){ return (g==='M'||g==='F')?g:null; }
@@ -17287,14 +17316,47 @@ function ptGenderMap(players,ids){
   });
   return gen;
 }
-// Rounds for one pool. ids play toward targets[id] games each. Each round seats up to one court of
-// four per court number, fewer when only a handful still need games (at most three players then
-// play an extra game to fill a court). Most games still owed plays first, then whoever has sat
-// the most, then a rotating order so ties do not always fall the same way. pC and oC carry the
-// partner and opponent counts so far and are updated in place. gen is passed for Mixed pools
-// only; without it the build is exactly what it was before the coed rule.
-function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
-  var n=ids.length, courtsMax=Math.min(courtNums.length,Math.floor(n/4));
+// Index in cands of whoever has partnered least with the players already on team.
+function ptLeastPartnered(team,cands,pC){
+  var bk=0,bkc=Infinity;
+  for(var k=0;k<cands.length;k++){
+    var kc=0;
+    for(var m=0;m<team.length;m++) kc+=ptPv(pC,team[m],cands[k]);
+    if(kc<bkc){bkc=kc;bk=k;}
+  }
+  return bk;
+}
+// Teams of 3 or 4 for one round of a Mixed pool. Women are spread as evenly as the round allows:
+// every team gets one before any team gets two, so the fewest possible teams go without. The
+// teams holding one extra sit next to each other, so the game pairing (which penalizes unequal
+// courts) can match them; only an odd number of women leaves one court unequal. Within those
+// quotas each spot goes to whoever has partnered least with the team so far. A player with no
+// gender fills a spot like a man and still counts either way in the penalty.
+function ptMixedTeams(active,N,gen,pC){
+  var T=Math.floor(active.length/N);
+  var women=active.filter(function(id){ return gen[id]==='F'; }), others=active.filter(function(id){ return gen[id]!=='F'; });
+  var W=Math.min(women.length,T*N), q=Math.floor(W/T), r=W-q*T, teams=[];
+  for(var t=0;t<T;t++){
+    var team=[], wantW=q+(t<r?1:0);
+    while(team.length<N){
+      var pool=(team.filter(function(id){ return gen[id]==='F'; }).length<wantW&&women.length)?women:(others.length?others:women);
+      var k=ptLeastPartnered(team,pool,pC);
+      team.push(pool[k]); pool.splice(k,1);
+    }
+    teams.push(team);
+  }
+  return teams;
+}
+// Rounds for one pool. ids play toward targets[id] games each. size is players per side (2, 3 or
+// 4; missing is 2), so a court seats 2*size. Each round seats up to one full court per court
+// number, fewer when only a handful still need games (a few players then play an extra game to
+// fill a court). Most games still owed plays first, then whoever has sat the most, then a
+// rotating order so ties do not always fall the same way. pC and oC carry the partner and
+// opponent counts so far and are updated in place. gen is passed for Mixed pools only; without
+// it the build is exactly what it was before the coed rule. A 2s build is unchanged by size.
+function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen,size){
+  var N=(size===3||size===4)?size:2, per=2*N;
+  var n=ids.length, courtsMax=Math.min(courtNums.length,Math.floor(n/per));
   if(courtsMax<1) return [];
   var rem={}, sat={}, ord={};
   ids.forEach(function(id,i){ rem[id]=Math.max(0,targets[id]|0); sat[id]=0; ord[id]=i; });
@@ -17302,18 +17364,23 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
   while(guard++<200){
     var needers=ids.filter(function(id){ return rem[id]>0; }).length;
     if(!needers) break;
-    var courtsN=Math.min(courtsMax,Math.ceil(needers/4)), A=courtsN*4;
+    var courtsN=Math.min(courtsMax,Math.ceil(needers/per)), A=courtsN*per;
     var rot=(out.length*5)%n;
     var sorted=ids.slice().sort(function(a,b){
       return (rem[b]-rem[a])||(sat[b]-sat[a])||(((ord[a]+rot)%n)-((ord[b]+rot)%n));
     });
     var active=sorted.slice(0,A), sitters=sorted.slice(A);
-    // Teams: repeatedly take the pair that has partnered least.
+    // Teams: repeatedly take the pair that has partnered least. For 3s and 4s that pair seeds the
+    // team, then whoever has partnered least with the players already on it joins, one at a time.
+    // Mixed 3s and 4s spread the women first (ptMixedTeams).
     var left=active.slice(), teams=[];
-    while(left.length>=2){
+    if(gen&&N>=3) teams=ptMixedTeams(active,N,gen,pC);
+    else while(left.length>=N){
       var bi=0,bj=1,bc=Infinity;
       for(var i=0;i<left.length;i++) for(var j=i+1;j<left.length;j++){ var c=ptPv(pC,left[i],left[j]); if(c<bc){bc=c;bi=i;bj=j;} }
-      teams.push([left[bi],left[bj]]); left.splice(bj,1); left.splice(bi,1);
+      var team=[left[bi],left[bj]]; left.splice(bj,1); left.splice(bi,1);
+      while(team.length<N){ var bk=ptLeastPartnered(team,left,pC); team.push(left[bk]); left.splice(bk,1); }
+      teams.push(team);
     }
     // Games: repeatedly take the two teams that have faced each other least.
     var games=[];
@@ -17321,7 +17388,7 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
       var ti=0,tj=1,tc=Infinity;
       for(var x=0;x<teams.length;x++) for(var y=x+1;y<teams.length;y++){
         var oc=0; teams[x].forEach(function(a){ teams[y].forEach(function(b){ oc+=ptPv(oC,a,b); }); });
-        if(gen&&ptCoedBad(teams[x],teams[y],gen)) oc+=PT_COED_PENALTY;
+        if(gen) oc+=ptMixCost(teams[x],teams[y],gen);
         if(oc<tc){tc=oc;ti=x;tj=y;}
       }
       games.push({t1:teams[ti],t2:teams[tj]}); teams.splice(tj,1); teams.splice(ti,1);
@@ -17343,9 +17410,10 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
         if(after<before){ better=true; } else { gP1[P.tk][P.si]=a1; gQ1[Q.tk][Q.si]=b1; }
       }
     }
-    // Coed guard. The penalty above should already have removed every MM vs FF game; if one ever
-    // slips through, its four players (two men, two women) are re-paired as MF vs MF.
-    if(gen) games.forEach(function(g){
+    // Coed guard (2s). The penalty above should already have removed every MM vs FF game; if one
+    // ever slips through, its four players (two men, two women) are re-paired as MF vs MF. For 3s
+    // and 4s the graded penalty is the whole rule: never a hard block.
+    if(gen&&N===2) games.forEach(function(g){
       if(!ptCoedBad(g.t1,g.t2,gen)) return;
       var four=g.t1.concat(g.t2);
       var men=four.filter(function(id){ return gen[id]==='M'; }), women=four.filter(function(id){ return gen[id]==='F'; });
@@ -17353,7 +17421,7 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
     });
     games.forEach(function(g,ci){
       g.gid=gi('g'); g.court=courtNums[ci];
-      ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
+      ptBumpTeam(pC,g.t1); ptBumpTeam(pC,g.t2);
       g.t1.forEach(function(a){ g.t2.forEach(function(b){ ptBump(oC,a,b); }); });
     });
     active.forEach(function(id){ rem[id]--; });
@@ -17364,12 +17432,13 @@ function ptBuildRounds(ids,targets,courtNums,pC,oC,startIndex,gen){
 }
 // Court numbers per pool. Mixed gets every court. Kings and Queens each get one, then the rest go
 // one at a time to whichever pool has the most players per court and can still fill another.
-function ptAllocCourts(format,courts,counts){
-  var C=Math.max(1,courts|0);
+// size is players per side; a court holds 2*size.
+function ptAllocCourts(format,courts,counts,size){
+  var C=Math.max(1,courts|0), per=2*((size===3||size===4)?size:2);
   if(format!=='kq') return {mixed:ptRange(1,C)};
   var k=counts.kings||0, q=counts.queens||0, kc=1, qc=1, left=C-2;
   while(left>0){
-    var kRoom=Math.floor(k/4)-kc, qRoom=Math.floor(q/4)-qc;
+    var kRoom=Math.floor(k/per)-kc, qRoom=Math.floor(q/per)-qc;
     if(kRoom<=0&&qRoom<=0) break;
     if(qRoom<=0||(kRoom>0&&k/kc>=q/qc)) kc++; else qc++;
     left--;
@@ -17418,14 +17487,15 @@ function ptRebuildPool(pool,players,lateAddPid){
     var gt=(players[id].gameTarget!=null)?players[id].gameTarget:gpp;
     targets[id]=Math.max(0,gt-done[id]-pending[id]);
   });
-  if(ids.length<4) return {rounds:kept, short:true, lateTarget:lateTarget};
+  var N=ptTeamSize();
+  if(ids.length<2*N) return {rounds:kept, short:true, lateTarget:lateTarget};
   var pC={}, oC={};
   kept.forEach(function(rd){ rd.games.forEach(function(g){
-    ptBump(pC,g.t1[0],g.t1[1]); ptBump(pC,g.t2[0],g.t2[1]);
+    ptBumpTeam(pC,g.t1); ptBumpTeam(pC,g.t2);
     g.t1.forEach(function(a){ g.t2.forEach(function(b){ ptBump(oC,a,b); }); });
   }); });
   // Only the rounds after the kept ones are built; kept rounds are never re-paired.
-  var fresh=ptBuildRounds(ids,targets,ptCourtsFor(pool),pC,oC,keep,pool==='mixed'?ptGenderMap(players,ids):null);
+  var fresh=ptBuildRounds(ids,targets,ptCourtsFor(pool),pC,oC,keep,pool==='mixed'?ptGenderMap(players,ids):null,N);
   return {rounds:kept.concat(fresh), short:false, lateTarget:lateTarget};
 }
 // Standings for one pool: wins, then point differential, then name. Anyone who played keeps their
@@ -17466,7 +17536,7 @@ function ptOpenSetup(){
 function ptSetupState(){
   var m=ptMeta();
   if(!_ptSetup||_ptSetup.tid!==_ptTid){
-    _ptSetup={tid:_ptTid, format:m.format==='kq'?'kq':'mixed', courts:m.courts||PT_DEFAULTS.courts,
+    _ptSetup={tid:_ptTid, format:m.format==='kq'?'kq':'mixed', teamSize:ptTeamSizeOf(m), courts:m.courts||PT_DEFAULTS.courts,
       gamesPerPlayer:m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer, scoreTo:m.scoreTo||PT_DEFAULTS.scoreTo, picks:{}};
   }
   return _ptSetup;
@@ -17474,6 +17544,7 @@ function ptSetupState(){
 function ptSetupSet(field,val){
   var s=ptSetupState();
   if(field==='format') s.format=(val==='kq')?'kq':'mixed';
+  else if(field==='teamSize') s.teamSize=ptTeamSizeOf({teamSize:val});
   else if(field==='courts') s.courts=Math.min(12,Math.max(1,parseInt(val,10)||1));
   else if(field==='gamesPerPlayer') s.gamesPerPlayer=Math.min(20,Math.max(1,parseInt(val,10)||1));
   else if(field==='scoreTo') s.scoreTo=Math.min(99,Math.max(1,parseInt(val,10)||1));
@@ -17489,7 +17560,8 @@ function ptSetupPick(pid,pool){
 // Everything Start needs, and the reason it cannot start yet.
 function ptSetupPlan(){
   var s=ptSetupState(), ids=ptPresentIds(_pcOpenSid), plan={ok:false, msg:'', offerMixed:false, players:{}, counts:{}, missing:[]};
-  if(ids.length<4){ plan.msg='Kings Night needs at least 4 players checked in ('+ids.length+' so far).'; return plan; }
+  var per=2*s.teamSize, sz=s.teamSize===2?'':' for '+s.teamSize+'s';
+  if(ids.length<per){ plan.msg='Kings Night'+sz+' needs at least '+per+' players checked in ('+ids.length+' so far).'; return plan; }
   if(s.format==='kq'){
     var k=0,q=0;
     ids.forEach(function(id){
@@ -17499,12 +17571,12 @@ function ptSetupPlan(){
     });
     plan.counts={kings:k, queens:q};
     var miss=plan.missing.length;
-    if(k+miss<4||q+miss<4){
-      plan.msg='Kings and Queens needs at least 4 players in each pool. Tonight has '+k+' Kings and '+q+' Queens'+(miss?(' with '+miss+' not assigned'):'')+'.';
+    if(k+miss<per||q+miss<per){
+      plan.msg='Kings and Queens'+sz+' needs at least '+per+' players in each pool. Tonight has '+k+' Kings and '+q+' Queens'+(miss?(' with '+miss+' not assigned'):'')+'.';
       plan.offerMixed=true; return plan;
     }
     if(miss){ plan.msg='Pick Kings or Queens for the '+miss+' player'+(miss===1?'':'s')+' marked below before starting.'; return plan; }
-    if(k<4||q<4){ plan.msg='Kings and Queens needs at least 4 players in each pool. Tonight has '+k+' Kings and '+q+' Queens.'; plan.offerMixed=true; return plan; }
+    if(k<per||q<per){ plan.msg='Kings and Queens'+sz+' needs at least '+per+' players in each pool. Tonight has '+k+' Kings and '+q+' Queens.'; plan.offerMixed=true; return plan; }
     if(s.courts<2){ plan.msg='Kings and Queens needs at least 2 courts, one for each pool.'; plan.offerMixed=true; return plan; }
   } else {
     ids.forEach(function(id){ plan.players[id]='mixed'; });
@@ -17524,17 +17596,20 @@ function ptStart(){
     // gender is snapshotted so a mid-night rebuild follows the same coed rule the start did.
     players[id]={name:((p.firstName||'')+' '+(p.lastName||'')).trim()||id, pool:plan.players[id], addedAt:now, gameTarget:s.gamesPerPlayer, gender:ptGenderNorm(p.gender)};
   });
-  var poolCourts=ptAllocCourts(s.format,s.courts,plan.counts);
+  var poolCourts=ptAllocCourts(s.format,s.courts,plan.counts,s.teamSize);
   Object.keys(poolCourts).forEach(function(pool){
     var ids=Object.keys(players).filter(function(id){ return players[id].pool===pool; });
     var targets={}; ids.forEach(function(id){ targets[id]=s.gamesPerPlayer; });
-    rounds[pool]=ptBuildRounds(ids,targets,poolCourts[pool],{},{},0,pool==='mixed'?ptGenderMap(players,ids):null);
+    rounds[pool]=ptBuildRounds(ids,targets,poolCourts[pool],{},{},0,pool==='mixed'?ptGenderMap(players,ids):null,s.teamSize);
   });
   var m=ptMeta();
+  var meta={sessionId:_pcOpenSid, squad:m.squad||'', date:m.date||td(), format:s.format, courts:s.courts, poolCourts:poolCourts,
+    gamesPerPlayer:s.gamesPerPlayer, scoreTo:s.scoreTo, status:'active', createdAt:m.createdAt||now, updatedAt:now};
+  // teamSize is stored only for 3s and 4s; missing means 2s, so a 2s night writes what it always did.
+  if(s.teamSize!==2) meta.teamSize=s.teamSize;
   _ptBusy=true;
   ptUpdate({
-    meta:{sessionId:_pcOpenSid, squad:m.squad||'', date:m.date||td(), format:s.format, courts:s.courts, poolCourts:poolCourts,
-      gamesPerPlayer:s.gamesPerPlayer, scoreTo:s.scoreTo, status:'active', createdAt:m.createdAt||now, updatedAt:now},
+    meta:meta,
     players:players, rounds:rounds
   }).then(function(ok){
     _ptBusy=false;
@@ -17547,11 +17622,11 @@ function ptRegenerate(){
   if(!ptGate()||_ptBusy||ptMeta().status!=='active') return;
   if(ptHasResults()){ toast('Scores are in, so the rounds can no longer be regenerated'); return; }
   if(!window.confirm('Regenerate every round? The current matchups will be replaced.')) return;
-  var m=ptMeta(), pl=ptPlayersObj(), gpp=m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer, upd={}, now=Date.now();
+  var m=ptMeta(), pl=ptPlayersObj(), gpp=m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer, upd={}, now=Date.now(), N=ptTeamSizeOf(m);
   ptPools().forEach(function(pool){
     var ids=Object.keys(pl).filter(function(id){ return pl[id]&&pl[id].pool===pool&&!pl[id].droppedAt; });
     var targets={}; ids.forEach(function(id){ targets[id]=gpp; upd['players/'+id+'/gameTarget']=gpp; });
-    upd['rounds/'+pool]=ids.length>=4?ptBuildRounds(ids,targets,ptCourtsFor(pool),{},{},0,pool==='mixed'?ptGenderMap(pl,ids):null):[];
+    upd['rounds/'+pool]=ids.length>=2*N?ptBuildRounds(ids,targets,ptCourtsFor(pool),{},{},0,pool==='mixed'?ptGenderMap(pl,ids):null,N):[];
   });
   upd['meta/updatedAt']=now;
   _ptBusy=true;
@@ -17571,8 +17646,9 @@ function ptDelete(){
   });
 }
 // ---- Rating a night into the platform rating -------------------------------
-// End Night locks the night and then rates every scored game into tally_kotb_pickup/ratings at full
-// weight, source 'club_practice', through Ratings.applyGame, one game at a time in the order the
+// End Night locks the night and then rates every scored game into tally_kotb_pickup/ratings by team
+// size (2s full weight, 3s half, 4s a quarter: ptRateWeight), source 'club_practice', through
+// Ratings.applyGame, one game at a time in the order the
 // scores were entered, each awaited so ratings chain. ratings.js has no guard against applying the
 // same game twice (and applyGame swallows its own write errors), so this adds one:
 //   - One run per night at a time, held by a lock at meta/ratingRun (a transaction on this night's
@@ -17605,6 +17681,10 @@ function ptWriteTid(tid,updates){
   if(!db){ if(tid===_ptTid){ ptMirror(clean); renderPracticeCheckin(); } return Promise.resolve(true); }
   return fbUpdateAt(ptNodePath(tid),clean);
 }
+// Rating weight for a team size. A page still holding an older ratings.js has no weights and
+// would rate 3s and 4s as full games, so ptRateWeightReady holds those back until a reload.
+function ptRateWeightReady(size){ return size===2||(!!window.Ratings&&typeof Ratings.weightForTeamSize==='function'); }
+function ptRateWeight(size){ return size===2?1:Ratings.weightForTeamSize(size); }
 function ptResultNeedsRating(r){ return !!r&&(r.rated===false||r.rated==null||r.rated==='pending'||r.rated==='skipped'); }
 // Results still to rate, in the order their scores were entered.
 function ptRateQueue(results){
@@ -17726,8 +17806,9 @@ async function ptRateOne(tid,data,gid,accounts,tsFor){
   upd[path+'rated']='pending'; upd[path+'ratedGameId']=gameId; upd[path+'ratedNote']=null; upd[path+'ratedTs']=ts;
   if(!(await ptWriteTid(tid,upd))) return 'stop';
   var names=function(side){ return ptArr(side).map(function(id){ return rv.byId[id].name; }); };
+  // 3s count half a game and 4s a quarter (Ratings.weightForTeamSize). 2s pass 1.0, today's call.
   await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gameId, source:PT_RATE_SOURCE, ts:ts,
-    team1Names:names(r.t1), team2Names:names(r.t2), s1:+r.s1, s2:+r.s2});
+    team1Names:names(r.t1), team2Names:names(r.t2), s1:+r.s1, s2:+r.s2, weight:ptRateWeight(ptTeamSizeOf(data.meta))});
   var after=await ptAppliedCount(keys,gameId,ts);
   if(!after) return 'stop'; // nothing landed (or unreadable): stays pending and a retry re-checks it
   var done={};
@@ -17760,6 +17841,7 @@ async function ptRateNight(tid){
       data.meta.status='final';
     }
     if(!db||!window.Ratings||typeof Ratings.applyGame!=='function'){ toast('Night ended. Ratings are unavailable right now, so use Retry later.'); return false; }
+    if(!ptRateWeightReady(ptTeamSizeOf(data.meta))){ toast('Night ended. Reload the page, then tap Retry to rate this '+ptTeamSizeOf(data.meta)+'s night.'); return false; }
     var fresh=await pcLoadRatings(); if(!fresh) fresh=await pcLoadRatings();
     if(!fresh){ toast('Night ended. Ratings could not be read, so use Retry later.'); return false; }
     var accounts=communityPlayersNow();
@@ -17789,7 +17871,7 @@ function ptEndNightStart(tid){
 async function ptBuildPreview(tid){
   var ratingsOk=await pcLoadRatings();
   var data=await ptReadTid(tid);
-  var info={ok:!!(data&&data.meta), status:data&&data.meta?data.meta.status:'', ratingsOk:ratingsOk, games:0, players:0, fresh:0, skipped:[], unscored:0};
+  var info={ok:!!(data&&data.meta), status:data&&data.meta?data.meta.status:'', ratingsOk:ratingsOk, games:0, players:0, fresh:0, skipped:[], unscored:0, teamSize:ptTeamSizeOf(data&&data.meta)};
   if(!info.ok) return info;
   var results=data.results||{}, seen={}, freshSeen={};
   Object.keys(data.rounds||{}).forEach(function(pool){ ptArr(data.rounds[pool]).forEach(function(rd){ ptArr(rd.games).forEach(function(g){ if(!results[g.gid]) info.unscored++; }); }); });
@@ -17848,6 +17930,7 @@ function ptPreviewHtml(tid,esc){
   if(!i.ratingsOk) lines.push('Ratings are unavailable right now. The night can end now and be rated later with Retry.');
   else {
     lines.push(i.games+' game'+(i.games===1?'':'s')+' will update ratings for '+i.players+' player'+(i.players===1?'':'s')+' ('+i.fresh+' new rating'+(i.fresh===1?'':'s')+').');
+    if(i.teamSize>2) lines.push('Tonight was '+i.teamSize+'s, so each game counts '+(i.teamSize===3?'half':'a quarter')+' as much as a 2s game.');
     if(i.skipped.length) lines.push(i.skipped.length+' game'+(i.skipped.length===1?'':'s')+' skipped:<br>'+i.skipped.map(esc).join('<br>'));
   }
   return box+lines.join('<div style="height:6px;"></div>')
@@ -17908,7 +17991,7 @@ function ptLateAdd(){
   _ptBusy=true;
   ptUpdate(upd).then(function(ok){
     _ptBusy=false;
-    if(ok){ _ptUi.add=''; _ptUi.addPool=''; toast(rec.name+' added'+(rb.short?'. Fewer than 4 players in this pool, so no new rounds.':'')); }
+    if(ok){ _ptUi.add=''; _ptUi.addPool=''; toast(rec.name+' added'+(rb.short?'. Fewer than '+(2*ptTeamSize())+' players in this pool, so no new rounds.':'')); }
     renderPracticeCheckin();
   });
 }
@@ -17924,7 +18007,7 @@ function ptDrop(){
   _ptBusy=true;
   ptUpdate(upd).then(function(ok){
     _ptBusy=false;
-    if(ok){ _ptUi.drop=''; toast((cur.name||'Player')+' dropped'+(rb.short?'. Fewer than 4 players left in this pool, so its unplayed rounds were cleared.':'')); }
+    if(ok){ _ptUi.drop=''; toast((cur.name||'Player')+' dropped'+(rb.short?'. Fewer than '+(2*ptTeamSize())+' players left in this pool, so its unplayed rounds were cleared.':'')); }
     renderPracticeCheckin();
   });
 }
@@ -17996,6 +18079,7 @@ function ptHtml(sid,esc){
 function ptSetupHtml(esc,btn,gray){
   var s=ptSetupState(), plan=ptSetupPlan();
   var fmt=function(v,lbl){ return '<button class="filter-btn'+(s.format===v?' active':'')+'" style="flex:1;text-align:center;" onclick="ptSetupSet(\'format\',\''+v+'\')">'+lbl+'</button>'; };
+  var size=function(n){ return '<button class="filter-btn'+(s.teamSize===n?' active':'')+'" style="flex:1;text-align:center;" onclick="ptSetupSet(\'teamSize\',\''+n+'\')">'+n+'s</button>'; };
   var num=function(id,field,val,lbl,max){
     return '<label style="flex:1;min-width:90px;font-size:11px;color:var(--gray);">'+lbl
       +'<input type="number" inputmode="numeric" min="1" max="'+max+'" class="form-input" id="'+id+'" value="'+esc(val)+'" onchange="ptSetupSet(\''+field+'\',this.value)" style="padding:8px;font-size:14px;width:100%;box-sizing:border-box;margin-top:2px;"></label>';
@@ -18022,6 +18106,8 @@ function ptSetupHtml(esc,btn,gray){
     :ids.length+' players';
   return gray('Everyone checked in plays. Players who arrive later can be added once it starts.')
     +'<div style="display:flex;gap:6px;margin-bottom:8px;">'+fmt('mixed','Mixed')+fmt('kq','Kings and Queens')+'</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:'+(s.teamSize>2?'4':'8')+'px;">'+size(2)+size(3)+size(4)+'</div>'
+    +(s.teamSize>2?gray(s.teamSize+' players a side. Each game counts '+(s.teamSize===3?'half':'a quarter')+' as much as a 2s game toward ratings.'):'')
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
     +num('pt-su-courts','courts',s.courts,'Courts',12)+num('pt-su-games','gamesPerPlayer',s.gamesPerPlayer,'Games each',20)+num('pt-su-score','scoreTo',s.scoreTo,'Play to',99)
     +'</div>'
@@ -18043,7 +18129,7 @@ function ptNightHtml(sid,esc,btn,gray,present){
     if(p&&p.droppedAt) t+=' <span style="font-size:10px;color:var(--gray);">(left)</span>';
     return t;
   };
-  var html=gray((m.format==='kq'?'Kings and Queens':'Mixed')+' · play to '+esc(m.scoreTo||PT_DEFAULTS.scoreTo)+' · '+esc(m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer)+' games each'+(isFinal?' · <strong style="color:var(--charcoal);">Final</strong>':''));
+  var html=gray((m.format==='kq'?'Kings and Queens':'Mixed')+' · '+ptTeamSizeOf(m)+'s · play to '+esc(m.scoreTo||PT_DEFAULTS.scoreTo)+' · '+esc(m.gamesPerPlayer||PT_DEFAULTS.gamesPerPlayer)+' games each'+(isFinal?' · <strong style="color:var(--charcoal);">Final</strong>':''));
   if(isFinal) html+=ptRatingStatusHtml(esc);
   if(pools.length>1){
     html+='<div style="display:flex;gap:6px;margin-bottom:8px;">'+pools.map(function(p){
@@ -18325,8 +18411,10 @@ function ptpHtml(){
   };
   var matchup=function(g){
     var mine=g.t1.indexOf(pid)>=0?g.t1:g.t2, theirs=mine===g.t1?g.t2:g.t1;
-    var partner=mine.filter(function(x){ return x!==pid; })[0];
-    return '<div style="font-size:15px;color:var(--charcoal);line-height:1.5;">You'+(partner?' and <strong>'+nm(partner)+'</strong>':'')+'</div>'
+    // Every teammate: "You and A" in 2s, "You, A and B" in 3s and 4s.
+    var mates=mine.filter(function(x){ return x!==pid; }).map(function(x){ return '<strong>'+nm(x)+'</strong>'; });
+    var withMates=mates.length?(mates.length===1?' and ':', ')+(mates.length>1?mates.slice(0,-1).join(', ')+' and '+mates[mates.length-1]:mates[0]):'';
+    return '<div style="font-size:15px;color:var(--charcoal);line-height:1.5;">You'+withMates+'</div>'
       +'<div style="font-size:15px;color:var(--charcoal);line-height:1.5;">vs <strong>'+theirs.map(nm).join(' &amp; ')+'</strong></div>';
   };
   var squad=(TS_SQUAD_LABELS[v.meta.squad]||'')+(v.meta.squad?' practice':'');
