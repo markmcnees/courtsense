@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-<script src="/ratings.js?v=cf2c51b0"></script>
+<script src="/ratings.js?v=3f4f01c6"></script>
 <style>
 :root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -472,6 +472,8 @@ function replayMergeHistory(entries, displayName){
   let myState = { rating: Ratings.DEFAULT_RATING, rd: Ratings.DEFAULT_RD, volatility: Ratings.DEFAULT_VOL };
   let peakRating = Ratings.DEFAULT_RATING;
   let peakRatingDate = null;
+  // Games replayed so far, for the same settled starting RD ratings.js uses.
+  let played = 0, shortfall = 0;
 
   function ratingOf(name){
     if(!name) return null;
@@ -504,8 +506,9 @@ function replayMergeHistory(entries, displayName){
 
     const won = !!h.won;
     const score = won ? 1 : 0;
+    const rdIn = Ratings.effectiveRd ? Ratings.effectiveRd({ rd: myState.rd, gamesPlayed: played, weightShortfall: shortfall }) : myState.rd;
     const upd = Ratings.updateOnePlayer(
-      { rating: myState.rating, rd: myState.rd, volatility: myState.volatility },
+      { rating: myState.rating, rd: rdIn, volatility: myState.volatility },
       partner ? { rating: partner.rating } : null,
       oppAvg,
       score
@@ -524,10 +527,11 @@ function replayMergeHistory(entries, displayName){
     const baseDelta = upd.rating - myState.rating;
     // A weighted game moves rating, RD and volatility by its share, as ratings.js does.
     const newRating = myState.rating + (w === 1 ? baseDelta * mult : baseDelta * mult * w);
-    const newRd = w === 1 ? upd.rd : myState.rd + (upd.rd - myState.rd) * w;
+    const newRd = w === 1 ? upd.rd : rdIn + (upd.rd - rdIn) * w;
     const newVol = w === 1 ? upd.volatility : myState.volatility + (upd.volatility - myState.volatility) * w;
 
     myState = { rating: newRating, rd: newRd, volatility: newVol };
+    played++; if (w !== 1) shortfall += 1 - w;
     if(newRating > peakRating){ peakRating = newRating; peakRatingDate = h.timestamp || null; }
   });
 

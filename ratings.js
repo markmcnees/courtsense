@@ -1,6 +1,6 @@
 /* Tally KotB shared ratings module
  *
- * Glicko-2 (Glickman 2012) with logarithmic margin-of-victory weighting.
+ * Glicko-2 (Glickman 2012) with tiered margin-of-victory weighting.
  * One module, used by:
  *   - courtsense.app/kotb         (league, Kings/Queens toggle)
  *   - courtsense.app/pickup  (pickup tournaments)
@@ -25,7 +25,11 @@
  *   - Teammates influence my expected score: E uses team mu = (myMu + teammateMu)/2,
  *     where teammateMu is the average of every teammate (one partner in 2s), but
  *     the rating change applies to me alone (RD and volatility from my own state).
- *   - Margin multiplier scales the final rating delta only.
+ *   - Margin multiplier scales the final rating delta only. Tiers by winner points
+ *     minus loser points: 1 or 2 is 0.5, 3 to 5 is 1.0, 6 to 9 is 1.5, 10 or more 2.0.
+ *   - RD settling: the RD a game starts from is capped by experience, down to 40 at
+ *     20 weighted games (rdCeilingFor), so a regular's even game moves about 4 to 5.
+ *   - Rules apply going forward only; stored history is never rewritten.
  *
  * Weighted games (teams of 3 or 4): applyGame and applyToMemory take an optional
  * weight in (0, 1]. Missing means 1.0, today's behavior. The margin-scaled rating
@@ -193,10 +197,42 @@
     };
   }
 
-  // Margin-of-victory multiplier. winnerRating/loserRating are the team averages.
-  function marginMultiplier(winnerRating, loserRating, margin){
+  // Margin-of-victory multiplier, by tier. margin is winner points minus loser points for
+  // the game or set: 1 or 2 is a toss-up (0.5), 3 to 5 is a normal game (1.0), 6 to 9 is a
+  // beating (1.5), 10 or more is a blowout (2.0). winnerRating/loserRating are the team
+  // averages. The favored-winner factor only touches the bonus above 1.0: a favorite's
+  // blowout earns less extra than an underdog's, and no tier is ever pushed below 1.0.
+  const MARGIN_TIERS = [[10, 2.0], [6, 1.5], [3, 1.0], [0, 0.5]];
+  function marginTier(margin){
     const m = Math.max(0, margin|0);
-    return Math.log(m + 1) * (2.2 / ((winnerRating - loserRating) * 0.001 + 2.2));
+    for (let i = 0; i < MARGIN_TIERS.length; i++) if (m >= MARGIN_TIERS[i][0]) return MARGIN_TIERS[i][1];
+    return 0.5;
+  }
+  function marginMultiplier(winnerRating, loserRating, margin){
+    const base = marginTier(margin);
+    if (base <= 1) return base;
+    const den = (winnerRating - loserRating) * 0.001 + 2.2;
+    const favored = den > 0 ? 2.2 / den : 0;
+    return 1 + (base - 1) * favored;
+  }
+
+  // RD settling. Every game here is its own Glicko rating period, so volatility (0.06,
+  // and with TAU 0.5 it barely moves) re-inflates RD each game, and a regular settles
+  // near RD 60 to 70, where an even game moves 10 to 12 points before the margin. So
+  // experience caps the RD a game starts from: the ceiling starts at DEFAULT_RD, falls in
+  // a straight line to RD_SETTLED at SETTLE_GAMES weighted games, and stays there. It
+  // passes a player's natural RD only around game 17, so new players are untouched and
+  // still move quickly. A settled regular moves about 4 to 5 points in an even, normal
+  // margin game. Stored RD keeps the engine's value; only the starting point is capped.
+  const RD_SETTLED = 40;
+  const SETTLE_GAMES = 20;
+  function rdCeilingFor(rec){
+    const n = weightedGamesOf(rec);
+    return n >= SETTLE_GAMES ? RD_SETTLED : RD_SETTLED + (DEFAULT_RD - RD_SETTLED) * (1 - n / SETTLE_GAMES);
+  }
+  function effectiveRd(rec){
+    const rd = (rec && typeof rec.rd === 'number') ? rec.rd : DEFAULT_RD;
+    return Math.min(rd, rdCeilingFor(rec));
   }
 
   // ── PURE IN-MEMORY HELPERS (used by seed and live wrappers) ─────────────────
@@ -272,8 +308,9 @@
           const me = initial[n];
           const mates = winnerTeam.filter(x => x !== n);
           const partnerName = mates[0] || null;
+          const rdIn = effectiveRd(me);
           const upd = updateOnePlayer(
-            { rating: me.rating, rd: me.rd, volatility: me.volatility },
+            { rating: me.rating, rd: rdIn, volatility: me.volatility },
             teammateRating(mates, initial),
             oppAvg,
             1
@@ -285,7 +322,7 @@
           if (clampedDelta >  cap) clampedDelta =  cap;
           if (clampedDelta < -cap) clampedDelta = -cap;
           const newRatingClamped = me.rating + clampedDelta;
-          const newRD = scaleChange(me.rd, upd.rd, w), newVol = scaleChange(me.volatility, upd.volatility, w);
+          const newRD = scaleChange(rdIn, upd.rd, w), newVol = scaleChange(me.volatility, upd.volatility, w);
           const rec = winStates[n].ref;
           const ratingBefore = rec.rating, rdBefore = rec.rd;
           rec.rating = newRatingClamped;
@@ -332,8 +369,9 @@
 
     const t1Avg = t1.reduce((s,n)=>s + states[n].ref.rating, 0) / t1.length;
     const t2Avg = t2.reduce((s,n)=>s + states[n].ref.rating, 0) / t2.length;
-    const t1Rd  = t1.reduce((s,n)=>s + states[n].ref.rd, 0) / t1.length;
-    const t2Rd  = t2.reduce((s,n)=>s + states[n].ref.rd, 0) / t2.length;
+    // Opponent RD uses the same settled starting point each player's own update does.
+    const t1Rd  = t1.reduce((s,n)=>s + effectiveRd(states[n].ref), 0) / t1.length;
+    const t2Rd  = t2.reduce((s,n)=>s + effectiveRd(states[n].ref), 0) / t2.length;
 
     const t1Win = game.s1 > game.s2;
     const winnerAvg = t1Win ? t1Avg : t2Avg;
@@ -357,8 +395,9 @@
         const mates = team.filter(x => x !== n);
         const partnerName = mates[0];
         const score = won ? 1 : 0;
+        const rdIn = effectiveRd(me);
         const upd = updateOnePlayer(
-          { rating: me.rating, rd: me.rd, volatility: me.volatility },
+          { rating: me.rating, rd: rdIn, volatility: me.volatility },
           teammateRating(mates, initial),
           opp,
           score
@@ -367,7 +406,7 @@
         let scaledDelta = baseDelta * mult;
         // Weight applies before the cap. RD and volatility move by the same share.
         if (w !== 1) scaledDelta *= w;
-        const newRD = scaleChange(me.rd, upd.rd, w);
+        const newRD = scaleChange(rdIn, upd.rd, w);
         const newVol = scaleChange(me.volatility, upd.volatility, w);
 
         // Per-game cap: clamp the final post-margin delta to ±capForGame(me, w). RD and
@@ -572,7 +611,13 @@
     nameKey,
     newPlayerState,
     updateOnePlayer,
+    MARGIN_TIERS,
+    marginTier,
     marginMultiplier,
+    RD_SETTLED,
+    SETTLE_GAMES,
+    rdCeilingFor,
+    effectiveRd,
     applyToMemory,
     applyGame,
     reverseGame
