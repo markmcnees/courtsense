@@ -223,6 +223,22 @@
     '.pb-badge-team{background:#217F7F;color:#fff;}',
     '.pb-badge-done{background:#DCE1E6;color:#3B4A59;}',
     '.pb-badge-rating{background:#082A4F;color:#fff;}',
+    '.pb-badge-reg{background:#217F7F;color:#fff;}',
+    // Your team: teammates' contact for a registered club team.
+    '.pb-tc{margin-top:10px;padding:14px;border-radius:12px;background:#fff;border:2px solid #217F7F;color:#13243A;font-family:Barlow,-apple-system,sans-serif;}',
+    '.pb-tc-h{font-family:"Bebas Neue",sans-serif;font-size:22px;letter-spacing:1px;color:#082A4F;line-height:1.1;}',
+    '.pb-tc-sub{font-size:14px;color:#3B4A59;margin-top:4px;}',
+    '.pb-tc-row{padding:10px 0;border-top:1px solid #DCE1E6;}',
+    '.pb-tc-row:first-of-type{border-top:none;}',
+    '.pb-tc-name{font-weight:700;font-size:16px;}',
+    '.pb-tc-val{font-size:14px;color:#3B4A59;overflow-wrap:anywhere;}',
+    '.pb-tc-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}',
+    '.pb-tc-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:64px;padding:0 14px;border-radius:10px;background:#217F7F;color:#fff;font-weight:700;font-size:15px;text-decoration:none;}',
+    '.pb-tc-btn.pb-tc-alt{background:#fff;color:#145757;border:1.5px solid #217F7F;}',
+    '.pb-tc-none{font-size:14px;color:#5C6B7A;font-style:italic;}',
+    '.pb-tc-switch{display:flex;align-items:center;gap:10px;min-height:44px;margin-top:10px;padding-top:10px;border-top:1px solid #DCE1E6;cursor:pointer;font-size:15px;font-weight:600;color:#13243A;text-transform:none;letter-spacing:0;}',
+    '.pb-tc-switch input{width:22px;height:22px;accent-color:#217F7F;flex:0 0 auto;}',
+    '.pb-tc-err{color:#B3261E;font-size:14px;margin-top:6px;}',
     '.pb-act{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:0 0 auto;margin-left:auto;}',
     '.pb-gold{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 18px;border:none;border-radius:10px;background:#F2B22E;color:#082A4F;font-family:"Bebas Neue",sans-serif;font-weight:400;font-size:18px;letter-spacing:1.2px;line-height:1;text-decoration:none;white-space:nowrap;cursor:pointer;box-shadow:0 1px 0 rgba(8,42,79,.18);}',
     '.pb-gold:hover{background:#E8A71F;}',
@@ -372,11 +388,12 @@
     const main = el('div', 'pb-main');
     const name = el('div', 'pb-name', teamNames(o).join(' + '));
     if(o.mine) name.appendChild(badge('team', 'Your team'));
-    if(done) name.appendChild(badge('done', 'Team complete'));
+    if(o.registered) name.appendChild(badge('reg', 'Registered'));
+    else if(done) name.appendChild(badge('done', 'Team complete'));
     if(o.goodFit && !done) name.appendChild(badge('fit', 'Good fit'));
     main.appendChild(name);
     if(!done) main.appendChild(el('div', 'pb-sub pb-need', 'Looking for ' + o.need + ' more'));
-    if(o.stillNeeds && o.stillNeeds.length) main.appendChild(el('div', 'pb-sub pb-still', 'Still needs ' + stillText(o.stillNeeds)));
+    if(o.stillNeeds && o.stillNeeds.length && !o.registered) main.appendChild(el('div', 'pb-sub pb-still', 'Still needs ' + stillText(o.stillNeeds)));
     if(o.sub) main.appendChild(el('div', 'pb-sub', o.sub));
     if(o.avg) main.appendChild(el('div', 'pb-sub', 'Avg ' + o.avg.avg + ' (' + o.avg.rated + ' of ' + o.avg.total + ' rated)'));
     if(o.needs && o.needs.length && !done){
@@ -1010,7 +1027,8 @@
     const fits = X.teamFits || {};
     const mine = ctx.mine || [];
     const rows = [];
-    (t.divisions || []).forEach(d => (d.teams || []).forEach(tm => rows.push([d, tm])));
+    // A team registered for the club tournament is done looking: only its own members see it.
+    (t.divisions || []).forEach(d => (d.teams || []).forEach(tm => { if(!tm.registered || mine.indexOf(tm.ref) !== -1) rows.push([d, tm]); }));
     // The viewer's own forming team first (its fit lists sit under it), then good fits
     // for the viewer, then other forming teams, complete teams last.
     const rank = (r) => (r[1].status === 'complete' ? 3 : mine.indexOf(r[1].ref) !== -1 ? 0 : (fits[r[1].ref] && fits[r[1].ref].goodFit ? 1 : 2));
@@ -1040,7 +1058,7 @@
       const mineTm = !!(tm.ref && mine.indexOf(tm.ref) !== -1);
       const fit = !mineTm && tm.ref ? fits[tm.ref] : null;
       const c = teamCard({
-        members: tm.members, guests: tm.guests, need: tm.need, status: tm.status, mine: mineTm,
+        members: tm.members, guests: tm.guests, need: tm.need, status: tm.status, mine: mineTm, registered: !!tm.registered,
         goodFit: !!(fit && fit.goodFit), needs: tm.needs, note: tm.note, avg: tm.avg, stillNeeds: tm.stillNeeds,
         sub: ctx.dayLabel(d.day) + ': ' + d.label + ' (' + tm.size + 's)',
         sizeNote: tm.sizeChanged ? 'Formed as ' + tm.size + 's. The event now lists ' + t.teamSize + 's.' : '',
@@ -1060,7 +1078,18 @@
           if(inv) c.main.appendChild(inv);
           restoreForm(editKey, c.box, () => editForm(t, tm, ctx, editKey));
         }
-        if(tm.status === 'complete' && ctx.eventLink) c.act.appendChild(quietLink('Register', ctx.eventLink, true));
+        if(tm.registered){
+          // Registered: no Register link. Teammates can reach each other from here.
+          if(ctx.signedIn){
+            const tcKey = 'contacts:' + t.id + ':' + tm.ref;
+            c.act.appendChild(goldBtn('Contact your team', function(){
+              toggleForm(tcKey, c.box, () => teamContactCard({ token: ctx.token || storedToken(), auth: { partnerTid: t.id } }));
+            }));
+            restoreForm(tcKey, c.box, () => teamContactCard({ token: ctx.token || storedToken(), auth: { partnerTid: t.id } }));
+          }
+        } else if(tm.status === 'complete' && ctx.eventLink) c.act.appendChild(quietLink('Register', ctx.eventLink, true));
+      } else if(tm.registered){
+        /* registered teams are only listed for their own members */
       } else if(tm.status === 'complete'){
         if(ctx.eventLink) c.act.appendChild(quietLink('Register', ctx.eventLink, true));
       } else if(tm.ref){
@@ -1081,10 +1110,76 @@
     return s.sec;
   }
 
+  // Your team: a registered club team's teammates with call, text and email buttons, and
+  // the caller's own "Hide my contact from my team" switch. opts.auth is either the manage
+  // link ({ slug, tid, a, m }) or a partner listing ({ partnerTid }) with opts.token, the
+  // signed-in session. The worker returns teammates only, never the caller, never an id.
+  // Every value is set through textContent or an href built from a checked value.
+  function teamContactCard(opts){
+    ensureStyles();
+    const box = el('div', 'pb-tc');
+    box.appendChild(el('div', 'pb-tc-h', 'Your team'));
+    const sub = el('div', 'pb-tc-sub', 'Loading your teammates...');
+    box.appendChild(sub);
+    const list = el('div');
+    box.appendChild(list);
+    const err = el('div', 'pb-tc-err');
+    err.setAttribute('role', 'alert');
+    const call = (path, extra) => post(path, Object.assign({}, opts.auth || {}, extra || {}), opts.token || '');
+    const telHref = (p) => /^\+\d{8,15}$/.test(p) ? p : '';
+    function linkBtn(text, href, alt, label){ const a = link('pb-tc-btn' + (alt ? ' pb-tc-alt' : ''), text, href); a.setAttribute('aria-label', label); return a; }
+    function draw(j){
+      list.textContent = '';
+      const mates = j.teammates || [];
+      sub.textContent = j.youHidden ? 'Your phone and email are hidden from your team.' : 'Your teammates can see your phone and email.';
+      if(!mates.length) list.appendChild(el('div', 'pb-tc-none', 'No teammates on the team yet.'));
+      mates.forEach(m => {
+        const row = el('div', 'pb-tc-row');
+        row.appendChild(el('div', 'pb-tc-name', m.name || 'Teammate'));
+        if(m.hidden){ row.appendChild(el('div', 'pb-tc-none', 'Keeps their contact private.')); list.appendChild(row); return; }
+        const tel = telHref(m.phone || '');
+        if(tel) row.appendChild(el('div', 'pb-tc-val', m.phoneLabel || tel));
+        if(m.email) row.appendChild(el('div', 'pb-tc-val', m.email));
+        const btns = el('div', 'pb-tc-btns');
+        if(tel){
+          btns.appendChild(linkBtn('Call', 'tel:' + tel, false, 'Call ' + (m.name || 'teammate')));
+          btns.appendChild(linkBtn('Text', 'sms:' + tel, true, 'Text ' + (m.name || 'teammate')));
+        }
+        if(m.email) btns.appendChild(linkBtn('Email', 'mailto:' + encodeURIComponent(m.email).replace(/%40/g, '@'), true, 'Email ' + (m.name || 'teammate')));
+        if(btns.childNodes.length) row.appendChild(btns); else row.appendChild(el('div', 'pb-tc-none', 'No phone or email on file.'));
+        list.appendChild(row);
+      });
+      const sw = el('label', 'pb-tc-switch');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!j.youHidden;
+      sw.appendChild(cb);
+      sw.appendChild(el('span', null, 'Hide my contact from my team'));
+      cb.addEventListener('change', async function(){
+        err.textContent = '';
+        cb.disabled = true;
+        const want = cb.checked;
+        const r = await call('/club/tournament-team-contacts/hide', { on: want });
+        cb.disabled = false;
+        if(!(r.status === 200 && r.j.ok)){ cb.checked = !want; err.textContent = r.j.error && r.j.error !== 'invalid_link' ? r.j.error : 'That did not save. Try again.'; return; }
+        sub.textContent = r.j.youHidden ? 'Your phone and email are hidden from your team.' : 'Your teammates can see your phone and email.';
+      });
+      list.appendChild(sw);
+    }
+    box.appendChild(err);
+    (async function(){
+      const r = await call('/club/tournament-team-contacts');
+      if(r.status === 200 && r.j.ok){ draw(r.j); return; }
+      sub.textContent = '';
+      err.textContent = r.status === 401 ? 'Sign in again to see your team.' : (r.j.error && r.j.error !== 'invalid_link' ? r.j.error : 'Could not load your team. Try again.');
+    })();
+    return box;
+  }
+
   global.CourtSensePartner = {
     storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, teamNames, inviteTitle, combineTitle,
     isSent, sentBtn, showBanner,
     ensureStyles, section, emptyLine, teamCard, playerCard, goldBtn, goldLink, quietBtn, quietLink, badge, divTag, trnTag, tagEl, requestStrip,
-    teamsSection, COED_NOTE,
+    teamsSection, COED_NOTE, teamContactCard,
   };
 })(window);

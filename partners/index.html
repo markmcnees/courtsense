@@ -85,6 +85,7 @@ details[open] .chev .closed, details:not([open]) .chev .open{display:none;}
 .team:last-child{border-bottom:none;}
 .team .who{font-size:15px;}
 .done{color:var(--teal);font-weight:700;font-size:13px;}
+.reg-chip{display:inline-block;margin-top:4px;padding:2px 10px;border-radius:999px;background:var(--teal);color:#fff;font-weight:700;font-size:13px;}
 .thread-msg{padding:10px 12px;border-radius:10px;margin:8px 0;background:#EEF3F7;max-width:92%;}
 .thread-msg.mine{background:#FDF1D6;margin-left:auto;}
 .thread-msg.answer{border-left:4px solid var(--gold);}
@@ -127,7 +128,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=9"></script>
+<script src="/partner-contact.js?v=10"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -643,10 +644,11 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     if(th.team){
       const tb = el('div', 'req');
       tb.appendChild(el('div', 'who', th.team.members.join(' + ')));
-      tb.appendChild(el('div', th.team.status === 'complete' ? 'done' : 'state', th.team.status === 'complete' ? 'Team complete' : 'Looking for ' + th.team.need + ' more (' + th.team.size + 's)'));
+      if(th.team.registered) tb.appendChild(el('span', 'reg-chip', 'Registered'));
+      else tb.appendChild(el('div', th.team.status === 'complete' ? 'done' : 'state', th.team.status === 'complete' ? 'Team complete' : 'Looking for ' + th.team.need + ' more (' + th.team.size + 's)'));
       if(th.team.sizeChanged) tb.appendChild(el('div', 'state', 'This team formed as ' + th.team.size + 's. The event has since changed its format.'));
       const bs = el('div', 'btns');
-      if(th.team.status === 'complete' && th.registrationLink){ const a = link('btn btn-gold', 'Register your team', th.registrationLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; bs.appendChild(a); }
+      if(!th.team.registered && th.team.status === 'complete' && th.registrationLink){ const a = link('btn btn-gold', 'Register your team', th.registrationLink); a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; bs.appendChild(a); }
       if(th.team.mine && th.team.ref) bs.appendChild(btn('btn-o', 'Leave team', async function(){
         if(!window.confirm('Leave this team? Your teammates will be told and the spot opens up.')) return;
         const x = await post('/partners/leave', { tid: th.tid, teamRef: th.team.ref });

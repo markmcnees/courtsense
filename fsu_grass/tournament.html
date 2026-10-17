@@ -294,6 +294,7 @@
       <div class="kv">Status: <span id="m-status"></span></div>
       <ul class="roster" id="m-players"></ul>
       <div class="note" id="m-note" role="status"></div>
+      <div id="m-contacts"></div>
       <div class="section" id="m-game" style="display:none;">
         <p class="started">Pool play has started. See an exec for team changes.</p>
         <a class="btn ghost" id="m-live" href="live.html">Watch live</a>
@@ -362,6 +363,7 @@
 </div>
 <div class="scr-ov" id="scr-ov" hidden role="alertdialog" aria-modal="true"></div>
 
+<script src="/partner-contact.js?v=10"></script>
 <script>
 // ===== TN ENGINE START =====
 // ---- Club tournament engine (divisions, pools, playoffs) ------------------
@@ -1829,6 +1831,9 @@ async function loadManage(note){
   st.appendChild(b);
   fillRoster('m-players', j.players || [], j.you || '');
   $('m-note').textContent = note || '';
+  // Your team: teammates' phone and email (each can hide theirs), by this manage link.
+  var mc = $('m-contacts'); mc.textContent = '';
+  if(window.CourtSensePartner && CourtSensePartner.teamContactCard) mc.appendChild(CourtSensePartner.teamContactCard({ auth: linkBody() }));
   // Once pool play starts the team is frozen: no add, withdraw, or drop, and the page turns
   // into the team's game day view.
   var started = j.eventStarted === true;
