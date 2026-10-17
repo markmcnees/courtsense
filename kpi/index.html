@@ -183,7 +183,7 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
   });
 
   // ── Tiles ─────────────────────────────────────────────────────────────────
-  // o: { value, label, d30, cur, prior, partial, why, notTracked, missing }
+  // o: { value, label, d30, cur, prior, partial, why, small, notTracked, missing }
   function tile(o){
     const t = el('div', 'tile');
     if(o.notTracked){ t.appendChild(el('div', 'num soft', 'Not tracked yet')); }
@@ -201,6 +201,7 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     }
     if(o.partial) extra.appendChild(el('span', 'tag', 'partial'));
     if(extra.childNodes.length) t.appendChild(extra);
+    if(o.small) t.appendChild(el('div', 'why', o.small));
     if(o.notTracked && o.why) t.appendChild(el('div', 'why', o.why));
     if(o.partial && o.why) t.appendChild(el('div', 'why', o.why));
     return t;
@@ -238,8 +239,12 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     ]);
 
     section(dash, 'Activation');
+    const ac = m.activation || {};
+    const acMissing = !ac.available;
     grid(dash, [
-      { value: fmt(g.activated), label: 'Activated accounts', d30: pct(g.activationRate) + ' of all accounts' },
+      { value: fmt(ac.activated), label: 'Activated', missing: acMissing, d30: pct(ac.activatedRate) + ' of accounts have a password', cur: ac.activatedNew30, prior: ac.activatedNewPrior30, small: 'Claimed by email link: ' + fmt(ac.claimedByEmailLink) },
+      { value: fmt(ac.engaged), label: 'Engaged', missing: acMissing, d30: pct(ac.engagedRate) + ' of activated did something' },
+      { value: fmt(ac.unclaimed), label: 'Not yet claimed', missing: acMissing, small: "Created for players who haven't set a password yet" },
       { value: fmt(a.players30), label: 'Active players, 30 days', d30: fmt(a.unlinked30) + ' more actions not tied to an account', cur: a.players30, prior: a.playersPrior30, partial: a.partial, why: a.partialNote }
     ]);
 
