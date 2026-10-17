@@ -56,10 +56,11 @@
   // moves at most CAP_DEFAULT per game. A player who carries a TruVolley seed
   // (seededFromTruVolley present on their state) moves at most CAP_SEEDED per
   // game for their first SEEDED_CAP_GAMES CourtSense games, then CAP_DEFAULT like
-  // everyone else. capFor reads the PRE-game gamesPlayed (both callers pass the
-  // pre-game copy), so games 1 through 10 are capped at 5 and game 11 onward at
-  // 10. Compute the game normally, then clamp the final post-margin delta before
-  // committing.
+  // everyone else. capFor reads the PRE-game weighted game count (weightedGamesOf;
+  // both callers pass the pre-game copy), so in 2s games 1 through 10 are capped at
+  // 5 and game 11 onward at 10, while 3s and 4s count as half and quarter games
+  // toward those 10. Compute the game normally, then clamp the final post-margin
+  // delta before committing.
   const CAP_DEFAULT = 10;
   const CAP_SEEDED = 5;
   const SEEDED_CAP_GAMES = 10;
@@ -98,20 +99,20 @@
   // value is altered. RATED_MIN_GAMES is the single place the threshold lives.
   const RATED_MIN_GAMES = 5;
 
-  // True when the record exists and has earned a shown rating.
-  // Games are counted by weight (weightedGamesOf).
+  // True when the record exists and has earned a shown rating. Counts games played,
+  // whatever the team size: five 4s games show a rating just like five 2s games.
+  // The rating math itself still weights 3s and 4s; only this badge counts raw games.
   function isRated(rec){
     if(!rec) return false;
-    return rec.seededFromTruVolley != null || weightedGamesOf(rec) >= RATED_MIN_GAMES;
+    return rec.seededFromTruVolley != null || (rec.gamesPlayed || 0) >= RATED_MIN_GAMES;
   }
 
-  // Full-weight games still needed before the rating is shown, rounded up. 0 when
-  // already rated, and 0 when there is no record at all, since there is no
-  // progress to report.
+  // Games still needed before the rating is shown. 0 when already rated, and 0
+  // when there is no record at all, since there is no progress to report.
   function gamesUntilRated(rec){
     if(!rec) return 0;
     if(isRated(rec)) return 0;
-    return Math.max(0, Math.ceil(RATED_MIN_GAMES - weightedGamesOf(rec)));
+    return Math.max(0, RATED_MIN_GAMES - (rec.gamesPlayed || 0));
   }
 
   function nameKey(name){
