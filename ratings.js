@@ -22,9 +22,24 @@
  *
  * Per-player update:
  *   - Treat the game as me vs avg(opponents) in standard Glicko-2.
- *   - Partner influences my expected score: E uses team mu = (myMu + partnerMu)/2,
- *     but the rating change applies to me alone (RD and volatility from my own state).
+ *   - Teammates influence my expected score: E uses team mu = (myMu + teammateMu)/2,
+ *     where teammateMu is the average of every teammate (one partner in 2s), but
+ *     the rating change applies to me alone (RD and volatility from my own state).
  *   - Margin multiplier scales the final rating delta only.
+ *
+ * Weighted games (teams of 3 or 4): applyGame and applyToMemory take an optional
+ * weight in (0, 1]. Missing means 1.0, today's behavior. The margin-scaled rating
+ * change is multiplied by the weight before the cap, and the RD and volatility
+ * changes are scaled the same way, so a 0.5 game is about half a game of evidence.
+ * The per-game rating cap scales by the same weight: 10 in 2s, 5 in 3s, 2.5 in 4s.
+ * gamesPlayed still counts every game as 1. The part a weighted game did not count
+ * is kept as weightShortfall (sum of 1 - weight), and the weighted game count is
+ * gamesPlayed - weightShortfall. Storing the shortfall rather than a running
+ * weighted total means a writer that only knows gamesPlayed (an older cached copy
+ * of this file, admin tools, seeding) keeps the two consistent without knowing
+ * about weights. weightShortfall, and the history fields teammates, opponents and
+ * weight, are written only for weighted or larger-team games, so every 2v2 full
+ * weight write is byte-identical to before.
  */
 (function(global){
   const DEFAULT_RATING = 1500;
@@ -46,7 +61,31 @@
   const SEEDED_CAP_GAMES = 10;
   function capFor(rec){
     if (!rec || rec.seededFromTruVolley == null) return CAP_DEFAULT;
-    return (rec.gamesPlayed || 0) < SEEDED_CAP_GAMES ? CAP_SEEDED : CAP_DEFAULT;
+    return weightedGamesOf(rec) < SEEDED_CAP_GAMES ? CAP_SEEDED : CAP_DEFAULT;
+  }
+  // The cap for one game scales with its weight: 10 in 2s, 5 in 3s, 2.5 in 4s (a seeded
+  // player's 5 becomes 2.5 in 3s and 1.25 in 4s). A full game uses capFor exactly, so 2s
+  // are unchanged.
+  function capForGame(rec, w){
+    return w === 1 ? capFor(rec) : capFor(rec) * w;
+  }
+
+  // Rating weight by players per side. A size not listed rates at full weight.
+  const TEAM_SIZE_WEIGHTS = { 2: 1, 3: 0.5, 4: 0.25 };
+  function weightForTeamSize(n){
+    const w = TEAM_SIZE_WEIGHTS[n|0];
+    return w == null ? 1 : w;
+  }
+  // One game's weight. Missing, not a number, or outside (0, 1] means a full game.
+  function weightOf(w){
+    const x = Number(w);
+    return (w == null || !isFinite(x) || x <= 0 || x > 1) ? 1 : x;
+  }
+  // Games counted by weight: 10 games at 0.5 count as 5. A record with no
+  // weightShortfall has only full games, so this is gamesPlayed.
+  function weightedGamesOf(rec){
+    if (!rec) return 0;
+    return Math.max(0, (rec.gamesPlayed || 0) - (rec.weightShortfall || 0));
   }
 
   // Display gate. A rating is SHOWN once a player carries a TruVolley seed or
@@ -56,17 +95,19 @@
   const RATED_MIN_GAMES = 5;
 
   // True when the record exists and has earned a shown rating.
+  // Games are counted by weight (weightedGamesOf).
   function isRated(rec){
     if(!rec) return false;
-    return rec.seededFromTruVolley != null || (rec.gamesPlayed || 0) >= RATED_MIN_GAMES;
+    return rec.seededFromTruVolley != null || weightedGamesOf(rec) >= RATED_MIN_GAMES;
   }
 
-  // Games still needed before the rating is shown. 0 when already rated, and 0
-  // when there is no record at all, since there is no progress to report.
+  // Full-weight games still needed before the rating is shown, rounded up. 0 when
+  // already rated, and 0 when there is no record at all, since there is no
+  // progress to report.
   function gamesUntilRated(rec){
     if(!rec) return 0;
     if(isRated(rec)) return 0;
-    return Math.max(0, RATED_MIN_GAMES - (rec.gamesPlayed || 0));
+    return Math.max(0, Math.ceil(RATED_MIN_GAMES - weightedGamesOf(rec)));
   }
 
   function nameKey(name){
@@ -170,9 +211,31 @@
   // Given a per-name ratings dict and one game, mutate the dict and return
   // an array of history entries to persist. Returns [] if the game can't be
   // applied (e.g. no real players on a side).
+  // Teammate rating for the expected score: the average pre-game rating of every
+  // teammate. One teammate (2s) gives that teammate's rating exactly. null when
+  // playing alone.
+  function teammateRating(mates, initial){
+    if(!mates.length) return null;
+    return { rating: mates.reduce((s,x)=>s + initial[x].rating, 0) / mates.length };
+  }
+
+  // Scale an RD or volatility change by the game's weight. A full game keeps the
+  // engine's value exactly.
+  function scaleChange(before, after, w){
+    return w === 1 ? after : before + (after - before) * w;
+  }
+
+  // Extra history fields for a weighted or larger-team game. Empty for a 2v2 full
+  // weight game, so those entries are unchanged.
+  function weightedFields(mates, opps, teamSizes, w){
+    if(w === 1 && Math.max.apply(null, teamSizes) <= 2) return {};
+    return { teammates: mates.slice(), opponents: opps.slice(), weight: w };
+  }
+
   function applyToMemory(ratingsByKey, game){
     const t1 = cleanTeam(game.team1Names);
     const t2 = cleanTeam(game.team2Names);
+    const w = weightOf(game.weight);
     if(game.s1 === game.s2) return [];
 
     // Forfeit: a 15-10 win for the team that showed up.
@@ -207,27 +270,29 @@
         const fHistory = [];
         winnerTeam.forEach(n=>{
           const me = initial[n];
-          const partnerName = winnerTeam.find(x => x !== n) || null;
-          const partner = partnerName ? initial[partnerName] : null;
+          const mates = winnerTeam.filter(x => x !== n);
+          const partnerName = mates[0] || null;
           const upd = updateOnePlayer(
             { rating: me.rating, rd: me.rd, volatility: me.volatility },
-            partner ? { rating: partner.rating } : null,
+            teammateRating(mates, initial),
             oppAvg,
             1
           );
-          const scaledDelta = (upd.rating - me.rating) * mult;
-          const cap = capFor(me);
+          let scaledDelta = (upd.rating - me.rating) * mult;
+          if (w !== 1) scaledDelta *= w;
+          const cap = capForGame(me, w);
           let clampedDelta = scaledDelta;
           if (clampedDelta >  cap) clampedDelta =  cap;
           if (clampedDelta < -cap) clampedDelta = -cap;
           const newRatingClamped = me.rating + clampedDelta;
-          const newRD = upd.rd, newVol = upd.volatility;
+          const newRD = scaleChange(me.rd, upd.rd, w), newVol = scaleChange(me.volatility, upd.volatility, w);
           const rec = winStates[n].ref;
           const ratingBefore = rec.rating, rdBefore = rec.rd;
           rec.rating = newRatingClamped;
           rec.rd = newRD;
           rec.volatility = newVol;
           rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
+          if (w !== 1) rec.weightShortfall = (rec.weightShortfall||0) + (1 - w);
           if(newRatingClamped > (rec.peakRating||0)){ rec.peakRating = newRatingClamped; rec.peakRatingDate = fts; }
           rec.lastUpdated = fts;
           fHistory.push({
@@ -243,7 +308,8 @@
               opponentScore: loseScore,
               ratingBefore, ratingAfter: newRatingClamped, ratingChange: clampedDelta,
               rdBefore, rdAfter: newRD,
-              won: true, forfeit: true
+              won: true, forfeit: true,
+              ...weightedFields(mates, loserTeam, [winnerTeam.length], w)
             }
           });
         });
@@ -288,26 +354,28 @@
       team.forEach(n=>{ initial[n] = { ...states[n].ref }; });
       team.forEach(n=>{
         const me = initial[n];
-        const partnerName = team.find(x => x !== n);
-        const partner = partnerName ? initial[partnerName] : null;
+        const mates = team.filter(x => x !== n);
+        const partnerName = mates[0];
         const score = won ? 1 : 0;
         const upd = updateOnePlayer(
           { rating: me.rating, rd: me.rd, volatility: me.volatility },
-          partner ? { rating: partner.rating } : null,
+          teammateRating(mates, initial),
           opp,
           score
         );
         const baseDelta = upd.rating - me.rating;
-        const scaledDelta = baseDelta * mult;
-        const newRD = upd.rd;
-        const newVol = upd.volatility;
+        let scaledDelta = baseDelta * mult;
+        // Weight applies before the cap. RD and volatility move by the same share.
+        if (w !== 1) scaledDelta *= w;
+        const newRD = scaleChange(me.rd, upd.rd, w);
+        const newVol = scaleChange(me.volatility, upd.volatility, w);
 
-        // Per-game cap: clamp the final post-margin delta to ±capFor(me). RD and
+        // Per-game cap: clamp the final post-margin delta to ±capForGame(me, w). RD and
         // volatility are NOT clamped (they update as the engine computes). We
         // recompute the new rating from the clamped delta so that
         // ratingAfter - ratingBefore === ratingChange stays exact, which also
         // keeps reverseGame (subtracts ratingChange) correct.
-        const cap = capFor(me);
+        const cap = capForGame(me, w);
         let clampedDelta = scaledDelta;
         if (clampedDelta >  cap) clampedDelta =  cap;
         if (clampedDelta < -cap) clampedDelta = -cap;
@@ -321,6 +389,7 @@
         rec.rd = newRD;
         rec.volatility = newVol;
         rec.gamesPlayed = (rec.gamesPlayed||0) + 1;
+        if (w !== 1) rec.weightShortfall = (rec.weightShortfall||0) + (1 - w);
         if(newRatingClamped > (rec.peakRating||0)){
           rec.peakRating = newRatingClamped;
           rec.peakRatingDate = ts;
@@ -344,7 +413,9 @@
             won: !!won,
             // Marker only: tag forfeit-derived entries for audit. Absent (no key added) on
             // normal games, so non-forfeit entries are byte-for-byte unchanged.
-            ...(game.isForfeit ? { forfeit: true } : {})
+            ...(game.isForfeit ? { forfeit: true } : {}),
+            // Same rule for weighted or larger-team games: absent on 2v2 full weight.
+            ...weightedFields(mates, oppNames, [t1.length, t2.length], w)
           }
         });
       });
@@ -362,6 +433,7 @@
   // Returns a Promise that resolves when the writes have been issued (best effort).
   async function applyGame(opts){
     const { db, dbRoot, gameId, source, ts, team1Names, team2Names, s1, s2, isForfeit } = opts;
+    const w = weightOf(opts.weight);
     if(!db) return;
     const t1 = cleanTeam(team1Names);
     const t2 = cleanTeam(team2Names);
@@ -396,6 +468,8 @@
           // (gamesPlayed, read just above, is the count that decides it), not
           // just in offline re-rate runs.
           seededFromTruVolley: cur.seededFromTruVolley ?? null,
+          // Weighted game count (weightedGamesOf) for the rated gate and seeded cap.
+          weightShortfall: cur.weightShortfall || 0,
           // Carry the account stamp so the write below can mirror onto the
           // account record. Absent on guest records; that is fine.
           playerId: cur.playerId ?? null
@@ -405,14 +479,14 @@
       }
     }));
 
-    const game = { team1Names: t1, team2Names: t2, s1, s2, ts: ts || Date.now(), source, isForfeit: !!isForfeit };
+    const game = { team1Names: t1, team2Names: t2, s1, s2, ts: ts || Date.now(), source, isForfeit: !!isForfeit, weight: w };
     const history = applyToMemory(ratingsByKey, game);
     if(!history.length) return;
 
     const writes = [];
     history.forEach(h=>{
       const rec = ratingsByKey[h.playerKey];
-      writes.push(db.ref(dbRoot+'/ratings/'+h.playerKey).update({
+      const recUpd = {
         name: rec.name,
         rating: rec.rating,
         rd: rec.rd,
@@ -421,7 +495,11 @@
         peakRating: rec.peakRating,
         peakRatingDate: rec.peakRatingDate,
         lastUpdated: rec.lastUpdated
-      }));
+      };
+      // Only a weighted game changes the shortfall, so a full game writes exactly the
+      // fields it always has. The account mirror below never carries it.
+      if (w !== 1) recUpd.weightShortfall = rec.weightShortfall;
+      writes.push(db.ref(dbRoot+'/ratings/'+h.playerKey).update(recUpd));
       writes.push(db.ref(dbRoot+'/ratings/'+h.playerKey+'/history/'+gameId).set(h.entry));
       // Stage-one account mirror: same numbers onto the account record when the
       // ratings record is stamped with a playerId. Additive alongside the
@@ -459,11 +537,15 @@
       const newRating = (rec.rating ?? DEFAULT_RATING) - (h.ratingChange||0);
       const newGames = Math.max(0, (rec.gamesPlayed||0) - 1);
       const reversedAt = Date.now();
-      writes.push(db.ref(dbRoot+'/ratings/'+k).update({
+      const recUpd = {
         rating: newRating,
         gamesPlayed: newGames,
         lastUpdated: reversedAt
-      }));
+      };
+      // A weighted game also gives back the part of a game it did not count.
+      const hw = weightOf(h.weight);
+      if (hw !== 1) recUpd.weightShortfall = Math.max(0, (rec.weightShortfall||0) - (1 - hw));
+      writes.push(db.ref(dbRoot+'/ratings/'+k).update(recUpd));
       writes.push(db.ref(dbRoot+'/ratings/'+k+'/history/'+gameId).remove());
       // Stage-one account mirror on reversal too, so the account copy never
       // drifts from the name-keyed record it shadows. Same no-stamp no-op rule.
@@ -481,6 +563,10 @@
   global.Ratings = {
     DEFAULT_RATING, DEFAULT_RD, DEFAULT_VOL, TAU,
     RATED_MIN_GAMES,
+    TEAM_SIZE_WEIGHTS,
+    weightForTeamSize,
+    weightOf,
+    weightedGamesOf,
     isRated,
     gamesUntilRated,
     nameKey,

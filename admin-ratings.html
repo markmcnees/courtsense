@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-<script src="/ratings.js?v=248349c0"></script>
+<script src="/ratings.js?v=cf2c51b0"></script>
 <style>
 :root{--sand:#f5f0e8;--primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--win:#059669;--loss:#dc2626;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;--white:#ffffff;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -429,12 +429,20 @@ async function doMerge(){
       lastUpdated: Date.now(),
       history: {}
     };
+    // Weighted games (3s, 4s) count part of a game; carry the shortfall so the merged
+    // record's weighted count is right. Absent when every game was full weight.
+    const shortfall = combined.reduce((s,c)=>s + (Ratings.weightOf ? 1 - Ratings.weightOf(c.entry.weight) : 0), 0);
+    if(shortfall > 0) mergedRecord.weightShortfall = shortfall;
+    const renameB = n => (n && Ratings.nameKey(n) === bKey) ? (a.name || aKey) : n;
+    const renameList = v => Array.isArray(v) ? v.map(renameB) : (v && typeof v === 'object') ? Object.keys(v).sort((x,y)=>x-y).map(k=>renameB(v[k])) : v;
     combined.forEach(c=>{
       // Fix self-referential partner if any history entry recorded B's name as a partner of itself
       const entry = { ...c.entry };
       if(entry.partner && Ratings.nameKey(entry.partner) === bKey) entry.partner = a.name || aKey;
       if(entry.opponent1 && Ratings.nameKey(entry.opponent1) === bKey) entry.opponent1 = a.name || aKey;
       if(entry.opponent2 && Ratings.nameKey(entry.opponent2) === bKey) entry.opponent2 = a.name || aKey;
+      if(entry.teammates) entry.teammates = renameList(entry.teammates);
+      if(entry.opponents) entry.opponents = renameList(entry.opponents);
       mergedRecord.history[c.gid] = entry;
     });
 
@@ -472,11 +480,22 @@ function replayMergeHistory(entries, displayName){
     return r ? { rating: r.rating ?? 1500, rd: r.rd ?? 350 } : { rating: 1500, rd: 350 };
   }
 
+  // Firebase can hand an array back as an object; either way this gives a list of names.
+  function nameList(v){
+    if(Array.isArray(v)) return v.filter(Boolean);
+    if(v && typeof v === 'object') return Object.keys(v).sort((a,b)=>a-b).map(k=>v[k]).filter(Boolean);
+    return null;
+  }
+
   entries.forEach(h=>{
-    const partner = h.partner ? ratingOf(h.partner) : null;
-    const o1 = h.opponent1 ? ratingOf(h.opponent1) : null;
-    const o2 = h.opponent2 ? ratingOf(h.opponent2) : null;
-    const opps = [o1, o2].filter(Boolean);
+    // 3s and 4s entries carry teammates, opponents and weight; 2s entries carry only
+    // partner and opponent1/2, which mean exactly what they always did.
+    const mateNames = nameList(h.teammates) || (h.partner ? [h.partner] : []);
+    const oppNames = nameList(h.opponents) || [h.opponent1, h.opponent2].filter(Boolean);
+    const w = Ratings.weightOf ? Ratings.weightOf(h.weight) : 1;
+    const mates = mateNames.map(ratingOf);
+    const partner = mates.length ? { rating: mates.reduce((s,p)=>s+p.rating, 0) / mates.length } : null;
+    const opps = oppNames.map(ratingOf);
     if(!opps.length) return;
     const oppAvg = {
       rating: opps.reduce((s,p)=>s+p.rating, 0) / opps.length,
@@ -495,14 +514,20 @@ function replayMergeHistory(entries, displayName){
     const myScore  = h.score || 0;
     const oppScore = h.opponentScore || 0;
     const margin = Math.abs(myScore - oppScore);
-    const teamRating = (myState.rating + (partner ? partner.rating : myState.rating)) / 2;
+    // Team average over me and every teammate (2s: (me + partner) / 2, as before).
+    const teamRating = mates.length
+      ? (myState.rating + mates.reduce((s,p)=>s+p.rating, 0)) / (1 + mates.length)
+      : (myState.rating + myState.rating) / 2;
     const winnerRating = won ? teamRating : oppAvg.rating;
     const loserRating  = won ? oppAvg.rating : teamRating;
     const mult = Ratings.marginMultiplier(winnerRating, loserRating, margin);
     const baseDelta = upd.rating - myState.rating;
-    const newRating = myState.rating + baseDelta * mult;
+    // A weighted game moves rating, RD and volatility by its share, as ratings.js does.
+    const newRating = myState.rating + (w === 1 ? baseDelta * mult : baseDelta * mult * w);
+    const newRd = w === 1 ? upd.rd : myState.rd + (upd.rd - myState.rd) * w;
+    const newVol = w === 1 ? upd.volatility : myState.volatility + (upd.volatility - myState.volatility) * w;
 
-    myState = { rating: newRating, rd: upd.rd, volatility: upd.volatility };
+    myState = { rating: newRating, rd: newRd, volatility: newVol };
     if(newRating > peakRating){ peakRating = newRating; peakRatingDate = h.timestamp || null; }
   });
 
@@ -534,6 +559,17 @@ async function rewriteBackReferences(oldName, newName){
           updates[ROOT+'/'+key+'/history/'+gid+'/'+field] = newName;
           count++;
         }
+      });
+      // 3s and 4s entries also list every teammate and opponent.
+      ['teammates','opponents'].forEach(field=>{
+        const list = entry[field];
+        if(!list || typeof list !== 'object') return;
+        Object.keys(list).forEach(i=>{
+          if(list[i] === oldName){
+            updates[ROOT+'/'+key+'/history/'+gid+'/'+field+'/'+i] = newName;
+            count++;
+          }
+        });
       });
     });
   });
