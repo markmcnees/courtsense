@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.188';
+const APP_VERSION='1.1.189';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12044,7 +12044,7 @@ var _tnList=null;          // { tid: tournament node } from the scoped listener,
 var _tnRef=null, _tnHandler=null;
 function tnUiDefaults(){ return {tid:'', newOpen:false, newName:'', newDate:'2026-10-11', newLoc:'', newAddr:'',
   newRegDate:'', newRegTime:'23:59', newCheck:'', newStart:'', newEnd:'',
-  locOpen:false, loc:'', addr:'', regDate:'', regTime:'', check:'', start:'', end:'', div:null, busy:false}; }
+  locOpen:false, loc:'', addr:'', regDate:'', regTime:'', check:'', start:'', end:'', div:null, busy:false, move:null}; }
 // Tournaments this device already auto-closed at their deadline, so a render never loops.
 var _tnAutoClosed={};
 var _tnUi=tnUiDefaults();
@@ -12241,7 +12241,7 @@ function tnSeededRows(t){
 // ---- UI state -------------------------------------------------------------
 function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
-function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
+function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.move=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
 // Checks a schedule (meta-shaped). forOpen adds what opening registration needs: a deadline
 // in the future plus check-in and play start times. Returns a message, or '' when fine.
@@ -12548,6 +12548,47 @@ function tnDeleteDiv(divId){
       tnCardRender();
     });
   });
+}
+// ---- Move a team to another division (exec) ----------------------------------------
+// The worker owns teams, so the move goes through /club/tournament-move-division with the
+// exec session: it changes only the team's division, keeps an audit entry, and emails and
+// pushes every member. Pick a division, then confirm. When either division already has
+// pools or scores, the exec must tick "I will rebuild the schedule" first.
+function tnMoveNeedsRebuild(t,fromDiv,toDiv){
+  var has=function(d){ return !!d&&(tnGdHasPools(t,d)||tnGdHasResults(t,d)); };
+  return has(fromDiv)||has(toDiv);
+}
+function tnMoveOpen(teamId){ _tnUi.move={teamId:String(teamId), to:'', rebuild:false, step:'pick', err:'', needRebuild:false}; tnCardRender(); }
+function tnMoveSet(key,val){ if(!_tnUi.move) return; _tnUi.move[key]=val; _tnUi.move.err=''; tnCardRender(); }
+function tnMoveCancel(){ _tnUi.move=null; tnCardRender(); }
+function tnMoveAsk(){
+  var mv=_tnUi.move, t=tnCur(); if(!mv||!t) return;
+  var team=tnTeams(t)[mv.teamId]; if(!team){ _tnUi.move=null; tnCardRender(); return; }
+  if(!mv.to){ mv.err='Pick a division.'; tnCardRender(); return; }
+  if((mv.needRebuild||tnMoveNeedsRebuild(t,team.divId,mv.to))&&!mv.rebuild){ mv.err='Pools or scores already exist. Tick "I will rebuild the schedule" to move the team anyway.'; tnCardRender(); return; }
+  mv.step='confirm'; tnCardRender();
+}
+async function tnMoveGo(){
+  var mv=_tnUi.move; if(!mv||_tnUi.busy) return;
+  var tok=tnScToken();
+  if(!tok){ mv.step='pick'; mv.err='Sign in as an exec again to move teams.'; tnCardRender(); return; }
+  _tnUi.busy=true; tnCardRender();
+  var j=null;
+  try {
+    var r=await fetch(AUTH_WORKER+'/club/tournament-move-division',{method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({slug:TN_SLUG, tid:_tnUi.tid, exec:tok, teamId:mv.teamId, toDivId:mv.to, rebuild:!!mv.rebuild})});
+    j=await r.json().catch(function(){ return null; });
+  } catch(e){ j=null; }
+  _tnUi.busy=false;
+  if(j&&j.ok===true){
+    _tnUi.move=null;
+    toast('Moved to '+(j.toDivision||'the new division')+'. The team was notified.');
+  } else {
+    mv.step='pick';
+    mv.err=(j&&j.error)||'Could not reach CourtSense. Nothing was changed.';
+    if(j&&j.code==='schedule_exists') mv.needRebuild=true;
+  }
+  tnCardRender();
 }
 function tnCopyLink(live){
   var link=(live?TN_LIVE_PAGE:TN_REG_PAGE)+'?t='+encodeURIComponent(_tnUi.tid);
@@ -14464,6 +14505,27 @@ function tnCardRender(){
       var c=st==='registered'?['#e7f1e8','#1e7e34']:st==='incomplete'?['#fbeee0','#8a4b08']:['#eee','#666'];
       return '<span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;background:'+c[0]+';color:'+c[1]+';border-radius:4px;padding:2px 6px;white-space:nowrap;">'+esc(st)+'</span>';
     };
+    // Move to division: a button on each active team, then a picker and a confirm step.
+    var moveHtml=function(r){
+      if(r.status==='dropped'||divIds.length<2) return '';
+      var mv=_tnUi.move, dn=function(id){ return (divs[id]&&divs[id].name)||id; };
+      if(!mv||mv.teamId!==r.id) return '<div style="margin-top:6px;">'+btn('Move to division',"tnMoveOpen('"+esc(r.id)+"')",false)+'</div>';
+      var box='<div style="margin-top:8px;padding:10px 12px;border:1px solid var(--border,#ddd);border-radius:8px;">';
+      var err=mv.err?'<div role="alert" style="font-size:13px;color:#b3261e;margin-top:8px;">'+esc(mv.err)+'</div>':'';
+      if(mv.step==='confirm'){
+        return box+'<div style="font-size:14px;line-height:1.5;">Move <strong>'+esc(r.name)+'</strong> from '+esc(dn(r.divId))+' to '+esc(dn(mv.to))+'? The team will be notified.</div>'
+          +(mv.rebuild?'<div style="font-size:12px;color:var(--gray);margin-top:4px;">You will rebuild the schedule.</div>':'')
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn(_tnUi.busy?'Moving...':'Move team','tnMoveGo()',true)+btn('Cancel','tnMoveCancel()',false)+'</div></div>';
+      }
+      var others=divIds.filter(function(id){ return id!==r.divId; });
+      var need=mv.needRebuild||tnMoveNeedsRebuild(t,r.divId,mv.to);
+      return box+'<label style="'+lbl+'margin-top:0;" for="tn-mv-to">Move to</label>'
+        +sel('tn-mv-to',mv.to,[['','Pick a division']].concat(others.map(function(id){ return [id,dn(id)]; })),"tnMoveSet('to',this.value)").replace('box-sizing:border-box;"','box-sizing:border-box;min-height:44px;"')
+        +(need?'<div style="font-size:12px;color:var(--gray);margin-top:8px;">Pools or scores already exist for this division.</div>'
+          +'<label style="display:flex;gap:10px;align-items:center;min-height:44px;font-size:14px;cursor:pointer;"><input type="checkbox" id="tn-mv-rb" style="width:22px;height:22px;"'+(mv.rebuild?' checked':'')+' onchange="tnMoveSet(\'rebuild\',this.checked)"> I will rebuild the schedule</label>':'')
+        +err
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn('Continue','tnMoveAsk()',true)+btn('Cancel','tnMoveCancel()',false)+'</div></div>';
+    };
     if(!rows.length){
       html+='<div style="font-size:13px;color:var(--gray);">No teams yet.</div>';
     } else {
@@ -14475,7 +14537,7 @@ function tnCardRender(){
           +(r.seed?'<span style="color:var(--red);">#'+r.seed+'</span> ':'')+esc(r.name)+'</span>'+badge(r.status)+'</div>'
           +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)
           +' &middot; Team rating <strong style="color:var(--charcoal);">'+(r.teamRating!=null?r.teamRating:'Unrated')+'</strong> ('+r.rated+' of '+r.total+' rated)'
-          +'<br>'+(who||'No players')+'</div></div>';
+          +'<br>'+(who||'No players')+'</div>'+moveHtml(r)+'</div>';
       }).join('');
     }
     html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Seeds sort each division by team rating, the average of its rated players. Ratings are for execs only. Email and phone are never shown here.</p></div>';
