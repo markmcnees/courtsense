@@ -755,8 +755,8 @@
     youRow.appendChild(el('div', 'pb-xchip pb-you', 'You (' + ((ctx.me && ctx.me.display) || 'you') + ')'));
     f.appendChild(youRow);
 
-    f.appendChild(el('h4', null, '2. Add people you are already playing with'));
-    f.appendChild(el('div', 'pb-hint', 'Find them on CourtSense. They get a message that you added them, and they join once they say yes.'));
+    f.appendChild(el('h4', null, '2. Invite a teammate'));
+    f.appendChild(el('div', 'pb-hint', 'Search CourtSense players by name. They join your team when they say yes.'));
     const chips = el('div', 'pb-xchips');
     const s = searchBox(t, () => div.div, ctx, function(h, row){
       out.textContent = '';
@@ -790,7 +790,7 @@
       chips.textContent = '';
       added.forEach(a => chips.appendChild(xchip(a.display + ' (gets an invite)', 'Remove', function(){ added.splice(added.indexOf(a), 1); s.clear(); draw(); }, 'Remove ' + a.display)));
       guestsBox.textContent = '';
-      guestsBox.appendChild(el('div', 'pb-lab', 'Not on CourtSense?'));
+      guestsBox.appendChild(el('div', 'pb-lab', 'Not on CourtSense? Add a guest'));
       guests.forEach(g => guestsBox.appendChild(guestRow(g)));
       guestsBox.appendChild(quietBtn('Add a guest', function(){
         out.textContent = '';
@@ -800,7 +800,7 @@
         const last = guestsBox.querySelectorAll('input[type=text]');
         if(last.length) last[last.length - 1].focus();
       }));
-      guestsBox.appendChild(el('div', 'pb-hint', 'Guests fill a spot right away and are never messaged. Other players see a guest as first name and last initial.'));
+      guestsBox.appendChild(el('div', 'pb-hint', "Guests fill a spot right away. They don't get messages."));
       const left = div.size - 1 - guests.length;
       room.textContent = left > 0 ? 'After posting, your team is looking for ' + left + ' more' + (added.length ? ' until your invites say yes.' : '.') : 'Your team is full with your guests.';
     }
@@ -867,8 +867,9 @@
       return true;
     };
     const room = () => detail.size - detail.filled;
-    f.appendChild(el('h4', null, 'Add people you are already playing with'));
+    f.appendChild(el('h4', null, 'Invite a teammate'));
     if(room() > 0){
+      f.appendChild(el('div', 'pb-hint', 'Search CourtSense players by name. They join your team when they say yes.'));
       const s = searchBox(t, () => detail.div, ctx, async function(h, row){
         row.lastChild.disabled = true;
         const ok = await edit({ addRefs: [h.ref] }, h.display + ' got your invite.');
@@ -877,7 +878,8 @@
       }, ref => false);
       f.appendChild(s.box);
     } else f.appendChild(el('div', 'pb-hint', 'Your team is full.'));
-    f.appendChild(el('div', 'pb-lab', 'Guests'));
+    f.appendChild(el('div', 'pb-lab', 'Not on CourtSense? Add a guest'));
+    f.appendChild(el('div', 'pb-hint', "Guests fill a spot right away. They don't get messages."));
     (detail.guests || []).forEach(g => {
       const r = el('div', 'pb-gbox');
       const first = g.firstName || g.name || '';
