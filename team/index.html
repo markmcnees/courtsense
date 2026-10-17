@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#082A4F">
+<title>Your Team | CourtSense</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;--paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;
+  --bg:var(--paper);--card:#FFFFFF;--text:var(--ink);--muted:var(--slate);--line:#E6DDCC;--head:var(--navy);
+  --mine:#0081AB;--minetext:#FFFFFF;--theirs:#FFFFFF;--theirstext:var(--ink);--field:#FFFFFF;--err:#B3261E;--bar:#FFFFFF;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0B1828;--card:#13243A;--text:#EEF2F6;--muted:#A7B4C2;--line:#2A3D55;--head:#F7C880;
+    --mine:#0A6F93;--minetext:#FFFFFF;--theirs:#1C3150;--theirstext:#EEF2F6;--field:#0F1E31;--err:#FF8A80;--bar:#0F1E31;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.45;color:var(--text);-webkit-font-smoothing:antialiased;padding-bottom:calc(84px + env(safe-area-inset-bottom));}
+.wrap{max-width:720px;margin:0 auto;padding:16px;}
+.hdr{background:var(--navy);color:#fff;padding:16px;}
+.hdr .wrap{padding:0 16px;}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);}
+h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:36px;letter-spacing:1px;line-height:1.05;margin-top:4px;overflow-wrap:anywhere;}
+.meta{font-size:14px;color:#C9D6E3;margin-top:6px;}
+.meta div{overflow-wrap:anywhere;}
+.chip{display:inline-block;margin-top:8px;padding:2px 10px;border-radius:999px;font-weight:700;font-size:13px;}
+.chip.reg{background:var(--teal);color:#fff;}
+.chip.inc{background:var(--gold);color:#13243A;}
+details.team{margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;}
+details.team > summary{list-style:none;cursor:pointer;min-height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--head);}
+details.team > summary::-webkit-details-marker{display:none;}
+details.team > summary .tog{font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;color:var(--muted);}
+details.team[open] > summary .tog .s{display:none;}
+details.team:not([open]) > summary .tog .h{display:none;}
+.team-body{padding:0 12px 12px;}
+.team-body .pb-tc{margin-top:0;border:none;padding:12px;}
+.team-body .pb-tc-h{display:none;}
+h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:22px;letter-spacing:1px;color:var(--head);margin:18px 0 8px;}
+.log{display:flex;flex-direction:column;gap:10px;}
+.empty{text-align:center;padding:28px 12px;color:var(--muted);}
+.empty strong{display:block;font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:26px;letter-spacing:1px;color:var(--head);}
+.msg{max-width:82%;display:flex;flex-direction:column;}
+.msg.mine{align-self:flex-end;align-items:flex-end;}
+.msg.theirs{align-self:flex-start;align-items:flex-start;}
+.who{font-size:12px;color:var(--muted);margin:0 6px 2px;}
+.bubble{padding:9px 13px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:16px;}
+.mine .bubble{background:var(--mine);color:var(--minetext);border-bottom-right-radius:4px;}
+.theirs .bubble{background:var(--theirs);color:var(--theirstext);border:1px solid var(--line);border-bottom-left-radius:4px;}
+.paused{margin:14px 0 0;text-align:center;}
+.paused button{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer;}
+.notice{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:16px;}
+.notice p{margin-top:6px;color:var(--muted);}
+.gold{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:10px;background:var(--gold);color:#082A4F;font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:1px;text-decoration:none;margin-top:12px;}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bar);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));z-index:5;}
+.bar .row{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:flex-end;}
+.bar textarea{flex:1 1 auto;min-width:0;min-height:44px;max-height:120px;resize:none;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--field);color:var(--text);font:inherit;font-size:16px;line-height:1.35;}
+.bar textarea:focus{outline:none;border-color:var(--blue);}
+.send{flex:0 0 auto;min-height:44px;min-width:72px;padding:0 16px;border:none;border-radius:12px;background:var(--gold);color:#082A4F;font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:1px;cursor:pointer;}
+.send:disabled{opacity:.55;cursor:default;}
+.bar .err{max-width:720px;margin:6px auto 0;color:var(--err);font-size:14px;}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px;}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <div class="wrap">
+    <div class="eyebrow" id="eyebrow">Your team</div>
+    <h1 id="team-name">Loading your team...</h1>
+    <div class="meta" id="meta"></div>
+    <span class="chip" id="chip" hidden></span>
+  </div>
+</header>
+<main class="wrap">
+  <div id="gate"></div>
+  <div id="app" hidden>
+    <details class="team" id="team-card">
+      <summary>Your team <span class="tog"><span class="s">Show phones and emails</span><span class="h">Hide</span></span></summary>
+      <div class="team-body" id="team-body"></div>
+    </details>
+    <h2>Team chat</h2>
+    <div class="log" id="log" aria-live="polite"></div>
+    <div class="paused" id="paused" hidden><button type="button" id="resume">Paused to save battery. Tap to check for new messages.</button></div>
+  </div>
+</main>
+<div class="bar" id="bar" hidden>
+  <div class="row">
+    <textarea id="text" rows="1" maxlength="1000" placeholder="Message your team" aria-label="Message your team"></textarea>
+    <button class="send" id="send" type="button">Send</button>
+  </div>
+  <div class="err" id="err" role="alert"></div>
+</div>
+<script src="/partner-contact.js?v=11"></script>
+<script>
+// Team page: a registered club team's chat and teammates. Every read and write goes through
+// the worker, which checks the caller is on the team on every call. Auth is the member's
+// manage link (a, m), the team page link from a chat email (a, c), or the stored sign-in.
+// Every value is set through textContent.
+(function(){
+  const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  const PC = window.CourtSensePartner;
+  const $ = (id) => document.getElementById(id);
+  const q = new URLSearchParams(location.search);
+  const slug = (q.get('slug') || '').trim(), tid = (q.get('t') || '').trim();
+  const a = (q.get('a') || '').trim(), m = (q.get('m') || '').trim(), c = (q.get('c') || '').trim();
+  const token = PC ? PC.storedToken() : '';
+  const auth = a && m ? { slug: slug, tid: tid, a: a, m: m } : a && c ? { slug: slug, tid: tid, a: a, c: c } : { slug: slug, tid: tid };
+  const useSession = !(a && (m || c));
+  const VISIBLE_MS = 5000, HIDDEN_MS = 30000, IDLE_MS = 30 * 60 * 1000;
+
+  function el(tag, cls, text){ const n = document.createElement(tag); if(cls) n.className = cls; if(text != null) n.textContent = text; return n; }
+  async function post(path, data){
+    try {
+      const r = await fetch(WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, auth, useSession ? { sessionToken: token } : {}, data || {})) });
+      const j = await r.json().catch(function(){ return null; });
+      return { status: r.status, j: j || { ok: false } };
+    } catch(e){ return { status: 0, j: { ok: false, error: 'Could not reach CourtSense. Check your connection.' } }; }
+  }
+  function fmtDate(d){
+    const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+    if(!p) return '';
+    return new Date(Date.UTC(+p[1], +p[2] - 1, +p[3], 12)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  function fmtTime(ms){
+    const d = new Date(ms), now = new Date();
+    const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return d.toDateString() === now.toDateString() ? t : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + t;
+  }
+
+  // ── Gate ──────────────────────────────────────────────────────────────────
+  function showGate(title, text, linkText, href){
+    $('gate').textContent = '';
+    const n = el('div', 'notice');
+    n.appendChild(el('strong', null, title));
+    n.appendChild(el('p', null, text));
+    if(href){ const l = el('a', 'gold', linkText); l.href = href; n.appendChild(l); }
+    $('gate').appendChild(n);
+    $('team-name').textContent = 'Your team';
+    $('app').hidden = true; $('bar').hidden = true;
+  }
+  const signIn = '/pickup/?view=tournaments&return=' + encodeURIComponent(location.pathname + location.search);
+  if(!slug || !tid){ showGate('Team page', 'This link is missing its tournament. Open the team page link from your team email.', '', ''); return; }
+  if(useSession && !token){ showGate('Sign in to see your team', 'Sign in with your CourtSense account, or open the team page link from your team email.', 'Sign in', signIn); return; }
+
+  // ── Header and team card ──────────────────────────────────────────────────
+  let headerDrawn = false;
+  function drawHeader(h){
+    if(headerDrawn) return;
+    headerDrawn = true;
+    $('eyebrow').textContent = h.tournamentName || 'Your team';
+    $('team-name').textContent = h.teamName || 'Your team';
+    const meta = $('meta'); meta.textContent = '';
+    const line1 = [h.divisionName, fmtDate(h.date)].filter(Boolean).join(' · ');
+    const times = [h.checkIn ? 'Check-in ' + h.checkIn : '', h.start ? 'Start ' + h.start : ''].filter(Boolean).join(', ');
+    if(line1) meta.appendChild(el('div', null, line1));
+    if(times) meta.appendChild(el('div', null, times));
+    if(h.location) meta.appendChild(el('div', null, h.location));
+    if(h.players && h.players.length) meta.appendChild(el('div', null, h.players.join(', ')));
+    const chip = $('chip');
+    chip.hidden = false;
+    if(h.status === 'registered'){ chip.className = 'chip reg'; chip.textContent = 'Registered'; }
+    else { chip.className = 'chip inc'; chip.textContent = 'Incomplete'; }
+    document.title = (h.teamName || 'Your team') + ' | CourtSense';
+  }
+  $('team-card').addEventListener('toggle', function(){
+    if(!this.open || $('team-body').childNodes.length || !PC || !PC.teamContactCard) return;
+    $('team-body').appendChild(PC.teamContactCard({ auth: auth, token: useSession ? token : '' }));
+  });
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  const shown = new Set();
+  let lastId = '', timer = 0, lastActive = Date.now(), paused = false, busy = false;
+  function nearBottom(){ return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 140; }
+  function toBottom(){ window.scrollTo(0, document.documentElement.scrollHeight); }
+  function drawEmpty(){
+    const log = $('log');
+    if(shown.size || log.querySelector('.empty')) return;
+    const e = el('div', 'empty');
+    e.appendChild(el('strong', null, 'Say hi to your team'));
+    e.appendChild(el('span', null, 'Messages here go to everyone on the team. Teammates get a heads-up by email or on their phone.'));
+    log.appendChild(e);
+  }
+  function addMessages(list){
+    const log = $('log');
+    const stick = nearBottom();
+    let added = 0;
+    list.forEach(function(x){
+      if(shown.has(x.id)) return;
+      shown.add(x.id);
+      if(x.id > lastId) lastId = x.id;
+      const e = log.querySelector('.empty'); if(e) e.remove();
+      const box = el('div', 'msg ' + (x.mine ? 'mine' : 'theirs'));
+      box.appendChild(el('div', 'who', (x.mine ? 'You' : (x.name || 'A player')) + ' · ' + fmtTime(x.at)));
+      box.appendChild(el('div', 'bubble', x.text));
+      log.appendChild(box);
+      added++;
+    });
+    if(added && stick) toBottom();
+    return added;
+  }
+  async function poll(){
+    if(busy) return;
+    busy = true;
+    const r = await post('/club/team-chat/list', lastId ? { after: lastId } : {});
+    busy = false;
+    if(r.status === 200 && r.j.ok){
+      const first = !headerDrawn;
+      drawHeader(r.j.header || {});
+      $('app').hidden = false; $('bar').hidden = false; $('gate').textContent = '';
+      addMessages(r.j.messages || []);
+      drawEmpty();
+      if(first) toBottom();
+      return true;
+    }
+    if(r.status === 401){ showGate('Sign in again', 'Your sign-in has expired. Sign in again, or open the team page link from your team email.', 'Sign in', signIn); stop(); return false; }
+    if(r.status === 403 || (r.j && r.j.code === 'invalid_link')){ showGate('This team page is not available', 'You are not on a registered team for this tournament, or this link has been replaced. Use the newest link from your team emails.', 'Find a partner', '/pickup/?view=tournaments'); stop(); return false; }
+    if(!headerDrawn) showGate('Could not load your team', r.j && r.j.error ? r.j.error : 'Something went wrong. Refresh to try again.', '', '');
+    return false;
+  }
+  function stop(){ clearTimeout(timer); timer = 0; }
+  function schedule(){
+    stop();
+    if(paused) return;
+    if(Date.now() - lastActive > IDLE_MS){ paused = true; $('paused').hidden = false; return; }
+    timer = setTimeout(async function(){ await poll(); schedule(); }, document.hidden ? HIDDEN_MS : VISIBLE_MS);
+  }
+  function active(){
+    lastActive = Date.now();
+    if(paused){ paused = false; $('paused').hidden = true; poll().then(schedule); }
+  }
+  ['keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(function(ev){ window.addEventListener(ev, active, { passive: true }); });
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden){ active(); poll().then(schedule); } else schedule(); });
+  $('resume').addEventListener('click', active);
+
+  // ── Compose ───────────────────────────────────────────────────────────────
+  const ta = $('text');
+  function grow(){ ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; }
+  ta.addEventListener('input', function(){ grow(); $('err').textContent = ''; });
+  async function send(){
+    const text = ta.value.trim();
+    if(!text) return;
+    $('send').disabled = true; $('err').textContent = '';
+    const r = await post('/club/team-chat/send', { text: text });
+    $('send').disabled = false;
+    if(r.status === 200 && r.j.ok){
+      ta.value = ''; grow();
+      addMessages([r.j.message]);
+      toBottom();
+      lastActive = Date.now();
+      await poll(); schedule();
+      ta.focus();
+      return;
+    }
+    $('err').textContent = r.j && r.j.error ? r.j.error : 'That did not send. Try again.';
+  }
+  $('send').addEventListener('click', send);
+  ta.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
+  });
+
+  poll().then(function(ok){ if(ok) schedule(); });
+})();
+</script>
+</body>
+</html>

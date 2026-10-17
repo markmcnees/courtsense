@@ -294,6 +294,7 @@
       <div class="kv">Status: <span id="m-status"></span></div>
       <ul class="roster" id="m-players"></ul>
       <div class="note" id="m-note" role="status"></div>
+      <a class="btn" id="m-teampage" href="/team/" style="margin-top:14px;">Open team page</a>
       <div id="m-contacts"></div>
       <div class="section" id="m-game" style="display:none;">
         <p class="started">Pool play has started. See an exec for team changes.</p>
@@ -363,7 +364,7 @@
 </div>
 <div class="scr-ov" id="scr-ov" hidden role="alertdialog" aria-modal="true"></div>
 
-<script src="/partner-contact.js?v=10"></script>
+<script src="/partner-contact.js?v=11"></script>
 <script>
 // ===== TN ENGINE START =====
 // ---- Club tournament engine (divisions, pools, playoffs) ------------------
@@ -1832,6 +1833,8 @@ async function loadManage(note){
   fillRoster('m-players', j.players || [], j.you || '');
   $('m-note').textContent = note || '';
   // Your team: teammates' phone and email (each can hide theirs), by this manage link.
+  // Team page (team chat and teammates) by the same personal link.
+  $('m-teampage').href = '/team/?slug=' + encodeURIComponent(SLUG) + '&t=' + encodeURIComponent(state.tid) + '&a=' + encodeURIComponent(state.a) + '&m=' + encodeURIComponent(state.m);
   var mc = $('m-contacts'); mc.textContent = '';
   if(window.CourtSensePartner && CourtSensePartner.teamContactCard) mc.appendChild(CourtSensePartner.teamContactCard({ auth: linkBody() }));
   // Once pool play starts the team is frozen: no add, withdraw, or drop, and the page turns

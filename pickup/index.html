@@ -34,7 +34,7 @@
 <script src="/ratings.js?v=58a1af90"></script>
 <script src="/identity.js?v=bc1dab61"></script>
 <script src="/auth.js?v=dbbd5380"></script>
-<script src="/partner-contact.js?v=10"></script>
+<script src="/partner-contact.js?v=11"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -5620,6 +5620,16 @@ function cspHydrate(){
   const me = s.me;
   const ok = !!(me && me.configured && !me.hsBlocked);
   const mine = (me && me.selfRefs && me.selfRefs[tid]) || [];
+
+  // Registered for this tournament (any division): the finder card becomes one banner to
+  // the team page, with no requests, teams, players or looking counts.
+  const reg = me && me.registeredIn && me.registeredIn[tid];
+  if(reg && PC && PC.registeredBanner){
+    const teamsHost = document.querySelector('[data-csp-teams]');
+    const card = teamsHost && teamsHost.closest('.card');
+    if(card){ card.innerHTML = ''; card.appendChild(PC.registeredBanner(reg)); }
+    return;
+  }
 
   status.innerHTML = '';
   const line = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; status.appendChild(d); };

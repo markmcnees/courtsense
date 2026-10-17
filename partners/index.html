@@ -128,7 +128,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=10"></script>
+<script src="/partner-contact.js?v=11"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -408,6 +408,17 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     // Name, then date and place, then the sign-up tag, then the counts.
     s.appendChild(el('div', 't-name', t.name));
     s.appendChild(el('div', 't-meta', dateRange(t.startDate, t.endDate) + (t.location ? ' · ' + t.location : '')));
+    // Registered for this tournament (any division): one banner to the team page instead of
+    // the finder, and no looking counts.
+    const reg = me && me.registeredIn && me.registeredIn[t.id];
+    if(reg){
+      d.appendChild(s);
+      const rb = el('div', 'body');
+      rb.appendChild(PC.registeredBanner(reg));
+      d.appendChild(rb);
+      d.open = true;
+      return d;
+    }
     const tag = PC.tagEl(PC.trnTag(t.divisions));
     const players = playersFor(t);
     const nTeams = teamRows(t).length;

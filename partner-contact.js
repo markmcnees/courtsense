@@ -224,6 +224,9 @@
     '.pb-badge-done{background:#DCE1E6;color:#3B4A59;}',
     '.pb-badge-rating{background:#082A4F;color:#fff;}',
     '.pb-badge-reg{background:#217F7F;color:#fff;}',
+    '.pb-regbanner{margin:10px 0;padding:14px;border-radius:12px;background:#E6F2F2;border:2px solid #217F7F;color:#13243A;}',
+    '.pb-regbanner-t{font-family:"Bebas Neue",sans-serif;font-size:22px;letter-spacing:1px;color:#082A4F;line-height:1.1;}',
+    '.pb-regbanner-s{font-size:15px;margin:4px 0 10px;}',
     // Your team: teammates' contact for a registered club team.
     '.pb-tc{margin-top:10px;padding:14px;border-radius:12px;background:#fff;border:2px solid #217F7F;color:#13243A;font-family:Barlow,-apple-system,sans-serif;}',
     '.pb-tc-h{font-family:"Bebas Neue",sans-serif;font-size:22px;letter-spacing:1px;color:#082A4F;line-height:1.1;}',
@@ -1176,10 +1179,21 @@
     return box;
   }
 
+  // For a tournament the viewer is registered in (/partners/me registeredIn), in place of the
+  // finder: one line and a gold button to the team page.
+  function registeredBanner(info){
+    ensureStyles();
+    const b = el('div', 'pb-regbanner');
+    b.appendChild(el('div', 'pb-regbanner-t', "You're registered."));
+    b.appendChild(el('div', 'pb-regbanner-s', 'Your team chat and teammates are on your team page.'));
+    if(info && typeof info.teamPage === 'string' && /^\/team\/\?/.test(info.teamPage)) b.appendChild(goldLink('Open team page', info.teamPage));
+    return b;
+  }
+
   global.CourtSensePartner = {
     storedToken, post, loadMe, textBox, adultBox, openCompose, threadHref, fetchBoard, myTeamsByDay, contactPlan, teamLine, teamNames, inviteTitle, combineTitle,
     isSent, sentBtn, showBanner,
     ensureStyles, section, emptyLine, teamCard, playerCard, goldBtn, goldLink, quietBtn, quietLink, badge, divTag, trnTag, tagEl, requestStrip,
-    teamsSection, COED_NOTE, teamContactCard,
+    teamsSection, COED_NOTE, teamContactCard, registeredBanner,
   };
 })(window);
