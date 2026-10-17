@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>CourtSense KPIs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;--paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;
+  --bg:var(--paper);--card:#FFFFFF;--text:var(--ink);--muted:var(--slate);--line:#E4DCCD;--field:#FFFFFF;
+  --head:var(--navy);--num:var(--navy);--err:#B3261E;--errbg:#FDECEA;--tag:#E6F2F2;--tagtext:var(--teal);--bar:var(--blue);
+  --focus:var(--blue);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0B1828;--card:#13243A;--text:#EEF2F6;--muted:#A7B4C2;--line:#2A3D55;--field:#0F1E31;
+    --head:#F7C880;--num:#FFFFFF;--err:#FF8A80;--errbg:#3A1D1D;--tag:#163A3A;--tagtext:#7FD6D6;--bar:#4FC3E8;
+    --focus:#4FC3E8;
+  }
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif;font-size:16px;line-height:1.4;}
+h1,h2,h3{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:.5px;color:var(--head);margin:0;}
+h1{font-size:34px;}
+h2{font-size:26px;margin:28px 0 10px;}
+h3{font-size:20px;margin:16px 0 8px;color:var(--text);opacity:.85;}
+.wrap{max-width:1200px;margin:0 auto;padding:16px 16px 48px;}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.asof{color:var(--muted);font-size:14px;}
+.bar-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;}
+button{font:inherit;font-weight:600;min-height:44px;padding:0 16px;border-radius:10px;border:0;cursor:pointer;}
+.b-gold{background:var(--gold);color:#13243A;}
+.b-link{background:transparent;color:var(--muted);text-decoration:underline;padding:0 4px;}
+button:disabled{opacity:.6;cursor:default;}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+input{font:inherit;color:var(--text);background:var(--field);border:1px solid var(--line);border-radius:8px;min-height:44px;padding:8px 10px;width:100%;}
+label.f{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:400;font-size:16px;}
+.gate{max-width:420px;margin:48px auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;}
+.gate p{color:var(--muted);margin:8px 0 14px;}
+.gate .row{display:flex;gap:8px;margin-top:10px;}
+.err{color:var(--err);font-size:14px;margin-top:8px;}
+.errbox{background:var(--errbg);color:var(--err);border-radius:8px;padding:8px 10px;font-size:14px;margin-top:12px;}
+.note{font-size:14px;color:var(--muted);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0;}
+.tile .num{font-family:'Bebas Neue',sans-serif;font-size:44px;line-height:1;color:var(--num);letter-spacing:.5px;}
+.tile .num.soft{font-family:'Barlow',sans-serif;font-size:18px;font-weight:600;line-height:1.3;color:var(--muted);padding:10px 0 6px;}
+.tile .lab{font-weight:600;font-size:15px;}
+.tile .d30{font-size:13px;color:var(--muted);}
+.tile .why{font-size:12px;color:var(--muted);}
+.row2{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.delta{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 8px;border:1.5px solid var(--gold);}
+.delta.up{background:var(--gold);color:#13243A;}
+.delta.down{background:transparent;color:var(--text);}
+.delta.flat{background:transparent;color:var(--muted);border-color:var(--line);}
+.tag{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-radius:6px;padding:2px 6px;background:var(--tag);color:var(--tagtext);}
+.list{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:10px;}
+.list .li{display:grid;grid-template-columns:minmax(90px,140px) 1fr auto;gap:10px;align-items:center;font-size:14px;padding:4px 0;}
+.list .track{height:10px;background:var(--line);border-radius:6px;overflow:hidden;}
+.list .fill{height:100%;background:var(--bar);border-radius:6px;}
+.list .val{font-weight:700;min-width:28px;text-align:right;}
+.list h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.foot{margin-top:28px;display:flex;justify-content:center;}
+@media (min-width:900px){ .grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>CourtSense KPIs</h1>
+  </div>
+
+  <div id="gate" class="gate" hidden>
+    <h2 style="margin:0">Admin key</h2>
+    <p>This page is for CourtSense admins. Enter the admin key to continue. It stays on this device.</p>
+    <form id="gate-form" autocomplete="off">
+      <label class="f">Admin key<input id="key-input" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><button class="b-gold" type="submit" id="key-btn">Open</button></div>
+      <div id="key-err" class="err" role="alert"></div>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <div class="bar-row">
+      <span class="asof" id="asof" aria-live="polite">Loading...</span>
+      <button class="b-gold" id="refresh-btn" type="button">Refresh</button>
+      <span class="note" id="refresh-note" role="status" aria-live="polite"></span>
+    </div>
+    <div id="load-err" class="errbox" role="alert" hidden></div>
+    <div id="dash"></div>
+    <div class="foot"><button class="b-link" id="forget-btn" type="button">Forget the admin key on this device</button></div>
+  </div>
+</div>
+
+<script>
+// CourtSense KPIs. Admin only: one call to the worker's /admin/kpi with the admin key,
+// which answers with counts only (no names, ids or contact details). The key sits in
+// localStorage['courtsenseAdminKey'], the same slot /bd/ and admin-players.html use.
+(function(){
+  const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  const KEY_STORE = 'courtsenseAdminKey';
+  const MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+  const $ = id => document.getElementById(id);
+  let KEY = '';
+
+  function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
+  function stored(){ try{ return (localStorage.getItem(KEY_STORE) || '').trim(); }catch(e){ return ''; } }
+  function remember(k){ try{ localStorage.setItem(KEY_STORE, k); }catch(e){} }
+  function forget(){ try{ localStorage.removeItem(KEY_STORE); }catch(e){} KEY = ''; }
+  const fmt = n => Number(n || 0).toLocaleString('en-US');
+  const pct = r => Math.round((r || 0) * 100) + '%';
+
+  // ── Gate (same as /bd/) ───────────────────────────────────────────────────
+  function showGate(msg){
+    $('app').hidden = true; $('gate').hidden = false;
+    $('key-err').textContent = msg || '';
+    setTimeout(() => $('key-input').focus(), 0);
+  }
+  async function checkKey(k){
+    let r;
+    try{
+      r = await fetch(WORKER + '/auth/admin-key-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminKey: k }) });
+    }catch(e){ return 'net'; }
+    if(r.status === 401) return 'bad';
+    if(r.status === 429) return 'rate';
+    if(r.status !== 200) return 'net';
+    try{ const j = await r.json(); return j && j.ok === true ? 'ok' : 'net'; }catch(e){ return 'net'; }
+  }
+  function gateMsg(result){ return result === 'rate' ? 'Too many attempts. Try again in 15 minutes.' : result === 'bad' ? 'Wrong admin key.' : MSG_NET; }
+  $('gate-form').addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const typed = ($('key-input').value || '').trim();
+    if(!typed){ $('key-err').textContent = 'Enter the admin key.'; return; }
+    $('key-btn').disabled = true; $('key-err').textContent = '';
+    const result = await checkKey(typed);
+    $('key-btn').disabled = false;
+    if(result !== 'ok'){ $('key-err').textContent = gateMsg(result); return; }
+    remember(typed); KEY = typed; $('key-input').value = '';
+    open();
+  });
+  $('forget-btn').addEventListener('click', function(){ forget(); $('dash').textContent = ''; showGate(''); });
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+  async function load(refresh){
+    let r, j = null;
+    try{
+      r = await fetch(WORKER + '/admin/kpi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminKey: KEY, refresh: !!refresh }) });
+    }catch(e){ return { status: 0, j: null }; }
+    try{ j = await r.json(); }catch(e){}
+    if(r.status === 403 && j && j.code === 'forbidden'){ forget(); showGate('That admin key no longer works. Enter it again.'); }
+    return { status: r.status, j };
+  }
+  async function open(){
+    $('gate').hidden = true; $('app').hidden = false;
+    $('load-err').hidden = true;
+    const res = await load(false);
+    if(!KEY) return;
+    show(res);
+  }
+  function show(res){
+    if(res.status !== 200 || !res.j || !res.j.ok){
+      $('load-err').hidden = false;
+      $('load-err').textContent = 'Could not load the numbers. ' + (res.status === 0 ? MSG_NET : ((res.j && res.j.error) || 'Try again.'));
+      return;
+    }
+    $('load-err').hidden = true;
+    $('asof').textContent = 'As of ' + new Date(res.j.asOf).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET';
+    render(res.j.metrics || {});
+  }
+  $('refresh-btn').addEventListener('click', async function(){
+    const b = this; b.disabled = true; $('refresh-note').textContent = 'Refreshing...';
+    const res = await load(true);
+    b.disabled = false;
+    if(!KEY) return;
+    show(res);
+    $('refresh-note').textContent = res.j && res.j.refreshLimited ? 'Refreshed under a minute ago. Showing those numbers; try again in ' + res.j.retryInSec + ' seconds.' : (res.status === 200 ? 'Up to date.' : '');
+  });
+
+  // ── Tiles ─────────────────────────────────────────────────────────────────
+  // o: { value, label, d30, cur, prior, partial, why, notTracked, missing }
+  function tile(o){
+    const t = el('div', 'tile');
+    if(o.notTracked){ t.appendChild(el('div', 'num soft', 'Not tracked yet')); }
+    else if(o.missing){ t.appendChild(el('div', 'num soft', 'No data yet')); }
+    else t.appendChild(el('div', 'num', o.value));
+    t.appendChild(el('div', 'lab', o.label));
+    const extra = el('div', 'row2');
+    if(!o.notTracked && !o.missing && o.d30) extra.appendChild(el('span', 'd30', o.d30));
+    if(!o.notTracked && !o.missing && o.prior != null && o.cur != null){
+      const d = o.cur - o.prior;
+      const p = el('span', 'delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : 'flat'), d > 0 ? '▲ ' + fmt(d) : d < 0 ? '▼ ' + fmt(-d) : 'No change');
+      p.title = 'Last 30 days compared with the 30 days before';
+      p.setAttribute('aria-label', d === 0 ? 'No change from the prior 30 days' : (d > 0 ? 'Up ' : 'Down ') + Math.abs(d) + ' from the prior 30 days');
+      extra.appendChild(p);
+    }
+    if(o.partial) extra.appendChild(el('span', 'tag', 'partial'));
+    if(extra.childNodes.length) t.appendChild(extra);
+    if(o.notTracked && o.why) t.appendChild(el('div', 'why', o.why));
+    if(o.partial && o.why) t.appendChild(el('div', 'why', o.why));
+    return t;
+  }
+  function section(dash, title){ dash.appendChild(el('h2', null, title)); }
+  function grid(dash, tiles, sub){
+    if(sub) dash.appendChild(el('h3', null, sub));
+    const g = el('div', 'grid'); tiles.forEach(t => g.appendChild(tile(t))); dash.appendChild(g);
+  }
+  function bars(dash, title, rows){
+    const box = el('div', 'list');
+    box.appendChild(el('h4', null, title));
+    const max = Math.max(1, ...rows.map(r => r.count));
+    rows.forEach(r => {
+      const li = el('div', 'li');
+      li.appendChild(el('span', null, r.label));
+      const tr = el('div', 'track'); const f = el('div', 'fill'); f.style.width = Math.round((r.count / max) * 100) + '%'; tr.appendChild(f);
+      tr.setAttribute('role', 'img'); tr.setAttribute('aria-label', r.label + ': ' + r.count);
+      li.appendChild(tr);
+      li.appendChild(el('span', 'val', fmt(r.count)));
+      box.appendChild(li);
+    });
+    dash.appendChild(box);
+  }
+
+  function render(m){
+    const dash = $('dash'); dash.textContent = '';
+    const g = m.growth || {}, a = m.active || {}, hs = m.highSchool || {}, cl = m.club || {}, lg = m.league || {}, pk = m.pickup || {}, en = m.engagement || {}, pl = m.pipeline || {}, cd = m.crossDoor || {};
+
+    section(dash, 'Growth');
+    grid(dash, [
+      { value: fmt(g.accounts), label: 'CourtSense accounts', d30: fmt(g.new30) + ' new in 30 days, ' + fmt(g.new7) + ' in 7' },
+      { value: fmt(g.new30), label: 'New accounts, 30 days', d30: fmt(g.newPrior30) + ' the 30 days before', cur: g.new30, prior: g.newPrior30 },
+      { value: fmt(g.new7), label: 'New accounts, 7 days' }
+    ]);
+
+    section(dash, 'Activation');
+    grid(dash, [
+      { value: fmt(g.activated), label: 'Activated accounts', d30: pct(g.activationRate) + ' of all accounts' },
+      { value: fmt(a.players30), label: 'Active players, 30 days', d30: fmt(a.unlinked30) + ' more actions not tied to an account', cur: a.players30, prior: a.playersPrior30, partial: a.partial, why: a.partialNote }
+    ]);
+
+    section(dash, 'Front doors');
+    const hsMissing = !hs.available || !hs.schoolRoots;
+    grid(dash, [
+      { value: fmt(hs.schoolsLive), label: 'Schools live', missing: hsMissing, d30: fmt(hs.schoolRoots) + ' set up' },
+      { value: fmt(hs.rosterPlayers), label: 'Players on rosters', missing: hsMissing },
+      { value: fmt(hs.claimed), label: 'Roster players with an account', missing: hsMissing },
+      { value: fmt(hs.matches30), label: 'HS matches, 30 days', missing: hsMissing, cur: hs.matches30, prior: hs.matchesPrior30 }
+    ], 'High school');
+    grid(dash, [
+      { value: fmt(cl.members), label: 'FSU Grass members', missing: !cl.available, d30: fmt(cl.joined30) + ' joined in 30 days', cur: cl.joined30, prior: cl.joinedPrior30 }
+    ], 'College club');
+    grid(dash, [
+      { value: fmt(lg.kotbPlayers), label: 'KotB players this season' },
+      { value: fmt(lg.qotbPlayers), label: 'QotB players this season' },
+      { value: fmt(lg.linkedAccounts), label: 'League players with an account', d30: fmt(lg.linkedThisSeason) + ' on this season\'s roster' },
+      { value: fmt(lg.teams4v4), label: '4v4 teams' },
+      { label: '4v4 players', notTracked: !lg.players4v4Tracked, why: '4v4 keeps a captain per team, not a player roster.' }
+    ], 'City league');
+    grid(dash, [
+      { value: fmt(pk.games), label: 'Pickup games posted', d30: fmt(pk.cancelled) + ' cancelled' },
+      { value: fmt(pk.ran30), label: 'Games played, 30 days', cur: pk.ran30, prior: pk.ranPrior30 },
+      { value: fmt(pk.rsvps), label: 'RSVPs', d30: fmt(pk.rsvps30) + ' in 30 days', cur: pk.rsvps30, prior: pk.rsvpsPrior30 }
+    ], 'Pickup');
+
+    section(dash, 'Engagement');
+    const reqMissing = en.requestsTracked === false;
+    grid(dash, [
+      { value: fmt(en.ratedGames), label: 'Matches scored', d30: fmt(en.rated30) + ' in 30 days', cur: en.rated30, prior: en.ratedPrior30 },
+      { value: fmt(en.tournamentsHeld), label: 'Tournaments run', d30: fmt(en.tournamentsHeld30) + ' in 30 days, ' + fmt(en.tournamentsUpcoming) + ' coming up' },
+      { value: fmt(en.registrations), label: 'Tournament registrations', d30: fmt(en.registrations30) + ' in 30 days', cur: en.registrations30, prior: en.registrationsPrior30 },
+      { value: fmt(en.requestsSent), label: 'Partner requests sent', missing: reqMissing, d30: fmt(en.requestsSent30) + ' in 30 days', cur: en.requestsSent30, prior: en.requestsSentPrior30 },
+      { value: fmt(en.requestsAccepted), label: 'Partner requests accepted', missing: reqMissing, d30: fmt(en.requestsAccepted30) + ' in 30 days', cur: en.requestsAccepted30, prior: en.requestsAcceptedPrior30 }
+    ]);
+    if((en.bySource || []).length) bars(dash, 'Matches scored by source', en.bySource.map(s => ({ label: s.label, count: s.total })));
+
+    section(dash, 'Pipeline');
+    if(!pl.available){ grid(dash, [{ label: 'Business development contacts', missing: true }]); }
+    else {
+      grid(dash, [{ value: fmt(pl.total), label: 'Business development contacts' }].concat((pl.byCategory || []).map(c => ({ value: fmt(c.count), label: c.label }))));
+      bars(dash, 'By status', pl.byStatus || []);
+    }
+
+    section(dash, 'Players in more than one door');
+    const why = cd.partialNote;
+    grid(dash, [
+      { value: fmt(cd.two + cd.three + cd.four), label: 'In two or more doors', partial: cd.partial, why },
+      { value: fmt(cd.one), label: 'In one door' },
+      { value: fmt(cd.two), label: 'In two doors' },
+      { value: fmt(cd.three), label: 'In three doors' },
+      { value: fmt(cd.four), label: 'In all four doors' }
+    ]);
+    const d = cd.doors || {};
+    bars(dash, 'Linked accounts by door', [
+      { label: 'High school', count: d.highSchool || 0 }, { label: 'College club', count: d.club || 0 },
+      { label: 'City league', count: d.league || 0 }, { label: 'Pickup', count: d.pickup || 0 }
+    ]);
+  }
+
+  // ── Start ─────────────────────────────────────────────────────────────────
+  (async function(){
+    const k = stored();
+    if(!k){ showGate(''); return; }
+    const result = await checkKey(k);
+    if(result === 'bad'){ forget(); showGate('That admin key no longer works. Enter it again.'); return; }
+    if(result !== 'ok'){ showGate(gateMsg(result)); return; }
+    KEY = k;
+    open();
+  })();
+})();
+</script>
+</body>
+</html>
