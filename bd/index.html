@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Coach Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;--sand:#F7C880;--paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;
+  --bg:var(--paper);--card:#FFFFFF;--text:var(--ink);--muted:var(--slate);--line:#E4DCCD;--field:#FFFFFF;
+  --head:var(--navy);--ok:#1E7A4C;--err:#B3261E;--errbg:#FDECEA;--danger:#B3261E;--dangertext:#FFFFFF;--chip:#F1EADD;--chipon:var(--navy);--chipontext:#FFFFFF;
+  --focus:var(--blue);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0B1828;--card:#13243A;--text:#EEF2F6;--muted:#A7B4C2;--line:#2A3D55;--field:#0F1E31;
+    --head:var(--sand);--ok:#5FD39A;--err:#FF8A80;--errbg:#3A1D1D;--danger:#FF8A80;--dangertext:#13243A;--chip:#1C3150;--chipon:var(--gold);--chipontext:#13243A;
+    --focus:#4FC3E8;
+  }
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',system-ui,sans-serif;font-size:16px;line-height:1.4;}
+h1,h2{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:.5px;color:var(--head);margin:0;}
+h1{font-size:34px;}
+h2{font-size:24px;}
+.wrap{max-width:1200px;margin:0 auto;padding:16px 16px 48px;}
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.sub{color:var(--muted);font-size:14px;}
+button,.btn{font:inherit;font-weight:600;min-height:44px;padding:0 16px;border-radius:10px;border:0;cursor:pointer;}
+.b-gold{background:var(--gold);color:#13243A;}
+.b-navy{background:var(--navy);color:#fff;}
+.b-quiet{background:transparent;color:var(--text);border:1px solid var(--line);}
+.b-danger{background:var(--danger);color:var(--dangertext);}
+.b-link{background:transparent;color:var(--muted);text-decoration:underline;min-height:44px;padding:0 4px;}
+button:disabled{opacity:.6;cursor:default;}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+input,select,textarea{font:inherit;color:var(--text);background:var(--field);border:1px solid var(--line);border-radius:8px;min-height:44px;padding:8px 10px;width:100%;}
+textarea{resize:vertical;min-height:64px;}
+label.f{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:400;font-size:16px;color:var(--text);}
+.gate{max-width:420px;margin:48px auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;}
+.gate p{color:var(--muted);margin:8px 0 14px;}
+.gate .row{display:flex;gap:8px;margin-top:10px;}
+.err{color:var(--err);font-size:14px;margin-top:8px;}
+.errbox{background:var(--errbg);color:var(--err);border-radius:8px;padding:8px 10px;font-size:14px;margin-top:8px;}
+.tools{background:var(--bg);padding:12px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px;}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-top:10px;scrollbar-width:thin;}
+.chip{flex:0 0 auto;min-height:44px;padding:0 14px;border-radius:22px;background:var(--chip);color:var(--text);font-weight:600;border:0;}
+.chip[aria-pressed="true"]{background:var(--chipon);color:var(--chipontext);}
+.chip .n{opacity:.75;font-weight:500;margin-left:4px;}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.actions .note{font-size:14px;color:var(--ok);align-self:center;}
+.fallback{margin-top:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;}
+.fallback textarea{min-height:80px;font-size:14px;}
+.fallback .h{font-size:14px;font-weight:600;margin-bottom:6px;}
+.list{display:grid;gap:12px;}
+.card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--slate);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;}
+.card[data-status="Contacted"]{border-left-color:var(--slate);}
+.card[data-status="Interested"]{border-left-color:var(--blue);}
+.card[data-status="Committed"]{border-left-color:var(--gold);}
+.card[data-status="Onboarded"]{border-left-color:var(--teal);}
+.card[data-status="Live"]{border-left-color:#1E7A4C;}
+.card[data-status="Not now"]{border-left-color:var(--line);opacity:.85;}
+.card .wide{grid-column:1 / -1;}
+.card .name input{font-weight:700;font-size:18px;}
+.meta{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--muted);}
+.state{font-weight:600;}
+.state.ok{color:var(--ok);}
+.state.bad{color:var(--err);}
+.confirm{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--errbg);border-radius:10px;padding:8px 10px;}
+.confirm span{flex:1 1 160px;color:var(--err);font-weight:600;}
+.addform{background:var(--card);border:2px solid var(--gold);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px;}
+.addform .wide,.addform .row{grid-column:1 / -1;}
+.addform .row{display:flex;gap:8px;flex-wrap:wrap;}
+.empty{color:var(--muted);text-align:center;padding:32px 0;}
+.foot{margin-top:24px;display:flex;justify-content:center;}
+@media (min-width:900px){
+  .tools{position:sticky;top:0;z-index:5;}
+  .card{grid-template-columns:1.3fr 1.3fr .8fr 1fr 1.6fr;align-items:end;}
+  .card .wide{grid-column:auto;}
+  .card .nstep{grid-column:1 / 3;}
+  .card .notes{grid-column:3 / -1;}
+  .addform{grid-template-columns:repeat(4,1fr);}
+  .addform .wide{grid-column:span 2;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Coach Pipeline</h1>
+    <span class="sub">High school beach coaches, 2027 pilot</span>
+  </div>
+
+  <div id="gate" class="gate" hidden>
+    <h2>Admin key</h2>
+    <p>This page is for CourtSense admins. Enter the admin key to continue. It stays on this device.</p>
+    <form id="gate-form" autocomplete="off">
+      <label class="f">Admin key<input id="key-input" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><button class="b-gold" type="submit" id="key-btn">Open</button></div>
+      <div id="key-err" class="err" role="alert"></div>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <div class="tools">
+      <label class="f">Search<input id="q" type="search" placeholder="Name, school, county, email or notes" autocomplete="off"></label>
+      <div class="chips" id="chips" role="group" aria-label="Filter by status"></div>
+      <div class="actions">
+        <button class="b-gold" id="add-btn" type="button">Add coach</button>
+        <button class="b-navy" id="bcc-btn" type="button">Copy emails for BCC</button>
+        <button class="b-quiet" id="csv-btn" type="button">Export CSV</button>
+        <span class="note" id="act-note" role="status" aria-live="polite"></span>
+      </div>
+      <div id="fallback" class="fallback" hidden>
+        <div class="h" id="fallback-h">Copy these emails</div>
+        <textarea id="fallback-text" readonly aria-label="Emails to copy"></textarea>
+        <div class="actions"><button class="b-quiet" id="fallback-close" type="button">Done</button></div>
+      </div>
+    </div>
+    <div id="add-slot"></div>
+    <div id="load-err" class="errbox" role="alert" hidden></div>
+    <div class="list" id="list" aria-live="polite"></div>
+    <div class="foot"><button class="b-link" id="forget-btn" type="button">Forget the admin key on this device</button></div>
+  </div>
+</div>
+
+<script>
+// Coach Pipeline. Admin only: every read and write goes through the worker's
+// /admin/bd/* routes with the admin key, and the coaches live in a node clients
+// cannot read. The key sits in localStorage['courtsenseAdminKey'], the same slot
+// admin-players.html uses, and is checked first through /auth/admin-key-check.
+(function(){
+  const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  const KEY_STORE = 'courtsenseAdminKey';
+  const STATUSES = ['Contacted', 'Interested', 'Committed', 'Onboarded', 'Live', 'Not now'];
+  const SAVE_PAUSE_MS = 1200;
+  const MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+  const $ = id => document.getElementById(id);
+
+  let KEY = '';
+  let coaches = [];     // { id, name, school, county, email, status, nextStep, notes, lastTouch }
+  let filter = 'All';
+  let query = '';
+
+  function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text != null) e.textContent = text; return e; }
+  function stored(){ try{ return (localStorage.getItem(KEY_STORE) || '').trim(); }catch(e){ return ''; } }
+  function remember(k){ try{ localStorage.setItem(KEY_STORE, k); }catch(e){} }
+  function forget(){ try{ localStorage.removeItem(KEY_STORE); }catch(e){} KEY = ''; }
+
+  // POST to the worker. Resolves { status, j } and never throws; status 0 means no network.
+  async function post(path, body){
+    let r;
+    try{
+      r = await fetch(WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ adminKey: KEY }, body || {})) });
+    }catch(e){ return { status: 0, j: null }; }
+    let j = null;
+    try{ j = await r.json(); }catch(e){}
+    if(r.status === 403 && j && j.code === 'forbidden'){ forget(); showGate('That admin key no longer works. Enter it again.'); }
+    return { status: r.status, j };
+  }
+  function errText(res, fallback){
+    if(!res || res.status === 0) return MSG_NET;
+    return (res.j && res.j.error) || fallback || 'Something went wrong. Try again.';
+  }
+
+  // ── Gate ──────────────────────────────────────────────────────────────────
+  function showGate(msg){
+    $('app').hidden = true; $('gate').hidden = false;
+    $('key-err').textContent = msg || '';
+    setTimeout(() => $('key-input').focus(), 0);
+  }
+  async function checkKey(k){
+    let r;
+    try{
+      r = await fetch(WORKER + '/auth/admin-key-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminKey: k }) });
+    }catch(e){ return 'net'; }
+    if(r.status === 401) return 'bad';
+    if(r.status === 429) return 'rate';
+    if(r.status !== 200) return 'net';
+    try{ const j = await r.json(); return j && j.ok === true ? 'ok' : 'net'; }catch(e){ return 'net'; }
+  }
+  function gateMsg(result){ return result === 'rate' ? 'Too many attempts. Try again in 15 minutes.' : result === 'bad' ? 'Wrong admin key.' : MSG_NET; }
+  $('gate-form').addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const typed = ($('key-input').value || '').trim();
+    if(!typed){ $('key-err').textContent = 'Enter the admin key.'; return; }
+    $('key-btn').disabled = true; $('key-err').textContent = '';
+    const result = await checkKey(typed);
+    $('key-btn').disabled = false;
+    if(result !== 'ok'){ $('key-err').textContent = gateMsg(result); return; }
+    remember(typed); KEY = typed; $('key-input').value = '';
+    open();
+  });
+  $('forget-btn').addEventListener('click', function(){ forget(); coaches = []; $('list').textContent = ''; showGate(''); });
+
+  async function open(){
+    $('gate').hidden = true; $('app').hidden = false;
+    $('load-err').hidden = true;
+    $('list').textContent = '';
+    $('list').appendChild(el('div', 'empty', 'Loading coaches...'));
+    const res = await post('/admin/bd/list');
+    if(!KEY) return;
+    if(res.status !== 200 || !res.j || !res.j.ok){
+      $('list').textContent = '';
+      $('load-err').hidden = false;
+      $('load-err').textContent = 'Could not load the list. ' + errText(res);
+      return;
+    }
+    coaches = res.j.coaches || [];
+    render();
+  }
+
+  // ── Filter, search, counts ────────────────────────────────────────────────
+  function matches(c){
+    if(filter !== 'All' && c.status !== filter) return false;
+    if(!query) return true;
+    const hay = [c.name, c.school, c.county, c.email, c.notes].join(' ').toLowerCase();
+    return query.split(/\s+/).every(w => hay.indexOf(w) !== -1);
+  }
+  function visible(){
+    return coaches.filter(matches).sort((a, b) =>
+      STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status) ||
+      (a.school || a.name || a.email).localeCompare(b.school || b.name || b.email));
+  }
+  function drawChips(){
+    const box = $('chips'); box.textContent = '';
+    ['All'].concat(STATUSES).forEach(s => {
+      const n = s === 'All' ? coaches.length : coaches.filter(c => c.status === s).length;
+      const b = el('button', 'chip', s);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(filter === s));
+      b.dataset.status = s;
+      b.appendChild(el('span', 'n', '(' + n + ')'));
+      b.addEventListener('click', function(){ filter = s; render(); });
+      box.appendChild(b);
+    });
+  }
+  function render(){
+    drawChips();
+    const list = $('list'); list.textContent = '';
+    const rows = visible();
+    if(!rows.length){ list.appendChild(el('div', 'empty', coaches.length ? 'No coaches match.' : 'No coaches yet. Tap Add coach to start.')); return; }
+    rows.forEach(c => list.appendChild(card(c)));
+  }
+  let qTimer = 0;
+  $('q').addEventListener('input', function(){
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => { query = $('q').value.trim().toLowerCase(); render(); }, 150);
+  });
+
+  // ── One coach, edited in place ────────────────────────────────────────────
+  function field(label, cls, input){
+    const l = el('label', 'f ' + (cls || ''), label);
+    l.appendChild(input);
+    return l;
+  }
+  function textInput(value, max, type){
+    const i = document.createElement('input');
+    i.type = type || 'text'; i.value = value || ''; i.maxLength = max; i.autocomplete = 'off';
+    return i;
+  }
+  function statusSelect(value){
+    const s = document.createElement('select');
+    STATUSES.forEach(v => { const o = el('option', null, v); o.value = v; if(v === value) o.selected = true; s.appendChild(o); });
+    return s;
+  }
+  function card(c){
+    const box = el('div', 'card');
+    box.dataset.id = c.id;
+    box.dataset.status = c.status;
+    const name = textInput(c.name, 80);
+    const school = textInput(c.school, 80);
+    const county = textInput(c.county, 80);
+    const email = textInput(c.email, 200, 'email');
+    const status = statusSelect(c.status);
+    const nextStep = textInput(c.nextStep, 200);
+    const notes = document.createElement('textarea');
+    notes.value = c.notes || ''; notes.maxLength = 2000; notes.rows = 2;
+    name.placeholder = 'Coach name'; school.placeholder = 'School'; county.placeholder = 'County';
+    box.appendChild(field('Name', 'name', name));
+    box.appendChild(field('School', '', school));
+    box.appendChild(field('County', '', county));
+    box.appendChild(field('Status', '', status));
+    box.appendChild(field('Email', 'wide', email));
+    box.appendChild(field('Next step', 'wide nstep', nextStep));
+    box.appendChild(field('Notes', 'wide notes', notes));
+    const meta = el('div', 'meta');
+    const touch = el('span', null, 'Last touch ' + (c.lastTouch || 'not set'));
+    const state = el('span', 'state', '');
+    state.setAttribute('role', 'status');
+    const del = el('button', 'b-link', 'Delete');
+    del.type = 'button';
+    del.setAttribute('aria-label', 'Delete ' + (c.name || c.school || 'this coach'));
+    meta.appendChild(touch); meta.appendChild(state); meta.appendChild(del);
+    box.appendChild(meta);
+    const err = el('div', 'errbox wide', '');
+    err.hidden = true; err.setAttribute('role', 'alert');
+    box.appendChild(err);
+
+    const inputs = { name, school, county, email, status, nextStep, notes };
+    let timer = 0, busy = false, again = false, dirty = false;
+    function read(){
+      const o = { id: c.id };
+      for(const k in inputs) o[k] = inputs[k].value;
+      return o;
+    }
+    function fail(msg, bad){
+      state.textContent = 'Not saved'; state.className = 'state bad';
+      err.hidden = false; err.textContent = msg;
+      if(bad) bad.setAttribute('aria-invalid', 'true');
+    }
+    async function save(){
+      clearTimeout(timer);
+      if(!dirty) return;
+      if(busy){ again = true; return; }
+      const v = read();
+      if(!v.email.trim()){ fail('Email is required. The last saved email is still on file.', email); return; }
+      dirty = false; busy = true;
+      state.textContent = 'Saving...'; state.className = 'state';
+      const res = await post('/admin/bd/save', { coach: v });
+      busy = false;
+      if(res.status === 200 && res.j && res.j.ok){
+        Object.assign(c, res.j.coach);
+        touch.textContent = 'Last touch ' + c.lastTouch;
+        box.dataset.status = c.status;
+        err.hidden = true; email.removeAttribute('aria-invalid');
+        if(document.activeElement !== email) email.value = c.email;
+        state.textContent = 'Saved'; state.className = 'state ok';
+        drawChips();
+      } else {
+        dirty = true;
+        const f = res.j && res.j.field === 'email' ? email : null;
+        fail(errText(res) + (res.status === 0 ? ' Your change is still here.' : ''), f);
+      }
+      if(again){ again = false; save(); }
+    }
+    function touched(){
+      dirty = true;
+      state.textContent = 'Editing'; state.className = 'state';
+      clearTimeout(timer);
+      timer = setTimeout(save, SAVE_PAUSE_MS);
+    }
+    for(const k in inputs){
+      const i = inputs[k];
+      i.addEventListener(k === 'status' ? 'change' : 'input', k === 'status' ? function(){ dirty = true; save(); } : touched);
+      i.addEventListener('blur', save);
+    }
+
+    del.addEventListener('click', function(){
+      if(box.querySelector('.confirm')) return;
+      const who = c.name || c.school || c.email;
+      const row = el('div', 'confirm');
+      row.appendChild(el('span', null, 'Delete ' + who + '? This cannot be undone.'));
+      const yes = el('button', 'b-danger', 'Delete'); yes.type = 'button';
+      const no = el('button', 'b-quiet', 'Cancel'); no.type = 'button';
+      row.appendChild(yes); row.appendChild(no);
+      box.insertBefore(row, err);
+      no.focus();
+      no.addEventListener('click', function(){ row.remove(); del.focus(); });
+      yes.addEventListener('click', async function(){
+        yes.disabled = true; no.disabled = true;
+        const res = await post('/admin/bd/delete', { id: c.id });
+        if(res.status === 200 && res.j && res.j.ok){
+          coaches = coaches.filter(x => x.id !== c.id);
+          box.remove();
+          drawChips();
+          note('Deleted ' + who + '.');
+          if(!$('list').children.length) render();
+        } else {
+          row.remove();
+          fail('Not deleted. ' + errText(res));
+        }
+      });
+    });
+    return box;
+  }
+
+  // ── Add a coach ───────────────────────────────────────────────────────────
+  $('add-btn').addEventListener('click', function(){
+    const slot = $('add-slot');
+    if(slot.firstChild){ slot.querySelector('input').focus(); return; }
+    const f = el('form', 'addform');
+    f.setAttribute('aria-label', 'Add a coach');
+    const email = textInput('', 200, 'email'), name = textInput('', 80), school = textInput('', 80), county = textInput('', 80);
+    const status = statusSelect('Contacted'), nextStep = textInput('', 200);
+    const notes = document.createElement('textarea'); notes.maxLength = 2000; notes.rows = 2;
+    email.required = true;
+    f.appendChild(field('Email (required)', 'wide', email));
+    f.appendChild(field('Name', '', name));
+    f.appendChild(field('School', '', school));
+    f.appendChild(field('County', '', county));
+    f.appendChild(field('Status', '', status));
+    f.appendChild(field('Next step', 'wide', nextStep));
+    f.appendChild(field('Notes', 'wide', notes));
+    const err = el('div', 'errbox row', ''); err.hidden = true; err.setAttribute('role', 'alert');
+    const row = el('div', 'row');
+    const go = el('button', 'b-gold', 'Save coach'); go.type = 'submit';
+    const cancel = el('button', 'b-quiet', 'Cancel'); cancel.type = 'button';
+    row.appendChild(go); row.appendChild(cancel);
+    f.appendChild(err); f.appendChild(row);
+    slot.appendChild(f);
+    email.focus();
+    cancel.addEventListener('click', function(){ slot.textContent = ''; $('add-btn').focus(); });
+    f.addEventListener('submit', async function(ev){
+      ev.preventDefault();
+      err.hidden = true;
+      if(!email.value.trim()){ err.hidden = false; err.textContent = 'Email is required.'; email.focus(); return; }
+      go.disabled = true;
+      const res = await post('/admin/bd/save', { coach: { email: email.value, name: name.value, school: school.value, county: county.value, status: status.value, nextStep: nextStep.value, notes: notes.value } });
+      go.disabled = false;
+      if(res.status === 200 && res.j && res.j.ok){
+        coaches.push(res.j.coach);
+        slot.textContent = '';
+        filter = 'All'; query = ''; $('q').value = '';
+        render();
+        note('Added ' + (res.j.coach.name || res.j.coach.email) + '.');
+        const added = document.querySelector('.card[data-id="' + res.j.coach.id + '"]');
+        if(added) added.scrollIntoView({ block: 'center' });
+      } else {
+        err.hidden = false; err.textContent = errText(res, 'Not saved. Try again.');
+      }
+    });
+  });
+
+  // ── Copy emails for BCC, Export CSV ───────────────────────────────────────
+  let noteTimer = 0;
+  function note(msg){
+    $('act-note').textContent = msg;
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { $('act-note').textContent = ''; }, 6000);
+  }
+  function showFallback(head, text){
+    $('fallback').hidden = false;
+    $('fallback-h').textContent = head;
+    $('fallback-text').value = text;
+    $('fallback-text').focus();
+    $('fallback-text').select();
+  }
+  $('fallback-close').addEventListener('click', function(){ $('fallback').hidden = true; $('bcc-btn').focus(); });
+  $('bcc-btn').addEventListener('click', async function(){
+    const list = visible().filter(c => c.status !== 'Not now').map(c => c.email).filter(Boolean);
+    if(!list.length){ note('No emails in this view.'); return; }
+    const text = list.join(', ');
+    const n = list.length + (list.length === 1 ? ' email' : ' emails');
+    let copied = false;
+    try{
+      if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); copied = true; }
+    }catch(e){}
+    if(copied){ $('fallback').hidden = true; note('Copied ' + n + ' for BCC.'); }
+    else { note(''); showFallback('Copy these ' + n + ' for BCC (select all, then copy).', text); }
+  });
+  function csvCell(v){
+    let s = String(v == null ? '' : v);
+    if(/^[=+\-@\t\r]/.test(s)) s = "'" + s; // keeps a spreadsheet from running a cell as a formula
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function today(){
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  $('csv-btn').addEventListener('click', function(){
+    const rows = visible();
+    if(!rows.length){ note('Nothing to export in this view.'); return; }
+    const cols = ['name', 'school', 'county', 'email', 'status', 'nextStep', 'notes', 'lastTouch'];
+    const head = ['Name', 'School', 'County', 'Email', 'Status', 'Next step', 'Notes', 'Last touch'];
+    const csv = [head.join(',')].concat(rows.map(c => cols.map(k => csvCell(c[k])).join(','))).join('\r\n') + '\r\n';
+    const name = 'coach-pipeline-' + (filter === 'All' ? 'all' : filter.toLowerCase().replace(/\s+/g, '-')) + '-' + today() + '.csv';
+    try{
+      const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      note('Exported ' + rows.length + (rows.length === 1 ? ' coach' : ' coaches') + '.');
+    }catch(e){
+      showFallback('Download did not start. Copy the CSV below.', csv);
+    }
+  });
+
+  // ── Start ─────────────────────────────────────────────────────────────────
+  (async function(){
+    const k = stored();
+    if(!k){ showGate(''); return; }
+    const result = await checkKey(k);
+    if(result === 'bad'){ forget(); showGate('That admin key no longer works. Enter it again.'); return; }
+    if(result !== 'ok'){ showGate(gateMsg(result)); return; }
+    KEY = k;
+    open();
+  })();
+})();
+</script>
+</body>
+</html>
