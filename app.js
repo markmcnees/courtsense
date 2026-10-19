@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.190';
+const APP_VERSION='1.1.191';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12991,10 +12991,18 @@ function tnGdPoolsHtml(t,pools,R,esc,rowsById,scoring,btn,div,seedOf){
         }).join('')+'</table>'
         +(adv?'<div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Green rows advance (top '+adv+').</div>':'');
     }
+    // Play, Ref, or Sit for every team in every round. Times only for saved pools; the current
+    // round is shaded while pool play is on.
+    var grid=tnPoolGrid(p,btn&&matches.length?tnDivTimes(t,tnDivOfMid(t,String(matches[0].mid||''))):{});
+    if(grid.waves){
+      var cur=(btn&&t.meta&&t.meta.status==='pools')?(grid.rows.filter(function(r){ return r.mids.some(function(mid){ return !(R&&R[mid]); }); })[0]||{}).wave:null;
+      h+='<div style="font-size:12px;font-weight:700;color:var(--gray);margin-top:8px;">Who plays, refs, and sits</div>'
+        +tnPoolGridHtml(grid,{name:function(id){ return esc(tnShortName(T[id]&&T[id].name)); }, about:tnAboutLabel, now:cur});
+    }
     var waves={};
     matches.forEach(function(m){ (waves[m.wave]=waves[m.wave]||[]).push(m); });
     h+=Object.keys(waves).sort(function(a,b){ return a-b; }).map(function(w){
-      return '<div class="tn-rh" style="margin-top:12px;">Wave '+esc(w)+'</div>'
+      return '<div class="tn-rh" style="margin-top:12px;">'+(grid.waves?'Round ':'Wave ')+esc(w)+'</div>'
         +waves[w].map(function(m){
           var ab=tnHeadTime(t,m,R&&R[m.mid]);
           return tnGdMatchHtml(t,m,R,esc,nm,scoring,btn,{head:['Pool '+esc(k), m.court!=null?'Court '+esc(m.court):'', ab?esc(ab):''].filter(Boolean).join(' &middot; '), preview:!btn});
@@ -15525,7 +15533,7 @@ function clTnRender(){
     } else if(st==='pools'||st==='playoffs'||(d===today&&st!=='final')){
       var mm=tnMemberMatches(T[tid],tnMyAccountId());
       out.push(card('Tournament today', head+(m.location?'<div style="font-size:13px;color:var(--gray);">'+esc(m.location)+'</div>':'')+bigBtn(live,'Watch live')
-        +(mm?'<div style="font-weight:700;font-size:14px;margin:12px 0 6px;">Your matches</div>'+tnMemberMatchesHtml(T[tid],mm,esc,null)
+        +(mm?'<div style="font-weight:700;font-size:14px;margin:12px 0 6px;">'+(mm.waves?'Your day':'Matches')+'</div>'+tnMemberMatchesHtml(T[tid],mm,esc,null)
           +'<div style="font-size:12px;color:var(--gray);">To score a match, open the Live Scoring tab.</div>':'')));
     } else if(st==='setup'&&d>today){
       out.push(card('Registration closed', head+'<div style="font-size:14px;margin-top:6px;">Registration closed. See you '+esc(w||'on game day')+'.</div>'));
@@ -15578,16 +15586,13 @@ function tnMemberTeam(t,acct){
     var x=T[id]; return x&&(x.status==='registered'||x.status==='incomplete')&&tnArr(x.players).some(function(p){ return p&&p.accountId===acct; });
   })[0]||'';
 }
+// The team's day (tnTeamDay): every round of its pool as Playing, Ref, or Sitting, then the bracket
+// and Silver matches it plays or refs. next is the row to highlight while play is on, else -1.
 function tnMemberMatches(t,acct){
   var teamId=tnMemberTeam(t,acct); if(!teamId) return null;
-  var T=t.teams||{}, divId=T[teamId].divId, R=(t.results)||{}, times=tnDivTimes(t,divId), list=[];
+  var T=t.teams||{}, divId=T[teamId].divId, R=(t.results)||{}, times=tnDivTimes(t,divId), po=[], list;
   var pools=((t.pools)||{})[divId]||{}, refs=tnPoRefs(t,divId);
-  Object.keys(pools).sort().forEach(function(k){
-    tnArr((pools[k]||{}).matches).forEach(function(m){
-      if(m.t1!==teamId&&m.t2!==teamId&&m.ref!==teamId) return;
-      list.push({mid:m.mid, label:'Pool '+k+', wave '+(m.wave||1), court:m.court, t1:m.t1, t2:m.t2, ref:m.ref, role:(m.t1===teamId||m.t2===teamId)?'playing':'ref', at:times[m.mid]});
-    });
-  });
+  var pk=Object.keys(pools).sort().filter(function(k){ return tnArr((pools[k]||{}).teamIds).indexOf(teamId)>=0; })[0]||'';
   [['bracket','Playoffs','playoff'],['silver','Silver','silver']].forEach(function(x){
     var b=((t[x[0]])||{})[divId]; if(!b) return;
     var f=(tnDivs(t)[divId]||{}).playoff, rr=refs[x[2]]||{};
@@ -15595,24 +15600,37 @@ function tnMemberMatches(t,acct){
       if(m.bye||m.void) return;
       var ref=Object.prototype.hasOwnProperty.call(rr,m.mid)?rr[m.mid]:null;
       if(m.t1!==teamId&&m.t2!==teamId&&ref!==teamId) return;
-      list.push({mid:m.mid, label:x[1]+(m.order!=null?' match '+m.order:''), court:m.court, t1:m.t1, t2:m.t2, ref:ref, role:(m.t1===teamId||m.t2===teamId)?'playing':'ref', at:times[m.mid]});
+      po.push({mid:m.mid, label:x[1]+(m.order!=null?' match '+m.order:''), court:m.court, t1:m.t1, t2:m.t2, ref:ref, role:(m.t1===teamId||m.t2===teamId)?'playing':'ref', at:times[m.mid]==null?null:times[m.mid]});
     });
   });
-  list.sort(function(a,b){ return ((a.at==null?1e9:a.at)-(b.at==null?1e9:b.at))||(a.mid<b.mid?-1:1); });
-  return {teamId:teamId, team:T[teamId], divId:divId, list:list};
+  po.sort(function(a,b){ return ((a.at==null?1e9:a.at)-(b.at==null?1e9:b.at))||(a.mid<b.mid?-1:1); });
+  // A team missing from every pool's teamIds still sees the pool matches it plays or refs, with no rounds.
+  var src=pk?pools[pk]:{matches:[].concat.apply([],Object.keys(pools).sort().map(function(k){
+    return tnArr((pools[k]||{}).matches).map(function(m){ return {mid:m.mid, court:m.court, t1:m.t1, t2:m.t2, ref:m.ref}; });
+  }))};
+  var day=tnTeamDay(src,teamId,times,po);
+  list=day.rows.map(function(x){ if(x.kind==='pool'&&!day.waves) x.label=pk?'Pool '+pk:'Pool match'; return x; });
+  var on=t.meta&&(t.meta.status==='pools'||t.meta.status==='playoffs');
+  return {teamId:teamId, team:T[teamId], divId:divId, pool:pk, waves:day.waves, list:list, next:on?tnTeamDayNext(list,R):-1};
 }
+// Playing (teal), Ref (gold), Sitting (grey), the same three badges on every surface.
+var TN_ROLE_BADGE={playing:['Playing','#0f766e','#fff'], ref:['Ref','#d4a843','#1a1a1a'], sitting:['Sitting','#e5e7eb','#4b5563']};
 function tnMemberMatchesHtml(t,mm,esc,scoreBtn){
   var T=t.teams||{}, R=t.results||{}, L=t.live||{};
   var nm=function(id){ return id?esc((T[id]&&T[id].name)||'Team'):'To be decided'; };
-  if(!mm.list.length) return '<div style="font-size:13px;color:var(--gray);">Your matches show up here once the pools are set.</div>';
-  return mm.list.map(function(x){
+  if(!mm.list.length) return '<div style="font-size:13px;color:var(--gray);">Your day shows up here once the pools are set.</div>';
+  return mm.list.map(function(x,i){
+    var b=TN_ROLE_BADGE[x.role]||TN_ROLE_BADGE.playing, now=i===mm.next;
+    var head=[x.label?esc(x.label):'', x.court!=null?'Court '+esc(x.court):'', x.at!=null?esc(tnAboutLabel(x.at)):''].filter(Boolean).join(' &middot; ');
+    var box='<div style="border:'+(now?'2px solid #0f766e':'1px solid var(--border,#e5e5e5)')+';border-radius:10px;padding:10px;margin-bottom:8px;'+(x.role==='sitting'?'background:#f7f7f8;':'')+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--gray);font-weight:700;"><span>'+(now?'<span style="color:#0f766e;">Up next</span> &middot; ':'')+head+'</span>'
+      +'<span style="border-radius:6px;padding:1px 7px;flex-shrink:0;color:'+b[2]+';background:'+b[1]+';">'+b[0]+'</span></div>';
+    if(x.role==='sitting') return box+'<div style="font-size:14px;color:var(--gray);margin-top:4px;">No match or ref duty this round.</div></div>';
     var r=R[x.mid], lv=!r&&L[x.mid], sets=r?tnArr(r.sets):null, ready=!!(x.t1&&x.t2);
     var score=sets?sets.map(function(s){ return s.a+'-'+s.b; }).join(', '):'';
     var lvTxt='';
-    if(lv){ var ls=tnArr(lv.sets), i=Math.min(Number(lv.set)||0,Math.max(0,ls.length-1)), c=ls[i]||{a:0,b:0}; lvTxt='<span style="background:#c81e1e;color:#fff;border-radius:4px;padding:1px 6px;font-weight:700;">LIVE</span> Set '+(i+1)+': '+(tnNum(c.a)||0)+'-'+(tnNum(c.b)||0); }
-    return '<div style="border:1px solid var(--border,#e5e5e5);border-radius:10px;padding:10px;margin-bottom:8px;">'
-      +'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--gray);font-weight:700;"><span>'+esc(x.label)+(x.court!=null?' &middot; Court '+esc(x.court):'')+(x.at!=null?' &middot; '+esc(tnAboutLabel(x.at)):'')+'</span>'
-      +'<span style="border-radius:6px;padding:1px 7px;color:#fff;background:'+(x.role==='ref'?'#1f3a5f':'var(--red)')+';">'+(x.role==='ref'?'Ref':'Playing')+'</span></div>'
+    if(lv){ var ls=tnArr(lv.sets), j=Math.min(Number(lv.set)||0,Math.max(0,ls.length-1)), c=ls[j]||{a:0,b:0}; lvTxt='<span style="background:#c81e1e;color:#fff;border-radius:4px;padding:1px 6px;font-weight:700;">LIVE</span> Set '+(j+1)+': '+(tnNum(c.a)||0)+'-'+(tnNum(c.b)||0); }
+    return box
       +'<div style="font-size:15px;font-weight:700;margin-top:4px;">'+nm(x.t1)+' vs '+nm(x.t2)+'</div>'
       +(x.role==='playing'&&x.ref?'<div style="font-size:12px;color:var(--gray);">Ref: '+nm(x.ref)+'</div>':'')
       +'<div style="font-size:13px;margin-top:4px;">'+(r?'<strong style="color:#1e7e34;">'+esc(score)+'</strong>':lv?lvTxt:(ready&&scoreBtn?scoreBtn(x):'<span style="color:var(--gray);">Not played yet</span>'))+'</div>'
@@ -15666,7 +15684,7 @@ function ppTnRender(){
   var mm=tnMemberMatches(t,tnMyAccountId());
   if(mm){
     var canScore=m.status==='pools'||m.status==='playoffs';
-    h+='<div style="font-weight:700;font-size:14px;margin:6px 0;">Your matches: '+nm(mm.teamId)+'</div>'
+    h+='<div style="font-weight:700;font-size:14px;margin:6px 0;">'+(mm.waves?'Your day':'Matches')+': '+nm(mm.teamId)+(mm.pool?' <span style="font-weight:400;color:var(--gray);">(Pool '+esc(mm.pool)+')</span>':'')+'</div>'
       +tnMemberMatchesHtml(t,mm,esc,canScore?function(){ return '<button class="btn btn-small" style="min-height:44px;background:var(--red);color:#fff;border:none;" onclick="ppTnScore(\''+esc(tid)+'\')">Score this match</button>'; }:null)
       +(_ppTnMsg[tid]?'<div style="font-size:13px;font-weight:700;color:#1e7e34;margin-bottom:6px;">'+esc(_ppTnMsg[tid])+'</div>':'');
   }
@@ -17182,6 +17200,107 @@ function tnEstimateDay(o){
     out.doubleExtra=Math.max(0,noSil.end-single.end);
   }
   return out;
+}
+
+// ---- Your day and the pool grid ----------------------------------------------------------
+// A pool's wave is one time slot, shown to players as "Round N". In every wave each pool team
+// plays, refs, or sits, exactly one of the three (playing wins if a team is somehow both). A
+// pool whose matches do not all carry a wave has no rounds: tnPoolGrid answers waves:false and
+// tnTeamDay lists the team's own matches only, with no Sitting rows. times is { mid: minutes }
+// from tnApproxTimes (or {}). Nothing here changes a schedule; it only reads one.
+function tnPoolGrid(pool,times){
+  var p=pool||{}, T=times||{}, ids=tnArr(p.teamIds), ms=tnArr(p.matches);
+  var waved=ms.length>0&&ms.every(function(m){ var w=+m.wave; return isFinite(w)&&w>=1&&Math.floor(w)===w; });
+  if(!waved) return {waves:false, teamIds:ids.slice(), rows:[]};
+  var by={}, has=function(o,k){ return Object.prototype.hasOwnProperty.call(o,k); };
+  ms.forEach(function(m){ (by[+m.wave]=by[+m.wave]||[]).push(m); });
+  var rows=Object.keys(by).map(Number).sort(function(a,b){ return a-b; }).map(function(w){
+    var list=by[w], cells={}, at=null;
+    ids.forEach(function(id){ cells[id]='sit'; });
+    list.forEach(function(m){ if(m.ref!=null&&m.ref!==''&&has(cells,m.ref)&&cells[m.ref]==='sit') cells[m.ref]='ref'; });
+    list.forEach(function(m){ if(has(cells,m.t1)) cells[m.t1]='play'; if(has(cells,m.t2)) cells[m.t2]='play'; });
+    list.forEach(function(m){ var x=T[m.mid]; if(typeof x==='number'&&isFinite(x)&&(at==null||x<at)) at=x; });
+    return {wave:w, label:'Round '+w, at:at, mids:list.map(function(m){ return m.mid; }), matches:list.map(tnClone), cells:cells};
+  });
+  return {waves:true, teamIds:ids.slice(), rows:rows};
+}
+// One team's day: a row per round of its pool (playing, ref, or sitting), then playoffRows as
+// given (rows the caller built, in play order; each gets kind 'playoff' and mids [mid] when
+// missing). Row: { kind, wave, label, role:'playing'|'ref'|'sitting', mid, mids, t1, t2, ref,
+// opp, court, at }. mids are the matches that must be scored for the row to be done: its own
+// match, or for a Sitting row every match in that round. Returns { waves, rows }.
+function tnTeamDay(pool,teamId,times,playoffRows){
+  var g=tnPoolGrid(pool,times), T=times||{}, rows=[];
+  var at=function(mid){ var x=T[mid]; return (typeof x==='number'&&isFinite(x))?x:null; };
+  var row=function(m,role,wave,label){
+    return {kind:'pool', wave:wave, label:label, role:role, mid:m.mid, mids:[m.mid], t1:m.t1, t2:m.t2, ref:(m.ref!=null&&m.ref!=='')?m.ref:null,
+      opp:role==='playing'?(m.t1===teamId?m.t2:m.t1):null, court:(m.court!=null&&m.court!=='')?m.court:null, at:at(m.mid)};
+  };
+  if(g.waves){
+    g.rows.forEach(function(r){
+      var c=Object.prototype.hasOwnProperty.call(r.cells,teamId)?r.cells[teamId]:null;
+      if(!c) return;
+      if(c==='sit'){ rows.push({kind:'pool', wave:r.wave, label:r.label, role:'sitting', mid:null, mids:r.mids.slice(), t1:null, t2:null, ref:null, opp:null, court:null, at:r.at}); return; }
+      var m=r.matches.filter(function(x){ return c==='play'?(x.t1===teamId||x.t2===teamId):x.ref===teamId; })[0];
+      rows.push(row(m,c==='play'?'playing':'ref',r.wave,r.label));
+    });
+  } else {
+    tnArr((pool||{}).matches).forEach(function(m){
+      var role=(m.t1===teamId||m.t2===teamId)?'playing':(m.ref!=null&&m.ref!==''&&m.ref===teamId)?'ref':'';
+      if(role) rows.push(row(m,role,null,''));
+    });
+  }
+  tnArr(playoffRows).forEach(function(x){
+    var o={}; Object.keys(x).forEach(function(k){ o[k]=x[k]; });
+    o.kind=o.kind||'playoff'; o.mids=o.mids?tnArr(o.mids):(o.mid?[o.mid]:[]);
+    if(o.opp===undefined) o.opp=o.role==='playing'?(o.t1===teamId?o.t2:o.t1):null;
+    rows.push(o);
+  });
+  return {waves:g.waves, rows:rows};
+}
+// The row to highlight: the first one not done yet (a row is done when every one of its mids has
+// a result). -1 when every row is done.
+function tnTeamDayNext(rows,results){
+  var R=results||{}, L=tnArr(rows);
+  for(var i=0;i<L.length;i++){
+    var ms=tnArr(L[i].mids);
+    if(!ms.length||ms.some(function(mid){ return !R[mid]; })) return i;
+  }
+  return -1;
+}
+// A team name short enough for a grid column: up to 14 characters, else cut with an ellipsis.
+function tnShortName(s){
+  var v=String(s==null?'':s).trim()||'Team';
+  return v.length<=14?v:v.slice(0,13).replace(/\s+$/,'')+'…';
+}
+// The full pool grid as HTML: rows are rounds with their about time, columns are the pool's
+// teams, each cell Play, Ref, or Sit. Scrolls sideways inside its own box on a narrow screen.
+// o: { name(id) -> escaped short team name, about(minutes) -> text, mine: teamId, now: wave,
+// bg, line, muted, nowBg }. '' when the pool has no rounds.
+function tnPoolGridHtml(grid,o){
+  var g=grid||{}, x=o||{};
+  if(!g.waves||!g.rows||!g.rows.length) return '';
+  var ids=tnArr(g.teamIds), name=x.name||function(){ return 'Team'; }, about=x.about||function(){ return ''; };
+  var bg=x.bg||'#ffffff', line=x.line||'#e5e5e5', muted=x.muted||'#6b7280', nowBg=x.nowBg||'#fff4cc';
+  var chip={play:['Play','#0f766e','#ffffff'], ref:['Ref','#d4a843','#1a1a1a'], sit:['Sit','transparent',muted]};
+  var first='position:sticky;left:0;z-index:1;text-align:left;padding:6px 8px 6px 6px;white-space:nowrap;';
+  var th='padding:6px 3px;font-size:11px;font-weight:700;text-align:center;vertical-align:bottom;min-width:56px;max-width:84px;overflow-wrap:anywhere;line-height:1.2;';
+  var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;border:1px solid '+line+';border-radius:10px;margin:8px 0;">'
+    +'<table style="border-collapse:collapse;width:100%;font-size:13px;"><thead><tr>'
+    +'<th scope="col" style="'+first+'background:'+bg+';font-size:11px;">Round</th>'
+    +ids.map(function(id){ return '<th scope="col" style="'+th+(id===x.mine?'text-decoration:underline;':'')+'">'+name(id)+'</th>'; }).join('')
+    +'</tr></thead><tbody>';
+  g.rows.forEach(function(r){
+    var now=x.now!=null&&r.wave===x.now, a=r.at!=null?about(r.at):'', rb=now?nowBg:bg;
+    h+='<tr style="border-top:1px solid '+line+';'+(now?'background:'+nowBg+';':'')+'">'
+      +'<th scope="row" style="'+first+'background:'+rb+';font-weight:700;">'+r.label+(a?'<div style="font-size:11px;font-weight:500;color:'+muted+';">'+a+'</div>':'')+'</th>'
+      +ids.map(function(id){
+        var c=chip[r.cells[id]]||chip.sit;
+        return '<td style="padding:5px 3px;text-align:center;'+(id===x.mine?'box-shadow:inset 2px 0 0 #0f766e,inset -2px 0 0 #0f766e;':'')+'">'
+          +'<span style="display:inline-block;min-width:36px;padding:3px 6px;border-radius:6px;font-weight:700;font-size:12px;background:'+c[1]+';color:'+c[2]+';">'+c[0]+'</span></td>';
+      }).join('')+'</tr>';
+  });
+  return h+'</tbody></table></div>';
 }
 
 // ===== TN ENGINE END =====
