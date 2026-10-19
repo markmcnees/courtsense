@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.192';
+const APP_VERSION='1.1.193';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -4707,6 +4707,9 @@ async function playerLoginEmail(){
   // Session + portal entry mirror playerLogin. currentPlayerId is the CLUB record id, not the account id.
   currentRole='player';currentPlayerId=rec.id;
   sessionStorage.setItem('leonAuth',JSON.stringify({role:'player',pid:rec.id}));
+  // The worker session this sign-in minted, kept so the member can score their own tournament
+  // matches. A sign-in that came back without one clears any older token.
+  tnPlayerSessionSave(j.sessionToken,j.sessionExpiresAt,accountId);
   document.getElementById('login-overlay').classList.add('hidden');
   document.getElementById('app-wrapper').style.display='block';
   document.getElementById('coach-content').style.display='none';
@@ -4773,6 +4776,7 @@ function logout(){
   if(typeof tnDetach==='function')tnDetach(); // the exec tournament card's listener
   sessionStorage.removeItem('leonAuth');
   sessionStorage.removeItem('csCoachSession');
+  tnPlayerSessionClear();
   updatePinDots();
   document.getElementById('login-overlay').classList.remove('hidden');
   document.getElementById('app-wrapper').style.display='none';
@@ -4954,7 +4958,35 @@ async function clubAccountSession(){
   if(recs.length!==1)return null;
   const auth={role:'player',pid:recs[0].id};
   try{ sessionStorage.setItem('leonAuth',JSON.stringify(auth)); }catch(e){}
+  // The token the worker just confirmed is this member's session for scoring too, so there
+  // is one session in the app whichever way they came in.
+  let exp=null;
+  try{ const p=JSON.parse(localStorage.getItem('courtsenseAuth')||'null'); if(p&&typeof p.sessionExpiresAt==='number')exp=p.sessionExpiresAt; }catch(e){}
+  tnPlayerSessionSave(tok,exp,aid);
   return auth;
+}
+// ── Member scoring session ──────────────────────────────────────────────────
+// The signed-in member's worker session (kind 'player'), kept beside leonAuth in this tab the
+// way csCoachSession is kept for an exec: { token, dbRoot, accountId, expiresAt }. Read back only
+// when it is unexpired, for this club, and for the member signed in now, so an account switch
+// never scores as the previous account.
+const TN_PLAYER_SESSION_KEY='csPlayerSession';
+const TN_PLAYER_TOKEN_RE=/^[a-f0-9]{64}$/;
+function tnPlayerSessionSave(token,expiresAt,accountId){
+  if(typeof token!=='string'||!TN_PLAYER_TOKEN_RE.test(token)||typeof accountId!=='string'||!accountId){ tnPlayerSessionClear(); return; }
+  try{ sessionStorage.setItem(TN_PLAYER_SESSION_KEY,JSON.stringify({token:token,dbRoot:DB_ROOT,accountId:accountId,expiresAt:(typeof expiresAt==='number'&&expiresAt>0)?expiresAt:null})); }catch(e){}
+}
+function tnPlayerSessionClear(){ try{ sessionStorage.removeItem(TN_PLAYER_SESSION_KEY); }catch(e){} }
+function tnPlayerSessionToken(){
+  let s=null;
+  try{ s=JSON.parse(sessionStorage.getItem(TN_PLAYER_SESSION_KEY)||'null'); }catch(e){ return ''; }
+  if(!s)return '';
+  const acct=(typeof tnMyAccountId==='function')?tnMyAccountId():'';
+  if(!acct)return ''; // roster not loaded yet: not usable now, but not wrong either
+  if(typeof s.token!=='string'||!TN_PLAYER_TOKEN_RE.test(s.token)||s.dbRoot!==DB_ROOT||s.accountId!==acct||(s.expiresAt&&s.expiresAt<=Date.now())){
+    tnPlayerSessionClear(); return '';
+  }
+  return s.token;
 }
 // ?view=chat (the alert page's "Open club app"): read once and cleaned from the address
 // bar like ?tryout. After login, Club Life opens on the All Club chat.
@@ -13907,12 +13939,18 @@ function tnNotifyHtml(t,h){
   return out?'<div style="font-size:13px;line-height:1.7;margin:6px 0;">'+out+'</div>':'';
 }
 
-// ---- Exec live scoring -----------------------------------------------------------------
-// The same full-screen scorer the teams use, run with the exec session. It sits outside the
-// card (the card redraws on every score) and talks to the worker, which holds the score.
+// ---- Live scoring (exec and member) ------------------------------------------------------
+// The same full-screen scorer the teams use. An exec runs it with the exec session; a member runs
+// it from Your day with their own CourtSense session. It sits outside the card (the card redraws
+// on every score) and talks to the worker, which holds the score.
+// ctx: tid and slug of the tournament, tour() the tournament object now, cred() the credential
+// fields for each request (read fresh every time), member true for a member, finalOnly true when
+// the member's team only sends a final score (a playing team on a match that has a ref).
 var TN_SLUG='fsu_grass';
-var _tnSc={mid:'', x:null, live:null, flipped:false, queue:[], busy:false, lock:null, timer:null, resync:false};
+var _tnSc={mid:'', x:null, live:null, flipped:false, queue:[], busy:false, lock:null, timer:null, resync:false, ctx:null};
 function tnScToken(){ try { var s=JSON.parse(sessionStorage.getItem('csCoachSession')||'null'); return (s&&s.dbRoot===DB_ROOT&&s.token)||''; } catch(e){ return ''; } }
+function tnScExecCtx(){ return {tid:_tnUi.tid, slug:TN_SLUG, tour:tnCur, cred:function(){ return {exec:tnScToken(), by:ptBy()}; }, member:false, finalOnly:false}; }
+function tnScCtx(){ return _tnSc.ctx||tnScExecCtx(); }
 function tnScEl(id){ return document.getElementById(id); }
 function tnScMount(){
   if(tnScEl('tnsc')) return;
@@ -13954,7 +13992,7 @@ function tnScMount(){
     +'<div class="tnsc-ov" id="tnsc-ov" hidden role="alertdialog" aria-modal="true"></div>';
   while(d.firstChild) document.body.appendChild(d.firstChild);
 }
-function tnScFmt(){ var t=tnCur(), x=_tnSc.x; return (t&&x)?tnGdFmt(t,x.divId,x.phase):null; }
+function tnScFmt(){ var t=tnScCtx().tour(), x=_tnSc.x; return (t&&x)?tnGdFmt(t,x.divId,x.phase):null; }
 function tnScSetOver(){ return !!(_tnSc.live&&tnLivePrompts(tnScFmt(),_tnSc.live.sets,_tnSc.live.set,false).setOver); }
 function tnScSide(pos){ return (pos==='l')===!_tnSc.flipped?'a':'b'; }
 // The worker's score plus taps still on their way (points up, corrections down).
@@ -13980,7 +14018,7 @@ function tnScFinalOpen(err){
   }
   tnScOv('match','<div class="big">Final score</div><div class="fin"><div class="fin-row" style="font-size:14px;font-weight:700;"><span></span><span>'+tnScEsc(x.n1)+'</span><span>'+tnScEsc(x.n2)+'</span></div>'
     +rows+'<div class="fin-msg" id="tnsc-fmsg"></div></div>'
-    +'<button class="tnsc-ok" id="tnsc-fok" type="button" onclick="tnScFinalSave()">Save final score</button><button class="tnsc-back" type="button" onclick="tnScHideOv()">Back</button>');
+    +'<button class="tnsc-ok" id="tnsc-fok" type="button" onclick="tnScFinalSave()">Save final score</button><button class="tnsc-back" type="button" onclick="'+(tnScCtx().finalOnly?'tnScClose()':'tnScHideOv()')+'">Back</button>');
   tnScFinalCheck();
   if(err) tnScEl('tnsc-fmsg').textContent=err;
 }
@@ -14007,7 +14045,7 @@ function tnScFinalCheck(){
 function tnScFinalSave(){
   var g=tnScFinalRead(); if(g.error) return;
   if(!window.confirm('Save this final score? '+g.who+' wins '+g.sets.map(function(s){ return s.a+'-'+s.b; }).join(', ')+'.')) return;
-  tnScHideOv(); _tnSc.queue=[{action:'final', sets:g.sets}]; tnScPump();
+  tnScHideOv(); _tnSc.queue=[{action:tnScCtx().finalOnly?'score':'final', sets:g.sets}]; tnScPump();
 }
 function tnScDraw(){
   var x=_tnSc.x; if(!x) return;
@@ -14023,16 +14061,19 @@ function tnScMsg(s){ var el=tnScEl('tnsc-msg'); if(el) el.textContent=s||''; }
 async function tnScLock(){
   try { if(navigator.wakeLock&&!_tnSc.lock){ _tnSc.lock=await navigator.wakeLock.request('screen'); if(_tnSc.lock&&_tnSc.lock.addEventListener) _tnSc.lock.addEventListener('release',function(){ _tnSc.lock=null; }); } } catch(e){}
 }
-function tnScOpen(mid){
-  var t=tnCur(); if(!t) return;
-  if(!tnScToken()){ toast('Sign in as an exec again to score live'); return; }
+// ctx is left out by the exec views; a member passes their own (see ppTnScore).
+function tnScOpen(mid,ctx){
+  var c=ctx||tnScExecCtx(), t=c.tour(); if(!t) return;
+  if(!c.member&&!tnScToken()){ toast('Sign in as an exec again to score live'); return; }
   var hit=tnGdMatch(t,mid); if(!hit||!hit.m.t1||!hit.m.t2){ toast('Both teams for this match are not known yet'); return; }
   var T=tnTeams(t);
   tnScMount();
   _tnSc={mid:mid, x:{divId:hit.divId, phase:hit.phase, n1:String((T[hit.m.t1]||{}).name||'Team'), n2:String((T[hit.m.t2]||{}).name||'Team')},
-    live:null, flipped:false, queue:[{action:'start'}], busy:false, lock:_tnSc.lock, timer:null, resync:false};
+    live:null, flipped:false, queue:c.finalOnly?[]:[{action:'start'}], busy:false, lock:_tnSc.lock, timer:null, resync:false, ctx:ctx||null};
   tnScEl('tnsc').hidden=false; document.body.style.overflow='hidden';
-  tnScHideOv(); tnScMsg('Connecting...'); tnScDraw(); tnScLock(); tnScPump();
+  tnScHideOv();
+  if(c.finalOnly){ tnScMsg(''); tnScDraw(); tnScFinalOpen(); return; }
+  tnScMsg('Connecting...'); tnScDraw(); tnScLock(); tnScPump();
 }
 function tnScClose(){
   _tnSc.mid=''; _tnSc.queue=[]; tnScHideOv();
@@ -14061,10 +14102,13 @@ async function tnScPump(){
   _tnSc.busy=true;
   while(_tnSc.mid&&(_tnSc.queue.length||_tnSc.resync)){
     if(!_tnSc.queue.length&&_tnSc.resync){ _tnSc.resync=false; _tnSc.queue.push({action:'start'}); }
-    var q=_tnSc.queue[0], mid=_tnSc.mid, r=null, j=null;
+    var q=_tnSc.queue[0], mid=_tnSc.mid, r=null, j=null, c=tnScCtx();
+    // 'score' is a member's final score with no live scoring behind it: the score route.
+    var body=q.action==='score'?Object.assign({slug:c.slug, tid:c.tid}, c.cred(), {mid:mid, sets:q.sets})
+      :Object.assign({slug:c.slug, tid:c.tid}, c.cred(), {mid:mid, action:q.action, side:q.side, sets:q.sets, seq:_tnSc.live?_tnSc.live.seq:0});
     try {
-      r=await fetch(AUTH_WORKER+'/club/tournament-live',{method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({slug:TN_SLUG, tid:_tnUi.tid, exec:tnScToken(), by:ptBy(), mid:mid, action:q.action, side:q.side, sets:q.sets, seq:_tnSc.live?_tnSc.live.seq:0})});
+      r=await fetch(AUTH_WORKER+(q.action==='score'?'/club/tournament-score':'/club/tournament-live'),{method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)});
       j=await r.json().catch(function(){ return null; });
     } catch(e){ r=null; }
     if(_tnSc.mid!==mid) break;
@@ -14077,7 +14121,8 @@ async function tnScPump(){
 // True when the taps still waiting should be dropped.
 function tnScHandle(r,j){
   if(!r){ tnScMsg('No connection. That tap was not saved. Tap again when you have signal.'); return true; }
-  if(j&&j.ok===true&&j.finished){ tnScClose(); toast('Final score saved'); return true; }
+  // finished: the live route saved the result. mid: the score route did.
+  if(j&&j.ok===true&&(j.finished||j.mid)){ tnScClose(); toast('Final score saved'); return true; }
   if(j&&j.ok===true&&j.live){
     _tnSc.live=j.live; tnScMsg('');
     var p=j.prompts||{};
@@ -14103,7 +14148,12 @@ function tnScHandle(r,j){
   if(code==='invalid_score'){ tnScFinalOpen(j.error); return true; }
   if(code==='not_decided'||code==='set_not_over'||code==='match_over'){ if(j.live) _tnSc.live=j.live; tnScMsg(j.error); return true; }
   if(code==='forbidden'){ tnScClose(); toast('Your exec session has ended. Sign in again to score live.'); return true; }
-  if(code==='already_scored'||code==='not_scoring'||code==='bad_match'||code==='not_ready'){ tnScClose(); toast(j.error); return true; }
+  // A member's session the worker no longer accepts (expired, ended, or off the team). Never a
+  // fallback to another credential: the member signs in again.
+  if(code==='invalid_link'&&tnScCtx().member){ var tid=tnScCtx().tid; tnScClose(); tnPlayerSessionClear(); ppTnSignInPrompt(tid); return true; }
+  if(code==='not_your_match'){ tnScClose(); toast('Only the teams playing or reffing this match can score it.'); return true; }
+  if(code==='live_locked'){ tnScClose(); toast('The other team is scoring this match live.'); return true; }
+  if(code==='already_scored'||code==='live_in_progress'||code==='not_scoring'||code==='bad_match'||code==='not_ready'){ tnScClose(); toast(j.error); return true; }
   tnScMsg(r.status===429?'Too many taps in a short time. Wait a moment.':((j&&j.error)||'Something went wrong. Try again.'));
   return true;
 }
@@ -14142,7 +14192,7 @@ function tnScShowMatch(){
     +'<button class="tnsc-ok" type="button" onclick="tnScAction(\'finish\')">Confirm</button>'
     +'<button class="tnsc-back" type="button" onclick="tnScHideOv()">Back</button>');
 }
-document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible'&&_tnSc.mid){ tnScLock(); _tnSc.resync=true; tnScPump(); } });
+document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible'&&_tnSc.mid&&!tnScCtx().finalOnly){ tnScLock(); _tnSc.resync=true; tnScPump(); } });
 
 // ---- Match cards (exec views) ------------------------------------------------------------
 // One card per match: a header line (round, match number, court, about time), the two teams
@@ -15633,7 +15683,10 @@ function tnMemberMatchesHtml(t,mm,esc,scoreBtn){
     return box
       +'<div style="font-size:15px;font-weight:700;margin-top:4px;">'+nm(x.t1)+' vs '+nm(x.t2)+'</div>'
       +(x.role==='playing'&&x.ref?'<div style="font-size:12px;color:var(--gray);">Ref: '+nm(x.ref)+'</div>':'')
-      +'<div style="font-size:13px;margin-top:4px;">'+(r?'<strong style="color:#1e7e34;">'+esc(score)+'</strong>':lv?lvTxt:(ready&&scoreBtn?scoreBtn(x):'<span style="color:var(--gray);">Not played yet</span>'))+'</div>'
+      +'<div style="font-size:13px;margin-top:4px;">'+(r?'<strong style="color:#1e7e34;">'+esc(score)+'</strong>'
+        // The team running live scoring can resume it; everyone else sees the running score.
+        :lv?lvTxt+(scoreBtn&&lv.byTeam===mm.teamId?'<div style="margin-top:6px;">'+scoreBtn(x,lv)+'</div>':'')
+        :(ready&&scoreBtn?scoreBtn(x,null):'<span style="color:var(--gray);">Not played yet</span>'))+'</div>'
       +'</div>';
   }).join('');
 }
@@ -15661,14 +15714,21 @@ function ppTnAttach(){
     var cl=document.getElementById('pp-panel-clublife'); if(cl&&cl.classList.contains('active')) clTnRender();
   },function(e){ console.warn('tournaments listen failed',e); _ppTnListening=false; });
 }
-function ppTnScore(tid){
-  var acct=tnMyAccountId(); if(!acct) return;
-  _ppTnMsg[tid]='Sending...'; ppTnRender();
-  fetch(AUTH_WORKER+'/club/tournament-self-link',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({slug:TN_SLUG, tid:tid, accountId:acct})})
-    .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return {r:r, j:j}; }); })
-    .then(function(x){ _ppTnMsg[tid]=(x.r.status===429)?'Too many requests. Try again in a few minutes.':'We emailed you your scoring link. Open it on this phone to score.'; ppTnRender(); })
-    .catch(function(){ _ppTnMsg[tid]='Could not reach the server. Try again.'; ppTnRender(); });
+// Your day Score: the member scores in the in-app scorer with their own CourtSense session. The
+// ref team (or a playing team on a match with no ref) scores live; a playing team on a match
+// that has a ref sends the final score. The worker decides; this only picks the screen.
+function ppTnScore(tid,mid){
+  var t=(_clTn.data||{})[tid], mm=t?tnMemberMatches(t,tnMyAccountId()):null;
+  var x=mm?mm.list.filter(function(r){ return r.mid===mid&&(r.role==='playing'||r.role==='ref'); })[0]:null;
+  if(!x) return;
+  if(!tnPlayerSessionToken()){ ppTnSignInPrompt(tid); return; }
+  delete _ppTnMsg[tid]; ppTnRender();
+  tnScOpen(mid,{tid:tid, slug:TN_SLUG, tour:function(){ return (_clTn.data||{})[tid]||null; },
+    cred:function(){ return {sessionToken:tnPlayerSessionToken()}; }, member:true, finalOnly:x.role==='playing'&&!!x.ref});
 }
+function ppTnSignInPrompt(tid){ _ppTnMsg[tid]={signIn:true}; ppTnRender(); }
+// Sign out and back to the sign-in screen; signing in again keeps a fresh session.
+function ppTnSignIn(){ logout(); }
 function ppTnRender(){
   var el=document.getElementById('pp-live-tn'); if(!el) return;
   if(DB_ROOT!=='grass_club_matches'||currentRole!=='player'){ el.innerHTML=''; return; }
@@ -15685,8 +15745,10 @@ function ppTnRender(){
   if(mm){
     var canScore=m.status==='pools'||m.status==='playoffs';
     h+='<div style="font-weight:700;font-size:14px;margin:6px 0;">'+(mm.waves?'Your day':'Matches')+': '+nm(mm.teamId)+(mm.pool?' <span style="font-weight:400;color:var(--gray);">(Pool '+esc(mm.pool)+')</span>':'')+'</div>'
-      +tnMemberMatchesHtml(t,mm,esc,canScore?function(){ return '<button class="btn btn-small" style="min-height:44px;background:var(--red);color:#fff;border:none;" onclick="ppTnScore(\''+esc(tid)+'\')">Score this match</button>'; }:null)
-      +(_ppTnMsg[tid]?'<div style="font-size:13px;font-weight:700;color:#1e7e34;margin-bottom:6px;">'+esc(_ppTnMsg[tid])+'</div>':'');
+      +tnMemberMatchesHtml(t,mm,esc,canScore?function(x,lv){ return '<button class="btn btn-small" style="min-height:44px;background:var(--red);color:#fff;border:none;" onclick="ppTnScore(\''+esc(tid)+'\',\''+esc(x.mid)+'\')">'+(lv?'Resume live scoring':'Score this match')+'</button>'; }:null)
+      +(_ppTnMsg[tid]&&_ppTnMsg[tid].signIn?'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">Sign in again to score this match '
+          +'<button class="btn btn-small" style="min-height:44px;margin-left:6px;" onclick="ppTnSignIn()">Sign in</button></div>'
+        :_ppTnMsg[tid]?'<div style="font-size:13px;font-weight:700;color:#1e7e34;margin-bottom:6px;">'+esc(_ppTnMsg[tid])+'</div>':'');
   }
   tnGdDivIds(t).forEach(function(divId){
     var div=tnDivs(t)[divId]||{}, pools=(t.pools||{})[divId]||{}, times=tnDivTimes(t,divId);
