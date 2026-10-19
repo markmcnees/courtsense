@@ -108,8 +108,12 @@
   .ym.done{background:var(--paper);}
   .ym-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:14.5px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.5px;}
   .role{font-size:13px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;border-radius:6px;padding:4px 9px;}
-  .role.play{background:var(--garnet);color:var(--white);}
-  .role.ref{background:#1f3a5f;color:var(--white);}
+  .role.play{background:#0f766e;color:var(--white);}
+  .role.ref{background:#d4a843;color:#1a1a1a;}
+  .role.sit{background:#e5e7eb;color:#4b5563;}
+  .ym.sit{background:#f7f7f8;border-style:dashed;}
+  .ym.now{border-color:#0f766e;}
+  .ym-now{color:#0f766e;}
   .ym-teams{font-size:19px;font-weight:700;margin:8px 0 2px;line-height:1.3;}
   .ym-teams .vs{color:var(--slate);font-weight:600;font-size:15px;margin:0 6px;}
   .ym-sub{font-size:15px;color:var(--slate);}
@@ -299,7 +303,7 @@
       <div class="section" id="m-game" style="display:none;">
         <p class="started">Pool play has started. See an exec for team changes.</p>
         <a class="btn ghost" id="m-live" href="live.html">Watch live</a>
-        <h3 style="margin-top:18px;">Your matches</h3>
+        <h3 style="margin-top:18px;" id="m-day-h">Your day</h3>
         <p class="muted">The ref team scores live, point by point, from this page. If a match is never scored live, either team or the ref can enter the final score when it is done. The first score in counts, so check it before you send.</p>
         <div class="form-err" id="m-game-err" role="alert"></div>
         <div id="m-matches"></div>
@@ -1384,6 +1388,107 @@ function tnEstimateDay(o){
   return out;
 }
 
+// ---- Your day and the pool grid ----------------------------------------------------------
+// A pool's wave is one time slot, shown to players as "Round N". In every wave each pool team
+// plays, refs, or sits, exactly one of the three (playing wins if a team is somehow both). A
+// pool whose matches do not all carry a wave has no rounds: tnPoolGrid answers waves:false and
+// tnTeamDay lists the team's own matches only, with no Sitting rows. times is { mid: minutes }
+// from tnApproxTimes (or {}). Nothing here changes a schedule; it only reads one.
+function tnPoolGrid(pool,times){
+  var p=pool||{}, T=times||{}, ids=tnArr(p.teamIds), ms=tnArr(p.matches);
+  var waved=ms.length>0&&ms.every(function(m){ var w=+m.wave; return isFinite(w)&&w>=1&&Math.floor(w)===w; });
+  if(!waved) return {waves:false, teamIds:ids.slice(), rows:[]};
+  var by={}, has=function(o,k){ return Object.prototype.hasOwnProperty.call(o,k); };
+  ms.forEach(function(m){ (by[+m.wave]=by[+m.wave]||[]).push(m); });
+  var rows=Object.keys(by).map(Number).sort(function(a,b){ return a-b; }).map(function(w){
+    var list=by[w], cells={}, at=null;
+    ids.forEach(function(id){ cells[id]='sit'; });
+    list.forEach(function(m){ if(m.ref!=null&&m.ref!==''&&has(cells,m.ref)&&cells[m.ref]==='sit') cells[m.ref]='ref'; });
+    list.forEach(function(m){ if(has(cells,m.t1)) cells[m.t1]='play'; if(has(cells,m.t2)) cells[m.t2]='play'; });
+    list.forEach(function(m){ var x=T[m.mid]; if(typeof x==='number'&&isFinite(x)&&(at==null||x<at)) at=x; });
+    return {wave:w, label:'Round '+w, at:at, mids:list.map(function(m){ return m.mid; }), matches:list.map(tnClone), cells:cells};
+  });
+  return {waves:true, teamIds:ids.slice(), rows:rows};
+}
+// One team's day: a row per round of its pool (playing, ref, or sitting), then playoffRows as
+// given (rows the caller built, in play order; each gets kind 'playoff' and mids [mid] when
+// missing). Row: { kind, wave, label, role:'playing'|'ref'|'sitting', mid, mids, t1, t2, ref,
+// opp, court, at }. mids are the matches that must be scored for the row to be done: its own
+// match, or for a Sitting row every match in that round. Returns { waves, rows }.
+function tnTeamDay(pool,teamId,times,playoffRows){
+  var g=tnPoolGrid(pool,times), T=times||{}, rows=[];
+  var at=function(mid){ var x=T[mid]; return (typeof x==='number'&&isFinite(x))?x:null; };
+  var row=function(m,role,wave,label){
+    return {kind:'pool', wave:wave, label:label, role:role, mid:m.mid, mids:[m.mid], t1:m.t1, t2:m.t2, ref:(m.ref!=null&&m.ref!=='')?m.ref:null,
+      opp:role==='playing'?(m.t1===teamId?m.t2:m.t1):null, court:(m.court!=null&&m.court!=='')?m.court:null, at:at(m.mid)};
+  };
+  if(g.waves){
+    g.rows.forEach(function(r){
+      var c=Object.prototype.hasOwnProperty.call(r.cells,teamId)?r.cells[teamId]:null;
+      if(!c) return;
+      if(c==='sit'){ rows.push({kind:'pool', wave:r.wave, label:r.label, role:'sitting', mid:null, mids:r.mids.slice(), t1:null, t2:null, ref:null, opp:null, court:null, at:r.at}); return; }
+      var m=r.matches.filter(function(x){ return c==='play'?(x.t1===teamId||x.t2===teamId):x.ref===teamId; })[0];
+      rows.push(row(m,c==='play'?'playing':'ref',r.wave,r.label));
+    });
+  } else {
+    tnArr((pool||{}).matches).forEach(function(m){
+      var role=(m.t1===teamId||m.t2===teamId)?'playing':(m.ref!=null&&m.ref!==''&&m.ref===teamId)?'ref':'';
+      if(role) rows.push(row(m,role,null,''));
+    });
+  }
+  tnArr(playoffRows).forEach(function(x){
+    var o={}; Object.keys(x).forEach(function(k){ o[k]=x[k]; });
+    o.kind=o.kind||'playoff'; o.mids=o.mids?tnArr(o.mids):(o.mid?[o.mid]:[]);
+    if(o.opp===undefined) o.opp=o.role==='playing'?(o.t1===teamId?o.t2:o.t1):null;
+    rows.push(o);
+  });
+  return {waves:g.waves, rows:rows};
+}
+// The row to highlight: the first one not done yet (a row is done when every one of its mids has
+// a result). -1 when every row is done.
+function tnTeamDayNext(rows,results){
+  var R=results||{}, L=tnArr(rows);
+  for(var i=0;i<L.length;i++){
+    var ms=tnArr(L[i].mids);
+    if(!ms.length||ms.some(function(mid){ return !R[mid]; })) return i;
+  }
+  return -1;
+}
+// A team name short enough for a grid column: up to 14 characters, else cut with an ellipsis.
+function tnShortName(s){
+  var v=String(s==null?'':s).trim()||'Team';
+  return v.length<=14?v:v.slice(0,13).replace(/\s+$/,'')+'…';
+}
+// The full pool grid as HTML: rows are rounds with their about time, columns are the pool's
+// teams, each cell Play, Ref, or Sit. Scrolls sideways inside its own box on a narrow screen.
+// o: { name(id) -> escaped short team name, about(minutes) -> text, mine: teamId, now: wave,
+// bg, line, muted, nowBg }. '' when the pool has no rounds.
+function tnPoolGridHtml(grid,o){
+  var g=grid||{}, x=o||{};
+  if(!g.waves||!g.rows||!g.rows.length) return '';
+  var ids=tnArr(g.teamIds), name=x.name||function(){ return 'Team'; }, about=x.about||function(){ return ''; };
+  var bg=x.bg||'#ffffff', line=x.line||'#e5e5e5', muted=x.muted||'#6b7280', nowBg=x.nowBg||'#fff4cc';
+  var chip={play:['Play','#0f766e','#ffffff'], ref:['Ref','#d4a843','#1a1a1a'], sit:['Sit','transparent',muted]};
+  var first='position:sticky;left:0;z-index:1;text-align:left;padding:6px 8px 6px 6px;white-space:nowrap;';
+  var th='padding:6px 3px;font-size:11px;font-weight:700;text-align:center;vertical-align:bottom;min-width:56px;max-width:84px;overflow-wrap:anywhere;line-height:1.2;';
+  var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;border:1px solid '+line+';border-radius:10px;margin:8px 0;">'
+    +'<table style="border-collapse:collapse;width:100%;font-size:13px;"><thead><tr>'
+    +'<th scope="col" style="'+first+'background:'+bg+';font-size:11px;">Round</th>'
+    +ids.map(function(id){ return '<th scope="col" style="'+th+(id===x.mine?'text-decoration:underline;':'')+'">'+name(id)+'</th>'; }).join('')
+    +'</tr></thead><tbody>';
+  g.rows.forEach(function(r){
+    var now=x.now!=null&&r.wave===x.now, a=r.at!=null?about(r.at):'', rb=now?nowBg:bg;
+    h+='<tr style="border-top:1px solid '+line+';'+(now?'background:'+nowBg+';':'')+'">'
+      +'<th scope="row" style="'+first+'background:'+rb+';font-weight:700;">'+r.label+(a?'<div style="font-size:11px;font-weight:500;color:'+muted+';">'+a+'</div>':'')+'</th>'
+      +ids.map(function(id){
+        var c=chip[r.cells[id]]||chip.sit;
+        return '<td style="padding:5px 3px;text-align:center;'+(id===x.mine?'box-shadow:inset 2px 0 0 #0f766e,inset -2px 0 0 #0f766e;':'')+'">'
+          +'<span style="display:inline-block;min-width:36px;padding:3px 6px;border-radius:6px;font-weight:700;font-size:12px;background:'+c[1]+';color:'+c[2]+';">'+c[0]+'</span></td>';
+      }).join('')+'</tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -1917,14 +2022,19 @@ function scoreLine(x){
 }
 function matchHtml(x){
   var head = [];
+  if(x.label) head.push(x.label);
   if(x.phase === 'playoff') head.push('Playoffs');
   if(x.phase === 'silver') head.push('Silver bracket');
   if(x.order != null) head.push('Match ' + x.order);
   if(x.court != null && x.court !== '') head.push('Court ' + x.court);
   if(x.about && !x.score) head.push(x.about);
-  if(x.wave) head.push('Wave ' + x.wave);
+  var now = x.now ? '<span class="ym-now">Up next</span> · ' : '';
+  if(x.role === 'sitting'){
+    return '<div class="ym sit' + (x.now ? ' now' : '') + '"><div class="ym-head"><span>' + now + esc(head.join(' · ') || 'Round') + '</span><span class="role sit">Sitting</span></div>'
+      + '<div class="ym-sub" style="margin-top:6px;">No match or ref duty this round.</div></div>';
+  }
   var ready = x.t1Name !== 'To be decided' && x.t2Name !== 'To be decided';
-  var h = '<div class="ym' + (x.score ? ' done' : '') + '"><div class="ym-head"><span>' + esc(head.join(' · ') || 'Match') + '</span>'
+  var h = '<div class="ym' + (x.score ? ' done' : '') + (x.now ? ' now' : '') + '"><div class="ym-head"><span>' + now + esc(head.join(' · ') || 'Match') + '</span>'
     + '<span class="role ' + (x.role === 'ref' ? 'ref">Ref' : 'play">Playing') + '</span></div>'
     + '<div class="ym-teams">' + esc(x.t1Name) + '<span class="vs">vs</span>' + esc(x.t2Name) + '</div>'
     + (x.role === 'playing' && x.refName ? '<div class="ym-sub">Ref: ' + esc(x.refName) + '</div>' : '');
@@ -1957,9 +2067,10 @@ function matchHtml(x){
   return h + '</div>';
 }
 function renderMatches(){
-  var list = (state.manage && state.manage.yourMatches) || [];
+  var list = (state.manage && state.manage.yourMatches) || [], day = (state.manage && state.manage.yourDay) || null;
+  $('m-day-h').textContent = (day && !day.waves) ? 'Your matches' : 'Your day';
   $('m-matches').innerHTML = list.length ? list.map(matchHtml).join('')
-    : '<p class="muted">Your matches show up here once the exec team sets the pools.</p>';
+    : '<p class="muted">Your day shows up here once the exec team sets the pools.</p>';
 }
 function openScore(mid){ _scoreOpen = mid; $('m-game-err').textContent = ''; renderMatches(); }
 function readSets(n){

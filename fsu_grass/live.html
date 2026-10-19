@@ -83,6 +83,19 @@
   .bye-note{font-size:16px;font-style:italic;color:var(--slate);margin:0 0 12px;}
   .rhead{font-size:15px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.8px;margin:6px 0 10px;}
   .mcard.mine{background:var(--mine);border-color:var(--mine-line);}
+  .yd-row{display:flex;gap:10px;align-items:flex-start;padding:10px 8px;border-top:1px solid var(--line);}
+  .yd-row:first-of-type{border-top:none;}
+  .yd-row.now{background:var(--mine);border-radius:10px;box-shadow:inset 0 0 0 2px var(--mine-line);}
+  .yd-row.sit .yd-main{color:var(--slate);}
+  .yd-when{flex:0 0 92px;font-size:14px;font-weight:700;color:var(--ink);line-height:1.3;}
+  .yd-when small{display:block;font-weight:500;color:var(--slate);font-size:13px;}
+  .yd-main{flex:1 1 auto;min-width:0;font-size:16px;line-height:1.35;overflow-wrap:anywhere;}
+  .yd-main .sub{display:block;font-size:14px;color:var(--slate);}
+  .yd-b{flex:0 0 auto;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;border-radius:6px;padding:3px 8px;}
+  .yd-b.playing{background:#0f766e;color:#fff;}
+  .yd-b.ref{background:#d4a843;color:#1a1a1a;}
+  .yd-b.sitting{background:#e5e7eb;color:#4b5563;}
+  .yd-next{font-size:12px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.5px;}
   .mh{display:flex;justify-content:space-between;gap:10px;font-size:15px;color:var(--slate);font-weight:600;margin-bottom:6px;flex-wrap:wrap;}
   .side{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:19px;padding:3px 0;}
   .side .nm{font-weight:600;word-break:break-word;}
@@ -1156,6 +1169,107 @@ function tnEstimateDay(o){
   return out;
 }
 
+// ---- Your day and the pool grid ----------------------------------------------------------
+// A pool's wave is one time slot, shown to players as "Round N". In every wave each pool team
+// plays, refs, or sits, exactly one of the three (playing wins if a team is somehow both). A
+// pool whose matches do not all carry a wave has no rounds: tnPoolGrid answers waves:false and
+// tnTeamDay lists the team's own matches only, with no Sitting rows. times is { mid: minutes }
+// from tnApproxTimes (or {}). Nothing here changes a schedule; it only reads one.
+function tnPoolGrid(pool,times){
+  var p=pool||{}, T=times||{}, ids=tnArr(p.teamIds), ms=tnArr(p.matches);
+  var waved=ms.length>0&&ms.every(function(m){ var w=+m.wave; return isFinite(w)&&w>=1&&Math.floor(w)===w; });
+  if(!waved) return {waves:false, teamIds:ids.slice(), rows:[]};
+  var by={}, has=function(o,k){ return Object.prototype.hasOwnProperty.call(o,k); };
+  ms.forEach(function(m){ (by[+m.wave]=by[+m.wave]||[]).push(m); });
+  var rows=Object.keys(by).map(Number).sort(function(a,b){ return a-b; }).map(function(w){
+    var list=by[w], cells={}, at=null;
+    ids.forEach(function(id){ cells[id]='sit'; });
+    list.forEach(function(m){ if(m.ref!=null&&m.ref!==''&&has(cells,m.ref)&&cells[m.ref]==='sit') cells[m.ref]='ref'; });
+    list.forEach(function(m){ if(has(cells,m.t1)) cells[m.t1]='play'; if(has(cells,m.t2)) cells[m.t2]='play'; });
+    list.forEach(function(m){ var x=T[m.mid]; if(typeof x==='number'&&isFinite(x)&&(at==null||x<at)) at=x; });
+    return {wave:w, label:'Round '+w, at:at, mids:list.map(function(m){ return m.mid; }), matches:list.map(tnClone), cells:cells};
+  });
+  return {waves:true, teamIds:ids.slice(), rows:rows};
+}
+// One team's day: a row per round of its pool (playing, ref, or sitting), then playoffRows as
+// given (rows the caller built, in play order; each gets kind 'playoff' and mids [mid] when
+// missing). Row: { kind, wave, label, role:'playing'|'ref'|'sitting', mid, mids, t1, t2, ref,
+// opp, court, at }. mids are the matches that must be scored for the row to be done: its own
+// match, or for a Sitting row every match in that round. Returns { waves, rows }.
+function tnTeamDay(pool,teamId,times,playoffRows){
+  var g=tnPoolGrid(pool,times), T=times||{}, rows=[];
+  var at=function(mid){ var x=T[mid]; return (typeof x==='number'&&isFinite(x))?x:null; };
+  var row=function(m,role,wave,label){
+    return {kind:'pool', wave:wave, label:label, role:role, mid:m.mid, mids:[m.mid], t1:m.t1, t2:m.t2, ref:(m.ref!=null&&m.ref!=='')?m.ref:null,
+      opp:role==='playing'?(m.t1===teamId?m.t2:m.t1):null, court:(m.court!=null&&m.court!=='')?m.court:null, at:at(m.mid)};
+  };
+  if(g.waves){
+    g.rows.forEach(function(r){
+      var c=Object.prototype.hasOwnProperty.call(r.cells,teamId)?r.cells[teamId]:null;
+      if(!c) return;
+      if(c==='sit'){ rows.push({kind:'pool', wave:r.wave, label:r.label, role:'sitting', mid:null, mids:r.mids.slice(), t1:null, t2:null, ref:null, opp:null, court:null, at:r.at}); return; }
+      var m=r.matches.filter(function(x){ return c==='play'?(x.t1===teamId||x.t2===teamId):x.ref===teamId; })[0];
+      rows.push(row(m,c==='play'?'playing':'ref',r.wave,r.label));
+    });
+  } else {
+    tnArr((pool||{}).matches).forEach(function(m){
+      var role=(m.t1===teamId||m.t2===teamId)?'playing':(m.ref!=null&&m.ref!==''&&m.ref===teamId)?'ref':'';
+      if(role) rows.push(row(m,role,null,''));
+    });
+  }
+  tnArr(playoffRows).forEach(function(x){
+    var o={}; Object.keys(x).forEach(function(k){ o[k]=x[k]; });
+    o.kind=o.kind||'playoff'; o.mids=o.mids?tnArr(o.mids):(o.mid?[o.mid]:[]);
+    if(o.opp===undefined) o.opp=o.role==='playing'?(o.t1===teamId?o.t2:o.t1):null;
+    rows.push(o);
+  });
+  return {waves:g.waves, rows:rows};
+}
+// The row to highlight: the first one not done yet (a row is done when every one of its mids has
+// a result). -1 when every row is done.
+function tnTeamDayNext(rows,results){
+  var R=results||{}, L=tnArr(rows);
+  for(var i=0;i<L.length;i++){
+    var ms=tnArr(L[i].mids);
+    if(!ms.length||ms.some(function(mid){ return !R[mid]; })) return i;
+  }
+  return -1;
+}
+// A team name short enough for a grid column: up to 14 characters, else cut with an ellipsis.
+function tnShortName(s){
+  var v=String(s==null?'':s).trim()||'Team';
+  return v.length<=14?v:v.slice(0,13).replace(/\s+$/,'')+'…';
+}
+// The full pool grid as HTML: rows are rounds with their about time, columns are the pool's
+// teams, each cell Play, Ref, or Sit. Scrolls sideways inside its own box on a narrow screen.
+// o: { name(id) -> escaped short team name, about(minutes) -> text, mine: teamId, now: wave,
+// bg, line, muted, nowBg }. '' when the pool has no rounds.
+function tnPoolGridHtml(grid,o){
+  var g=grid||{}, x=o||{};
+  if(!g.waves||!g.rows||!g.rows.length) return '';
+  var ids=tnArr(g.teamIds), name=x.name||function(){ return 'Team'; }, about=x.about||function(){ return ''; };
+  var bg=x.bg||'#ffffff', line=x.line||'#e5e5e5', muted=x.muted||'#6b7280', nowBg=x.nowBg||'#fff4cc';
+  var chip={play:['Play','#0f766e','#ffffff'], ref:['Ref','#d4a843','#1a1a1a'], sit:['Sit','transparent',muted]};
+  var first='position:sticky;left:0;z-index:1;text-align:left;padding:6px 8px 6px 6px;white-space:nowrap;';
+  var th='padding:6px 3px;font-size:11px;font-weight:700;text-align:center;vertical-align:bottom;min-width:56px;max-width:84px;overflow-wrap:anywhere;line-height:1.2;';
+  var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;border:1px solid '+line+';border-radius:10px;margin:8px 0;">'
+    +'<table style="border-collapse:collapse;width:100%;font-size:13px;"><thead><tr>'
+    +'<th scope="col" style="'+first+'background:'+bg+';font-size:11px;">Round</th>'
+    +ids.map(function(id){ return '<th scope="col" style="'+th+(id===x.mine?'text-decoration:underline;':'')+'">'+name(id)+'</th>'; }).join('')
+    +'</tr></thead><tbody>';
+  g.rows.forEach(function(r){
+    var now=x.now!=null&&r.wave===x.now, a=r.at!=null?about(r.at):'', rb=now?nowBg:bg;
+    h+='<tr style="border-top:1px solid '+line+';'+(now?'background:'+nowBg+';':'')+'">'
+      +'<th scope="row" style="'+first+'background:'+rb+';font-weight:700;">'+r.label+(a?'<div style="font-size:11px;font-weight:500;color:'+muted+';">'+a+'</div>':'')+'</th>'
+      +ids.map(function(id){
+        var c=chip[r.cells[id]]||chip.sit;
+        return '<td style="padding:5px 3px;text-align:center;'+(id===x.mine?'box-shadow:inset 2px 0 0 #0f766e,inset -2px 0 0 #0f766e;':'')+'">'
+          +'<span style="display:inline-block;min-width:36px;padding:3px 6px;border-radius:6px;font-weight:700;font-size:12px;background:'+c[1]+';color:'+c[2]+';">'+c[0]+'</span></td>';
+      }).join('')+'</tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+
 // ===== TN ENGINE END =====
 </script>
 <script>
@@ -1304,11 +1418,64 @@ function standingsHtml(pool, div){
   return h + '<div class="legend">' + legend.join(' ') + '</div>';
 }
 
+// The full pool grid (tnPoolGridHtml): every round, every team, Play, Ref, or Sit. The
+// followed team's column is outlined, and the round being played is shaded during pool play.
+function gridHtml(pool){
+  var g = tnPoolGrid(pool, TIMES);
+  if(!g.waves) return '';
+  var R = resultsOf(), cur = S.t.meta.status === 'pools' ? (g.rows.filter(function(r){ return r.mids.some(function(mid){ return !R[mid]; }); })[0] || {}).wave : null;
+  return '<div class="rhead" style="margin-top:14px;">Who plays, refs, and sits</div>'
+    + tnPoolGridHtml(g, { name:function(id){ var x = teamsOf()[id]; return esc(tnShortName(x && x.name)); }, about:tnAboutLabel, mine:S.mine || null, now:cur, line:'#d9ccbd', muted:'#4f3f44', nowBg:'#fff3c4' });
+}
+// The followed team's day (tnTeamDay): each round of its pool as Playing, Ref, or Sitting, then
+// its bracket and Silver matches. The first row not done yet is marked Up next during play.
+function dayHtml(divId, div){
+  if(!S.mine) return '';
+  var R = resultsOf(), pools = poolsOf(divId), po = [], has = function(o, k){ return Object.prototype.hasOwnProperty.call(o, k); };
+  var mine = pools.filter(function(p){ return tnArr(p.pool.teamIds).indexOf(S.mine) >= 0; })[0];
+  bracketsOf(divId).forEach(function(br){
+    var v = tnBracketView(br.b, R, div.playoff), refs = refsFor(divId, br.b, div.playoff), names = roundNames(v, br.key === 'silver');
+    v.matches.forEach(function(m){
+      if(m.bye || m.void) return;
+      var ref = has(refs, m.mid) ? refs[m.mid] : null;
+      if(m.t1 !== S.mine && m.t2 !== S.mine && ref !== S.mine) return;
+      po.push({ mid:m.mid, label:names[m.mid] + (m.order != null ? ' · Match ' + m.order : ''), court:m.court, t1:m.t1, t2:m.t2, ref:ref,
+        role:(m.t1 === S.mine || m.t2 === S.mine) ? 'playing' : 'ref', at:TIMES[m.mid] != null ? TIMES[m.mid] : null, fmt:div.playoff });
+    });
+  });
+  po.sort(function(a, b){ return ((a.at == null ? 1e9 : a.at) - (b.at == null ? 1e9 : b.at)) || (a.mid < b.mid ? -1 : 1); });
+  var src = mine ? mine.pool : { matches:[].concat.apply([], pools.map(function(p){ return tnArr(p.pool.matches).map(function(m){ return { mid:m.mid, court:m.court, t1:m.t1, t2:m.t2, ref:m.ref }; }); })) };
+  var day = tnTeamDay(src, S.mine, TIMES, po);
+  if(!day.rows.length) return '';
+  var st = S.t.meta.status, next = (st === 'pools' || st === 'playoffs') ? tnTeamDayNext(day.rows, R) : -1;
+  var x0 = teamsOf()[S.mine] || {};
+  var h = '<div class="card"><h2>' + (day.waves ? 'Your day' : 'Matches') + '</h2><p class="muted">' + esc(x0.name || 'Your team') + (mine ? ' &middot; Pool ' + esc(mine.key) : '') + '. Times are estimates.</p>';
+  day.rows.forEach(function(x, i){
+    var label = x.kind === 'pool' ? (day.waves ? x.label : (mine ? 'Pool ' + mine.key : 'Pool match')) : x.label;
+    var when = '<div class="yd-when">' + (i === next ? '<span class="yd-next">Up next</span><br>' : '') + esc(label) + (x.at != null ? '<small>' + esc(tnAboutLabel(x.at)) + '</small>' : '') + '</div>';
+    var badge = '<span class="yd-b ' + x.role + '">' + (x.role === 'playing' ? 'Playing' : x.role === 'ref' ? 'Ref' : 'Sitting') + '</span>';
+    var main;
+    if(x.role === 'sitting') main = 'Sitting out<span class="sub">No match or ref duty this round.</span>';
+    else {
+      var r = R[x.mid], sets = setsFor(x, r), lv = r ? null : liveOf(x.mid), court = (x.court != null && x.court !== '') ? 'Court ' + esc(x.court) : '';
+      var res = '';
+      if(sets){
+        var w = tnMatchWinner({ sets:sets }, x.fmt || div.pool), me1 = x.t1 === S.mine;
+        var sc = sets.map(function(s){ return x.role === 'playing' && !me1 ? s.b + '-' + s.a : s.a + '-' + s.b; }).join(', ');
+        res = x.role === 'playing' && w.valid && w.winner ? ((w.winner === 't1') === me1 ? 'Won ' : 'Lost ') + sc : sc;
+      }
+      main = (x.role === 'playing' ? 'vs ' + teamLabel(x.opp) : 'Ref: ' + teamLabel(x.t1) + ' vs ' + teamLabel(x.t2))
+        + '<span class="sub">' + [court, res ? '<b>' + esc(res) + '</b>' : (lv ? '<span class="live-dot">LIVE</span> ' + esc(liveText(lv)) : '')].filter(Boolean).join(' &middot; ') + '</span>';
+    }
+    h += '<div class="yd-row' + (i === next ? ' now' : '') + (x.role === 'sitting' ? ' sit' : '') + '">' + when + '<div class="yd-main">' + main + '</div>' + badge + '</div>';
+  });
+  return h + '</div>';
+}
 function wavesHtml(pool, div, key){
   var byWave = {}, R = resultsOf();
   tnArr(pool.matches).forEach(function(m){ var w = Number(m.wave) || 0; (byWave[w] = byWave[w] || []).push(m); });
   return Object.keys(byWave).map(Number).sort(function(a, b){ return a - b; }).map(function(w){
-    return '<div class="rhead">' + (w ? 'Wave ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){
+    return '<div class="rhead">' + (w ? 'Round ' + w : 'Matches') + '</div>' + byWave[w].map(function(m){
       var head = [key ? 'Pool ' + esc(key) : '', m.court != null && m.court !== '' ? 'Court ' + esc(m.court) : '', esc(headTime(m.mid))].filter(Boolean).join(' &middot; ');
       var refHtml = m.ref ? 'Ref: ' + teamLabel(m.ref) : (R[m.mid] ? '' : 'No ref available, teams score this one');
       return matchCard(m, { fmt:div.pool, head:head, refHtml:refHtml });
@@ -1447,7 +1614,7 @@ function onCourtHtml(divId, div){
     return '<div class="cn' + (lv ? ' is-live' : '') + (isMine([m.t1, m.t2, m.ref]) ? ' mine' : '') + '"><div class="cn-court">' + (k ? 'Court ' + esc(k) : 'Court to be announced') + '</div>'
       + '<div class="cn-teams">' + teamLabel(m.t1) + '<span class="vs">vs</span>' + teamLabel(m.t2) + '</div>'
       + (lv ? liveLine(lv) : '')
-      + '<div class="cn-meta">' + c.label.split(' &middot; ').map(esc).join(' &middot; ') + (m.wave ? ' &middot; Wave ' + esc(m.wave) : '') + (TIMES[m.mid] != null ? ' &middot; ' + esc(tnAboutLabel(TIMES[m.mid])) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
+      + '<div class="cn-meta">' + c.label.split(' &middot; ').map(esc).join(' &middot; ') + (m.wave ? ' &middot; Round ' + esc(m.wave) : '') + (TIMES[m.mid] != null ? ' &middot; ' + esc(tnAboutLabel(TIMES[m.mid])) : '') + (m.ref ? ' &middot; Ref: ' + teamLabel(m.ref) : '') + '</div></div>';
   }).join('') + '</div>';
 }
 
@@ -1502,12 +1669,13 @@ function render(){
       + '</select></div>';
   }
   h += '<div class="card"><h2>On court now</h2>' + onCourtHtml(S.div, div) + '</div>';
+  h += dayHtml(S.div, div);
   var pools = poolsOf(S.div);
   if(pools.length){
     pools.forEach(function(p){
       var courts = tnArr(p.pool.courts);
       h += '<div class="card"><h2>Pool ' + esc(p.key) + '</h2>' + (courts.length ? '<p class="muted">Court' + (courts.length > 1 ? 's ' : ' ') + courts.map(esc).join(', ') + '</p>' : '')
-        + standingsHtml(p.pool, div) + wavesHtml(p.pool, div, p.key) + '</div>';
+        + standingsHtml(p.pool, div) + gridHtml(p.pool) + wavesHtml(p.pool, div, p.key) + '</div>';
     });
   } else {
     h += '<div class="card"><h2>Pools</h2><p class="muted">Pools are posted when the exec team sets them on game day.' + (teams.length ? ' ' + teams.length + ' team' + (teams.length === 1 ? ' is' : 's are') + ' in this division.' : '') + '</p></div>';
