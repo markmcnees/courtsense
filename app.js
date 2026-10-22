@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.193';
+const APP_VERSION='1.1.194';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12061,6 +12061,7 @@ async function exportInfo(){
 // ============================================================
 var TN_REG_PAGE='https://courtsense.app/fsu_grass/tournament.html';
 var TN_LIVE_PAGE='https://courtsense.app/fsu_grass/live.html'; // public, read only: pools, standings, bracket
+var TN_COURT_PAGE='https://courtsense.app/fsu_grass/court.html'; // one court's scoring, opened with the court PIN
 var TN_PARTNER_PAGE='https://courtsense.app/pickup/?view=tournaments';
 var TN_PICKUP_ROOT='tally_kotb_pickup/tournaments';
 var TN_PICKUP_ORG='FSU Grass Club';
@@ -12097,6 +12098,7 @@ function tnDetach(){
   _tnRef=null; _tnHandler=null; _tnList=null;
   _tnUi=tnUiDefaults();
   _tnGd=tnGdDefaults();
+  if(typeof tnCpReset==='function') tnCpReset('');
 }
 
 // ---- Write guard ----------------------------------------------------------
@@ -12681,7 +12683,8 @@ async function tnExport(){
 //   teams/{teamId}/seed and /pool       written here; the worker owns everything else on a team
 //   pools/{divId}/{poolKey}             { teamIds, courts, matches:[ { mid, round, wave, court, t1, t2, ref } ] }
 //   results/{mid}                       { t1, t2, sets:[ {a,b} ], winner, at, by, byRole:'exec' }
-//                                       (the worker writes player and ref scores: byRole 'player'|'ref', byTeam, live?)
+//                                       (the worker writes player and ref scores: byRole 'player'|'ref', byTeam, live?;
+//                                        and court scores: byRole 'court', via 'court', no byTeam)
 //   live/{mid}                          worker only: { sets, set, seq, byTeam, byRole, ... } while a ref scores
 //                                       point by point. The app only ever clears it (exec override).
 // Mids carry the divId prefix (tnSchedulePool idPrefix), which is how a result is tied to its
@@ -12937,6 +12940,7 @@ function tnGdHtml(t,h){
   } else {
     html+='<div style="font-size:13px;margin:6px 0;">Status: <strong>'+esc(tnStatusLabel(status))+'</strong></div>'+tnNotifyHtml(t,h);
   }
+  html+=tnCourtPinHtml(h);
   if(ids.length>1){
     html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">'+ids.map(function(d){
       var on=d===divId;
@@ -13939,6 +13943,150 @@ function tnNotifyHtml(t,h){
   return out?'<div style="font-size:13px;line-height:1.7;margin:6px 0;">'+out+'</div>':'';
 }
 
+// ---- Court PIN (one per tournament, shared by every court) -----------------------------
+// The worker keeps only a hash, so the card shows set or not set, never the PIN. The PIN is read
+// from its input on Save, sent once, and the input is emptied; nothing keeps it here. Changing
+// or clearing it signs every court out.
+var _tnCp={tid:'', set:null, loading:false, error:'', open:false, busy:false, msg:''};
+function tnCpReset(tid){ _tnCp={tid:tid, set:null, loading:false, error:'', open:false, busy:false, msg:''}; }
+// The worker's answer to one court PIN request: { r, j } or null when it could not be reached.
+async function tnCpCall(action,pin){
+  var body={slug:TN_SLUG, tid:_tnCp.tid, exec:tnScToken(), action:action};
+  if(action==='set') body.pin=pin;
+  try {
+    var r=await fetch(AUTH_WORKER+'/club/tournament-court-pin',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    return {r:r, j:await r.json().catch(function(){ return null; })};
+  } catch(e){ return null; }
+}
+function tnCpError(x){
+  if(!x) return 'Could not reach the server. Try again.';
+  if(x.j&&x.j.code==='forbidden') return 'Sign in as an exec again to change the court PIN.';
+  return (x.j&&x.j.error)||'Something went wrong. Try again.';
+}
+async function tnCpStatus(){
+  var tid=_tnCp.tid; if(!tid||_tnCp.loading) return;
+  _tnCp.loading=true; _tnCp.error='';
+  var x=await tnCpCall('status');
+  if(_tnCp.tid!==tid) return;
+  _tnCp.loading=false;
+  if(x&&x.j&&x.j.ok===true) _tnCp.set=x.j.courtPinSet===true; else _tnCp.error=tnCpError(x);
+  tnCardRender();
+}
+function tnCpOpen(){ _tnCp.open=true; _tnCp.msg=''; tnCardRender(); var b=document.getElementById('tn-cpin'); if(b) b.focus(); }
+function tnCpCancel(){ var b=document.getElementById('tn-cpin'); if(b) b.value=''; _tnCp.open=false; _tnCp.msg=''; tnCardRender(); }
+// The same words the worker's PIN policy uses, checked here first so a typo answers at once.
+function tnCpCheck(pin){
+  if(!/^\d{4}$/.test(pin)) return 'The PIN must be exactly 4 digits.';
+  var up=true, down=true;
+  for(var i=1;i<pin.length;i++){ var d=pin.charCodeAt(i)-pin.charCodeAt(i-1); if(d!==1) up=false; if(d!==-1) down=false; }
+  if(/^(\d)\1+$/.test(pin)||up||down) return "Pick a PIN that isn't a repeat or a straight run like 1234.";
+  return '';
+}
+async function tnCpSave(){
+  var b=document.getElementById('tn-cpin'); if(!b||_tnCp.busy) return;
+  var pin=String(b.value||''); b.value='';
+  var bad=tnCpCheck(pin);
+  if(bad){ _tnCp.msg=bad; tnCardRender(); return; }
+  _tnCp.busy=true; _tnCp.msg=''; tnCardRender();
+  var x=await tnCpCall('set',pin); pin='';
+  _tnCp.busy=false;
+  if(x&&x.j&&x.j.ok===true){ _tnCp.set=true; _tnCp.open=false; toast('Court PIN saved'); }
+  else _tnCp.msg=tnCpError(x);
+  tnCardRender();
+}
+async function tnCpClear(){
+  if(_tnCp.busy) return;
+  if(!window.confirm('Clear the court PIN? Courts are signed out, and they will need the new PIN once you set one.')) return;
+  _tnCp.busy=true; _tnCp.msg=''; tnCardRender();
+  var x=await tnCpCall('clear');
+  _tnCp.busy=false;
+  if(x&&x.j&&x.j.ok===true){ _tnCp.set=false; _tnCp.open=false; toast('Court PIN cleared'); }
+  else _tnCp.msg=tnCpError(x);
+  tnCardRender();
+}
+function tnCourtPinHtml(h){
+  var esc=h.esc, btn=h.btn, tid=_tnUi.tid;
+  if(!tid||!tnScToken()) return '';
+  if(_tnCp.tid!==tid){ tnCpReset(tid); setTimeout(tnCpStatus,0); }
+  var head='<div style="font-weight:700;font-size:14px;margin-top:10px;">Court PIN</div>';
+  var msg=_tnCp.msg?'<div style="font-size:13px;color:#b02a37;margin-top:4px;">'+esc(_tnCp.msg)+'</div>':'';
+  if(_tnCp.set===null){
+    return '<div style="margin:6px 0;">'+head+'<div style="font-size:13px;color:var(--gray);">'
+      +(_tnCp.error?esc(_tnCp.error)+' '+btn('Try again','tnCpStatus()',false):'Checking...')+'</div></div>';
+  }
+  var out='<div style="margin:6px 0;">'+head+'<div style="font-size:13px;">Court PIN: <strong>'+(_tnCp.set?'set':'not set')+'</strong></div>';
+  if(_tnCp.open){
+    out+='<div style="font-size:12px;color:var(--gray);margin:4px 0;">4 digits, shared by every court.'+(_tnCp.set?' Courts will need the new PIN.':'')+'</div>'
+      +'<input type="password" id="tn-cpin" class="form-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="Court PIN" style="padding:10px;font-size:16px;border:1px solid var(--border,#ddd);border-radius:8px;width:8em;box-sizing:border-box;">'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">'+btn(_tnCp.busy?'Saving...':'Save PIN','tnCpSave()',true)+btn('Cancel','tnCpCancel()',false)+'</div>';
+  } else {
+    out+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">'+btn(_tnCp.set?'Change':'Set','tnCpOpen()',!_tnCp.set)
+      +(_tnCp.set?btn('Clear','tnCpClear()',false):'')+'</div>';
+  }
+  return out+msg+'</div>'+(_tnCp.set?tnCourtQrHtml(h):'');
+}
+
+// ---- Court QR codes (shown once a court PIN is set) ------------------------------------
+// One QR per court, each opening that court's scoring page. The page asks for the court PIN,
+// which is never on the QR, the label, or the printed sheet.
+// Every court named in the tournament: division and pool court lists, and the court on every
+// pool, bracket and Silver match. Numbers first, in order.
+function tnCourtList(t){
+  var seen={}, add=function(v){ if(typeof v==='number'||(typeof v==='string'&&v)){ var s=String(v).trim(); if(/^[A-Za-z0-9_-]{1,16}$/.test(s)) seen[s]=1; } };
+  var walk=function(v,depth){
+    if(!v||typeof v!=='object'||depth>6) return;
+    if(Array.isArray(v.courts)) v.courts.forEach(add);
+    if(Object.prototype.hasOwnProperty.call(v,'court')) add(v.court);
+    Object.keys(v).forEach(function(k){ if(k!=='courts') walk(v[k],depth+1); });
+  };
+  var D=(t&&t.divisions)||{};
+  Object.keys(D).forEach(function(k){ if(D[k]&&Array.isArray(D[k].courts)) D[k].courts.forEach(add); });
+  ['pools','bracket','silver'].forEach(function(k){ walk(t&&t[k],0); });
+  return Object.keys(seen).sort(function(a,b){ var x=+a, y=+b; return (isFinite(x)&&isFinite(y))?x-y:(isFinite(x)?-1:isFinite(y)?1:(a<b?-1:a>b?1:0)); });
+}
+function tnCourtUrl(tid,court){ return TN_COURT_PAGE+'?t='+encodeURIComponent(tid)+'&c='+encodeURIComponent(court); }
+function tnCourtQrHtml(h){
+  var esc=h.esc, btn=h.btn, t=tnCur(), tid=_tnUi.tid, courts=tnCourtList(t);
+  if(!t||!courts.length) return '';
+  return '<div style="margin:10px 0 6px;"><div style="font-weight:700;font-size:14px;">Court QR codes</div>'
+    +'<div style="font-size:12px;color:var(--gray);margin:2px 0 6px;">Post one on each court. Scanning it opens that court\'s scoring; the court PIN unlocks it.</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:12px;">'+courts.map(function(c,i){
+      return '<div style="flex:0 0 160px;text-align:center;"><div style="font-weight:700;font-size:15px;">Court '+esc(c)+'</div>'
+        +'<div id="tn-cqr-'+i+'" style="width:150px;max-width:100%;margin:4px auto;"></div>'
+        +'<div style="font-size:10.5px;color:var(--gray);word-break:break-all;">'+esc(tnCourtUrl(tid,c))+'</div></div>';
+    }).join('')+'</div>'
+    +'<div style="margin-top:8px;">'+btn('Print QR sheet','tnCourtQrPrint()',false)+'</div></div>';
+}
+// After the card draws: the QR in each court's box.
+function tnCourtQrRender(){
+  var t=tnCur(); if(!t||!_tnCp.set||_tnCp.tid!==_tnUi.tid) return;
+  tnCourtList(t).forEach(function(c,i){ if(document.getElementById('tn-cqr-'+i)) renderQrInto('tn-cqr-'+i,tnCourtUrl(_tnUi.tid,c)); });
+}
+// The printable sheet: one court per half page, its QR, its name, and the link. No PIN.
+function tnCourtQrSheetHtml(name,tid,courts,qrs){
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Court QR codes</title><style>'
+    +'@page{size:letter;margin:0.4in;}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#111;}'
+    +'.c{height:4.9in;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-bottom:1px dashed #999;page-break-inside:avoid;}'
+    +'.c:nth-child(2n){border-bottom:none;page-break-after:always;}.c:last-child{page-break-after:auto;}'
+    +'.n{font-size:54px;font-weight:800;line-height:1;}.t{font-size:16px;margin:6px 0 10px;color:#444;}'
+    +'.q{width:2.8in;height:2.8in;}.q svg{width:100%;height:100%;}.h{font-size:15px;margin-top:10px;}.u{font-size:11px;color:#555;margin-top:6px;word-break:break-all;}'
+    +'</style></head><body>'+courts.map(function(c,i){
+      return '<div class="c"><div class="n">Court '+esc(c)+'</div><div class="t">'+esc(name)+'</div><div class="q">'+(qrs[i]||'')+'</div>'
+        +'<div class="h">Scan to score matches on this court. The exec team has the court PIN.</div><div class="u">'+esc(tnCourtUrl(tid,c))+'</div></div>';
+    }).join('')+'</body></html>';
+}
+function tnCourtQrPrint(){
+  var t=tnCur(); if(!t) return;
+  var courts=tnCourtList(t), qrs=courts.map(function(c,i){ var el=document.getElementById('tn-cqr-'+i); return el?String(el.innerHTML||''):''; });
+  var w=window.open('','_blank');
+  if(!w){ toast('Allow pop-ups for this site to print the QR sheet.'); return; }
+  w.document.open();
+  w.document.write(tnCourtQrSheetHtml(String((t.meta||{}).name||'Tournament'),_tnUi.tid,courts,qrs));
+  w.document.close();
+  setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} },300);
+}
+
 // ---- Live scoring (exec and member) ------------------------------------------------------
 // The same full-screen scorer the teams use. An exec runs it with the exec session; a member runs
 // it from Your day with their own CourtSense session. It sits outside the card (the card redraws
@@ -14267,10 +14415,11 @@ function tnMatchCard(t,m,o){
   if(lv) h+='<div class="tn-mc-live"><span class="tn-live">LIVE</span>'+esc(tnLiveText(lv))+'</div>';
   else if(!r&&!o.preview&&m.t1&&m.t2) h+='<div class="tn-mc-np">Not played yet</div>';
   if(o.refHtml) h+='<div class="tn-mc-ref">'+o.refHtml+'</div>';
-  // Exec entries carry byRole exec; scores sent from a team's manage link carry player or ref.
-  var src=(r&&r.byRole==='player')?'Player':(r&&r.byRole==='ref')?'Ref':'';
+  // Exec entries carry byRole exec; scores sent by a team carry player or ref, and scores sent
+  // from a court's scoring page carry court.
+  var src=(r&&r.byRole==='player')?'Player':(r&&r.byRole==='ref')?'Ref':(r&&r.byRole==='court')?'Court':'';
   if(r&&r.by) h+='<div class="tn-mc-by">Entered by '+esc(r.by)
-    +(src?' <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:4px;padding:1px 5px;background:'+(src==='Ref'?'#1f3a5f':'var(--red)')+';color:#fff;">'+src+'</span>':'')
+    +(src?' <span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:4px;padding:1px 5px;background:'+(src==='Ref'?'#1f3a5f':src==='Court'?'#4b5563':'var(--red)')+';color:#fff;">'+src+'</span>':'')
     +(r.at?' at '+esc(new Date(r.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})):'')+'</div>';
   if(scoring&&m.t1&&m.t2&&!open){
     h+='<div class="tn-mc-act">'+(!r?btn(lv?'Open live scorer':'Score live',"tnScOpen('"+esc(m.mid)+"')",false):'')
@@ -14602,10 +14751,14 @@ function tnCardRender(){
     // Game day (seeds, pools, scoring, standings) once registration is over.
     if(TN_GAME_STATUSES.indexOf(m.status)>=0) html+=tnGdHtml(t,{esc:esc, btn:btn, inp:inp, lbl:lbl});
   }
+  // A half-typed court PIN lives only in its own input, so that input is carried across the redraw.
+  var pinBox=document.getElementById('tn-cpin');
   el.innerHTML=html+'</div>';
+  if(pinBox){ var pinNew=document.getElementById('tn-cpin'); if(pinNew&&pinNew.parentNode) pinNew.parentNode.replaceChild(pinBox,pinNew); }
 
   if(t&&!_tnUi.newOpen) renderQrInto('tn-qr',TN_REG_PAGE+'?t='+encodeURIComponent(_tnUi.tid));
   if(t&&!_tnUi.newOpen&&document.getElementById('tn-live-qr')) renderQrInto('tn-live-qr',TN_LIVE_PAGE+'?t='+encodeURIComponent(_tnUi.tid));
+  if(t&&!_tnUi.newOpen) tnCourtQrRender();
   // Full names arrive with the account read; redraw once it lands.
   if(t&&Object.keys(tnTeams(t)).length&&!communityPlayersNow()) ensureCommunityPlayers().then(function(a){ if(a) tnCardRender(); });
   tnGdRefresh(); // the score editor message and Save state
