@@ -98,6 +98,11 @@
   .logo-cell .logo-box img{max-height:80px;max-width:100%;display:block;}
   .logo-cell .logo-fname{display:block;font-size:11.5px;color:var(--slate);margin-top:4px;}
   .logo-cell .btn.show-logo{padding:5px 12px;font-size:13px;}
+  .logo-edit{margin-top:8px;}
+  .logo-edit .btn{padding:5px 12px;font-size:13px;}
+  .logo-edit .logo-new{margin-top:8px;}
+  .logo-edit .logo-new img{max-height:96px;max-width:200px;display:block;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/12px 12px;border:1px solid #ddd;border-radius:6px;margin-bottom:6px;}
+  .logo-edit .logo-msg{font-size:12.5px;margin-top:6px;}
 
   .card-body{padding:2px 18px 14px;display:none;}
   .card.open .card-body{display:block;}
@@ -197,6 +202,81 @@
 
 <footer>Admin only. Submissions carry coach contact info; keep this screen private.</footer>
 
+<script>
+// Logo kit: add or replace a school logo. Any PNG, JPG or SVG is drawn onto a canvas in this
+// browser (fit to 512 px on the long side, transparency kept) and only the PNG it makes is
+// sent, so the worker only ever stores PNG bytes. Pure helpers here; the page wires them up.
+// The image and the admin key are never written anywhere but the one request.
+window.csLogoKit=(function(){
+  var MAX_FILE=5*1024*1024;      // refuse bigger files before reading them
+  var MAX_DATA_URL=699999;       // the worker's cap (validLogoDataUrl: under 700000 characters)
+  var LONG_SIDE=512;
+  var TYPES=['image/png','image/jpeg','image/svg+xml'];
+  function fileProblem(f){
+    if(!f) return 'Pick a file.';
+    var name=String(f.name||'').toLowerCase();
+    var okType=TYPES.indexOf(f.type)>=0||/\.(png|jpe?g|svg)$/.test(name);
+    if(!okType) return 'Use a PNG, JPG or SVG file.';
+    if(f.size>MAX_FILE) return 'That file is over 5 MB. Use a smaller one.';
+    return '';
+  }
+  // Canvas size for an image: the long side at most 512, never scaled up past its own size.
+  // An SVG with no size of its own draws at 512 square.
+  function fitSize(w,h){
+    w=+w||0; h=+h||0;
+    if(!w||!h) return {w:LONG_SIDE, h:LONG_SIDE};
+    var s=Math.min(1, LONG_SIDE/Math.max(w,h));
+    return {w:Math.max(1,Math.round(w*s)), h:Math.max(1,Math.round(h*s))};
+  }
+  function outputProblem(dataUrl){
+    if(typeof dataUrl!=='string'||dataUrl.indexOf('data:image/png;base64,')!==0) return 'That image could not be turned into a PNG. Try another file.';
+    if(dataUrl.length>MAX_DATA_URL) return 'That logo is too detailed to store (over 500 KB as a PNG). Try a simpler or smaller file.';
+    return '';
+  }
+  function buttonLabel(hasLogo){ return hasLogo?'Replace logo':'Add logo'; }
+  // target is {id} for a submission or {slug} for a live school.
+  function requestBody(key,target,dataUrl,filename){
+    var b={adminKey:key, logoDataUrl:dataUrl, logoFilename:String(filename||'logo').replace(/\.[^.]*$/,'')+'.png'};
+    if(target&&target.id) b.id=target.id; else if(target&&target.slug) b.slug=target.slug;
+    return b;
+  }
+  // The file as a PNG data URL through an <img> and a canvas. Resolves '' on failure.
+  function toPng(file,doc){
+    doc=doc||document;
+    return new Promise(function(resolve){
+      var rd=new FileReader();
+      rd.onerror=function(){ resolve(''); };
+      rd.onload=function(){
+        var img=new Image();
+        img.onerror=function(){ resolve(''); };
+        img.onload=function(){
+          try{
+            var sz=fitSize(img.naturalWidth,img.naturalHeight), c=doc.createElement('canvas');
+            c.width=sz.w; c.height=sz.h;
+            var ctx=c.getContext('2d'); ctx.clearRect(0,0,sz.w,sz.h); ctx.drawImage(img,0,0,sz.w,sz.h);
+            resolve(c.toDataURL('image/png'));
+          }catch(e){ resolve(''); }
+        };
+        img.src=String(rd.result||'');
+      };
+      rd.readAsDataURL(file);
+    });
+  }
+  // One save. onForbidden runs on a 403 so the page can drop the stored admin key.
+  function save(opts){
+    return opts.fetch(opts.worker+'/onboard/admin-set-logo',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(requestBody(opts.key,opts.target,opts.dataUrl,opts.filename))})
+      .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+      .then(function(o){
+        if(o.status===403&&o.j&&o.j.code==='forbidden'){ if(opts.onForbidden) opts.onForbidden(); return {ok:false, error:'Admin key rejected. Click Refresh, then try again.'}; }
+        if(o.j&&o.j.ok) return {ok:true, target:o.j.target, slug:o.j.slug||''};
+        return {ok:false, error:(o.j&&o.j.error)||('Could not save the logo (HTTP '+o.status+').')};
+      }, function(){ return {ok:false, error:'Could not reach the worker. Try again.'}; });
+  }
+  return {MAX_FILE:MAX_FILE, MAX_DATA_URL:MAX_DATA_URL, fileProblem:fileProblem, fitSize:fitSize, outputProblem:outputProblem,
+    buttonLabel:buttonLabel, requestBody:requestBody, toPng:toPng, save:save};
+})();
+</script>
 <script>
 (function(){
   var $=function(id){return document.getElementById(id);};
@@ -342,7 +422,7 @@
       fieldRow('Home venue', esc(s.homeVenue))+
       fieldRow('Season', esc(s.seasonYear))+
       fieldRow('Colors', colorSw)+
-      fieldRow('Logo', logoCell(s), true)+
+      fieldRow('Logo', logoCell(s)+(s.status==='rejected'?'':logoEditHtml(s.hasLogo)), true)+
       fieldRow('Notes', esc(s.notes), true)+
       fieldRow('Submitted', esc(s.submittedAt), true)+
     '</div>';
@@ -426,6 +506,58 @@
       // Show logo: fetch the data URL on demand and render an inline preview
       var showLogo=card.querySelector('.show-logo');
       if(showLogo) showLogo.addEventListener('click',function(){ fetchLogo(id, showLogo, card); });
+      wireLogoEdit(card.querySelector('.logo-edit'), {id:id}, function(res){
+        if(sub){ sub.hasLogo=true; sub.logoIncluded=true; }
+        if(res.target==='school') SCHOOLS=null; // the Schools tab reloads with the new state
+        render();
+      });
+    });
+  }
+
+  // ---- Add or replace a logo (pending, approved, and live schools) ----
+  function logoEditHtml(hasLogo){
+    return '<div class="logo-edit">'+
+      '<button class="btn set-logo" type="button">'+esc(csLogoKit.buttonLabel(!!hasLogo))+'</button>'+
+      '<input class="logo-file" type="file" accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" style="display:none;">'+
+      '<div class="logo-new" style="display:none;"></div>'+
+      '<div class="logo-msg" style="display:none;"></div>'+
+    '</div>';
+  }
+  // Pick, convert, preview, then Save or Cancel. The PNG lives only in this closure until
+  // it is sent; nothing is stored in the page or the browser.
+  function wireLogoEdit(box, target, onSaved){
+    if(!box) return;
+    var btn=box.querySelector('.set-logo'), input=box.querySelector('.logo-file'), prev=box.querySelector('.logo-new'), msg=box.querySelector('.logo-msg');
+    var pending={dataUrl:'', name:''};
+    function say(t,good){ msg.textContent=t||''; msg.style.display=t?'block':'none'; msg.style.color=good?'#2e7d32':'var(--err)'; }
+    function reset(){ pending={dataUrl:'', name:''}; prev.innerHTML=''; prev.style.display='none'; input.value=''; btn.disabled=false; }
+    btn.addEventListener('click',function(){ say(''); input.click(); });
+    input.addEventListener('change',function(){
+      var f=input.files&&input.files[0]; if(!f) return;
+      var bad=csLogoKit.fileProblem(f);
+      if(bad){ reset(); say(bad); return; }
+      btn.disabled=true; say('Preparing...',true);
+      csLogoKit.toPng(f).then(function(url){
+        btn.disabled=false;
+        var why=csLogoKit.outputProblem(url);
+        if(why){ reset(); say(why); return; }
+        pending={dataUrl:url, name:f.name};
+        say('');
+        prev.innerHTML='<img alt="New logo preview"><div style="display:flex;gap:8px;"><button class="btn save-logo" type="button">Save logo</button><button class="btn cancel-logo" type="button">Cancel</button></div>';
+        prev.querySelector('img').src=url;
+        prev.style.display='block';
+        prev.querySelector('.cancel-logo').addEventListener('click',function(){ reset(); say(''); });
+        prev.querySelector('.save-logo').addEventListener('click',function(){
+          var key=ensureAdminKey(); if(!key) return;
+          var sv=this; sv.disabled=true; sv.textContent='Saving...';
+          csLogoKit.save({fetch:window.fetch.bind(window), worker:AUTH_WORKER, key:key, target:target, dataUrl:pending.dataUrl, filename:pending.name, onForbidden:clearAdminKey})
+            .then(function(res){
+              if(!res.ok){ sv.disabled=false; sv.textContent='Save logo'; say(res.error); return; }
+              reset(); say('Logo saved.',true);
+              if(onSaved) onSaved(res);
+            });
+        });
+      });
     });
   }
 
@@ -505,6 +637,7 @@
         '</div>'+
         '<button class="btn approve open-coach">Open as coach</button>'+
       '</div>'+
+      '<div style="padding:0 18px 10px;">'+logoEditHtml(s.hasLogo)+'</div>'+
       '<div class="school-err" style="display:none;color:var(--err);font-size:12.5px;padding:0 18px 12px;"></div>'+
       // Coach PIN rotation. Masked entry plus a confirm field, so a typo cannot lock a
       // coach out of their own school. Both fields are cleared after every submit,
@@ -534,6 +667,10 @@
       if(btn) btn.addEventListener('click',function(){ openAsCoach(slug, dbRoot, btn, card); });
       var rbtn=card.querySelector('.rotate-pin');
       if(rbtn) rbtn.addEventListener('click',function(){ rotatePin(dbRoot, rbtn, card); });
+      wireLogoEdit(card.querySelector('.logo-edit'), {slug:slug}, function(){
+        for(var i=0;i<schools.length;i++){ if(schools[i].slug===slug){ schools[i].hasLogo=true; break; } }
+        renderSchoolsList(schools);
+      });
     });
   }
 
