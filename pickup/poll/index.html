@@ -420,7 +420,8 @@ window.csPollKit=(function(){
     return 'Needs '+view.minPlayers+' players, up to '+view.capacity+'. '+(auto?'The first time to reach '+view.minPlayers+' becomes the game.':'The organizer picks the game from times that reach '+view.minPlayers+'.');
   }
   // ── open polls, per day, suggestions, quick account ──
-  // The 7 location presets, the same list as the pickup page.
+  // The 7 location presets, the same names as csPickupParks on the pickup page and the
+  // worker's PLACE_PRESETS; the pages check holds the three equal.
   var PRESETS=['Tom Brown Park','Four Oaks Park','North Side Community Center','Optimist Park','Southwood','Downtown Sand Volleyball Courts','FSU Lakefront Park & Retreat Center (The Rez)'];
   var SITE_KEY='0x4AAAAAAFkHEY06nnevuhhM';
   var TURNSTILE_SCRIPT='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -475,6 +476,22 @@ window.csPollKit=(function(){
     if(x.location) b.location=String(x.location).trim();
     return {path:'/pickup/poll/suggest',body:b};
   }
+  // Suggest another time on a voted-location poll: the presets, then the places this poll
+  // already uses, then the viewer's own saved places, each once ignoring case.
+  function sugLocGroups(view, saved){
+    var seen={};
+    function take(l){ var k=l.toLowerCase(); if(!l||l.length>150||l==='__other__'||seen[k]) return false; seen[k]=1; return true; }
+    var presets=PRESETS.filter(take);
+    var poll=((view&&view.options)||[]).map(function(o){ return o&&typeof o.location==='string'?o.location.trim():''; }).filter(take);
+    var mine=(Array.isArray(saved)?saved:[]).map(function(p){ return p&&typeof p.label==='string'?p.label.trim():''; }).filter(take);
+    return {presets:presets,poll:poll,mine:mine};
+  }
+  // The signed-in viewer's saved places (labels only) from /pickup/places.
+  function placesReq(session){ return {path:'/pickup/places',body:{sessionToken:session}}; }
+  function placesList(res){
+    var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.places)?res.j.places:[];
+    return a.filter(function(p){ return p&&typeof p.label==='string'&&p.label&&p.label.length<=150; }).map(function(p){ return {label:p.label}; });
+  }
   function decideReq(session, p, sugId, action){ return {path:'/pickup/poll/suggestion',body:{sessionToken:session,p:p,sugId:sugId,action:action}}; }
   // The share link: no personal token, so it is safe to post anywhere.
   function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
@@ -513,7 +530,7 @@ window.csPollKit=(function(){
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
-    suggestReq:suggestReq, decideReq:decideReq, shareUrl:shareUrl, shareLink:shareLink, signInUrl:signInUrl, quickProblem:quickProblem };
+    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -794,9 +811,30 @@ window.csPollKit=(function(){
     $('sug-left').textContent=K.sugLeftLine(view);
     var voted=view.locationMode==='voted';
     $('sug-loc-row').classList.toggle('hidden',!voted);
-    if(voted&&!$('sug-loc').options.length){
-      K.PRESETS.concat(['__other__']).forEach(function(p){ var op=document.createElement('option'); op.value=p; op.textContent=p==='__other__'?'Other':p; $('sug-loc').appendChild(op); });
+    if(!voted) return;
+    fillSugLoc();
+    // The viewer's own saved places, once, when signed in.
+    var ses=K.storedSession([localStorage,sessionStorage],Date.now());
+    if(ses&&!sugPlacesAsked){
+      sugPlacesAsked=true;
+      K.post(fetch,K.placesReq(ses)).then(function(res){ var l=K.placesList(res); if(l.length){ sugSaved=l; fillSugLoc(); } });
     }
+  }
+  // "Pick a location", the presets, this poll's places, the viewer's places, Other. A
+  // rebuild keeps the current choice.
+  var sugSaved=[], sugPlacesAsked=false;
+  function fillSugLoc(){
+    var sel=$('sug-loc'), keep=sel.value||'', g=K.sugLocGroups(view,sugSaved);
+    function add(parent,val,text){ var op=document.createElement('option'); op.value=val; op.textContent=text; parent.appendChild(op); }
+    function group(label,list){ if(!list.length) return; var og=document.createElement('optgroup'); og.label=label; list.forEach(function(p){ add(og,p,p); }); sel.appendChild(og); }
+    sel.textContent='';
+    add(sel,'','Pick a location');
+    g.presets.forEach(function(p){ add(sel,p,p); });
+    group('Places on this poll',g.poll);
+    group('Your places',g.mine);
+    add(sel,'__other__','Other');
+    sel.value=keep;
+    if(sel.value!==keep) sel.value='';
   }
   $('sug-open').addEventListener('click',function(){ hide('sug-open'); show('sug-form'); });
   var sugEndEdited=false;

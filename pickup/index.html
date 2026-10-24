@@ -163,6 +163,12 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pp-chip.org{font-weight:700;}
 .pp-chip.pending{background:transparent;border:1px dashed var(--sand-border);color:var(--slate);}
 .pp-more{font:inherit;font-size:12px;font-weight:600;color:var(--teal);background:none;border:none;padding:2px 4px;cursor:pointer;text-decoration:underline;}
+/* Saved places: the Manage places link under a location picker and its list. */
+.pl-manage{font:inherit;font-size:12px;font-weight:600;color:var(--teal);background:none;border:none;padding:8px 0 0;cursor:pointer;text-decoration:underline;}
+.pl-list{list-style:none;margin:0;padding:0;}
+.pl-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--gray-light);}
+.pl-row:first-child{border-top:none;}
+.pl-name{flex:1;min-width:0;font-size:14px;overflow-wrap:anywhere;}
 .fg{margin-bottom:10px;}
 .lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
 .inp{width:100%;padding:13px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:var(--black);background:var(--white);min-height:48px;}
@@ -419,17 +425,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <div class="fg">
         <label class="lbl">Location</label>
-        <select class="inp" id="iv-loc" onchange="onLocPreset()">
-          <option value="Tom Brown Park">Tom Brown Park</option>
-          <option value="Four Oaks Park">Four Oaks Park</option>
-          <option value="North Side Community Center">North Side Community Center</option>
-          <option value="Optimist Park">Optimist Park</option>
-          <option value="Southwood">Southwood</option>
-          <option value="Downtown Sand Volleyball Courts">Downtown Sand Volleyball Courts</option>
-          <option value="FSU Lakefront Park &amp; Retreat Center (The Rez)">FSU Lakefront Park &amp; Retreat Center (The Rez)</option>
-          <option value="__other__">Other</option>
-        </select>
-        <input class="inp" id="iv-loc-other" placeholder="Enter location" style="display:none;margin-top:8px;">
+        <select class="inp" id="iv-loc" onchange="onLocPreset()"></select>
+        <input class="inp" id="iv-loc-other" placeholder="Enter location" maxlength="150" style="display:none;margin-top:8px;">
+        <button type="button" class="pl-manage" id="iv-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
       <div class="fg" id="iv-court-fg" style="display:none;">
         <label class="lbl">Court (optional)</label>
@@ -696,6 +694,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <label><input type="radio" name="pp-locmode" value="voted" onchange="ppLocMode()"> Vote on location</label>
         </div>
         <div id="pp-loc-fixed" style="margin-top:8px;"></div>
+        <button type="button" class="pl-manage" id="pp-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
     </div>
     <div class="card">
@@ -922,6 +921,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 </div>
 
 <!-- How ratings work modal -->
+<div class="overlay center" id="places-modal">
+  <div class="modal center">
+    <div class="mtitle"><span>Your Places</span><button class="mclose" onclick="closeModal('places-modal')">✕</button></div>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Places you typed under Other. Only you see them. Removing one never changes a game or poll that used it.</p>
+    <ul class="pl-list" id="places-list"></ul>
+  </div>
+</div>
+
 <div class="overlay center" id="how-modal">
   <div class="modal center">
     <div class="mtitle"><span>How Ratings Work</span><button class="mclose" onclick="closeModal('how-modal')">✕</button></div>
@@ -1002,6 +1009,22 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 </div>
 
 <script>
+// The preset parks, in picker order, with each park's fixed court count: the one list
+// every pickup location picker reads (Post a Pickup Game, Create a Pickup Poll), plus the
+// court picker. pickup/poll/ and the worker (src/pickup-places.ts) carry the same names;
+// the pages check holds all three equal.
+window.csPickupParks=[
+  ['Tom Brown Park',4],
+  ['Four Oaks Park',5],
+  ['North Side Community Center',4],
+  ['Optimist Park',2],
+  ['Southwood',1],
+  ['Downtown Sand Volleyball Courts',2],
+  ['FSU Lakefront Park & Retreat Center (The Rez)',2]
+];
+</script>
+
+<script>
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -1012,28 +1035,15 @@ const FB_CFG = {
   appId: "1:937804799976:web:02121e68655b4febeb8e5d"
 };
 const DB_ROOT = 'tally_kotb_pickup';
-// Known parks and their fixed court counts. Keys must match the iv-loc option VALUE
-// exactly as it reads in JS (decoded "&"). Parks not listed (e.g. free-text "Other")
-// have no known courts, so the court picker hides for them. Used only for the optional
-// court selection and the soft in-use signal; never gates creation.
-const PARK_COURTS = {
-  "Tom Brown Park": 4,
-  "North Side Community Center": 4,
-  "Four Oaks Park": 5,
-  "Southwood": 1,
-  "Optimist Park": 2,
-  "Downtown Sand Volleyball Courts": 2,
-  "FSU Lakefront Park & Retreat Center (The Rez)": 2
-};
-// Partner-finder location presets. Sand mirrors the pickup location dropdown
-// (iv-loc); grass is its own short list. Both end in an "Other" free-text
-// option, matching how pickup locations already work (preset in the UI, plain
-// string in the record).
-const PARTNER_SAND_LOCATIONS = [
-  "Tom Brown Park", "Four Oaks Park", "North Side Community Center",
-  "Optimist Park", "Southwood", "Downtown Sand Volleyball Courts",
-  "FSU Lakefront Park & Retreat Center (The Rez)"
-];
+// Known parks and their fixed court counts, from csPickupParks. Parks not listed (a
+// saved place or free-text "Other") have no known courts, so the court picker hides for
+// them. Used only for the optional court selection and the soft in-use signal; never
+// gates creation.
+const PARK_COURTS = Object.fromEntries(window.csPickupParks);
+// Partner-finder location presets. Sand is the pickup preset list; grass is its own
+// short list. Both end in an "Other" free-text option, matching how pickup locations
+// already work (preset in the UI, plain string in the record).
+const PARTNER_SAND_LOCATIONS = window.csPickupParks.map(p => p[0]);
 const PARTNER_GRASS_LOCATIONS = ["Tom Brown Park", "FSU Fields"];
 // Per-need status on a partner post. A need is one division the poster wants a
 // partner for. There is no waitlist and no position: a division is either still
@@ -8325,8 +8335,9 @@ function startNewInvite(){
       $('iv-date').value = today;
       $('iv-start').value = '09:00';
       $('iv-end').value = '11:00';
-      $('iv-loc').value = 'Tom Brown Park';
-      if($('iv-loc-other')){ $('iv-loc-other').value = ''; $('iv-loc-other').style.display = 'none'; }
+      // No location until the host picks one; their saved places load in behind it.
+      fillLocSelect('iv-loc', '');
+      loadPlaces();
       $('iv-desc').value = '';
       $('iv-slots').value = 6;
       $('iv-min-slots').value = 4;
@@ -8377,18 +8388,12 @@ function startEditInvite(id){
       $('iv-date').value = i.date || td();
       $('iv-start').value = i.startTime || '09:00';
       $('iv-end').value = i.endTime || '11:00';
-      // Location: preselect a matching preset; otherwise fall to Other with the
-      // existing value prefilled so a custom or legacy location (e.g. "Tom Brown
-      // Court 4") is preserved on edit.
-      (function(){
-        const locVal = i.location || '';
-        const sel = $('iv-loc'); const other = $('iv-loc-other');
-        if(!sel) return;
-        const presets = Array.from(sel.options).map(o => o.value);
-        if(!locVal){ sel.value = 'Tom Brown Park'; if(other){ other.value = ''; other.style.display = 'none'; } }
-        else if(presets.includes(locVal)){ sel.value = locVal; if(other){ other.value = ''; other.style.display = 'none'; } }
-        else { sel.value = '__other__'; if(other){ other.value = locVal; other.style.display = ''; } }
-      })();
+      // Location: preselect a matching preset or saved place; otherwise fall to Other
+      // with the existing value prefilled so a custom or legacy location (e.g. "Tom
+      // Brown Court 4") is preserved on edit. A game with no location starts on "Pick a
+      // location". The saved places arrive after and keep the same value selected.
+      fillLocSelect('iv-loc', i.location || '');
+      loadPlaces();
       $('iv-desc').value = i.description || '';
       $('iv-slots').value = i.slots || 6;
       $('iv-min-slots').value = i.minSlots || 4;
@@ -8811,6 +8816,9 @@ async function saveInvite(){
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast('Log in to create a game'); return; }
   const base = buildInviteRecord();
   if(!base.date){ toast('Pick a date'); return; }
+  // A location is required, 150 characters at most (the Other box stops there too).
+  const locProblem = window.csPollPlanKit.locProblem(base.location);
+  if(locProblem){ toast(locProblem); return; }
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
   const tierCheck = validateWideningTiers();
   if(!tierCheck.ok){ toast(tierCheck.msg); return; }
@@ -8894,10 +8902,11 @@ async function saveInvite(){
           } }))
         );
         warnIfAnyNotEmailed(_promoNotifies, 'Promoted, but no one was emailed.');
+        rememberPlace(merged.location);
       }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
       toast('Saved. Promoted '+promoted.length+' from the waitlist');
     } else {
-      fbSet('invites/'+_id, merged);
+      fbSet('invites/'+_id, merged).then(ok => { if(ok) rememberPlace(merged.location); });
       toast('Saved');
     }
     showView('invite-detail');
@@ -8961,6 +8970,7 @@ async function saveInvite(){
   try {
     await db.ref().update(updates);
     toast(occurrences>1 ? occurrences+' games posted' : 'Game posted');
+    rememberPlace(base.location);
     activeInvite = firstId;
     showView('invite-detail');
     // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
@@ -10403,7 +10413,8 @@ function doLogout(){
 // validateCreate (courtsense-email-worker src/pickup-poll.ts); keep the two in step.
 window.csPollPlanKit=(function(){
   var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
-  var PRESETS=['Tom Brown Park','Four Oaks Park','North Side Community Center','Optimist Park','Southwood','Downtown Sand Volleyball Courts','FSU Lakefront Park & Retreat Center (The Rez)'];
+  // The preset parks, from csPickupParks (the one list on this page).
+  var PRESETS=(window.csPickupParks||[]).map(function(p){ return p[0]; });
   var L={ OPTIONS_MIN:2, OPTIONS_MAX:10, RECIPIENTS_MAX:60, CAPACITY_MAX:60, TITLE_MAX:100, LOCATION_MAX:150, RATING_MAX:5000, CLOSE_MIN_MS:2*3600000, CLOSE_DEFAULT_MS:3*3600000 };
   var DATE_RE=/^\d{4}-\d{2}-\d{2}$/, TIME_RE=/^([01]\d|2[0-3]):[0-5]\d$/, POLL_RE=/^pp[a-z0-9]{8,24}$/;
   function isInt(v){ return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v; }
@@ -10639,9 +10650,53 @@ window.csPollPlanKit=(function(){
     var t='Said none: '+names.join(', ');
     return /\.$/.test(t)?t:t+'.';
   }
+  // Location pickers: "Pick a location" (value ''), the presets, a "Your places" group
+  // with the organizer's saved places, then Other. A stored value selects its preset or
+  // saved place when it matches one exactly, else Other with the text filled in.
+  var OTHER='__other__', PLACE_ID_RE=/^p[0-9a-f]{20}$/;
+  function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function isPreset(v){ var l=String(v||'').trim().toLowerCase(); return PRESETS.some(function(p){ return p.toLowerCase()===l; }); }
+  // Saved places worth offering: well formed, not a preset, no repeats ignoring case.
+  function savedChoices(list){
+    var seen={}, out=[];
+    (Array.isArray(list)?list:[]).forEach(function(p){
+      var l=p&&typeof p.label==='string'?p.label.trim():'';
+      if(!l||l.length>L.LOCATION_MAX||l===OTHER||isPreset(l)||seen[l.toLowerCase()]) return;
+      seen[l.toLowerCase()]=1; out.push(l);
+    });
+    return out;
+  }
+  function locPicker(value, saved){
+    var v=String(value||''), mine=savedChoices(saved);
+    var sel=!v?'':(PRESETS.indexOf(v)>=0||mine.indexOf(v)>=0?v:OTHER);
+    var opt=function(val,text){ return '<option value="'+escAttr(val)+'"'+(val===sel?' selected':'')+'>'+escAttr(text)+'</option>'; };
+    var html=opt('','Pick a location')+PRESETS.map(function(p){ return opt(p,p); }).join('')
+      +(mine.length?'<optgroup label="Your places">'+mine.map(function(p){ return opt(p,p); }).join('')+'</optgroup>':'')
+      +opt(OTHER,'Other');
+    return { html:html, selected:sel, otherText:sel===OTHER?v:'' };
+  }
+  // Post a Pickup Game: a location is required, 150 characters at most.
+  function locProblem(v){
+    var s=String(v||'').trim();
+    if(!s) return 'Pick a location';
+    if(s.length>L.LOCATION_MAX) return 'Keep the location to 150 characters';
+    return '';
+  }
+  // A posted location worth saving: set and not a preset (the worker checks again).
+  function rememberable(v){ var s=String(v||'').trim(); return !!s&&!isPreset(s); }
+  // The caller's saved places from /pickup/places, /remember or /forget; [] otherwise.
+  function placesList(res){
+    var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.places)?res.j.places:[];
+    return a.filter(function(p){ return p&&PLACE_ID_RE.test(p.id)&&typeof p.label==='string'&&p.label&&p.label.length<=L.LOCATION_MAX; })
+      .map(function(p){ return {id:p.id,label:p.label}; });
+  }
+  function placesReq(session){ return { path:'/pickup/places', body:{ sessionToken:session } }; }
+  function rememberReq(session, location){ return { path:'/pickup/places/remember', body:{ sessionToken:session, location:String(location||'').trim() } }; }
+  function forgetReq(session, id){ return { path:'/pickup/places/forget', body:{ sessionToken:session, id:id } }; }
   function voteUrl(id){ return '/pickup/poll/?p='+encodeURIComponent(id); }
   function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
-  return { WORKER:WORKER, PRESETS:PRESETS, L:L, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
+  return { WORKER:WORKER, PRESETS:PRESETS, L:L, OTHER:OTHER, isPreset:isPreset, savedChoices:savedChoices, locPicker:locPicker, locProblem:locProblem,
+    rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
     statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
@@ -10667,14 +10722,69 @@ function ppSession(){
 function renderPollEntry(){
   const el = $('poll-entry'); if(el) el.style.display = ppSession() ? '' : 'none';
 }
+// Saved places: the signed-in organizer's own custom places, offered under "Your places"
+// in every location picker. Loaded when a form opens; without them a picker still has
+// the presets and Other.
+const _places = { list: [] };
 function ppLocSelectHTML(id, value){
-  const K = window.csPollPlanKit;
-  const isPreset = K.PRESETS.indexOf(value) >= 0;
-  const other = value && !isPreset;
-  return '<select class="inp" id="'+id+'" onchange="ppLocChanged(\''+id+'\')">'
-    + K.PRESETS.map(p => '<option value="'+escapeHTML(p)+'"'+(p===value?' selected':'')+'>'+escapeHTML(p)+'</option>').join('')
-    + '<option value="__other__"'+(other?' selected':'')+'>Other</option></select>'
-    + '<input class="inp" id="'+id+'-other" placeholder="Enter location" maxlength="150" value="'+(other?escapeHTML(value):'')+'" style="margin-top:8px;'+(other?'':'display:none;')+'" oninput="ppReadOptions()">';
+  const r = window.csPollPlanKit.locPicker(value, _places.list);
+  const other = r.selected === '__other__';
+  return '<select class="inp" id="'+id+'" onchange="ppLocChanged(\''+id+'\')">'+r.html+'</select>'
+    + '<input class="inp" id="'+id+'-other" placeholder="Enter location" maxlength="150" value="'+(other?escapeHTML(r.otherText):'')+'" style="margin-top:8px;'+(other?'':'display:none;')+'" oninput="ppReadOptions()">';
+}
+// The Post a Pickup Game picker (static markup, filled here).
+function fillLocSelect(id, value){
+  const sel = $(id), other = $(id+'-other'); if(!sel) return;
+  const r = window.csPollPlanKit.locPicker(value, _places.list);
+  sel.innerHTML = r.html;
+  sel.value = r.selected;
+  if(other){ other.value = r.otherText; other.style.display = r.selected === '__other__' ? '' : 'none'; }
+  syncManageLinks();
+}
+function syncManageLinks(){
+  ['iv-loc-manage', 'pp-loc-manage'].forEach(id => { const b = $(id); if(b) b.style.display = _places.list.length ? '' : 'none'; });
+}
+// Redraws the pickers on screen with the current list, keeping what each one holds.
+function refreshLocPickers(){
+  if($('iv-loc') && $('iv-loc').options.length) fillLocSelect('iv-loc', ppLocValue('iv-loc'));
+  if($('pp-loc')) $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', ppLocValue('pp-loc'));
+  if(ppLocModeValue() === 'voted' && $('pp-l-0')){ ppReadOptions(); ppDrawOptions(); }
+  syncManageLinks();
+}
+function setPlaces(list){
+  const changed = JSON.stringify(list) !== JSON.stringify(_places.list);
+  _places.list = list;
+  if(changed) refreshLocPickers();
+  syncManageLinks();
+  drawPlaces();
+}
+function loadPlaces(){
+  const K = window.csPollPlanKit, session = ppSession();
+  if(!session){ setPlaces([]); return Promise.resolve(); }
+  return K.post(fetch, K.placesReq(session)).then(res => { if(res.j && res.j.ok) setPlaces(K.placesList(res)); });
+}
+// After a game is saved with a custom place: fire and forget, so a failure here never
+// touches the post.
+function rememberPlace(loc){
+  const K = window.csPollPlanKit, session = ppSession();
+  if(!session || !K.rememberable(loc)) return;
+  K.post(fetch, K.rememberReq(session, loc)).then(res => { if(res.j && res.j.ok) _places.list = K.placesList(res); });
+}
+function drawPlaces(){
+  const box = $('places-list'); if(!box) return;
+  box.innerHTML = _places.list.length
+    ? _places.list.map(p => '<li class="pl-row"><span class="pl-name">'+escapeHTML(p.label)+'</span><button type="button" class="btn btn-g btn-sm" onclick="forgetPlace(\''+p.id+'\')">Remove</button></li>').join('')
+    : '<li class="pl-row" style="color:var(--gray);">No saved places.</li>';
+}
+function openPlaces(){ drawPlaces(); $('places-modal').classList.add('on'); }
+function forgetPlace(id){
+  const K = window.csPollPlanKit, session = ppSession();
+  if(!session){ toast('Sign in again to change your places'); return; }
+  K.post(fetch, K.forgetReq(session, id)).then(res => {
+    if(!res.j || !res.j.ok){ toast(K.errorText(res)); return; }
+    setPlaces(K.placesList(res));
+    if(!_places.list.length) closeModal('places-modal');
+  });
 }
 function ppLocValue(id){
   const sel = $(id); if(!sel) return '';
@@ -10693,7 +10803,7 @@ function ppLocMode(){
 async function startPollPlan(){
   if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   const K = window.csPollPlanKit;
-  ppOptions = [K.newRow({ startTime:'09:00' }, K.PRESETS[0]), K.newRow({ startTime:'17:00' }, K.PRESETS[0])];
+  ppOptions = [K.newRow({ startTime:'09:00' }, ''), K.newRow({ startTime:'17:00' }, '')];
   ppSelected = []; ppCloseTouched = false;
   $('pp-title').value = ''; $('pp-min').value = '4'; $('pp-cap').value = '6';
   $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-close').value = ''; $('pp-err').textContent = '';
@@ -10702,9 +10812,11 @@ async function startPollPlan(){
   document.querySelector('input[name="pp-games"][value="one"]').checked = true;
   document.querySelector('input[name="pp-audience"][value="invited"]').checked = true;
   ppAudience();
-  $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', K.PRESETS[0]);
+  $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', '');
   $('pp-loc-fixed').style.display = '';
   ppDrawOptions();
+  syncManageLinks();
+  loadPlaces();
   showView('poll-setup');
   $('pp-recips').innerHTML = '<div class="pp-row" style="cursor:default;color:var(--gray);">Loading players...</div>';
   try { await ensureProfilesLoaded(); } catch(e){}
@@ -10746,7 +10858,7 @@ function ppReadOptions(timesChanged){
 function ppAddOption(){
   ppReadOptions();
   if(ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX) return;
-  ppOptions.push(window.csPollPlanKit.newRow(ppOptions[ppOptions.length - 1], window.csPollPlanKit.PRESETS[0]));
+  ppOptions.push(window.csPollPlanKit.newRow(ppOptions[ppOptions.length - 1], ''));
   ppDrawOptions();
 }
 // A start change moves that row's end to start + 2 hours unless the end was typed.
