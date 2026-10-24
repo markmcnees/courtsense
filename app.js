@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.194';
+const APP_VERSION='1.1.195';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1529,7 +1529,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <input type="file" id="roster-import-input" accept=".xlsx,.xls" style="display:none;" onchange="handleRosterImportFile(this)">
     </div>
   </div>
-  <div class="card" id="pin-change-card"><div class="card-title"><span class="bar"></span> 🔐 Change ${COACH_LABEL} PIN</div><p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Update the PIN coaches use to access protected features.</p><div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Current PIN</label><input type="password" class="form-input" id="pin-current" placeholder="Current PIN" style="padding:8px;font-size:13px;"></div><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">New PIN</label><input type="password" class="form-input" id="pin-new" placeholder="New PIN (4+ digits)" style="padding:8px;font-size:13px;"></div></div><button class="btn btn-small" style="background:#082A4F;color:#fff;border:none;" onclick="changeCoachPin()">Update PIN</button><div id="pin-change-status" style="font-size:12px;margin-top:8px;"></div></div></div>`}
+  <div class="card" id="pin-change-card"><div class="card-title"><span class="bar"></span> 🔐 Change ${COACH_LABEL} PIN</div><p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Update the PIN coaches use to access protected features.</p><div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Current PIN</label><input type="password" class="form-input" id="pin-current" placeholder="Current PIN" style="padding:8px;font-size:13px;"></div><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">New PIN</label><input type="password" class="form-input" id="pin-new" placeholder="New PIN (4 digits)" maxlength="4" inputmode="numeric" style="padding:8px;font-size:13px;"></div></div><button class="btn btn-small" style="background:#082A4F;color:#fff;border:none;" onclick="changeCoachPin()">Update PIN</button><div id="pin-change-status" style="font-size:12px;margin-top:8px;"></div></div></div>`}
   ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hslogistics"><div class="card" style="text-align:center;padding:34px 20px;">
     <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Logistics</div>
     <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">Logistics is coming to the coach app.</p>
@@ -2708,7 +2708,7 @@ function initFB(){
     if(D.assignments && D.assignments.asg03) D.assignments.asg03.date = _t;
     setSS(true);
     refreshCurrent();
-    if(!_autoLoginDone){_autoLoginDone=true;autoLogin();}
+    if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
     return;
   }
   try{if(!firebase.apps.length)firebase.initializeApp(FB_CONFIG);
@@ -2749,7 +2749,7 @@ function listenData(){if(!db)return;
     _rosterLoaded=true;
     refreshCurrent();
     if(typeof knRefreshPlayer==='function')knRefreshPlayer();
-    if(!_autoLoginDone){_autoLoginDone=true;autoLogin();}
+    if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
   },err=>{console.error(err);setSS(false);});
   db.ref(SC.dbRoots.passwords).on('value',s=>{passwords=s.val()||{};});
   db.ref(DB_ROOT+'/player_notes').on('value',s=>{
@@ -21149,6 +21149,25 @@ function hideFans(){
 }
 
 function hideLeonFans(){hideFans();}
+
+// ?fans (the coach welcome email's "Share your fan page" link): read once and cleaned from
+// the address bar like ?view=chat. The fan page opens once the first data is in, from the
+// same spot autoLogin runs, so the overlay paints with real results.
+let _openFansOnBoot=false;
+try{
+  const _fq=new URLSearchParams(location.search);
+  if(_fq.has('fans')){
+    _openFansOnBoot=true;
+    _fq.delete('fans');
+    const _rest=_fq.toString();
+    history.replaceState(null,'',location.pathname+(_rest?'?'+_rest:'')+location.hash);
+  }
+}catch(e){}
+function fansDeepLinkOpen(){
+  if(!_openFansOnBoot)return;
+  _openFansOnBoot=false;
+  showLeonFans();
+}
 
 function lfManualRefresh(){
   renderFans();
