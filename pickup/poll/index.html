@@ -8,6 +8,7 @@
 <title>Pickup poll &middot; CourtSense</title>
 <link rel="icon" type="image/png" href="/favicon_large.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap">
+<script src="/auth.js?v=qs20261024"></script>
 <style>
   :root{
     --navy:#082A4F;
@@ -49,10 +50,27 @@
   .btn-ghost.on{border-color:var(--teal);color:var(--teal);background:var(--teal-soft);}
   .btn:disabled{opacity:.5;cursor:default;}
   .msg{font-size:15px;margin:12px 0 0;min-height:1em;}
+  #vote-note{margin:0 0 12px;}
+  #vote-note:empty{display:none;}
   .msg.ok{color:var(--ok);font-weight:600;}
   .msg.err{color:var(--err);font-weight:600;}
   .note{font-size:13px;color:var(--slate);margin:10px 0 0;}
   .hidden{display:none !important;}
+  .opt.frozen{opacity:.7;cursor:default;}
+  .opt .tag{display:inline-block;margin-top:6px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;background:var(--navy);color:var(--white);padding:2px 8px;border-radius:5px;}
+  .meta.day{color:var(--ink);font-weight:600;}
+  .lbl{display:block;font-size:13px;font-weight:700;color:var(--slate);margin:10px 0 4px;}
+  .inp{display:block;width:100%;max-width:100%;font:inherit;font-size:16px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--white);color:var(--ink);min-height:48px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .chk{display:flex;align-items:center;gap:10px;margin:14px 0 6px;font-weight:600;min-height:44px;}
+  .chk input,.yn input{width:22px;height:22px;accent-color:var(--teal);}
+  .yn{border:0;padding:0;margin:8px 0 12px;}
+  .yn legend{font-weight:600;margin-bottom:6px;}
+  .yn label{display:inline-flex;align-items:center;gap:8px;margin-right:20px;min-height:44px;}
+  .sub{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:20px;letter-spacing:1px;color:var(--navy);margin:4px 0 0;}
+  .sug{border:1.5px dashed var(--line);border-radius:10px;padding:10px;margin:10px 0;}
+  .sug p{margin:0 0 8px;}
+  #ts-box{margin:6px 0 12px;min-height:65px;}
   footer{text-align:center;color:var(--slate);font-size:13px;padding:0 16px 28px;}
   footer a{color:var(--teal);}
 </style>
@@ -72,13 +90,75 @@
     <p class="meta" id="poll-rule"></p>
     <p class="meta" id="poll-closes"></p>
     <p class="meta" id="poll-answers" style="font-weight:600;color:var(--ink);"></p>
+    <div id="poll-days"></div>
   </div>
 
   <div class="card hidden" id="vote-card">
+    <p class="msg" id="vote-note" role="status"></p>
     <div id="opts"></div>
     <button class="btn btn-teal" id="save-btn" type="button">Save my picks</button>
     <button class="btn btn-ghost" id="none-btn" type="button" aria-pressed="false">None of these times work for me</button>
     <p class="msg" id="vote-msg" role="status"></p>
+    <div id="sug-box" class="hidden" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;">
+      <button class="btn btn-ghost" id="sug-open" type="button">Suggest another time</button>
+      <div id="sug-form" class="hidden">
+        <h3 class="sub">Suggest another time</h3>
+        <label class="lbl" for="sug-date">Date</label>
+        <input class="inp" type="date" id="sug-date">
+        <div class="row2">
+          <div><label class="lbl" for="sug-start">Start</label><input class="inp" type="time" id="sug-start"></div>
+          <div><label class="lbl" for="sug-end">End</label><input class="inp" type="time" id="sug-end"></div>
+        </div>
+        <div id="sug-loc-row" class="hidden">
+          <label class="lbl" for="sug-loc">Location</label>
+          <select class="inp" id="sug-loc"></select>
+          <input class="inp hidden" id="sug-loc-other" placeholder="Enter location" maxlength="150" style="margin-top:8px;">
+        </div>
+        <p class="note" id="sug-left"></p>
+        <button class="btn btn-teal" id="sug-send" type="button">Send to the organizer</button>
+        <p class="msg" id="sug-msg" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="org-card">
+    <h2>Your poll</h2>
+    <p class="meta">Share it anywhere: the link carries no personal token.</p>
+    <button class="btn btn-navy" id="copy-btn" type="button">Copy link</button>
+    <p class="msg ok" id="copy-msg" role="status"></p>
+    <p class="note" id="copy-url" style="word-break:break-all;"></p>
+    <div id="org-sugs"></div>
+    <p class="msg" id="org-msg" role="status"></p>
+  </div>
+
+  <div class="card hidden" id="signin-card">
+    <h2>Sign in to vote</h2>
+    <p>Sign in with your CourtSense account, or make a quick one. It takes a minute.</p>
+    <a class="btn btn-teal" id="signin-link" href="/pickup/">Sign in</a>
+    <button class="btn btn-ghost" id="quick-open" type="button">Create a quick account</button>
+  </div>
+
+  <div class="card hidden" id="quick-card">
+    <h2>Create a quick account</h2>
+    <p class="meta">Then pick your times. You can finish your profile later.</p>
+    <div class="row2">
+      <div><label class="lbl" for="q-first">First name</label><input class="inp" id="q-first" autocomplete="given-name" maxlength="30"></div>
+      <div><label class="lbl" for="q-last">Last name</label><input class="inp" id="q-last" autocomplete="family-name" maxlength="30"></div>
+    </div>
+    <label class="lbl" for="q-email">Email</label>
+    <input class="inp" id="q-email" type="email" autocomplete="email" maxlength="200">
+    <label class="lbl" for="q-pw">Password (8 or more characters)</label>
+    <input class="inp" id="q-pw" type="password" autocomplete="new-password">
+    <label class="chk"><input type="checkbox" id="q-13"> I'm 13 or older</label>
+    <fieldset class="yn"><legend>Are you 18 or older?</legend>
+      <label><input type="radio" name="q-adult" value="yes"> Yes</label>
+      <label><input type="radio" name="q-adult" value="no"> No</label>
+    </fieldset>
+    <div id="ts-box"></div>
+    <button class="btn btn-teal" id="q-send" type="button">Create account</button>
+    <p class="msg" id="q-msg" role="status"></p>
+    <p class="note">We will email you a link to confirm your address. Your picks count once you confirm it.</p>
+    <button class="btn btn-ghost" id="quick-back" type="button">Back</button>
   </div>
 
   <div class="card hidden" id="game-card">
@@ -86,6 +166,7 @@
     <p id="game-line"></p>
     <p id="game-spots" style="font-weight:700;color:var(--teal);"></p>
     <a class="btn btn-teal" id="game-link" href="/pickup/">Open the game</a>
+    <div id="game-links"></div>
   </div>
 
   <div class="card hidden" id="cant-card">
@@ -123,7 +204,11 @@ window.csPollKit=(function(){
     expired:'Voting has closed and no time reached the minimum, so no game was made.',
     offline:'Could not reach CourtSense. Check your connection and try again.',
     signin:'Sign in on the pickup page, then open this poll again.',
-    notOnPoll:'This poll was not sent to you.'
+    notOnPoll:'This poll is for invited players.',
+    full:'This poll is full. The organizer is picking the game.',
+    pending:'Check your email to make your vote count.',
+    sent:'Sent to the organizer.',
+    copied:'Link copied'
   };
 
   // The worker emails /pickup/poll/?p=ID&a=ACCOUNT&m=TOKEN (vote) and &c=TOKEN (can't
@@ -257,6 +342,8 @@ window.csPollKit=(function(){
     if(j.code==='not_on_poll'||j.code==='not_found') return 'not_on_poll';
     if(!j.options) return 'error';
     if(j.outcome==='game'&&j.inviteId) return 'game';
+    // One game per day: closed with at least one day's game.
+    if(j.games==='perDay'&&j.status==='closed'&&Array.isArray(j.days)&&j.days.some(function(d){ return d.status==='game'&&d.inviteId; })) return 'days_done';
     if(j.status==='closed'||j.open===false) return 'expired';
     return 'open';
   }
@@ -300,10 +387,100 @@ window.csPollKit=(function(){
     var auto=view.mode==='auto';
     return 'Needs '+view.minPlayers+' players, up to '+view.capacity+'. '+(auto?'The first time to reach '+view.minPlayers+' becomes the game.':'The organizer picks the game from times that reach '+view.minPlayers+'.');
   }
+  // ── open polls, per day, suggestions, quick account ──
+  // The 7 location presets, the same list as the pickup page.
+  var PRESETS=['Tom Brown Park','Four Oaks Park','North Side Community Center','Optimist Park','Southwood','Downtown Sand Volleyball Courts','FSU Lakefront Park & Retreat Center (The Rez)'];
+  var SITE_KEY='0x4AAAAAAFkHEY06nnevuhhM';
+  var TURNSTILE_SCRIPT='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  var DATE_RE=/^\d{4}-\d{2}-\d{2}$/, TIME_RE=/^([01]\d|2[0-3]):([0-5]\d)$/;
+  // End time auto-fill: start + 2 hours, held at 23:59 past midnight.
+  function autoEnd(start){
+    var m=TIME_RE.exec(start||'');
+    if(!m) return '';
+    var t=(+m[1])*60+(+m[2])+120;
+    if(t>=24*60) return '23:59';
+    return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+  }
+  // Whether a time still takes votes: 'open', 'day_done' (its day has a game) or 'full'.
+  function optionState(view, o){
+    if(!view||!o) return 'open';
+    if(view.games==='perDay'&&Array.isArray(view.days)){
+      var d=view.days.filter(function(x){ return x.date===o.date; })[0];
+      if(d&&d.status==='game') return 'day_done';
+      if(d&&d.status==='full') return 'full';
+      return 'open';
+    }
+    return view.full?'full':'open';
+  }
+  function frozenLabel(state){ return state==='day_done'?'This day has a game':state==='full'?'Full':''; }
+  function dayLines(view){ return Array.isArray(view&&view.days)?view.days.map(function(d){ return String(d.line||''); }):[]; }
+  // The day games a per-day poll made, for links.
+  function dayGames(view){ return Array.isArray(view&&view.days)?view.days.filter(function(d){ return d.status==='game'&&d.inviteId; }):[]; }
+  function sugLeftLine(view){
+    var n=view&&typeof view.suggestionsLeft==='number'?view.suggestionsLeft:3;
+    return n+' of 3 left';
+  }
+  // Whether this viewer may suggest a time: a recipient the worker says can, or a signed-in
+  // player who can still join an open poll.
+  function canSuggest(view){
+    if(!view||view.status!=='open'||view.open===false||view.full) return false;
+    if(view.isRecipient) return !!view.canSuggest;
+    return view.audience==='open';
+  }
+  // Whether this viewer can vote here at all: a recipient, or anyone on an open poll.
+  function canVote(view){ return !!view&&(view.isRecipient||view.audience==='open'); }
+  // '' when the suggested time would pass the page's checks; else the worker's own words.
+  function sugProblem(x, view){
+    if(!DATE_RE.test(x.date||'')||!TIME_RE.test(x.startTime||'')) return 'Pick a date and a start time.';
+    if(x.endTime&&(!TIME_RE.test(x.endTime)||x.endTime<=x.startTime)) return 'An end time must be after the start time.';
+    if(view&&view.locationMode==='voted'&&!String(x.location||'').trim()) return 'Add a location for your time.';
+    return '';
+  }
+  function suggestReq(auth, x){
+    var b={}; for(var k in auth) b[k]=auth[k];
+    b.date=x.date; b.startTime=x.startTime;
+    if(x.endTime) b.endTime=x.endTime;
+    if(x.location) b.location=String(x.location).trim();
+    return {path:'/pickup/poll/suggest',body:b};
+  }
+  function decideReq(session, p, sugId, action){ return {path:'/pickup/poll/suggestion',body:{sessionToken:session,p:p,sugId:sugId,action:action}}; }
+  // The share link: no personal token, so it is safe to post anywhere.
+  function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
+  // The phone share sheet, else the clipboard, else 'manual' (the page shows the link).
+  function shareLink(nav, url, title){
+    if(nav&&typeof nav.share==='function'){
+      return nav.share({ title:title, url:url }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+    }
+    return copy();
+    function copy(){
+      if(nav&&nav.clipboard&&typeof nav.clipboard.writeText==='function'){
+        return nav.clipboard.writeText(url).then(function(){ return 'copied'; }, function(){ return 'manual'; });
+      }
+      return Promise.resolve('manual');
+    }
+  }
+  // Sign in on the pickup page, which sends the player back to this poll.
+  function signInUrl(p){ return '/pickup/?return='+encodeURIComponent('/pickup/poll/?p='+p); }
+  // '' when the quick-account form would pass the worker's checks; else the worker's words.
+  function quickProblem(x){
+    var first=String(x.firstName||'').trim(), last=String(x.lastName||'').trim();
+    if(!first||!last) return 'Add your first and last name.';
+    if(first.length>30||last.length>30) return 'Keep each name to 30 characters.';
+    if((first+' '+last).length>40) return 'Your name must be 40 characters or fewer.';
+    if(!/^\S+@\S+\.\S+$/.test(String(x.email||'').trim())) return "That email doesn't look right.";
+    if(String(x.password||'').length<8) return 'Password must be at least 8 characters.';
+    if(x.over13!==true) return 'You must be 13 or older to create an account.';
+    if(x.adult!==true&&x.adult!==false) return 'Tell us whether you are 18 or older.';
+    if(!x.turnstileToken) return 'Complete the check first.';
+    return '';
+  }
   return { WORKER:WORKER, MSG:MSG, readLink:readLink, cleanSearch:cleanSearch, hasSecret:hasSecret, linkKind:linkKind, storedSession:storedSession,
     authBody:authBody, infoReq:infoReq, voteReq:voteReq, noneReq:noneReq, answersLine:answersLine, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
     cantMessage:cantMessage, gameLine:gameLine, gameUrl:gameUrl, countLine:countLine, ruleLine:ruleLine, dateLabel:dateLabel, time12:time12,
-    whenWhere:whenWhere, previewView:previewView, spotsText:spotsText };
+    whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
+    PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel,
+    dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
+    suggestReq:suggestReq, decideReq:decideReq, shareUrl:shareUrl, shareLink:shareLink, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -313,6 +490,7 @@ window.csPollKit=(function(){
   var $=function(id){ return document.getElementById(id); };
   function show(id){ $(id).classList.remove('hidden'); }
   function hide(id){ $(id).classList.add('hidden'); }
+  var CARDS=['poll-card','vote-card','game-card','cant-card','org-card','signin-card','quick-card'];
 
   // Read the link once, then take its secret parts out of the address bar and history.
   // A vote link is kept for this tab only, so a reload can still save picks.
@@ -330,7 +508,7 @@ window.csPollKit=(function(){
   }catch(e){}
 
   function plain(title, text, withLink){
-    ['poll-card','vote-card','game-card','cant-card'].forEach(hide);
+    CARDS.forEach(hide);
     $('plain-title').textContent=title; $('plain-text').textContent=text;
     $('plain-link').classList.toggle('hidden',!withLink);
     show('plain-card');
@@ -366,17 +544,64 @@ window.csPollKit=(function(){
   }
 
   // ── vote ──
-  var auth=K.authBody(link,K.storedSession([localStorage,sessionStorage],Date.now()));
-  if(!auth){ plain('Sign in to vote',K.MSG.signin,true); return; }
+  var session=K.storedSession([localStorage,sessionStorage],Date.now());
+  var auth=K.authBody(link,session);
   var picks={};
   var view=null;
+
+  // No session and no personal link: sign in, or make a quick account right here.
+  function showSignin(){
+    CARDS.forEach(hide); hide('plain-card');
+    $('hero-sub').textContent='Sign in to pick your times.';
+    $('signin-link').href=K.signInUrl(link.p);
+    show('signin-card');
+  }
+  var tsToken='', tsWidget=null;
+  // The Turnstile script loads only when the quick-account form opens.
+  function loadTurnstile(){
+    function draw(){
+      if(!window.turnstile||tsWidget!==null) return;
+      tsWidget=window.turnstile.render('#ts-box',{ sitekey:K.SITE_KEY, theme:'light',
+        callback:function(t){ tsToken=t; }, 'expired-callback':function(){ tsToken=''; }, 'error-callback':function(){ tsToken=''; } });
+    }
+    if(window.turnstile){ draw(); return; }
+    if(document.getElementById('ts-script')) return;
+    var sc=document.createElement('script');
+    sc.id='ts-script'; sc.src=K.TURNSTILE_SCRIPT; sc.async=true; sc.defer=true; sc.onload=draw;
+    document.head.appendChild(sc);
+  }
+  $('quick-open').addEventListener('click',function(){ hide('signin-card'); show('quick-card'); loadTurnstile(); });
+  $('quick-back').addEventListener('click',function(){ hide('quick-card'); show('signin-card'); });
+  $('q-send').addEventListener('click',function(){
+    var adult=document.querySelector('input[name="q-adult"]:checked');
+    var x={ firstName:$('q-first').value, lastName:$('q-last').value, email:$('q-email').value, password:$('q-pw').value,
+      over13:$('q-13').checked, adult:adult?adult.value==='yes':null, turnstileToken:tsToken, keepSignedIn:true };
+    var problem=K.quickProblem(x);
+    $('q-msg').className='msg err';
+    if(problem){ $('q-msg').textContent=problem; return; }
+    if(!window.CourtSenseAuth||!CourtSenseAuth.quickSignup){ $('q-msg').textContent=K.MSG.offline; return; }
+    $('q-send').disabled=true; $('q-msg').className='msg'; $('q-msg').textContent='Creating your account...';
+    CourtSenseAuth.quickSignup(x).then(function(r){
+      $('q-send').disabled=false;
+      if(!r||!r.ok){
+        $('q-msg').className='msg err'; $('q-msg').textContent=(r&&r.error)||'Could not create your account. Try again.';
+        tsToken=''; try{ if(window.turnstile&&tsWidget!==null) window.turnstile.reset(tsWidget); }catch(e){}
+        return;
+      }
+      // Signed in now: the saved session votes.
+      session=K.storedSession([localStorage,sessionStorage],Date.now())||r.sessionToken||'';
+      auth={p:link.p,sessionToken:session};
+      hide('quick-card');
+      K.post(fetch,K.infoReq(auth)).then(render);
+    });
+  });
 
   function render(res){
     var s=K.stateOf(res);
     if(s==='offline'){ plain('Not connected',K.MSG.offline,false); return; }
     if(s==='invalid'){ plain('Link not valid',K.MSG.invalid,true); return; }
-    if(s==='signin'){ plain('Sign in to vote',K.MSG.signin,true); return; }
-    if(s==='not_on_poll'){ plain('Not your poll',K.MSG.notOnPoll,true); return; }
+    if(s==='signin'){ showSignin(); return; }
+    if(s==='not_on_poll'){ plain('Invited players only',K.MSG.notOnPoll,true); return; }
     if(s==='error'){ plain('Something went wrong',(res.j&&res.j.error)||'Try again in a moment.',true); return; }
     view=res.j;
     $('poll-title').textContent=view.title;
@@ -384,13 +609,13 @@ window.csPollKit=(function(){
     $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';
     $('poll-rule').textContent=K.ruleLine(view);
     $('poll-closes').textContent=(s==='open'?'Voting closes ':'Voting closed ')+view.closesLabel+'.';
+    drawDays();
     show('poll-card');
-    if(s==='game'){
+    drawOrganizer();
+    if(s==='game'||s==='days_done'){
       hide('vote-card');
       $('hero-sub').textContent='A time was picked.';
-      $('game-line').textContent=K.gameLine(view);
-      $('game-link').href=K.gameUrl(view.inviteId);
-      $('game-spots').textContent=K.spotsText(view);
+      drawGame(s);
       show('game-card');
       return;
     }
@@ -402,8 +627,34 @@ window.csPollKit=(function(){
     picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; });
     drawOptions();
     drawNone();
+    drawNote();
+    drawSuggest();
     if(view.myNone){ $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none; }
     show('vote-card');
+  }
+  function drawDays(){
+    var box=$('poll-days'); box.textContent='';
+    K.dayLines(view).forEach(function(line){ var p=document.createElement('p'); p.className='meta day'; p.textContent=line; box.appendChild(p); });
+  }
+  // The poll's game, or each day's game for a poll that makes one per day.
+  function drawGame(s){
+    var box=$('game-links'); box.textContent='';
+    if(s==='game'){
+      $('game-line').textContent=K.gameLine(view);
+      $('game-link').href=K.gameUrl(view.inviteId);
+      $('game-spots').textContent=K.spotsText(view);
+      show('game-link');
+      return;
+    }
+    var games=K.dayGames(view);
+    $('game-line').textContent=games.length===1?'This poll made one game.':'This poll made '+games.length+' games.';
+    $('game-spots').textContent='';
+    hide('game-link');
+    games.forEach(function(d){
+      var a=document.createElement('a'); a.className='btn btn-teal'; a.style.marginTop='10px';
+      a.href=K.gameUrl(d.inviteId); a.textContent='Open the '+(d.day||'')+' game';
+      box.appendChild(a);
+    });
   }
   // The none button reads as chosen while the player's answer is "none of these".
   function drawNone(){
@@ -412,26 +663,105 @@ window.csPollKit=(function(){
     $('none-btn').setAttribute('aria-pressed',on?'true':'false');
     $('poll-answers').textContent=view&&view.isOrganizer?K.answersLine(view):'';
   }
+  // A full poll, or a quick account whose picks wait on its email.
+  function drawNote(){
+    var note=$('vote-note'), voting=K.canVote(view), oneFull=view.games!=='perDay'&&!!view.full;
+    note.className='msg'; note.textContent='';
+    if(oneFull){ note.className='msg err'; note.textContent=K.MSG.full; }
+    else if(view.myVotePending){ note.className='msg ok'; note.textContent=K.MSG.pending; }
+    $('save-btn').classList.toggle('hidden',!voting||oneFull);
+    $('none-btn').classList.toggle('hidden',!voting||oneFull);
+  }
   function plainKeepPoll(title,text){
     $('plain-title').textContent=title; $('plain-text').textContent=text; show('plain-card');
   }
   function drawOptions(){
     var box=$('opts'); box.textContent='';
+    var voting=K.canVote(view);
     (view.options||[]).forEach(function(o){
+      var state=K.optionState(view,o), frozen=state!=='open'||!voting;
       var b=document.createElement('button');
-      b.type='button'; b.className='opt'+(picks[o.id]?' on':'');
+      b.type='button'; b.className='opt'+(picks[o.id]?' on':'')+(frozen?' frozen':'');
+      b.disabled=frozen;
       b.setAttribute('aria-pressed',picks[o.id]?'true':'false');
       var w=document.createElement('span'); w.className='when'; w.textContent=view.locationMode==='voted'?o.label.replace(' at '+o.location,''):o.label;
       b.appendChild(w);
       if(view.locationMode==='voted'&&o.location){ var l=document.createElement('span'); l.className='where'; l.textContent=o.location; b.appendChild(l); }
       var c=document.createElement('span'); c.className='count'+(o.ready?' ready':''); c.textContent=K.countLine(o,view.minPlayers); b.appendChild(c);
+      if(state!=='open'){ var t=document.createElement('span'); t.className='tag'; t.textContent=K.frozenLabel(state); b.appendChild(t); }
       b.addEventListener('click',function(){
+        if(frozen) return;
         if(picks[o.id]) delete picks[o.id]; else picks[o.id]=true;
         $('vote-msg').textContent=''; drawOptions();
       });
       box.appendChild(b);
     });
   }
+  // Organizer: share the link, and add or dismiss suggested times.
+  function drawOrganizer(){
+    if(!view.isOrganizer){ hide('org-card'); return; }
+    show('org-card');
+    var box=$('org-sugs'); box.textContent='';
+    (view.pendingSuggestions||[]).forEach(function(g){
+      var d=document.createElement('div'); d.className='sug';
+      var p=document.createElement('p'); p.textContent=(g.suggestedBy||'A player')+' suggested '+(g.label||''); d.appendChild(p);
+      var row=document.createElement('div'); row.className='row2';
+      [['add','Add to poll','btn btn-teal'],['dismiss','Dismiss','btn btn-ghost']].forEach(function(a){
+        var btn=document.createElement('button'); btn.type='button'; btn.className=a[2]; btn.textContent=a[1];
+        btn.addEventListener('click',function(){ decide(g.id,a[0]); });
+        row.appendChild(btn);
+      });
+      d.appendChild(row); box.appendChild(d);
+    });
+  }
+  function decide(sugId, action){
+    var ses=K.storedSession([localStorage,sessionStorage],Date.now());
+    if(!ses){ $('org-msg').className='msg err'; $('org-msg').textContent='Sign in on the pickup page to add or dismiss times.'; return; }
+    $('org-msg').className='msg'; $('org-msg').textContent='Saving...';
+    K.post(fetch,K.decideReq(ses,view.pollId,sugId,action)).then(function(res){
+      if(!res.j||res.j.ok===false){ $('org-msg').className='msg err'; $('org-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
+      $('org-msg').className='msg ok'; $('org-msg').textContent=action==='add'?'Added to the poll.':'Dismissed.';
+      K.post(fetch,K.infoReq(auth)).then(render);
+    });
+  }
+  $('copy-btn').addEventListener('click',function(){
+    var url=K.shareUrl(location.origin,view.pollId);
+    K.shareLink(navigator,url,view.title).then(function(how){
+      $('copy-msg').textContent=how==='copied'?K.MSG.copied:how==='manual'?'Copy this link:':'';
+      $('copy-url').textContent=how==='manual'?url:'';
+    });
+  });
+  // Suggest another time: date, start, end (+2h), and a place when voting on location.
+  function drawSuggest(){
+    var ok=K.canSuggest(view);
+    $('sug-box').classList.toggle('hidden',!ok);
+    if(!ok) return;
+    $('sug-left').textContent=K.sugLeftLine(view);
+    var voted=view.locationMode==='voted';
+    $('sug-loc-row').classList.toggle('hidden',!voted);
+    if(voted&&!$('sug-loc').options.length){
+      K.PRESETS.concat(['__other__']).forEach(function(p){ var op=document.createElement('option'); op.value=p; op.textContent=p==='__other__'?'Other':p; $('sug-loc').appendChild(op); });
+    }
+  }
+  $('sug-open').addEventListener('click',function(){ hide('sug-open'); show('sug-form'); });
+  var sugEndEdited=false;
+  $('sug-start').addEventListener('change',function(){ if(!sugEndEdited) $('sug-end').value=K.autoEnd($('sug-start').value); });
+  $('sug-end').addEventListener('input',function(){ sugEndEdited=$('sug-end').value!==''; });
+  $('sug-loc').addEventListener('change',function(){ $('sug-loc-other').classList.toggle('hidden',$('sug-loc').value!=='__other__'); });
+  $('sug-send').addEventListener('click',function(){
+    var loc=$('sug-loc').value==='__other__'?$('sug-loc-other').value:$('sug-loc').value;
+    var x={ date:$('sug-date').value, startTime:$('sug-start').value, endTime:$('sug-end').value, location:view.locationMode==='voted'?loc:'' };
+    var problem=K.sugProblem(x,view);
+    $('sug-msg').className='msg err';
+    if(problem){ $('sug-msg').textContent=problem; return; }
+    $('sug-send').disabled=true; $('sug-msg').className='msg'; $('sug-msg').textContent='Sending...';
+    K.post(fetch,K.suggestReq(auth,x)).then(function(res){
+      $('sug-send').disabled=false;
+      if(!res.j||res.j.ok===false){ $('sug-msg').className='msg err'; $('sug-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
+      view=res.j; drawSuggest();
+      $('sug-msg').className='msg ok'; $('sug-msg').textContent=K.MSG.sent;
+    });
+  });
   $('save-btn').addEventListener('click',function(){
     var chosen=(view.options||[]).filter(function(o){ return picks[o.id]; }).map(function(o){ return o.id; });
     $('save-btn').disabled=true; $('vote-msg').className='msg'; $('vote-msg').textContent='Saving...';
@@ -439,32 +769,37 @@ window.csPollKit=(function(){
       $('save-btn').disabled=false;
       var s=K.stateOf(res);
       if(s==='open'&&res.j&&res.j.ok!==false){
-        view=res.j; drawOptions(); drawNone();
-        $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.saved;
+        view=res.j; drawOptions(); drawNone(); drawNote(); drawSuggest(); drawDays();
+        $('vote-msg').className='msg ok'; $('vote-msg').textContent=view.myVotePending?K.MSG.pending:K.MSG.saved;
         return;
       }
-      if(s==='game'||s==='expired'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'){ render(res); return; }
+      if(res.j&&res.j.options&&(res.j.code==='full'||res.j.code==='closed')) render(res);
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
     });
   });
-  // "None of these times work for me": clears every pick on the worker and here.
+  // "None of these times work for me": clears every open pick on the worker and here.
   $('none-btn').addEventListener('click',function(){
     $('none-btn').disabled=true; $('vote-msg').className='msg'; $('vote-msg').textContent='Saving...';
     K.post(fetch,K.noneReq(auth)).then(function(res){
       $('none-btn').disabled=false;
       var s=K.stateOf(res);
       if(s==='open'&&res.j&&res.j.ok!==false){
-        view=res.j; picks={}; drawOptions(); drawNone();
+        view=res.j; picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; }); drawOptions(); drawNone();
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none;
         return;
       }
-      if(s==='game'||s==='expired'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'){ render(res); return; }
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
     });
   });
 
+  if(!auth){
+    if(kind==='session'){ showSignin(); return; }
+    plain('Sign in to vote',K.MSG.signin,true); return;
+  }
   K.post(fetch,K.infoReq(auth)).then(render);
 })();
 </script>

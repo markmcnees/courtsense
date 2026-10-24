@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Confirm your email &middot; CourtSense</title>
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --navy:#082A4F;
+    --teal:#217F7F;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+    --err:#B3261E;
+    --ok:#2E7D32;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;background:var(--paper);color:var(--ink);font-size:16px;line-height:1.5;}
+  .hero{background:var(--teal);color:var(--white);text-align:center;padding:28px 16px 24px;}
+  .hero a{color:var(--white);text-decoration:none;font-family:'Bebas Neue',sans-serif;letter-spacing:3px;font-size:18px;opacity:.9;}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:40px;letter-spacing:2px;line-height:1.05;margin:8px 0 0;}
+  .page{max-width:480px;margin:0 auto;padding:20px 16px 32px;}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(8,42,79,.05);}
+  .card h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:26px;letter-spacing:1px;color:var(--navy);margin:0 0 8px;}
+  .card p{margin:0 0 16px;}
+  .btn{display:block;width:100%;border:none;border-radius:10px;padding:14px 18px;min-height:50px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;text-align:center;text-decoration:none;background:var(--teal);color:var(--white);}
+  .ok{color:var(--ok);}
+  .err{color:var(--err);}
+  footer{text-align:center;color:var(--slate);font-size:13px;padding:0 16px 28px;}
+  footer a{color:var(--teal);}
+</style>
+</head>
+<body>
+<div class="hero">
+  <a href="/pickup/">CourtSense</a>
+  <h1>Confirm your email</h1>
+</div>
+<div class="page">
+  <div class="card">
+    <h2 id="v-title">One moment</h2>
+    <p id="v-text">Confirming your email...</p>
+    <a class="btn" id="v-link" href="/pickup/">Go to pickup</a>
+  </div>
+</div>
+<footer>Built in the Sand &middot; <a href="/">courtsense.app</a></footer>
+
+<script>
+// Pure helpers for the confirm page, kept apart from the DOM so the check script can run
+// them in a sandbox. The only request goes to the worker.
+window.csVerifyKit=(function(){
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var ACCT_RE=/^[a-zA-Z0-9_-]{1,200}$/, TOKEN_RE=/^[A-Za-z0-9_-]{20,100}$/;
+  var MSG={
+    done:'Your email is confirmed. Your votes now count.',
+    bad:'This link has expired or was already used.',
+    offline:'Could not reach CourtSense. Check your connection and try again.'
+  };
+  function readLink(search){
+    var q=new URLSearchParams(search||'');
+    return { a:(q.get('a')||'').trim(), t:(q.get('t')||'').trim() };
+  }
+  // The query string with a and t removed.
+  function cleanSearch(search){
+    var q=new URLSearchParams(search||''); q.delete('a'); q.delete('t');
+    var rest=q.toString(); return rest?'?'+rest:'';
+  }
+  function valid(l){ return ACCT_RE.test(l.a)&&TOKEN_RE.test(l.t); }
+  function verifyReq(l){ return { path:'/auth/verify-email', body:{ a:l.a, t:l.t } }; }
+  function post(fetchFn, req){
+    return fetchFn(WORKER+req.path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body)})
+      .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+      .catch(function(){ return {status:0,j:null}; });
+  }
+  // 'done' (confirmed, now or before), 'bad' (invalid, expired or used), 'offline'.
+  function stateOf(res){
+    if(!res||res.status===0) return 'offline';
+    var j=res.j||{};
+    if(j.ok) return 'done';
+    return 'bad';
+  }
+  return { WORKER:WORKER, MSG:MSG, readLink:readLink, cleanSearch:cleanSearch, valid:valid, verifyReq:verifyReq, post:post, stateOf:stateOf };
+})();
+</script>
+<script>
+(function(){
+  var K=window.csVerifyKit;
+  // Read the link once, then take a and t out of the address bar and history.
+  var link=K.readLink(location.search);
+  try{ history.replaceState(null,'',location.pathname+K.cleanSearch(location.search)+location.hash); }catch(e){}
+  function show(state){
+    var t=document.getElementById('v-title'), x=document.getElementById('v-text');
+    if(state==='done'){ t.textContent='Confirmed'; x.textContent=K.MSG.done; x.className='ok'; }
+    else if(state==='offline'){ t.textContent='Not connected'; x.textContent=K.MSG.offline; x.className='err'; }
+    else { t.textContent='Link not valid'; x.textContent=K.MSG.bad; x.className='err'; }
+  }
+  if(!K.valid(link)){ show('bad'); return; }
+  K.post(fetch,K.verifyReq(link)).then(function(res){ show(K.stateOf(res)); });
+})();
+</script>
+</body>
+</html>

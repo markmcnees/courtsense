@@ -196,6 +196,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
   </section>
 
+  <!-- A quick account (made from a pickup poll link) starts with no city or skill. -->
+  <section class="section" id="finish-profile" style="display:none;border-left:4px solid #217F7F;">
+    <h3>Finish your profile</h3>
+    <p class="empty" style="padding:0 0 10px;">Add your skill level and a few details so organizers can find you for the right games.</p>
+    <button class="btn btn-g btn-w" type="button" onclick="switchTab('settings')">Finish my profile</button>
+  </section>
+
   <section class="who">
     <div>
       <div class="who-name" id="who-name">—</div>
@@ -246,7 +253,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <section class="section">
       <h3>Pickups you qualify for</h3>
       <div class="actions" style="margin-bottom:14px;">
-        <a class="btn btn-gold btn-w" href="/pickup/">Schedule a Pickup</a>
+        <a class="btn btn-gold btn-w" href="/pickup/">Post a Pickup Game</a>
       </div>
       <div id="card-pickups"><div class="empty">Loading...</div></div>
     </section>
@@ -955,6 +962,8 @@ function doSave(e){
   // alone, and a null still removes the one key it names, so clearing a field the
   // form does own keeps working exactly as before.
   db.ref(ROSTER_PATH+'/'+currentPid+'/profile').update(profile)
+    // A quick account is finished once it has a skill level: drop the reminder.
+    .then(() => profile.skillLevel ? db.ref(ROSTER_PATH+'/'+currentPid+'/profileIncomplete').remove().then(() => { $('finish-profile').style.display = 'none'; }) : null)
     .then(() => {
       // Name last, and only when it actually changed, so a profile save is never
       // held up by it. Both spellings are written: displayName is current, name is
@@ -1775,6 +1784,7 @@ async function onLogin(player){
 
   currentExternal = player.externalRatings || null;
   fillFromProfile(player.profile);
+  $('finish-profile').style.display = player.profileIncomplete === true ? '' : 'none';
   $('f-name').value = displayNameOf(player);
   const vbCur = (currentExternal && currentExternal.volleyballLife) || null;
   $('f-vblink').value = (vbCur && vbCur.url) || '';

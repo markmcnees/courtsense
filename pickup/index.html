@@ -33,7 +33,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="/ratings.js?v=58a1af90"></script>
 <script src="/identity.js?v=bc1dab61"></script>
-<script src="/auth.js?v=dbbd5380"></script>
+<script src="/auth.js?v=qs20261024"></script>
 <script src="/partner-contact.js?v=11"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
@@ -41,11 +41,13 @@
 <script src="/nav.js?v=478a7a31"></script>
 <style>
 :root{
-  --sand:#f5f0e8;--sand-dark:#ede5d5;--sand-border:#d9ceba;
-  --primary:#1a3a6b;--dark:#0f2347;--accent:#d4a843;--light:#e8f0fb;
+  /* CourtSense brand: Community teal, Gold for ranked only, Navy, Paper, Ink, Slate. */
+  --teal:#217F7F;--teal-soft:#E3F1F1;--gold:#F2B22E;--navy:#082A4F;--paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;
+  --sand:#FBF7F0;--sand-dark:#ede5d5;--sand-border:#E4DDCF;
+  --primary:#082A4F;--dark:#05203D;--accent:#d4a843;--light:#e8f0fb;
   --win:#059669;--loss:#dc2626;
-  --gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
-  --white:#ffffff;--black:#111827;
+  --gray:#5C6B7A;--gray-light:#d1d5db;--gray-lighter:#f3f4f6;
+  --white:#ffffff;--black:#13243A;
   --shadow:0 2px 12px rgba(0,0,0,0.08);--shadow-lg:0 8px 32px rgba(0,0,0,0.14);--radius:14px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -74,9 +76,9 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pane{display:none;}.pane.on{display:block;}
 .epane{display:none;}.epane.on{display:block;}
 
-.card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);}
+.card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:16px;box-shadow:var(--shadow);border:1px solid #EFE8DA;}
 .ctitle{font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--primary);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
-.ctitle .bar{width:3px;height:16px;border-radius:2px;background:var(--primary);}
+.ctitle .bar{width:4px;height:18px;border-radius:2px;background:var(--teal);}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 20px;border-radius:10px;border:none;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;cursor:pointer;transition:all .15s;min-height:48px;}
 .btn-p{background:var(--primary);color:#fff;}
@@ -107,7 +109,39 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
-/* Plan with a poll (view-poll-setup) and Your polls. Community teal for poll accents. */
+/* Page band under the header (list view only). */
+.pk-band{background:var(--teal);color:#fff;padding:18px 16px 16px;}
+.pk-band-in{max-width:600px;margin:0 auto;}
+.pk-band h2{font-family:'Bebas Neue';font-weight:400;font-size:30px;letter-spacing:2px;line-height:1;margin:0 0 4px;}
+.pk-band p{font-size:14px;color:#E3F1F1;margin:0;}
+/* Action tiles: icon circle, bold name, explainer, chevron. Each is one 48px+ button. */
+.tile{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#fff;border:1.5px solid var(--sand-border);border-radius:12px;padding:12px;margin-bottom:10px;cursor:pointer;font-family:'Barlow';color:var(--ink);min-height:64px;}
+.tile:last-child{margin-bottom:0;}
+.tile:active{background:var(--teal-soft);}
+.tile-ic{flex:none;width:44px;height:44px;border-radius:50%;background:var(--teal-soft);color:var(--teal);display:flex;align-items:center;justify-content:center;}
+.tile-ic.gold{background:#FDF1D3;color:#9A6A00;}
+.tile-ic svg{width:22px;height:22px;}
+.tile-tx{flex:1;min-width:0;}
+.tile-nm{display:block;font-weight:700;font-size:16px;color:var(--ink);}
+.tile-ex{display:block;font-size:13px;color:var(--slate);line-height:1.35;margin-top:2px;}
+.tile-ch{flex:none;color:var(--slate);font-size:22px;line-height:1;}
+.rank-badge{display:inline-block;background:var(--gold);color:#3D2A00;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;padding:2px 7px;border-radius:5px;margin-left:6px;vertical-align:2px;}
+/* Empty state for Your games. */
+.pk-empty{text-align:center;padding:6px 4px 2px;}
+.pk-empty h3{font-family:'Bebas Neue';font-weight:400;font-size:22px;letter-spacing:1px;color:var(--navy);margin:0 0 4px;}
+.pk-empty p{font-size:14px;color:var(--slate);margin:0 0 12px;}
+.pk-empty .btn{margin-top:8px;}
+/* Create a Pickup Poll (view-poll-setup) and Your polls. Community teal for poll accents. */
+.pp-bar{height:6px;border-radius:3px;background:#EFE8DA;overflow:hidden;margin:4px 0 2px;}
+.pp-bar span{display:block;height:100%;background:var(--teal);border-radius:3px;}
+.pp-tag{display:inline-block;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;padding:1px 7px;border-radius:5px;margin-left:6px;}
+.pp-tag.ready{background:var(--teal);color:#fff;}
+.pp-tag.full{background:var(--navy);color:#fff;}
+.pp-day{font-size:13px;color:var(--ink);padding:3px 0;}
+.pp-day b{font-weight:700;}
+.pp-sug{border:1.5px dashed var(--sand-border);border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13px;}
+.pp-row2{display:flex;gap:8px;margin-top:6px;}
+.pp-row2 .btn{flex:1;}
 .pp-seg{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:15px;}
 .pp-seg.pp-col{flex-direction:column;}
 .pp-seg label{display:flex;align-items:center;gap:8px;min-height:40px;cursor:pointer;}
@@ -130,7 +164,7 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .inp:focus{outline:none;border-color:var(--primary);}
 select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
 
-.evcard{background:var(--white);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-left:4px solid var(--primary);margin-bottom:10px;cursor:pointer;}
+.evcard{background:var(--white);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-left:4px solid var(--teal);margin-bottom:10px;cursor:pointer;}
 .evcard:active{filter:brightness(.97);}
 .evcard.ar{border-left-color:var(--gray-light);opacity:.92;}
 .evname{font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--primary);}
@@ -267,6 +301,13 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <button class="tab" data-tab="ratings">Ratings</button>
   </div>
 </div>
+<!-- Page band, list view only (showView toggles it). -->
+<div class="pk-band" id="pk-band">
+  <div class="pk-band-in">
+    <h2>Pickup</h2>
+    <p>Find a game, start one, or let players pick the time.</p>
+  </div>
+</div>
 
 <div class="content">
 
@@ -296,21 +337,27 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          own view now. Below what needs the player, above what they could start. -->
     <div id="trn-pointer"></div>
     <div id="event-list-active"></div>
+    <!-- Action tiles. Inline SVG icons, not emoji, so no phone shows an empty box. -->
     <div class="card" style="padding:14px;">
       <div class="ctitle"><span class="bar"></span>Create a game</div>
-      <div style="margin-bottom:10px;">
-        <button class="btn btn-g btn-w" onclick="startNewInvite()">📅 Schedule a Pickup</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a casual game and let players join.</div>
+      <button class="tile" onclick="startNewInvite()">
+        <span class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
+        <span class="tile-tx"><span class="tile-nm">Post a Pickup Game</span><span class="tile-ex">You already know the place, day and time. Post it and players sign up.</span></span>
+        <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
+      </button>
+      <!-- Pickup poll: signed-in players only (renderPollEntry shows it). -->
+      <div id="poll-entry" style="display:none;">
+        <button class="tile" onclick="startPollPlan()">
+          <span class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-6M2 20h20"/></svg></span>
+          <span class="tile-tx"><span class="tile-nm">Create a Pickup Poll</span><span class="tile-ex">Not sure when works? Offer a few times, let players vote, and the winning time becomes the game.</span></span>
+          <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
+        </button>
       </div>
-      <!-- Scheduling poll: signed-in players only (renderPollEntry shows it). -->
-      <div id="poll-entry" style="margin-bottom:10px;display:none;">
-        <button class="btn btn-g btn-w" onclick="startPollPlan()">🗳️ Schedule a game</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Plan with a poll: offer a few times and let players pick.</div>
-      </div>
-      <div>
-        <button class="btn btn-g btn-w" onclick="startNewEvent()">👑 King/Queen of the Beach (ranked)</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">One night, rotating partners, live scoring. Counts toward your rating.</div>
-      </div>
+      <button class="tile" onclick="startNewEvent()">
+        <span class="tile-ic gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5L3 8z"/></svg></span>
+        <span class="tile-tx"><span class="tile-nm">King/Queen of the Beach<span class="rank-badge">Ranked</span></span><span class="tile-ex">One night, rotating partners, live scoring. Counts toward your rating.</span></span>
+        <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
+      </button>
     </div>
     <!-- Find a Tournament Partner moved to the Tournaments view. A partner post
          is made AGAINST a tournament and its first question is "which one?", so
@@ -346,7 +393,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="pane" id="view-invite-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
     <div class="card">
-      <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Schedule a Pickup</span></div>
+      <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Post a Pickup Game</span></div>
       <div class="fg">
         <label class="lbl">Event Name</label>
         <input class="inp" id="iv-name" placeholder="Saturday Pickup">
@@ -523,7 +570,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
 
-    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Schedule Pickup</button>
+    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Post Game</button>
   </div>
 
   <!-- PARTNER POST SETUP VIEW: a tournament partner post, not a game. No courts,
@@ -634,12 +681,12 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div id="iv-detail-body"></div>
   </div>
 
-  <!-- PLAN WITH A POLL: the organizer offers 2 to 10 times, players pick, the worker
+  <!-- CREATE A PICKUP POLL: the organizer offers 2 to 10 times, players pick, the worker
        makes the game. Sent through /pickup/poll/create with the player session. -->
   <div class="pane" id="view-poll-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
     <div class="card">
-      <div class="ctitle"><span class="bar"></span>Plan with a poll</div>
+      <div class="ctitle"><span class="bar"></span>Create a Pickup Poll</div>
       <div class="fg">
         <label class="lbl">Title</label>
         <input class="inp" id="pp-title" placeholder="Saturday sand" maxlength="100">
@@ -679,6 +726,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         </div>
       </div>
       <div class="fg">
+        <label class="lbl">How many games?</label>
+        <div class="pp-seg pp-col">
+          <label><input type="radio" name="pp-games" value="one" checked> One game</label>
+          <label><input type="radio" name="pp-games" value="perDay"> One game per day</label>
+        </div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">One game per day: each day can become its own game.</div>
+      </div>
+      <div class="fg">
         <label class="lbl">Poll closes at</label>
         <input class="inp" id="pp-close" type="datetime-local" onchange="ppCloseTouched=true">
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">At least 2 hours before the earliest time. Default: 3 hours before.</div>
@@ -686,7 +741,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     </div>
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Who gets the poll</div>
-      <div class="row2">
+      <div class="fg">
+        <label class="lbl">Who can vote</label>
+        <div class="pp-seg pp-col">
+          <label><input type="radio" name="pp-audience" value="invited" checked onchange="ppAudience()"> Invited players only</label>
+          <label><input type="radio" name="pp-audience" value="open" onchange="ppAudience()"> Anyone with the link</label>
+        </div>
+        <div id="pp-open-note" style="display:none;font-size:12px;color:var(--gray);margin-top:4px;">Anyone signed in with the link can vote. The poll stops taking votes when a time reaches the max players.</div>
+      </div>
+      <div class="row2" id="pp-rating-row">
         <div>
           <label class="lbl">Rating from (optional)</label>
           <input class="inp" id="pp-rmin" type="number" min="0" max="5000" placeholder="Any" oninput="ppDrawRecipients()">
@@ -696,7 +759,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <input class="inp" id="pp-rmax" type="number" min="0" max="5000" placeholder="Any" oninput="ppDrawRecipients()">
         </div>
       </div>
-      <div style="font-size:11px;color:var(--gray);margin:-4px 0 10px;">A rating range filters this list and is saved on the game.</div>
+      <div id="pp-rating-note" style="font-size:11px;color:var(--gray);margin:-4px 0 10px;">A rating range filters this list and is saved on the game.</div>
+      <div id="pp-optional-note" style="display:none;font-size:12px;color:var(--gray);margin:0 0 8px;">Inviting players is optional. Everyone you pick is emailed the link.</div>
       <input class="inp" id="pp-search" placeholder="Search players" oninput="ppDrawRecipients()">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:10px 0 6px;">
         <span id="pp-count" style="font-size:13px;font-weight:700;color:var(--primary);">0 selected (max 60)</span>
@@ -1831,6 +1895,7 @@ function showView(v){
   $('view-tournament-detail').classList.toggle('on', v==='tournament-detail');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
   $('view-poll-setup').classList.toggle('on', v==='poll-setup');
+  const band = $('pk-band'); if(band) band.style.display = v==='list' ? '' : 'none';
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
   refreshAll();
@@ -3830,11 +3895,13 @@ function renderInviteList(){
 
   let h = `<div class="ctitle"><span class="bar"></span>Your games (${shown.length})</div>`;
   if(!shown.length){
-    // Shared empty-state for a logged-in user with nothing to RSVP, whether no games
-    // exist at all or none they are eligible for. Reuses startNewInvite (the same call
-    // the "Schedule a Pickup" button uses); startNewInvite has its own login gate.
-    h += '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">Bummer, there currently aren\'t any games you\'re eligible to RSVP. Make your own game now and make it open or select eligibility.</div>'
-      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">📅 Schedule a Pickup</button>';
+    // Shared empty state for a logged-in user with nothing to RSVP, whether no games
+    // exist at all or none they are eligible for. Both actions, the same calls as the
+    // Post a Pickup Game and Create a Pickup Poll tiles (each has its own login gate).
+    h = '<div class="card pk-empty"><h3>No games you can join yet</h3>'
+      + '<p>Post a game if you already have a time, or let players vote on one.</p>'
+      + '<button class="btn btn-p btn-w" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">Post a Pickup Game</button>'
+      + '<button class="btn btn-g btn-w" onclick="if(typeof startPollPlan===\'function\') startPollPlan()">Create a Pickup Poll</button></div>';
     cont.innerHTML = h;
     return;
   }
@@ -8245,8 +8312,8 @@ function startNewInvite(){
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
     setTimeout(()=>{
-      $('iv-su-title').textContent = 'Schedule a Pickup';
-      $('iv-save-btn').textContent = 'Schedule Pickup';
+      $('iv-su-title').textContent = 'Post a Pickup Game';
+      $('iv-save-btn').textContent = 'Post Game';
       const today = td();
       $('iv-name').value = autoTitle(today);
       $('iv-date').value = today;
@@ -8891,7 +8958,7 @@ async function saveInvite(){
   }
   try {
     await db.ref().update(updates);
-    toast(occurrences>1 ? occurrences+' pickups scheduled ✓' : 'Pickup scheduled ✓');
+    toast(occurrences>1 ? occurrences+' games posted' : 'Game posted');
     activeInvite = firstId;
     showView('invite-detail');
     // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
@@ -8915,7 +8982,7 @@ async function saveInvite(){
               rsvpDeadline: base.rsvpDeadline, hostName: base.hostName, location: base.location
             }
           }),
-          'Game scheduled, but the invites were not emailed.'
+          'Game posted, but the invites were not emailed.'
         );
       }
     } catch(e){ console.warn('invite-notify build failed', e); }
@@ -10225,10 +10292,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // goes back. Only /partners/ paths are honored. A sign-in that has no worker token
   // (one from before player sessions) cannot message, so the login box opens once
   // more instead of bouncing back to a board that would still say sign in.
-  const _returnTo = (function(r){ return /^\/partners\/(\?[A-Za-z0-9_\-=&%.]*)?$/.test(r || '') ? r : ''; })(_deepLinkParams.get('return'));
+  // ?return=/pickup/poll/?p=<poll id> : Sign in to vote on a poll. Only that exact
+  // shape is honored (csReturnPath), so the parameter cannot send anyone elsewhere.
+  const _returnTo = csReturnPath(_deepLinkParams.get('return'));
   let _returnAsked = false;
   function returnAfterLogin(){
     if(!_returnTo) return false;
+    if(_returnTo.indexOf('/pickup/poll/') === 0){
+      // Back to the poll once the worker has confirmed the session it will vote with.
+      if(window.CourtSenseAuth && CourtSenseAuth.getSessionToken && CourtSenseAuth.getSessionToken()){ location.replace(_returnTo); return true; }
+      if(!_returnAsked){ _returnAsked = true; toast('Sign in again to vote.'); CourtSenseAuth.showLogin(); }
+      return false;
+    }
     if(window.CourtSensePartner && CourtSensePartner.storedToken()){ location.replace(_returnTo); return true; }
     if(!_returnAsked){
       _returnAsked = true;
@@ -10290,6 +10365,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
 });
 
+// The only return paths the pickup page will follow after sign-in: the partner board,
+// and one pickup poll by its id. Anything else is ignored (no open redirect).
+function csReturnPath(r){
+  r = String(r || '');
+  if(/^\/partners\/(\?[A-Za-z0-9_\-=&%.]*)?$/.test(r)) return r;
+  if(/^\/pickup\/poll\/\?p=pp[a-z0-9]{8,24}$/.test(r)) return r;
+  return '';
+}
+
 function doLogout(){
   if(window.CourtSenseAuth) CourtSenseAuth.logout();
   if(window.Identity && Identity.clear) Identity.clear();
@@ -10297,7 +10381,7 @@ function doLogout(){
 </script>
 
 <script>
-// Pure helpers for Plan with a poll and Your polls, kept apart from the DOM so the
+// Pure helpers for Create a Pickup Poll and Your polls, kept apart from the DOM so the
 // check script can run them in a sandbox. Limits and messages mirror the worker's
 // validateCreate (courtsense-email-worker src/pickup-poll.ts); keep the two in step.
 window.csPollPlanKit=(function(){
@@ -10360,10 +10444,13 @@ window.csPollPlanKit=(function(){
     if(!isInt(x.capacity)||x.capacity<x.minPlayers||x.capacity>L.CAPACITY_MAX) return 'Capacity must be at least the minimum and at most 60.';
     if(!isInt(x.expiresAt)||x.expiresAt<=now) return 'Voting must close in the future.';
     if(x.expiresAt>earliestStart(opts)-L.CLOSE_MIN_MS) return 'The poll must close at least 2 hours before the earliest time.';
+    var open=x.audience==='open';
     var r=x.recipients||[];
-    if(!r.length) return 'Pick who gets the poll.';
+    // An open poll may invite nobody: the link is the invitation.
+    if(!r.length&&!open) return 'Pick who gets the poll.';
     if(r.length>L.RECIPIENTS_MAX) return 'A poll can go to at most 60 players.';
     var mn=x.ratingMin, mx=x.ratingMax;
+    if(open&&(mn!=null||mx!=null)) return 'Open polls cannot have a rating range.';
     if(mn!=null&&(typeof mn!=='number'||!isFinite(mn)||mn<0||mn>L.RATING_MAX)) return 'The rating range is not valid.';
     if(mx!=null&&(typeof mx!=='number'||!isFinite(mx)||mx<0||mx>L.RATING_MAX)) return 'The rating range is not valid.';
     if(mn!=null&&mx!=null&&mn>mx) return 'The rating range is not valid.';
@@ -10372,7 +10459,8 @@ window.csPollPlanKit=(function(){
   // The create body, exactly the fields the worker reads.
   function createBody(x, session){
     var b={ sessionToken:session, title:String(x.title||'').trim(), locationMode:x.locationMode, minPlayers:x.minPlayers, capacity:x.capacity,
-      mode:x.mode, expiresAt:x.expiresAt, recipients:(x.recipients||[]).slice() };
+      mode:x.mode, expiresAt:x.expiresAt, recipients:(x.recipients||[]).slice(),
+      audience:x.audience==='open'?'open':'invited', games:x.games==='perDay'?'perDay':'one' };
     if(x.locationMode==='fixed') b.location=String(x.location||'').trim();
     b.options=(x.options||[]).map(function(o){
       var r={ date:o.date, startTime:o.startTime };
@@ -10385,10 +10473,10 @@ window.csPollPlanKit=(function(){
     return b;
   }
   // Players a poll can go to: account ids only (the players node is keyed by them), never
-  // demo, blocked, merged, nameless or high school (a membership in a school that is not a
-  // club). The worker checks again and names how many it refused.
-  function recipientPool(profiles, hsSlugs, nameOf, ratingOf){
-    var hs={}; (hsSlugs||[]).forEach(function(s){ hs[s]=true; });
+  // demo, blocked, merged or nameless. High school and under-18 players may be invited,
+  // the same rule as the worker's pollEligible (they get email, never phone alerts). The
+  // worker checks again and names how many it refused.
+  function recipientPool(profiles, nameOf, ratingOf){
     var out=[];
     Object.keys(profiles||{}).forEach(function(id){
       var p=profiles[id];
@@ -10396,8 +10484,6 @@ window.csPollPlanKit=(function(){
       if(p.blocked||p.merged||p.mergedInto) return;
       var nm=nameOf(p);
       if(!nm) return;
-      var mem=p.memberships&&typeof p.memberships==='object'?Object.keys(p.memberships):[];
-      if(mem.some(function(k){ return hs[k]; })) return;
       out.push({ id:id, name:nm, rating:ratingOf(nm,id) });
     });
     return out.sort(function(a,b){ return a.name.localeCompare(b.name); });
@@ -10420,6 +10506,26 @@ window.csPollPlanKit=(function(){
   }
   function mineReq(session){ return { path:'/pickup/poll/mine', body:{ sessionToken:session } }; }
   function confirmReq(session, p, optId){ return { path:'/pickup/poll/confirm', body:{ sessionToken:session, p:p, optId:optId } }; }
+  // The organizer adds or dismisses a suggested time.
+  function suggestionReq(session, p, sugId, action){ return { path:'/pickup/poll/suggestion', body:{ sessionToken:session, p:p, sugId:sugId, action:action } }; }
+  // The share link: no personal token, so it is safe to post anywhere.
+  function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
+  // Share a poll link: the phone share sheet, else the clipboard, else ask the caller to
+  // show the link for copying by hand. Resolves 'shared', 'copied' or 'manual'.
+  function shareLink(nav, url, title){
+    if(nav&&typeof nav.share==='function'){
+      return nav.share({ title:title, url:url }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+    }
+    return copy();
+    function copy(){
+      if(nav&&nav.clipboard&&typeof nav.clipboard.writeText==='function'){
+        return nav.clipboard.writeText(url).then(function(){ return 'copied'; }, function(){ return 'manual'; });
+      }
+      return Promise.resolve('manual');
+    }
+  }
+  // Progress toward the minimum, 0 to 100.
+  function progressPct(count, min){ return min>0?Math.max(0,Math.min(100,Math.round(count/min*100))):0; }
   function createReq(body){ return { path:'/pickup/poll/create', body:body }; }
   function post(fetchFn, req){
     return fetchFn(WORKER+req.path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body)})
@@ -10441,6 +10547,7 @@ window.csPollPlanKit=(function(){
   // One line of status for a poll card.
   function statusLine(v){
     if(v.outcome==='game') return 'Game made';
+    if(v.full&&v.status==='open') return 'Full. The organizer is picking the game.';
     if(v.status==='closed'||v.open===false) return v.outcome==='ready_unconfirmed'?'Closed, no time confirmed':'Closed, no time reached '+v.minPlayers;
     return 'Voting open, closes '+v.closesLabel;
   }
@@ -10495,17 +10602,17 @@ window.csPollPlanKit=(function(){
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
     statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
-    autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow };
+    autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
+    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct };
 })();
 </script>
 
 <script>
-// Plan with a poll and Your polls: page wiring for csPollPlanKit.
+// Create a Pickup Poll and Your polls: page wiring for csPollPlanKit.
 let ppOptions = [];
 let ppSelected = [];
 let ppPool = [];
 let ppCloseTouched = false;
-let ppHsSlugs = null;
 let _myPolls = { at: 0, list: [], busy: false };
 
 function ppSession(){
@@ -10546,20 +10653,17 @@ async function startPollPlan(){
   $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-close').value = ''; $('pp-err').textContent = '';
   document.querySelector('input[name="pp-locmode"][value="fixed"]').checked = true;
   document.querySelector('input[name="pp-mode"][value="auto"]').checked = true;
+  document.querySelector('input[name="pp-games"][value="one"]').checked = true;
+  document.querySelector('input[name="pp-audience"][value="invited"]').checked = true;
+  ppAudience();
   $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', K.PRESETS[0]);
   $('pp-loc-fixed').style.display = '';
   ppDrawOptions();
   showView('poll-setup');
   $('pp-recips').innerHTML = '<div class="pp-row" style="cursor:default;color:var(--gray);">Loading players...</div>';
   try { await ensureProfilesLoaded(); } catch(e){}
-  if(ppHsSlugs === null && db){
-    try {
-      const cfg = (await db.ref('courtsense_school_configs').once('value')).val() || {};
-      ppHsSlugs = Object.keys(cfg).filter(s => cfg[s] && cfg[s].tiersEnabled !== true);
-    } catch(e){ ppHsSlugs = []; }
-  }
   // The organizer is listed too, so they can tick themselves and vote like anyone else.
-  ppPool = K.recipientPool(window._profilesCache || {}, ppHsSlugs || [], nameStr, (nm, id) => {
+  ppPool = K.recipientPool(window._profilesCache || {}, nameStr, (nm, id) => {
     const rec = ratingRecordFor(nm, id);
     return (window.Ratings && Ratings.isRated(rec)) ? Math.round(rec.rating) : null;
   });
@@ -10639,18 +10743,32 @@ function ppSelectAllShown(){
   ppSelected = window.csPollPlanKit.selectAllShown(ppSelected, ppShown());
   ppDrawRecipients();
 }
+// Who can vote: an open poll has no rating range and may invite nobody.
+function ppAudienceValue(){ const r = document.querySelector('input[name="pp-audience"]:checked'); return r ? r.value : 'invited'; }
+function ppGamesValue(){ const r = document.querySelector('input[name="pp-games"]:checked'); return r ? r.value : 'one'; }
+function ppAudience(){
+  const open = ppAudienceValue() === 'open';
+  $('pp-rating-row').style.display = open ? 'none' : '';
+  $('pp-rating-note').style.display = open ? 'none' : '';
+  $('pp-open-note').style.display = open ? '' : 'none';
+  $('pp-optional-note').style.display = open ? '' : 'none';
+  if(open){ $('pp-rmin').value = ''; $('pp-rmax').value = ''; }
+  ppDrawRecipients();
+}
 function ppModeValue(){ const r = document.querySelector('input[name="pp-mode"]:checked'); return r ? r.value : 'auto'; }
 function ppReadForm(){
   ppReadOptions();
   const K = window.csPollPlanKit;
-  const rmin = ppNum('pp-rmin'), rmax = ppNum('pp-rmax');
+  const audience = ppAudienceValue();
+  // An open poll never sends a rating range (the fields are hidden and cleared).
+  const rmin = audience === 'open' ? null : ppNum('pp-rmin'), rmax = audience === 'open' ? null : ppNum('pp-rmax');
   const locationMode = ppLocModeValue();
   return {
     title: $('pp-title').value, locationMode, location: locationMode === 'fixed' ? ppLocValue('pp-loc') : '',
     options: ppOptions.map(o => ({ date:o.date, startTime:o.startTime, endTime:o.endTime, location:o.location })),
     minPlayers: Number($('pp-min').value), capacity: Number($('pp-cap').value), mode: ppModeValue(),
     expiresAt: K.fromLocalInput($('pp-close').value), recipients: ppSelected.slice(),
-    ratingMin: rmin, ratingMax: rmax,
+    ratingMin: rmin, ratingMax: rmax, audience, games: ppGamesValue(),
   };
 }
 async function ppSend(){
@@ -10690,19 +10808,52 @@ function ppDrawMyPolls(){
   const box = $('my-polls'); if(!box) return;
   const K = window.csPollPlanKit;
   if(!_myPolls.list.length){ box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="ctitle"><span class="bar" style="background:#217F7F"></span>Your polls</div>' + _myPolls.list.map(v => {
+  box.innerHTML = '<div class="ctitle"><span class="bar"></span>Your polls</div>' + _myPolls.list.map(v => {
+    // Each time: label, count against the minimum with a bar, and Ready or Full tags.
     const rows = v.options.map(o =>
-      '<div class="pp-orow"><span>'+escapeHTML(o.label)+'</span><span class="'+(o.ready?'pp-ready':'')+'">'+o.count+' / '+v.minPlayers+(o.ready?' ready':'')+'</span></div>'
+      '<div class="pp-orow" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
+      + (o.ready ? '<span class="pp-tag ready">Ready</span>' : '') + (v.full && o.ready ? '<span class="pp-tag full">Full</span>' : '')
+      + '</span><span>'+o.count+' / '+v.minPlayers+'</span></div>'
+      + '<div class="pp-bar"><span style="width:'+K.progressPct(o.count, v.minPlayers)+'%"></span></div></div>'
       + (K.canConfirm(v, o) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '')
     ).join('');
+    // One game per day: a line per date.
+    const days = Array.isArray(v.days) ? v.days.map(d => '<div class="pp-day">'+escapeHTML(d.line || '')+'</div>').join('') : '';
+    // Organizer only: suggested times waiting, with who suggested each.
+    const sugs = v.role === 'organizer' && Array.isArray(v.pendingSuggestions) ? v.pendingSuggestions.map(g =>
+      '<div class="pp-sug"><b>'+escapeHTML(g.suggestedBy || 'A player')+'</b> suggested '+escapeHTML(g.label || '')
+      + '<div class="pp-row2"><button class="btn btn-p btn-sm" onclick="ppDecide(\''+v.id+'\',\''+g.id+'\',\'add\')">Add to poll</button>'
+      + '<button class="btn btn-g btn-sm" onclick="ppDecide(\''+v.id+'\',\''+g.id+'\',\'dismiss\')">Dismiss</button></div></div>').join('') : '';
     const picks = K.picksLine(v);
+    const dayGames = Array.isArray(v.days) ? v.days.filter(d => d.inviteId) : [];
     const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
-      + (v.isRecipient && v.open ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '');
+      + dayGames.map(d => '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(d.inviteId)+'">Open '+escapeHTML(d.day || '')+' game</a>').join('')
+      + (v.isRecipient && v.open && !v.full ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '')
+      + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;"></div>' : '');
     return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
       + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')
       + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')+'</div>'
-      + rows + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
+      + days + rows + sugs + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
   }).join('');
+}
+// Copy link: the phone share sheet, else the clipboard, else the link shown to copy.
+async function ppCopyLink(pollId){
+  const K = window.csPollPlanKit;
+  const v = _myPolls.list.find(x => x.id === pollId) || {};
+  const url = K.shareUrl(location.origin, pollId);
+  const how = await K.shareLink(navigator, url, v.title || 'Pickup poll');
+  if(how === 'copied') toast('Link copied');
+  if(how === 'manual'){ const el = $('pp-link-'+pollId); if(el){ el.textContent = url; el.style.display = ''; } toast('Copy the link below'); }
+}
+// The organizer adds a suggested time to the poll, or dismisses it (nobody is told).
+async function ppDecide(pollId, sugId, action){
+  const K = window.csPollPlanKit;
+  const session = ppSession();
+  if(!session){ toast('Sign in again'); return; }
+  const res = await K.post(fetch, K.suggestionReq(session, pollId, sugId, action));
+  if(!res.j || !res.j.ok){ toast(K.errorText(res)); renderMyPolls(true); return; }
+  toast(action === 'add' ? (res.j.created ? 'Added. That time is now the game.' : 'Added to the poll') : 'Dismissed');
+  renderMyPolls(true);
 }
 async function ppConfirm(pollId, optId){
   const K = window.csPollPlanKit;
