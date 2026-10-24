@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Pickup poll &middot; CourtSense</title>
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --navy:#082A4F;
+    --teal:#217F7F;
+    --teal-soft:#E3F1F1;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+    --err:#B3261E;
+    --ok:#2E7D32;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;background:var(--paper);color:var(--ink);font-size:16px;line-height:1.5;}
+  .hero{background:var(--teal);color:var(--white);text-align:center;padding:28px 16px 24px;}
+  .hero a{color:var(--white);text-decoration:none;font-family:'Bebas Neue',sans-serif;letter-spacing:3px;font-size:18px;opacity:.9;}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:40px;letter-spacing:2px;line-height:1.05;margin:8px 0 6px;}
+  .hero p{margin:0 auto;max-width:440px;color:#e2f2f2;}
+  .page{max-width:480px;margin:0 auto;padding:20px 16px 32px;}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(8,42,79,.05);margin-bottom:14px;}
+  .card h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:24px;letter-spacing:1px;color:var(--navy);margin:0 0 6px;}
+  .meta{color:var(--slate);font-size:14px;margin:0 0 4px;}
+  .opt{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:var(--white);border:2px solid var(--line);border-radius:12px;padding:14px 14px 12px 48px;margin:0 0 10px;position:relative;cursor:pointer;min-height:64px;}
+  .opt::before{content:'';position:absolute;left:14px;top:16px;width:22px;height:22px;border-radius:6px;border:2px solid var(--line);background:var(--white);}
+  .opt.on{border-color:var(--teal);background:var(--teal-soft);}
+  .opt.on::before{background:var(--teal);border-color:var(--teal);box-shadow:inset 0 0 0 4px var(--white);}
+  .opt:disabled{cursor:default;opacity:.75;}
+  .opt .when{font-weight:700;font-size:16px;display:block;}
+  .opt .where{color:var(--slate);font-size:14px;display:block;}
+  .opt .count{font-size:13px;color:var(--slate);display:block;margin-top:4px;}
+  .opt .count.ready{color:var(--ok);font-weight:700;}
+  .btn{display:block;width:100%;border:none;border-radius:10px;padding:14px 18px;min-height:50px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;text-align:center;text-decoration:none;}
+  .btn-teal{background:var(--teal);color:var(--white);}
+  .btn-navy{background:var(--navy);color:var(--white);}
+  .btn-red{background:#B42318;color:var(--white);}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .msg{font-size:15px;margin:12px 0 0;min-height:1em;}
+  .msg.ok{color:var(--ok);font-weight:600;}
+  .msg.err{color:var(--err);font-weight:600;}
+  .note{font-size:13px;color:var(--slate);margin:10px 0 0;}
+  .hidden{display:none !important;}
+  footer{text-align:center;color:var(--slate);font-size:13px;padding:0 16px 28px;}
+  footer a{color:var(--teal);}
+</style>
+</head>
+<body>
+<div class="hero">
+  <a href="/pickup/">CourtSense Pickup</a>
+  <h1 id="hero-title">Pickup poll</h1>
+  <p id="hero-sub">Pick every time that works for you.</p>
+</div>
+
+<div class="page">
+  <div class="card hidden" id="poll-card">
+    <h2 id="poll-title"></h2>
+    <p class="meta" id="poll-org"></p>
+    <p class="meta" id="poll-where"></p>
+    <p class="meta" id="poll-rule"></p>
+    <p class="meta" id="poll-closes"></p>
+  </div>
+
+  <div class="card hidden" id="vote-card">
+    <div id="opts"></div>
+    <button class="btn btn-teal" id="save-btn" type="button">Save my picks</button>
+    <p class="msg" id="vote-msg" role="status"></p>
+  </div>
+
+  <div class="card hidden" id="game-card">
+    <h2>Game on</h2>
+    <p id="game-line"></p>
+    <p id="game-spots" style="font-weight:700;color:var(--teal);"></p>
+    <a class="btn btn-teal" id="game-link" href="/pickup/">Open the game</a>
+  </div>
+
+  <div class="card hidden" id="cant-card">
+    <h2>Can't make it?</h2>
+    <p id="cant-line">Checking your spot...</p>
+    <button class="btn btn-red hidden" id="cant-btn" type="button">I can't make it</button>
+    <p class="msg" id="cant-msg" role="status"></p>
+    <a class="btn btn-navy hidden" id="cant-game" href="/pickup/" style="margin-top:12px;">View the game</a>
+  </div>
+
+  <div class="card hidden" id="plain-card">
+    <h2 id="plain-title"></h2>
+    <p id="plain-text"></p>
+    <a class="btn btn-navy hidden" id="plain-link" href="/pickup/">Go to pickup</a>
+  </div>
+</div>
+
+<footer>Built in the Sand &middot; <a href="/pickup/">courtsense.app</a></footer>
+
+<script>
+// Pure helpers for the poll page, kept apart from the DOM so the check script can run
+// them in a sandbox. Every request goes to the worker and nowhere else.
+window.csPollKit=(function(){
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var POLL_RE=/^pp[a-z0-9]{8,24}$/;
+  var TOKEN_RE=/^[A-Za-z0-9_-]{20,100}$/;
+  var ACCT_RE=/^[a-zA-Z0-9_-]{1,200}$/;
+  var SESSION_RE=/^[a-f0-9]{64}$/;
+  // Link parts that must not stay in the address bar or history.
+  var SECRET_KEYS=['a','m','c','t'];
+  var MSG={
+    invalid:'This poll link is not valid. Ask the organizer for a new one.',
+    saved:'Saved. You will get an email if a time is picked.',
+    expired:'Voting has closed and no time reached the minimum, so no game was made.',
+    offline:'Could not reach CourtSense. Check your connection and try again.',
+    signin:'Sign in on the pickup page, then open this poll again.',
+    notOnPoll:'This poll was not sent to you.'
+  };
+
+  // The worker emails /pickup/poll/?p=ID&a=ACCOUNT&m=TOKEN (vote) and &c=TOKEN (can't
+  // make it). ?id= is accepted as another name for p.
+  function readLink(search){
+    var q=new URLSearchParams(search||'');
+    return {
+      p:(q.get('p')||q.get('id')||'').trim(),
+      a:(q.get('a')||'').trim(),
+      m:(q.get('m')||'').trim(),
+      c:(q.get('c')||'').trim()
+    };
+  }
+  // The query string with every secret part removed, keeping the poll id as p.
+  function cleanSearch(search){
+    var q=new URLSearchParams(search||'');
+    var id=q.get('p')||q.get('id')||'';
+    SECRET_KEYS.concat(['id','p']).forEach(function(k){ q.delete(k); });
+    var rest=q.toString();
+    var out=id?('p='+encodeURIComponent(id)):'';
+    if(rest) out+=(out?'&':'')+rest;
+    return out?'?'+out:'';
+  }
+  function hasSecret(search){
+    var q=new URLSearchParams(search||'');
+    return SECRET_KEYS.some(function(k){ return q.has(k); });
+  }
+  function linkKind(l){
+    if(!POLL_RE.test(l.p)) return 'bad';
+    if(l.c) return ACCT_RE.test(l.a)&&TOKEN_RE.test(l.c)?'cant':'bad';
+    if(l.m) return ACCT_RE.test(l.a)&&TOKEN_RE.test(l.m)?'vote':'bad';
+    return 'session';
+  }
+  // The signed-in player's worker session as auth.js stores it, or ''. The worker checks it.
+  function storedSession(stores, now){
+    for(var i=0;i<stores.length;i++){
+      try{
+        var raw=stores[i]&&stores[i].getItem('courtsenseAuth');
+        if(!raw) continue;
+        var p=JSON.parse(raw);
+        if(p&&typeof p.exp==='number'&&p.exp<now) continue;
+        var t=p&&typeof p.sessionToken==='string'?p.sessionToken:'';
+        if(!SESSION_RE.test(t)) continue;
+        if(typeof p.sessionExpiresAt==='number'&&p.sessionExpiresAt>0&&p.sessionExpiresAt<=now) continue;
+        return t;
+      }catch(e){}
+    }
+    return '';
+  }
+  function authBody(l, session){
+    if(linkKind(l)==='vote') return {p:l.p,a:l.a,m:l.m};
+    if(linkKind(l)==='session'&&session) return {p:l.p,sessionToken:session};
+    return null;
+  }
+  function infoReq(auth){ return {path:'/pickup/poll/info',body:auth}; }
+  function voteReq(auth, picks){
+    var b={}; for(var k in auth) b[k]=auth[k];
+    b.picks=picks.slice();
+    return {path:'/pickup/poll/vote',body:b};
+  }
+  function cantMakeReq(l){ return {path:'/pickup/poll/cant-make',body:{p:l.p,a:l.a,c:l.c}}; }
+  // The same link, asking only which game and my status. Changes nothing.
+  function previewReq(l){ return {path:'/pickup/poll/cant-make',body:{p:l.p,a:l.a,c:l.c,preview:true}}; }
+  var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // 'Sat, Oct 25' from YYYY-MM-DD, read as a calendar date so no zone can move it.
+  function dateLabel(ymd){
+    var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd||'');
+    if(!m) return '';
+    var d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],12));
+    return DAYS[d.getUTCDay()]+', '+MONTHS[d.getUTCMonth()]+' '+d.getUTCDate();
+  }
+  // '9:00 AM' from HH:MM.
+  function time12(hm){
+    var m=/^(\d{2}):(\d{2})$/.exec(hm||'');
+    if(!m) return '';
+    var h=+m[1];
+    return ((h%12)||12)+':'+m[2]+' '+(h<12?'AM':'PM');
+  }
+  // 'Sat, Oct 25, 9:00 AM to 11:00 AM at Tom Brown Park', leaving out what is unset.
+  function whenWhere(g){
+    var s=dateLabel(g.date);
+    if(time12(g.startTime)) s+=(s?', ':'')+time12(g.startTime);
+    if(time12(g.endTime)) s+=' to '+time12(g.endTime);
+    if(g.location) s+=' at '+g.location;
+    return s;
+  }
+  // What the can't-make screen says before the tap, and whether to offer the button.
+  function previewView(res){
+    if(!res||res.status===0) return {text:MSG.offline,canTap:false,state:'offline'};
+    var j=res.j||{};
+    if(j.code==='invalid_link') return {text:MSG.invalid,canTap:false,state:'invalid'};
+    if(!j.ok||!j.preview) return {text:j.error||'Something went wrong. Try again.',canTap:false,state:'error'};
+    var game=(j.title||'the game')+', '+whenWhere(j);
+    if(j.myStatus==='confirmed') return {text:'You are signed up for '+game+". Can't make it?",canTap:true,state:'confirmed'};
+    if(j.myStatus==='waitlist') return {text:'You are on the waitlist for '+game+'. Want to leave it?',canTap:true,state:'waitlist'};
+    if(j.myStatus==='declined') return {text:'You already gave up your spot in '+game+'.',canTap:false,state:'declined'};
+    return {text:'You are not signed up for '+game+'.',canTap:false,state:'none'};
+  }
+  // '2 spots left', '1 spot left' or 'Full, you can join the waitlist', from the info
+  // answer's spotsLeft; '' when the worker sent none.
+  function spotsText(view){
+    var n=view?view.spotsLeft:undefined;
+    if(typeof n!=='number'||!isFinite(n)) return '';
+    if(n<=0) return 'Full, you can join the waitlist';
+    return n===1?'1 spot left':n+' spots left';
+  }
+  function post(fetchFn, req){
+    return fetchFn(WORKER+req.path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body)})
+      .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+      .catch(function(){ return {status:0,j:null}; });
+  }
+  // What the page shows for an info or vote answer.
+  function stateOf(res){
+    if(!res||res.status===0) return 'offline';
+    var j=res.j||{};
+    if(j.code==='invalid_link') return 'invalid';
+    if(j.code==='unauthorized') return 'signin';
+    if(j.code==='not_on_poll'||j.code==='not_found') return 'not_on_poll';
+    if(!j.options) return 'error';
+    if(j.outcome==='game'&&j.inviteId) return 'game';
+    if(j.status==='closed'||j.open===false) return 'expired';
+    return 'open';
+  }
+  function cantStateOf(res){
+    if(!res||res.status===0) return 'offline';
+    var j=res.j||{};
+    if(j.code==='invalid_link') return 'invalid';
+    if(j.code==='game_cancelled') return 'cancelled';
+    if(j.code==='game_over') return 'over';
+    if(j.ok&&j.already) return 'already';
+    if(j.ok) return 'done';
+    return 'error';
+  }
+  function cantMessage(state, j){
+    if(state==='done') return j&&j.wasConfirmed?"You're out. Your spot went to the next player.":"You're off the waitlist.";
+    if(state==='already') return 'You already gave up this spot.';
+    if(state==='cancelled') return 'That game was cancelled.';
+    if(state==='over') return 'That game has already started.';
+    if(state==='invalid') return MSG.invalid;
+    if(state==='offline') return MSG.offline;
+    return (j&&j.error)||'Something went wrong. Try again.';
+  }
+  function optionById(view, id){
+    var list=(view&&view.options)||[];
+    for(var i=0;i<list.length;i++) if(list[i].id===id) return list[i];
+    return null;
+  }
+  // "This poll picked Sat, Oct 25, 9:00 AM to 11:00 AM at Tom Brown Park"
+  function gameLine(view){
+    var o=view&&view.game?optionById(view,view.game.optId):null;
+    if(!o) return 'This poll picked a time.';
+    var where=view.locationMode==='voted'?'':(o.location?' at '+o.location:'');
+    return 'This poll picked '+o.label+where+'.';
+  }
+  function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
+  function countLine(o, min){
+    if(o.ready) return 'Ready: '+o.count+' of '+min+' needed';
+    return o.count+' of '+min+' needed';
+  }
+  function ruleLine(view){
+    var auto=view.mode==='auto';
+    return 'Needs '+view.minPlayers+' players, up to '+view.capacity+'. '+(auto?'The first time to reach '+view.minPlayers+' becomes the game.':'The organizer picks the game from times that reach '+view.minPlayers+'.');
+  }
+  return { WORKER:WORKER, MSG:MSG, readLink:readLink, cleanSearch:cleanSearch, hasSecret:hasSecret, linkKind:linkKind, storedSession:storedSession,
+    authBody:authBody, infoReq:infoReq, voteReq:voteReq, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
+    cantMessage:cantMessage, gameLine:gameLine, gameUrl:gameUrl, countLine:countLine, ruleLine:ruleLine, dateLabel:dateLabel, time12:time12,
+    whenWhere:whenWhere, previewView:previewView, spotsText:spotsText };
+})();
+</script>
+
+<script>
+(function(){
+  var K=window.csPollKit;
+  var $=function(id){ return document.getElementById(id); };
+  function show(id){ $(id).classList.remove('hidden'); }
+  function hide(id){ $(id).classList.add('hidden'); }
+
+  // Read the link once, then take its secret parts out of the address bar and history.
+  // A vote link is kept for this tab only, so a reload can still save picks.
+  var link=K.readLink(location.search);
+  try{
+    if(K.hasSecret(location.search)) history.replaceState(null,'',location.pathname+K.cleanSearch(location.search)+location.hash);
+  }catch(e){}
+  var stashKey='csPollLink:'+link.p;
+  try{
+    if(K.linkKind(link)==='vote') sessionStorage.setItem(stashKey,JSON.stringify({a:link.a,m:link.m}));
+    else if(K.linkKind(link)==='session'){
+      var st=JSON.parse(sessionStorage.getItem(stashKey)||'null');
+      if(st&&st.a&&st.m){ link.a=st.a; link.m=st.m; }
+    }
+  }catch(e){}
+
+  function plain(title, text, withLink){
+    ['poll-card','vote-card','game-card','cant-card'].forEach(hide);
+    $('plain-title').textContent=title; $('plain-text').textContent=text;
+    $('plain-link').classList.toggle('hidden',!withLink);
+    show('plain-card');
+  }
+
+  var kind=K.linkKind(link);
+  if(kind==='bad'){ plain('Link not valid',K.MSG.invalid,true); return; }
+
+  // ── I can't make it ──
+  if(kind==='cant'){
+    $('hero-title').textContent="Can't make it";
+    $('hero-sub').textContent='Give up your spot in one tap.';
+    show('cant-card');
+    // Preview first: which game and my status. It changes nothing; the button waits on it.
+    K.post(fetch,K.previewReq(link)).then(function(res){
+      var pv=K.previewView(res);
+      $('cant-line').textContent=pv.text;
+      if(pv.canTap){ $('cant-btn').textContent=pv.state==='waitlist'?'Leave the waitlist':"I can't make it"; show('cant-btn'); }
+    });
+    $('cant-btn').addEventListener('click',function(){
+      $('cant-btn').disabled=true; $('cant-msg').className='msg'; $('cant-msg').textContent='Saving...';
+      K.post(fetch,K.cantMakeReq(link)).then(function(res){
+        var s=K.cantStateOf(res);
+        $('cant-msg').textContent=K.cantMessage(s,res.j);
+        $('cant-msg').className='msg '+(s==='done'||s==='already'?'ok':'err');
+        if(s==='done'||s==='already'){ hide('cant-btn'); $('cant-line').textContent='Thanks for letting everyone know.'; }
+        else if(s==='error'||s==='offline') $('cant-btn').disabled=false;
+        else hide('cant-btn');
+        if(res.j&&res.j.inviteId){ $('cant-game').href=K.gameUrl(res.j.inviteId); show('cant-game'); }
+      });
+    });
+    return;
+  }
+
+  // ── vote ──
+  var auth=K.authBody(link,K.storedSession([localStorage,sessionStorage],Date.now()));
+  if(!auth){ plain('Sign in to vote',K.MSG.signin,true); return; }
+  var picks={};
+  var view=null;
+
+  function render(res){
+    var s=K.stateOf(res);
+    if(s==='offline'){ plain('Not connected',K.MSG.offline,false); return; }
+    if(s==='invalid'){ plain('Link not valid',K.MSG.invalid,true); return; }
+    if(s==='signin'){ plain('Sign in to vote',K.MSG.signin,true); return; }
+    if(s==='not_on_poll'){ plain('Not your poll',K.MSG.notOnPoll,true); return; }
+    if(s==='error'){ plain('Something went wrong',(res.j&&res.j.error)||'Try again in a moment.',true); return; }
+    view=res.j;
+    $('poll-title').textContent=view.title;
+    $('poll-org').textContent='From '+view.organizerName;
+    $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';
+    $('poll-rule').textContent=K.ruleLine(view);
+    $('poll-closes').textContent=(s==='open'?'Voting closes ':'Voting closed ')+view.closesLabel+'.';
+    show('poll-card');
+    if(s==='game'){
+      hide('vote-card');
+      $('hero-sub').textContent='A time was picked.';
+      $('game-line').textContent=K.gameLine(view);
+      $('game-link').href=K.gameUrl(view.inviteId);
+      $('game-spots').textContent=K.spotsText(view);
+      show('game-card');
+      return;
+    }
+    if(s==='expired'){
+      hide('vote-card');
+      plainKeepPoll('Voting closed',K.MSG.expired);
+      return;
+    }
+    picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; });
+    drawOptions();
+    show('vote-card');
+  }
+  function plainKeepPoll(title,text){
+    $('plain-title').textContent=title; $('plain-text').textContent=text; show('plain-card');
+  }
+  function drawOptions(){
+    var box=$('opts'); box.textContent='';
+    (view.options||[]).forEach(function(o){
+      var b=document.createElement('button');
+      b.type='button'; b.className='opt'+(picks[o.id]?' on':'');
+      b.setAttribute('aria-pressed',picks[o.id]?'true':'false');
+      var w=document.createElement('span'); w.className='when'; w.textContent=view.locationMode==='voted'?o.label.replace(' at '+o.location,''):o.label;
+      b.appendChild(w);
+      if(view.locationMode==='voted'&&o.location){ var l=document.createElement('span'); l.className='where'; l.textContent=o.location; b.appendChild(l); }
+      var c=document.createElement('span'); c.className='count'+(o.ready?' ready':''); c.textContent=K.countLine(o,view.minPlayers); b.appendChild(c);
+      b.addEventListener('click',function(){
+        if(picks[o.id]) delete picks[o.id]; else picks[o.id]=true;
+        $('vote-msg').textContent=''; drawOptions();
+      });
+      box.appendChild(b);
+    });
+  }
+  $('save-btn').addEventListener('click',function(){
+    var chosen=(view.options||[]).filter(function(o){ return picks[o.id]; }).map(function(o){ return o.id; });
+    $('save-btn').disabled=true; $('vote-msg').className='msg'; $('vote-msg').textContent='Saving...';
+    K.post(fetch,K.voteReq(auth,chosen)).then(function(res){
+      $('save-btn').disabled=false;
+      var s=K.stateOf(res);
+      if(s==='open'&&res.j&&res.j.ok!==false){
+        view=res.j; drawOptions();
+        $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.saved;
+        return;
+      }
+      if(s==='game'||s==='expired'){ render(res); return; }
+      $('vote-msg').className='msg err';
+      $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
+    });
+  });
+
+  K.post(fetch,K.infoReq(auth)).then(render);
+})();
+</script>
+</body>
+</html>

@@ -107,6 +107,23 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
+/* Plan with a poll (view-poll-setup) and Your polls. Community teal for poll accents. */
+.pp-seg{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:15px;}
+.pp-seg.pp-col{flex-direction:column;}
+.pp-seg label{display:flex;align-items:center;gap:8px;min-height:40px;cursor:pointer;}
+.pp-seg input{width:20px;height:20px;accent-color:#217F7F;}
+.pp-opt{border:1.5px solid var(--sand-border);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--sand);}
+.pp-opt-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-family:'Bebas Neue';letter-spacing:1px;color:#217F7F;}
+.pp-list{max-height:340px;overflow-y:auto;border:1.5px solid var(--sand-border);border-radius:10px;}
+.pp-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--sand-border);font-size:14px;cursor:pointer;}
+.pp-row:last-child{border-bottom:none;}
+.pp-row input{width:20px;height:20px;flex:none;accent-color:#217F7F;}
+.pp-row .pp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pp-row .pp-rt{font-size:12px;color:var(--gray);}
+.pp-poll{border-left:4px solid #217F7F;}
+.pp-orow{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--sand-border);font-size:13px;}
+.pp-orow:last-child{border-bottom:none;}
+.pp-ready{color:#217F7F;font-weight:700;}
 .fg{margin-bottom:10px;}
 .lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
 .inp{width:100%;padding:13px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:var(--black);background:var(--white);min-height:48px;}
@@ -274,6 +291,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          Tournaments is the directory plus the two things you do to it. -->
     <div id="needs-you"></div>
     <div id="invite-list"></div>
+    <div id="my-polls"></div>
     <!-- Discovery only: one line pointing at the directory, which lives in its
          own view now. Below what needs the player, above what they could start. -->
     <div id="trn-pointer"></div>
@@ -283,6 +301,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <div style="margin-bottom:10px;">
         <button class="btn btn-g btn-w" onclick="startNewInvite()">📅 Schedule a Pickup</button>
         <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Post a casual game and let players join.</div>
+      </div>
+      <!-- Scheduling poll: signed-in players only (renderPollEntry shows it). -->
+      <div id="poll-entry" style="margin-bottom:10px;display:none;">
+        <button class="btn btn-g btn-w" onclick="startPollPlan()">🗳️ Schedule a game</button>
+        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Plan with a poll: offer a few times and let players pick.</div>
       </div>
       <div>
         <button class="btn btn-g btn-w" onclick="startNewEvent()">👑 King/Queen of the Beach (ranked)</button>
@@ -609,6 +632,80 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="pane" id="view-invite-detail">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
     <div id="iv-detail-body"></div>
+  </div>
+
+  <!-- PLAN WITH A POLL: the organizer offers 2 to 10 times, players pick, the worker
+       makes the game. Sent through /pickup/poll/create with the player session. -->
+  <div class="pane" id="view-poll-setup">
+    <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Plan with a poll</div>
+      <div class="fg">
+        <label class="lbl">Title</label>
+        <input class="inp" id="pp-title" placeholder="Saturday sand" maxlength="100">
+      </div>
+      <div class="fg">
+        <label class="lbl">Location</label>
+        <div class="pp-seg">
+          <label><input type="radio" name="pp-locmode" value="fixed" checked onchange="ppLocMode()"> One location</label>
+          <label><input type="radio" name="pp-locmode" value="voted" onchange="ppLocMode()"> Vote on location</label>
+        </div>
+        <div id="pp-loc-fixed" style="margin-top:8px;"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Times to offer</div>
+      <div id="pp-options"></div>
+      <button class="btn btn-g btn-w btn-sm" id="pp-add-opt" onclick="ppAddOption()">+ Add a time</button>
+      <div style="font-size:12px;color:var(--gray);margin-top:6px;">Offer 2 to 10 times.</div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Game</div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Minimum players</label>
+          <input class="inp" id="pp-min" type="number" min="2" max="60" value="4">
+        </div>
+        <div>
+          <label class="lbl">Capacity</label>
+          <input class="inp" id="pp-cap" type="number" min="2" max="60" value="6">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">When a time reaches the minimum</label>
+        <div class="pp-seg pp-col">
+          <label><input type="radio" name="pp-mode" value="auto" checked> Make the game automatically</label>
+          <label><input type="radio" name="pp-mode" value="manual"> Ask me first</label>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Poll closes at</label>
+        <input class="inp" id="pp-close" type="datetime-local" onchange="ppCloseTouched=true">
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">At least 2 hours before the earliest time. Default: 3 hours before.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><span class="bar"></span>Who gets the poll</div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Rating from (optional)</label>
+          <input class="inp" id="pp-rmin" type="number" min="0" max="5000" placeholder="Any" oninput="ppDrawRecipients()">
+        </div>
+        <div>
+          <label class="lbl">Rating to (optional)</label>
+          <input class="inp" id="pp-rmax" type="number" min="0" max="5000" placeholder="Any" oninput="ppDrawRecipients()">
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--gray);margin:-4px 0 10px;">A rating range filters this list and is saved on the game.</div>
+      <input class="inp" id="pp-search" placeholder="Search players" oninput="ppDrawRecipients()">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:10px 0 6px;">
+        <span id="pp-count" style="font-size:13px;font-weight:700;color:var(--primary);">0 selected (max 60)</span>
+        <button class="btn btn-g btn-sm" onclick="ppSelectAllShown()">Select all shown</button>
+      </div>
+      <div id="pp-recips" class="pp-list"></div>
+    </div>
+    <div id="pp-err" class="csp-err" role="alert"></div>
+    <button class="btn btn-p btn-w" id="pp-send" onclick="ppSend()" style="margin-top:8px;">Send the poll</button>
   </div>
 
   <!-- SETUP VIEW -->
@@ -1733,6 +1830,7 @@ function showView(v){
   $('view-tournament-setup').classList.toggle('on', v==='tournament-setup');
   $('view-tournament-detail').classList.toggle('on', v==='tournament-detail');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
+  $('view-poll-setup').classList.toggle('on', v==='poll-setup');
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
   refreshAll();
@@ -1740,7 +1838,7 @@ function showView(v){
 function goHome(){
   if(view==='event'){ activeEvent=null; setupState=null; showView('list'); return; }
   if(view==='setup'){ cancelSetup(); return; }
-  if(view==='tournaments' || view==='invite-setup' || view==='partner-setup' || view==='invite-detail' || view==='tournament-setup' || view==='tournament-detail'){ backToList(); return; }
+  if(view==='tournaments' || view==='invite-setup' || view==='partner-setup' || view==='invite-detail' || view==='tournament-setup' || view==='tournament-detail' || view==='poll-setup'){ backToList(); return; }
 }
 function openProfile(){
   if(!window.Identity){ toast('Profile module not loaded yet, refresh the page'); return; }
@@ -1784,7 +1882,7 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTrnPointer(); renderEventList(); }
+  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTrnPointer(); renderEventList(); renderPollEntry(); renderMyPolls(false); }
   else if(view==='tournaments'){ renderTournamentList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
@@ -10186,6 +10284,375 @@ document.addEventListener('DOMContentLoaded', ()=>{
 function doLogout(){
   if(window.CourtSenseAuth) CourtSenseAuth.logout();
   if(window.Identity && Identity.clear) Identity.clear();
+}
+</script>
+
+<script>
+// Pure helpers for Plan with a poll and Your polls, kept apart from the DOM so the
+// check script can run them in a sandbox. Limits and messages mirror the worker's
+// validateCreate (courtsense-email-worker src/pickup-poll.ts); keep the two in step.
+window.csPollPlanKit=(function(){
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var PRESETS=['Tom Brown Park','Four Oaks Park','North Side Community Center','Optimist Park','Southwood','Downtown Sand Volleyball Courts','FSU Lakefront Park & Retreat Center (The Rez)'];
+  var L={ OPTIONS_MIN:2, OPTIONS_MAX:10, RECIPIENTS_MAX:60, CAPACITY_MAX:60, TITLE_MAX:100, LOCATION_MAX:150, RATING_MAX:5000, CLOSE_MIN_MS:2*3600000, CLOSE_DEFAULT_MS:3*3600000 };
+  var DATE_RE=/^\d{4}-\d{2}-\d{2}$/, TIME_RE=/^([01]\d|2[0-3]):[0-5]\d$/, POLL_RE=/^pp[a-z0-9]{8,24}$/;
+  function isInt(v){ return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v; }
+  // An option's start in this browser's zone (Eastern here, same as the worker's).
+  function startMs(date, time){
+    if(!DATE_RE.test(date||'')||!TIME_RE.test(time||'')) return null;
+    var ms=new Date(date+'T'+time+':00').getTime();
+    return isFinite(ms)?ms:null;
+  }
+  function earliestStart(options){
+    var best=null;
+    (options||[]).forEach(function(o){ var s=startMs(o.date,o.startTime); if(s!=null&&(best==null||s<best)) best=s; });
+    return best;
+  }
+  // Earliest option minus 3 hours; never later than minus 2 hours.
+  function defaultCloseAt(options){
+    var e=earliestStart(options);
+    return e==null?null:e-L.CLOSE_DEFAULT_MS;
+  }
+  function toLocalInput(ms){
+    if(ms==null||!isFinite(ms)) return '';
+    var d=new Date(ms), p=function(n){ return String(n).padStart(2,'0'); };
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  function fromLocalInput(v){
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v||'')) return null;
+    var ms=new Date(v+':00').getTime();
+    return isFinite(ms)?ms:null;
+  }
+  // '' when the input would pass the worker's checks, else the worker's own message.
+  function validate(x, now){
+    var title=String(x.title||'').trim()||'Pickup';
+    if(title.length>L.TITLE_MAX) return 'Keep the title to 100 characters.';
+    if(x.locationMode!=='fixed'&&x.locationMode!=='voted') return 'Pick a fixed location or let players vote on it.';
+    var loc=String(x.location||'').trim();
+    if(x.locationMode==='fixed'&&(!loc||loc.length>L.LOCATION_MAX)) return 'Add the location.';
+    if(x.mode!=='auto'&&x.mode!=='manual') return 'Pick auto-create or confirm yourself.';
+    var opts=x.options||[];
+    if(opts.length<L.OPTIONS_MIN||opts.length>L.OPTIONS_MAX) return 'Offer 2 to 10 options.';
+    var seen={};
+    for(var i=0;i<opts.length;i++){
+      var o=opts[i];
+      if(!DATE_RE.test(o.date||'')||!TIME_RE.test(o.startTime||'')) return 'Each option needs a date and a start time.';
+      if(o.endTime&&(!TIME_RE.test(o.endTime)||o.endTime<=o.startTime)) return 'An end time must be after the start time.';
+      var s=startMs(o.date,o.startTime);
+      if(s==null) return 'One option has a date that cannot be read.';
+      if(s<=now) return 'Every option must be in the future.';
+      var ol=String(o.location||'').trim();
+      if(x.locationMode==='voted'&&(!ol||ol.length>L.LOCATION_MAX)) return 'Each option needs a location.';
+      var sig=o.date+'|'+o.startTime+'|'+(x.locationMode==='voted'?ol.toLowerCase():'');
+      if(seen[sig]) return 'Two options are the same.';
+      seen[sig]=true;
+    }
+    if(!isInt(x.minPlayers)||x.minPlayers<2) return 'The minimum must be at least 2 players.';
+    if(!isInt(x.capacity)||x.capacity<x.minPlayers||x.capacity>L.CAPACITY_MAX) return 'Capacity must be at least the minimum and at most 60.';
+    if(!isInt(x.expiresAt)||x.expiresAt<=now) return 'Voting must close in the future.';
+    if(x.expiresAt>earliestStart(opts)-L.CLOSE_MIN_MS) return 'The poll must close at least 2 hours before the earliest time.';
+    var r=x.recipients||[];
+    if(!r.length) return 'Pick who gets the poll.';
+    if(r.length>L.RECIPIENTS_MAX) return 'A poll can go to at most 60 players.';
+    var mn=x.ratingMin, mx=x.ratingMax;
+    if(mn!=null&&(typeof mn!=='number'||!isFinite(mn)||mn<0||mn>L.RATING_MAX)) return 'The rating range is not valid.';
+    if(mx!=null&&(typeof mx!=='number'||!isFinite(mx)||mx<0||mx>L.RATING_MAX)) return 'The rating range is not valid.';
+    if(mn!=null&&mx!=null&&mn>mx) return 'The rating range is not valid.';
+    return '';
+  }
+  // The create body, exactly the fields the worker reads.
+  function createBody(x, session){
+    var b={ sessionToken:session, title:String(x.title||'').trim(), locationMode:x.locationMode, minPlayers:x.minPlayers, capacity:x.capacity,
+      mode:x.mode, expiresAt:x.expiresAt, recipients:(x.recipients||[]).slice() };
+    if(x.locationMode==='fixed') b.location=String(x.location||'').trim();
+    b.options=(x.options||[]).map(function(o){
+      var r={ date:o.date, startTime:o.startTime };
+      if(o.endTime) r.endTime=o.endTime;
+      if(x.locationMode==='voted') r.location=String(o.location||'').trim();
+      return r;
+    });
+    if(x.ratingMin!=null) b.ratingMin=x.ratingMin;
+    if(x.ratingMax!=null) b.ratingMax=x.ratingMax;
+    return b;
+  }
+  // Players a poll can go to: account ids only (the players node is keyed by them), never
+  // demo, blocked, merged, nameless or high school (a membership in a school that is not a
+  // club). The worker checks again and names how many it refused.
+  function recipientPool(profiles, hsSlugs, nameOf, ratingOf){
+    var hs={}; (hsSlugs||[]).forEach(function(s){ hs[s]=true; });
+    var out=[];
+    Object.keys(profiles||{}).forEach(function(id){
+      var p=profiles[id];
+      if(!p||typeof p!=='object'||id.indexOf('demo_')===0||!/^[a-zA-Z0-9_-]{1,200}$/.test(id)) return;
+      if(p.blocked||p.merged||p.mergedInto) return;
+      var nm=nameOf(p);
+      if(!nm) return;
+      var mem=p.memberships&&typeof p.memberships==='object'?Object.keys(p.memberships):[];
+      if(mem.some(function(k){ return hs[k]; })) return;
+      out.push({ id:id, name:nm, rating:ratingOf(nm,id) });
+    });
+    return out.sort(function(a,b){ return a.name.localeCompare(b.name); });
+  }
+  // A rating filter shows only rated players in range; a search matches any word start.
+  function filterPool(pool, f){
+    var q=String(f.q||'').toLowerCase().trim();
+    return pool.filter(function(p){
+      if(f.min!=null&&(p.rating==null||p.rating<f.min)) return false;
+      if(f.max!=null&&(p.rating==null||p.rating>f.max)) return false;
+      if(q&&(' '+p.name.toLowerCase()).indexOf(' '+q)<0) return false;
+      return true;
+    });
+  }
+  // Adds every shown player to the selection, stopping at the 60 cap.
+  function selectAllShown(selected, shown){
+    var out=selected.slice();
+    shown.forEach(function(p){ if(out.length<L.RECIPIENTS_MAX&&out.indexOf(p.id)<0) out.push(p.id); });
+    return out;
+  }
+  function mineReq(session){ return { path:'/pickup/poll/mine', body:{ sessionToken:session } }; }
+  function confirmReq(session, p, optId){ return { path:'/pickup/poll/confirm', body:{ sessionToken:session, p:p, optId:optId } }; }
+  function createReq(body){ return { path:'/pickup/poll/create', body:body }; }
+  function post(fetchFn, req){
+    return fetchFn(WORKER+req.path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body)})
+      .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+      .catch(function(){ return {status:0,j:null}; });
+  }
+  // The worker's message for a refusal, shown as it is.
+  function errorText(res){
+    if(!res||res.status===0) return 'Could not reach CourtSense. Check your connection and try again.';
+    return (res.j&&res.j.error)||'Something went wrong. Try again.';
+  }
+  // The rows of /pickup/poll/mine worth showing: every open poll, then the most recent
+  // closed ones, at most max in all, in the worker's newest-first order.
+  function minePolls(res, max){
+    var list=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls.filter(function(v){ return v&&POLL_RE.test(v.id)&&Array.isArray(v.options); }):[];
+    var open=list.filter(function(v){ return v.open; }), shut=list.filter(function(v){ return !v.open; });
+    return open.concat(shut).slice(0,max);
+  }
+  // One line of status for a poll card.
+  function statusLine(v){
+    if(v.outcome==='game') return 'Game made';
+    if(v.status==='closed'||v.open===false) return v.outcome==='ready_unconfirmed'?'Closed, no time confirmed':'Closed, no time reached '+v.minPlayers;
+    return 'Voting open, closes '+v.closesLabel;
+  }
+  function canConfirm(v, o){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready); }
+  // "Your picks: Sat, Oct 25, 9:00 AM" for a recipient who voted, else ''.
+  function picksLine(v){
+    if(!v.isRecipient||!Array.isArray(v.myPicks)||!v.myPicks.length) return '';
+    var labels=v.options.filter(function(o){ return v.myPicks.indexOf(o.id)>=0; }).map(function(o){ return o.label; });
+    return labels.length?'Your picks: '+labels.join('; '):'';
+  }
+  function voteUrl(id){ return '/pickup/poll/?p='+encodeURIComponent(id); }
+  function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
+  return { WORKER:WORKER, PRESETS:PRESETS, L:L, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
+    fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
+    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
+    statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, voteUrl:voteUrl, gameUrl:gameUrl };
+})();
+</script>
+
+<script>
+// Plan with a poll and Your polls: page wiring for csPollPlanKit.
+let ppOptions = [];
+let ppSelected = [];
+let ppPool = [];
+let ppCloseTouched = false;
+let ppHsSlugs = null;
+let _myPolls = { at: 0, list: [], busy: false };
+
+function ppSession(){
+  try { return (window.CourtSenseAuth && CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null; } catch(e){ return null; }
+}
+function renderPollEntry(){
+  const el = $('poll-entry'); if(el) el.style.display = ppSession() ? '' : 'none';
+}
+function ppLocSelectHTML(id, value){
+  const K = window.csPollPlanKit;
+  const isPreset = K.PRESETS.indexOf(value) >= 0;
+  const other = value && !isPreset;
+  return '<select class="inp" id="'+id+'" onchange="ppLocChanged(\''+id+'\')">'
+    + K.PRESETS.map(p => '<option value="'+escapeHTML(p)+'"'+(p===value?' selected':'')+'>'+escapeHTML(p)+'</option>').join('')
+    + '<option value="__other__"'+(other?' selected':'')+'>Other</option></select>'
+    + '<input class="inp" id="'+id+'-other" placeholder="Enter location" maxlength="150" value="'+(other?escapeHTML(value):'')+'" style="margin-top:8px;'+(other?'':'display:none;')+'" oninput="ppReadOptions()">';
+}
+function ppLocValue(id){
+  const sel = $(id); if(!sel) return '';
+  return sel.value === '__other__' ? (($(id+'-other')||{}).value||'').trim() : sel.value;
+}
+function ppLocChanged(id){
+  const o = $(id+'-other'); if(o) o.style.display = $(id).value === '__other__' ? '' : 'none';
+  ppReadOptions();
+}
+function ppLocModeValue(){ const r = document.querySelector('input[name="pp-locmode"]:checked'); return r ? r.value : 'fixed'; }
+function ppLocMode(){
+  ppReadOptions();
+  $('pp-loc-fixed').style.display = ppLocModeValue() === 'fixed' ? '' : 'none';
+  ppDrawOptions();
+}
+async function startPollPlan(){
+  if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  const K = window.csPollPlanKit;
+  ppOptions = [{ date:'', startTime:'09:00', endTime:'11:00', location:K.PRESETS[0] }, { date:'', startTime:'17:00', endTime:'19:00', location:K.PRESETS[0] }];
+  ppSelected = []; ppCloseTouched = false;
+  $('pp-title').value = ''; $('pp-min').value = '4'; $('pp-cap').value = '6';
+  $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-close').value = ''; $('pp-err').textContent = '';
+  document.querySelector('input[name="pp-locmode"][value="fixed"]').checked = true;
+  document.querySelector('input[name="pp-mode"][value="auto"]').checked = true;
+  $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', K.PRESETS[0]);
+  $('pp-loc-fixed').style.display = '';
+  ppDrawOptions();
+  showView('poll-setup');
+  $('pp-recips').innerHTML = '<div class="pp-row" style="cursor:default;color:var(--gray);">Loading players...</div>';
+  try { await ensureProfilesLoaded(); } catch(e){}
+  if(ppHsSlugs === null && db){
+    try {
+      const cfg = (await db.ref('courtsense_school_configs').once('value')).val() || {};
+      ppHsSlugs = Object.keys(cfg).filter(s => cfg[s] && cfg[s].tiersEnabled !== true);
+    } catch(e){ ppHsSlugs = []; }
+  }
+  // The organizer is listed too, so they can tick themselves and vote like anyone else.
+  ppPool = K.recipientPool(window._profilesCache || {}, ppHsSlugs || [], nameStr, (nm, id) => {
+    const rec = ratingRecordFor(nm, id);
+    return (window.Ratings && Ratings.isRated(rec)) ? Math.round(rec.rating) : null;
+  });
+  ppDrawRecipients();
+}
+function ppDrawOptions(){
+  const voted = ppLocModeValue() === 'voted';
+  $('pp-options').innerHTML = ppOptions.map((o, i) =>
+    '<div class="pp-opt"><div class="pp-opt-head"><span>Time '+(i+1)+'</span>'
+    + (ppOptions.length > 2 ? '<button class="btn btn-g btn-sm" style="min-height:34px;padding:4px 10px;" onclick="ppRemoveOption('+i+')">Remove</button>' : '')
+    + '</div><div class="fg"><label class="lbl">Date</label><input class="inp" type="date" id="pp-d-'+i+'" value="'+escapeHTML(o.date)+'" onchange="ppReadOptions(true)"></div>'
+    + '<div class="row2"><div><label class="lbl">Start</label><input class="inp" type="time" id="pp-s-'+i+'" value="'+escapeHTML(o.startTime)+'" onchange="ppReadOptions(true)"></div>'
+    + '<div><label class="lbl">End</label><input class="inp" type="time" id="pp-e-'+i+'" value="'+escapeHTML(o.endTime)+'" onchange="ppReadOptions()"></div></div>'
+    + (voted ? '<div class="fg"><label class="lbl">Location</label>'+ppLocSelectHTML('pp-l-'+i, o.location)+'</div>' : '')
+    + '</div>').join('');
+  $('pp-add-opt').style.display = ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX ? 'none' : '';
+}
+// Reads the option fields back into ppOptions; a date or start change moves the default
+// close time unless the organizer set it.
+function ppReadOptions(timesChanged){
+  const voted = ppLocModeValue() === 'voted';
+  ppOptions = ppOptions.map((o, i) => ({
+    date: $('pp-d-'+i) ? $('pp-d-'+i).value : o.date,
+    startTime: $('pp-s-'+i) ? $('pp-s-'+i).value : o.startTime,
+    endTime: $('pp-e-'+i) ? $('pp-e-'+i).value : o.endTime,
+    location: voted && $('pp-l-'+i) ? ppLocValue('pp-l-'+i) : o.location,
+  }));
+  if(timesChanged && !ppCloseTouched){
+    const c = window.csPollPlanKit.defaultCloseAt(ppOptions);
+    $('pp-close').value = window.csPollPlanKit.toLocalInput(c);
+  }
+}
+function ppAddOption(){
+  ppReadOptions();
+  if(ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX) return;
+  const last = ppOptions[ppOptions.length - 1] || {};
+  ppOptions.push({ date: last.date || '', startTime: last.startTime || '09:00', endTime: last.endTime || '', location: last.location || window.csPollPlanKit.PRESETS[0] });
+  ppDrawOptions();
+}
+function ppRemoveOption(i){
+  ppReadOptions();
+  if(ppOptions.length <= 2) return;
+  ppOptions.splice(i, 1);
+  ppDrawOptions();
+  ppReadOptions(true);
+}
+function ppNum(id){ const v = ($(id).value||'').trim(); if(v === '') return null; const n = Number(v); return isFinite(n) ? n : NaN; }
+function ppShown(){
+  return window.csPollPlanKit.filterPool(ppPool, { q: $('pp-search').value, min: ppNum('pp-rmin'), max: ppNum('pp-rmax') });
+}
+function ppDrawRecipients(){
+  const shown = ppShown();
+  const cap = window.csPollPlanKit.L.RECIPIENTS_MAX;
+  $('pp-recips').innerHTML = shown.length ? shown.map(p => {
+    const on = ppSelected.indexOf(p.id) >= 0;
+    return '<label class="pp-row"><input type="checkbox" '+(on?'checked':'')+(!on && ppSelected.length >= cap ? ' disabled' : '')
+      + ' onchange="ppToggle(\''+p.id+'\',this.checked)"><span class="pp-name">'+escapeHTML(p.name)+'</span><span class="pp-rt">'+(p.rating==null?'Unrated':p.rating)+'</span></label>';
+  }).join('') : '<div class="pp-row" style="cursor:default;color:var(--gray);">No players match.</div>';
+  $('pp-count').textContent = ppSelected.length + ' selected (max ' + cap + ')';
+}
+function ppToggle(id, on){
+  if(on && ppSelected.indexOf(id) < 0 && ppSelected.length < window.csPollPlanKit.L.RECIPIENTS_MAX) ppSelected.push(id);
+  if(!on) ppSelected = ppSelected.filter(x => x !== id);
+  ppDrawRecipients();
+}
+function ppSelectAllShown(){
+  ppSelected = window.csPollPlanKit.selectAllShown(ppSelected, ppShown());
+  ppDrawRecipients();
+}
+function ppModeValue(){ const r = document.querySelector('input[name="pp-mode"]:checked'); return r ? r.value : 'auto'; }
+function ppReadForm(){
+  ppReadOptions();
+  const K = window.csPollPlanKit;
+  const rmin = ppNum('pp-rmin'), rmax = ppNum('pp-rmax');
+  const locationMode = ppLocModeValue();
+  return {
+    title: $('pp-title').value, locationMode, location: locationMode === 'fixed' ? ppLocValue('pp-loc') : '',
+    options: ppOptions.map(o => ({ date:o.date, startTime:o.startTime, endTime:o.endTime, location:o.location })),
+    minPlayers: Number($('pp-min').value), capacity: Number($('pp-cap').value), mode: ppModeValue(),
+    expiresAt: K.fromLocalInput($('pp-close').value), recipients: ppSelected.slice(),
+    ratingMin: rmin, ratingMax: rmax,
+  };
+}
+async function ppSend(){
+  const K = window.csPollPlanKit;
+  const session = ppSession();
+  if(!session){ $('pp-err').textContent = 'Sign in again to send a poll.'; return; }
+  const x = ppReadForm();
+  const problem = K.validate(x, Date.now());
+  if(problem){ $('pp-err').textContent = problem; return; }
+  $('pp-err').textContent = '';
+  $('pp-send').disabled = true;
+  const res = await K.post(fetch, K.createReq(K.createBody(x, session)));
+  $('pp-send').disabled = false;
+  if(!res.j || !res.j.ok){ $('pp-err').textContent = K.errorText(res); return; }
+  _myPolls.at = 0;
+  toast('Poll sent to ' + res.j.recipientCount + ' players');
+  backToList();
+}
+
+// Your polls: the signed-in player's polls from /pickup/poll/mine (organized or sent to
+// them), refreshed at most once a minute. Signed out, the panel stays empty.
+async function renderMyPolls(force){
+  const box = $('my-polls'); if(!box) return;
+  const session = ppSession();
+  const K = window.csPollPlanKit;
+  if(!session){ _myPolls.list = []; box.innerHTML = ''; return; }
+  if(force || (!_myPolls.busy && Date.now() - _myPolls.at > 60000)){
+    _myPolls.busy = true;
+    const res = await K.post(fetch, K.mineReq(session));
+    _myPolls.busy = false;
+    _myPolls.at = Date.now();
+    _myPolls.list = K.minePolls(res, 10);
+  }
+  ppDrawMyPolls();
+}
+function ppDrawMyPolls(){
+  const box = $('my-polls'); if(!box) return;
+  const K = window.csPollPlanKit;
+  if(!_myPolls.list.length){ box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="ctitle"><span class="bar" style="background:#217F7F"></span>Your polls</div>' + _myPolls.list.map(v => {
+    const rows = v.options.map(o =>
+      '<div class="pp-orow"><span>'+escapeHTML(o.label)+'</span><span class="'+(o.ready?'pp-ready':'')+'">'+o.count+' / '+v.minPlayers+(o.ready?' ready':'')+'</span></div>'
+      + (K.canConfirm(v, o) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '')
+    ).join('');
+    const picks = K.picksLine(v);
+    const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
+      + (v.isRecipient && v.open ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '');
+    return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
+      + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')+'</div>'
+      + rows + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
+  }).join('');
+}
+async function ppConfirm(pollId, optId){
+  const K = window.csPollPlanKit;
+  const session = ppSession();
+  if(!session){ toast('Sign in again'); return; }
+  const res = await K.post(fetch, K.confirmReq(session, pollId, optId));
+  if(!res.j || !res.j.ok){ toast(K.errorText(res)); renderMyPolls(true); return; }
+  toast('Game made. Everyone on the poll is being told.');
+  renderMyPolls(true);
 }
 </script>
 </body>
