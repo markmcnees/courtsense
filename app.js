@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.195';
+const APP_VERSION='1.1.196';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -4548,6 +4548,10 @@ async function pinPress(n){
       pinEntry='';updatePinDots();_pinChecking=false;
     }else if(j&&j.code==='not_set'){
       if(errEl)errEl.textContent='No PIN set for this school. Contact support.';
+      pinEntry='';updatePinDots();_pinChecking=false;
+    }else if(j&&j.code==='pin_unclaimed'){
+      // Provisioned, but the coach has not picked a PIN yet: point them at the emailed link.
+      if(errEl)errEl.textContent='Set your PIN with the link in your welcome email.';
       pinEntry='';updatePinDots();_pinChecking=false;
     }else if(j&&j.code==='server_error'){
       if(errEl)errEl.textContent='Something is wrong on our end, not your password. Try again in a few minutes.';
