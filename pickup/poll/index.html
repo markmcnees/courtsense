@@ -42,6 +42,12 @@
   .opt .where{color:var(--slate);font-size:14px;display:block;}
   .opt .count{font-size:13px;color:var(--slate);display:block;margin-top:4px;}
   .opt .count.ready{color:var(--ok);font-weight:700;}
+  .opt.has-voters{margin-bottom:6px;}
+  .voters{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0 2px;}
+  .chip{font-size:13px;line-height:1.35;padding:3px 10px;border-radius:999px;background:var(--teal-soft);color:var(--ink);max-width:100%;overflow-wrap:anywhere;}
+  .chip.org{font-weight:700;}
+  .chip.pending{background:transparent;border:1px dashed var(--line);color:var(--slate);}
+  .chip-more{font:inherit;font-size:13px;font-weight:600;color:var(--teal);background:none;border:none;padding:3px 4px;min-height:24px;cursor:pointer;text-decoration:underline;}
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:14px 18px;min-height:50px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;text-align:center;text-decoration:none;}
   .btn-teal{background:var(--teal);color:var(--white);}
   .btn-navy{background:var(--navy);color:var(--white);}
@@ -90,6 +96,7 @@
     <p class="meta" id="poll-rule"></p>
     <p class="meta" id="poll-closes"></p>
     <p class="meta" id="poll-answers" style="font-weight:600;color:var(--ink);"></p>
+    <p class="meta" id="poll-none"></p>
     <div id="poll-days"></div>
   </div>
 
@@ -276,6 +283,31 @@ window.csPollKit=(function(){
     var a=v&&v.votedCount, n=v&&v.noneCount, w=v&&v.notAnsweredCount;
     if(typeof a!=='number'||typeof n!=='number'||typeof w!=='number') return '';
     return a+' can make a time, '+n+' said none work, '+w+' '+(w===1?'has':'have')+' not answered.';
+  }
+  // Who picked a time, from the worker's people list and the option's positions in it, in
+  // the order sent (the organizer first, then vote order). Anything malformed is skipped.
+  var NAMES_SHOWN=8;
+  function optionVoters(view, o){
+    var people=view&&Array.isArray(view.people)?view.people:[], out=[];
+    (o&&Array.isArray(o.voters)?o.voters:[]).forEach(function(i){
+      var p=people[i];
+      if(p&&typeof p.label==='string'&&p.label) out.push({label:p.label,isOrganizer:p.isOrganizer===true,pending:p.pending===true});
+    });
+    return out;
+  }
+  // The chips to draw: the first 8 unless opened, and how many are left for "+N more".
+  function voterChips(list, opened){
+    var all=opened||list.length<=NAMES_SHOWN;
+    return {shown:all?list.slice():list.slice(0,NAMES_SHOWN),more:all?0:list.length-NAMES_SHOWN};
+  }
+  function chipText(p){ return p.label+(p.pending?' (pending)':''); }
+  // The organizer's "Said none: A, B." '' for everyone else, or when nobody said none.
+  function noneLine(view){
+    var list=view&&view.isOrganizer&&Array.isArray(view.noneVoters)?view.noneVoters:[];
+    var names=list.map(function(x){ return x&&typeof x.label==='string'?x.label:''; }).filter(Boolean);
+    if(!names.length) return '';
+    var s='Said none: '+names.join(', ');
+    return /\.$/.test(s)?s:s+'.';
   }
   function voteReq(auth, picks){
     var b={}; for(var k in auth) b[k]=auth[k];
@@ -475,7 +507,8 @@ window.csPollKit=(function(){
     return '';
   }
   return { WORKER:WORKER, MSG:MSG, readLink:readLink, cleanSearch:cleanSearch, hasSecret:hasSecret, linkKind:linkKind, storedSession:storedSession,
-    authBody:authBody, infoReq:infoReq, voteReq:voteReq, noneReq:noneReq, answersLine:answersLine, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
+    authBody:authBody, infoReq:infoReq, voteReq:voteReq, noneReq:noneReq, answersLine:answersLine, NAMES_SHOWN:NAMES_SHOWN, optionVoters:optionVoters,
+    voterChips:voterChips, chipText:chipText, noneLine:noneLine, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
     cantMessage:cantMessage, gameLine:gameLine, gameUrl:gameUrl, countLine:countLine, ruleLine:ruleLine, dateLabel:dateLabel, time12:time12,
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel,
@@ -662,6 +695,7 @@ window.csPollKit=(function(){
     $('none-btn').className='btn btn-ghost'+(on?' on':'');
     $('none-btn').setAttribute('aria-pressed',on?'true':'false');
     $('poll-answers').textContent=view&&view.isOrganizer?K.answersLine(view):'';
+    $('poll-none').textContent=K.noneLine(view);
   }
   // A full poll, or a quick account whose picks wait on its email.
   function drawNote(){
@@ -695,7 +729,28 @@ window.csPollKit=(function(){
         $('vote-msg').textContent=''; drawOptions();
       });
       box.appendChild(b);
+      var who=K.optionVoters(view,o);
+      if(who.length){ b.className+=' has-voters'; box.appendChild(drawVoters(o.id,who)); }
     });
+  }
+  // The names under a time, below its button (not inside it): the organizer first,
+  // "(pending)" muted, and "+N more" past 8 opening the rest in place.
+  var namesOpen={};
+  function drawVoters(id, who){
+    var ul=document.createElement('ul'); ul.className='voters';
+    ul.setAttribute('aria-label','Who picked this time');
+    var c=K.voterChips(who,!!namesOpen[id]);
+    c.shown.forEach(function(p){
+      var li=document.createElement('li'); li.className='chip'+(p.isOrganizer?' org':'')+(p.pending?' pending':'');
+      li.textContent=K.chipText(p); ul.appendChild(li);
+    });
+    if(c.more){
+      var li=document.createElement('li'), m=document.createElement('button');
+      m.type='button'; m.className='chip-more'; m.textContent='+'+c.more+' more';
+      m.addEventListener('click',function(){ namesOpen[id]=true; drawOptions(); });
+      li.appendChild(m); ul.appendChild(li);
+    }
+    return ul;
   }
   // Organizer: share the link, and add or dismiss suggested times.
   function drawOrganizer(){
