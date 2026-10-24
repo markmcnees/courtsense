@@ -151,7 +151,10 @@
   .btn.approve:hover{background:#1a6666;}
   .btn.reject{background:var(--white);color:var(--err);border:1px solid #e0c4c1;}
   .btn.reject:hover{background:#fbeeed;}
+  .btn.resend-claim{background:var(--white);color:var(--navy);border:1px solid var(--line);}
+  .btn.resend-claim:hover{background:#f1f4f8;}
   .btn:disabled{opacity:.5;cursor:default;}
+  .email-coach{font-size:13px;color:var(--slate);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;}
   .reviewed-note{font-size:12.5px;color:var(--slate);font-style:italic;}
 
   .approved-panel{
@@ -175,7 +178,6 @@
   .finish label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--slate);margin-bottom:3px;}
   .finish input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:14px;background:var(--white);}
   .finish input:focus{outline:2px solid var(--blue);border-color:var(--blue);}
-  .finish input.pin{font-family:ui-monospace,Menlo,monospace;letter-spacing:2px;}
   .finish .ferr{color:var(--err);font-size:12px;font-weight:600;margin-top:3px;display:none;}
   .finish .ff.bad input{border-color:var(--err);}
   .finish .ff.bad .ferr{display:block;}
@@ -468,14 +470,16 @@ window.csColorKit=(function(){
   }
 
   // ---- status action ----
-  function setStatus(id, status, cardEl){
+  function setStatus(id, status, cardEl, emailCoach){
     var key=ensureAdminKey();
     if(!key) return;
     var btns=cardEl.querySelectorAll('.btn');
     btns.forEach(function(b){ b.disabled=true; });
+    var payload={adminKey:key,id:id,status:status};
+    if(emailCoach===true) payload.emailCoach=true;
     fetch(AUTH_WORKER+'/onboard/admin-status',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({adminKey:key,id:id,status:status})
+      body:JSON.stringify(payload)
     }).then(function(r){
       return r.json().then(function(res){ return {status:r.status,res:res}; });
     }).then(function(o){
@@ -492,9 +496,45 @@ window.csColorKit=(function(){
       // update local state and re-render
       for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ SUBS[i].status=status; break; } }
       render();
+      if(emailCoach===true){
+        showStatus(o.res.coachEmailed
+          ? 'Rejected. The coach got a polite email.'
+          : 'Rejected. The email to the coach did not go out yet; it will retry on the hourly run.','info');
+      }
     }).catch(function(){
       btns.forEach(function(b){ b.disabled=false; });
       showStatus('Could not reach the worker. Try again.','info');
+    });
+  }
+
+  // ---- resend the one-time PIN link ----
+  // Mints a fresh link (older ones stop working) and sends the welcome email again. The
+  // worker refuses once the coach has set a PIN. The link itself never reaches this page.
+  function resendClaim(id, btn, outEl){
+    var key=ensureAdminKey();
+    if(!key) return;
+    if(!window.confirm('Send the coach a new PIN link? Any older link stops working.')) return;
+    var orig=btn.textContent;
+    btn.disabled=true; btn.textContent='Sending...';
+    function say(text, good){
+      if(outEl){ outEl.innerHTML='<p class="fnote" style="margin-top:8px;color:'+(good?'#2e7d32':'var(--err)')+';">'+esc(text)+'</p>'; }
+      else showStatus(text,'info');
+    }
+    fetch(AUTH_WORKER+'/onboard/admin-resend-claim',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({adminKey:key,id:id})
+    }).then(function(r){
+      return r.json().then(function(res){ return {status:r.status,res:res}; }, function(){ return {status:r.status,res:null}; });
+    }).then(function(o){
+      btn.disabled=false; btn.textContent=orig;
+      if(o.status===403 && o.res && o.res.code==='forbidden'){ clearAdminKey(); say('Admin key rejected. Click Refresh to re-enter it.', false); return; }
+      if(!o.res || !o.res.ok){ say((o.res&&o.res.error)||('Could not resend (HTTP '+o.status+').'), false); return; }
+      say(o.res.welcomeEmailSent
+        ? 'A new PIN link went to the coach.'
+        : 'The email did not go out yet; it will retry on the hourly run.', !!o.res.welcomeEmailSent);
+    }).catch(function(){
+      btn.disabled=false; btn.textContent=orig;
+      say('Could not reach the worker. Try again.', false);
     });
   }
 
@@ -562,10 +602,9 @@ window.csColorKit=(function(){
     var slugGuess=(window.CSConfigGen? CSConfigGen.shortSlug(s.schoolName) : (s.schoolName||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''));
     var finishPanel='<div class="finish">'+
       '<h4>Finish setup for this school</h4>'+
-      '<p class="fnote">Confirm the slug and set a unique coach PIN, then generate the config. The slug is permanent once the school saves data.</p>'+
+      '<p class="fnote">Confirm the slug, then create the app. The coach gets a one-time link to set their own PIN. The slug is permanent once the school saves data.</p>'+
       '<div class="frow">'+
         '<div class="ff" data-f="slug"><label>URL slug</label><input class="f-slug" value="'+esc(slugGuess||'school')+'"><div class="ferr">Enter a slug (lowercase, dashes ok).</div></div>'+
-        '<div class="ff" data-f="pin"><label>Coach PIN</label><input class="f-pin pin" maxlength="4" placeholder="4 digits"><div class="ferr">The PIN must be exactly 4 digits.</div></div>'+
         '<div class="ff" data-f="emoji"><label>Team emoji</label><input class="f-emoji" maxlength="4" value="\uD83C\uDFD0"></div>'+
       '</div>'+
       '<button class="genbtn">Create their app</button>'+
@@ -574,11 +613,14 @@ window.csColorKit=(function(){
 
     var actions;
     if(s.status==='pending'){
+      // "Email the coach" is off by default: most rejects are junk entries.
       actions='<button class="expand">Details</button><div class="spacer"></div>'+
+        '<label class="email-coach"><input type="checkbox" class="f-email-coach"> Email the coach</label>'+
         '<button class="btn reject">Reject</button>'+
         '<button class="btn approve">Approve</button>';
     }else{
       actions='<button class="expand">Details</button><div class="spacer"></div>'+
+        (s.status==='approved'&&s.provisionedSlug?'<button class="btn resend-claim" type="button">Resend PIN link</button>':'')+
         '<span class="reviewed-note">'+esc(s.status)+(s.reviewedAt?' &middot; '+esc(s.reviewedAt.slice(0,10)):'')+'</span>';
     }
 
@@ -623,13 +665,20 @@ window.csColorKit=(function(){
       if(ap) ap.addEventListener('click',function(){
         card.classList.add('open');
         card.classList.add('finishing');
-        var pin=card.querySelector('.f-pin'); if(pin) pin.focus();
+        var slugIn=card.querySelector('.f-slug'); if(slugIn) slugIn.focus();
       });
       if(rj) rj.addEventListener('click',function(){
-        if(window.confirm('Reject this submission? Use this only for fake or junk entries. The coach is not notified.')){
-          setStatus(id,'rejected',card);
+        var ec=card.querySelector('.f-email-coach');
+        var emailCoach=!!(ec&&ec.checked);
+        var msg=emailCoach
+          ? 'Reject this submission? The coach gets a short, polite email.'
+          : 'Reject this submission? Use this only for fake or junk entries. The coach is not notified.';
+        if(window.confirm(msg)){
+          setStatus(id,'rejected',card,emailCoach);
         }
       });
+      var rc=card.querySelector('.btn.resend-claim');
+      if(rc) rc.addEventListener('click',function(){ resendClaim(id, rc); });
       // Generate config inside the finish panel
       var gen=card.querySelector('.genbtn');
       if(gen) gen.addEventListener('click',function(){
@@ -1002,28 +1051,14 @@ window.csColorKit=(function(){
   function generateConfig(card, sub, id){
     if(!sub) return;
     var slugFF=card.querySelector('.ff[data-f="slug"]');
-    var pinFF=card.querySelector('.ff[data-f="pin"]');
     var slug=(card.querySelector('.f-slug').value||'').trim();
-    var pin=(card.querySelector('.f-pin').value||'').trim();
     var emoji=(card.querySelector('.f-emoji').value||'').trim();
     var btn=card.querySelector('.genbtn');
     var out=card.querySelector('.gen-out');
 
-    // validate
-    var ok=true;
-    slugFF.classList.remove('bad'); pinFF.classList.remove('bad');
-    if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); ok=false; }
-    // Same rule and wording as the worker's PIN policy: exactly 4 digits, no repeat
-    // and no straight run. The worker also refuses public values and says why.
-    var pinErr=pinFF.querySelector('.ferr');
-    if(!/^\d{4}$/.test(pin)){
-      if(pinErr) pinErr.textContent='The PIN must be exactly 4 digits.';
-      pinFF.classList.add('bad'); ok=false;
-    } else if(/^(\d)\1+$/.test(pin)||'0123456789'.indexOf(pin)>=0||'9876543210'.indexOf(pin)>=0){
-      if(pinErr) pinErr.textContent="Pick a PIN that isn't a repeat or a straight run like 1234.";
-      pinFF.classList.add('bad'); ok=false;
-    }
-    if(!ok) return;
+    // validate. No PIN here: the coach sets their own through the one-time link.
+    slugFF.classList.remove('bad');
+    if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)){ slugFF.classList.add('bad'); return; }
 
     var key=ensureAdminKey();
     if(!key){ if(out) out.innerHTML='<div class="fnote" style="color:var(--err);">Admin key needed.</div>'; return; }
@@ -1034,7 +1069,7 @@ window.csColorKit=(function(){
 
     fetch('https://courtsense-email-worker.markmcnees-479.workers.dev/onboard/provision',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ adminKey:key, id:id, slug:slug, coachPin:pin, teamEmoji:emoji })
+      body:JSON.stringify({ adminKey:key, id:id, slug:slug, teamEmoji:emoji })
     }).then(function(r){
       return r.json().then(function(res){ return {status:r.status,res:res}; }, function(){ return {status:r.status,res:null}; });
     }).then(function(o){
@@ -1053,12 +1088,12 @@ window.csColorKit=(function(){
         return;
       }
       // Success. Provisioning already marked the submission approved server-side; mirror it
-      // locally and swap the finish panel for a success block that KEEPS the live URL and
-      // PIN on screen (the admin needs them to send the coach). Deliberately no full
-      // render() here: it rebuilds cards from cardHtml (no success block) and, under the
-      // default Pending filter, would drop this card and lose the URL. Instead reflect
+      // locally and swap the finish panel for a success block that KEEPS the live URL on
+      // screen. No PIN exists to show: the coach sets it from the emailed link. Deliberately
+      // no full render() here: it rebuilds cards from cardHtml (no success block) and, under
+      // the default Pending filter, would drop this card and lose the URL. Instead reflect
       // approved on this card in place.
-      for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ SUBS[i].status='approved'; break; } }
+      for(var i=0;i<SUBS.length;i++){ if(SUBS[i].id===id){ SUBS[i].status='approved'; SUBS[i].provisionedSlug=slug; break; } }
       var url=o.res.url||('https://courtsense.app/'+slug+'/');
       var finish=card.querySelector('.finish');
       if(finish){
@@ -1066,11 +1101,14 @@ window.csColorKit=(function(){
           '<h4>School provisioned.</h4>'+
           '<div class="grid" style="margin-top:6px;">'+
             '<div class="row full"><div class="k">Live URL</div><div class="v"><a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a></div></div>'+
-            '<div class="row"><div class="k">Coach PIN</div><div class="v">'+esc(pin)+'</div></div>'+
           '</div>'+
           (o.res.welcomeEmailSent
-            ? '<p class="fnote" style="margin-top:10px;color:#2e7d32;">A welcome email with the URL, PIN, first step, and quick start guide went to the coach.</p>'
-            : '<p class="fnote" style="margin-top:10px;color:var(--err);">The welcome email did not send. Send the coach their URL and PIN by hand.</p>');
+            ? '<p class="fnote" style="margin-top:10px;color:#2e7d32;">PIN link sent to the coach.</p>'
+            : '<p class="fnote" style="margin-top:10px;color:var(--err);">The welcome email did not go out yet. Use Resend PIN link.</p>')+
+          '<button class="btn resend-claim" type="button" style="margin-top:6px;">Resend PIN link</button>'+
+          '<div class="resend-out"></div>';
+        var rcb=finish.querySelector('.btn.resend-claim');
+        if(rcb) rcb.addEventListener('click',function(){ resendClaim(id, rcb, finish.querySelector('.resend-out')); });
       }
       var badge=card.querySelector('.badge');
       if(badge){ badge.className='badge approved'; badge.textContent='approved'; }
