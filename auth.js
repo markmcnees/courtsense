@@ -125,6 +125,7 @@
   const STYLE = `
 .cs-auth-overlay{display:none;position:fixed;inset:0;background:linear-gradient(150deg,#0f2347 0%,#1a3a6b 100%);z-index:9500;align-items:flex-start;justify-content:center;padding:48px 16px 16px;overflow-y:auto;font-family:'Barlow',sans-serif;color:#111827;}
 .cs-auth-overlay.on{display:flex;}
+.cs-auth-box,.cs-auth-input,.cs-auth-btn{box-sizing:border-box;max-width:100%;}
 .cs-auth-box{background:#fff;border-radius:18px;padding:28px 22px 22px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.35);}
 .cs-auth-logo{display:block;width:100%;max-width:240px;height:auto;margin:0 auto 6px;}
 .cs-auth-sub{text-align:center;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:#1a3a6b;margin-bottom:18px;}
@@ -649,6 +650,44 @@
     return { ok:true };
   }
 
+  // ── quickSignup: a quick account from a pickup poll link ──────────────────
+  // POST /auth/quick-signup with first and last name, email, password, the 13 or older
+  // box, the 18 or older answer and the Turnstile token. On success the session is saved
+  // exactly as sign-in saves it (persistSession), so every page sees the player signed
+  // in. The worker checks every field; errors come back as the worker words them.
+  async function quickSignup(opts){
+    const o = opts || {};
+    if(o.over13 !== true) return { ok:false, error:'You must be 13 or older to create an account.' };
+    const email = String(o.email == null ? '' : o.email).trim().toLowerCase();
+    let res = null;
+    try {
+      const r = await fetch(AUTH_WORKER + '/auth/quick-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: String(o.firstName == null ? '' : o.firstName).trim(),
+          lastName: String(o.lastName == null ? '' : o.lastName).trim(),
+          email: email,
+          password: o.password == null ? '' : String(o.password),
+          over13: true,
+          adult: o.adult === true ? true : o.adult === false ? false : null,
+          turnstileToken: String(o.turnstileToken == null ? '' : o.turnstileToken),
+          remember: o.keepSignedIn !== false
+        })
+      });
+      res = await r.json();
+    } catch(e) {
+      return { ok:false, error:'Network error. Try again.' };
+    }
+    if(!res || res.ok !== true || !res.playerId){
+      return { ok:false, error:(res && res.error) || 'Could not create your account. Try again.', code:(res && res.code) || '' };
+    }
+    persistSession(res.playerId, o.keepSignedIn !== false, email, sessionFrom(res));
+    const dn = (String(o.firstName || '').trim() + ' ' + String(o.lastName || '').trim()).trim();
+    _currentPlayer = { id: res.playerId, displayName: dn, name: dn, profileIncomplete: true };
+    return { ok:true, playerId: res.playerId, sessionToken: res.sessionToken || '' };
+  }
+
   // ── createPlayer: self-serve community signup ────────────────────────────
   // Validates input, asks the worker's /auth/signup to create the account (record,
   // password, and email, all server side), queues a 'welcome' email
@@ -844,6 +883,7 @@
     logout,
     changePassword,
     createPlayer,
+    quickSignup,
     getSessionToken,
     isVerified
   };
