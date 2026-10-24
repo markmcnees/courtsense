@@ -1736,6 +1736,14 @@ async function notifyWorker(path, payload){
     return true;
   }catch(e){ console.error('notify failed', path, e); return false; }
 }
+// Adds the signed-in player's worker session to a notify payload, so the worker can tell
+// who is asking. Signed out (or no session yet), the payload goes as it was.
+function withNotifySession(payload){
+  let t = null;
+  try { t = (window.CourtSenseAuth && CourtSenseAuth.getSessionToken) ? CourtSenseAuth.getSessionToken() : null; } catch(e){ t = null; }
+  if(t) payload.sessionToken = t;
+  return payload;
+}
 // Follow-up toast, shown only when the email did not go out. The action's own success
 // toast has already fired and is never retracted.
 function warnIfNotEmailed(p, note){
@@ -8883,14 +8891,14 @@ async function saveInvite(){
         // The promotions are already committed above. These emails are separate and
         // a failure here never un-promotes anyone.
         const _promoNotifies = promoted.map(p=>
-          notifyWorker('/auth/notify', { type: 'waitlist_promotion', data: {
+          notifyWorker('/auth/notify', withNotifySession({ type: 'waitlist_promotion', data: {
             playerId: p.accountId || undefined,
             playerKey: p.key || undefined,
             playerName: p.name,
             inviteId: _id,
             name: merged.name, date: merged.date, startTime: merged.startTime, slots: merged.slots,
             rsvpDeadline: merged.rsvpDeadline, hostName: merged.hostName, location: merged.location
-          } })
+          } }))
         );
         warnIfAnyNotEmailed(_promoNotifies, 'Promoted, but no one was emailed.');
       }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
@@ -8973,7 +8981,7 @@ async function saveInvite(){
         // The game is already scheduled. A failed invite email does not unschedule it,
         // but the host must know the invites did not reach anyone.
         warnIfNotEmailed(
-          notifyWorker('/pickup/invite-notify', {
+          notifyWorker('/pickup/invite-notify', withNotifySession({
             inviteId: firstId,
             hostKey: base.hostId || null,
             players,
@@ -8981,7 +8989,7 @@ async function saveInvite(){
               name: base.name, date: base.date, startTime: base.startTime, slots: base.slots,
               rsvpDeadline: base.rsvpDeadline, hostName: base.hostName, location: base.location
             }
-          }),
+          })),
           'Game posted, but the invites were not emailed.'
         );
       }
@@ -9845,7 +9853,7 @@ function requestSpot(){
   // succeeded above, but it is now reported rather than swallowed: the guest used to be
   // told the request was sent while the host had in fact never been told anything.
   const _hostNotify = notifyWorker('/pickup/request-notify',
-    { inviteId: activeInvite, guestName: first+' '+last, guestEmail: email || '' });
+    { inviteId: activeInvite, reqId: reqId, guestName: first+' '+last, guestEmail: email || '' });
 
   renderInviteDetail();
   toast('Request sent ✓');
@@ -9919,14 +9927,14 @@ function declineRsvp(targetKey){
       // The promotion is already committed above and stays committed. Only the email
       // to the promoted player can fail, and it now says so instead of going quiet.
       warnIfNotEmailed(
-        notifyWorker('/auth/notify', { type: 'waitlist_promotion', data: {
+        notifyWorker('/auth/notify', withNotifySession({ type: 'waitlist_promotion', data: {
           playerId: promotedAccountId || undefined,
           playerKey: promotedKey || undefined,
           playerName: promotedName,
           inviteId: activeInvite,
           name: i.name, date: i.date, startTime: i.startTime, slots: i.slots,
           rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
-        } }),
+        } })),
         promotedName + ' was promoted but not emailed.'
       );
     }
@@ -10138,14 +10146,14 @@ function hostAddToGame(rsvpName, rsvpKey, accountId){
   // succeeded; a failure only adds a follow-up toast.
   let _addNotify = null;
   if(accountId){
-    _addNotify = notifyWorker('/auth/notify', { type: 'host_added', data: {
+    _addNotify = notifyWorker('/auth/notify', withNotifySession({ type: 'host_added', data: {
       playerId: accountId,
       playerKey: rsvpKey,
       playerName: rsvpName,
       inviteId: activeInvite,
       name: i.name, date: i.date, startTime: i.startTime, slots: newSlots,
       rsvpDeadline: i.rsvpDeadline, hostName: i.hostName, location: i.location
-    } });
+    } }));
   }
 
   toast(isFull ? 'Added, game expanded to '+newSlots : 'Added ✓');
@@ -10274,6 +10282,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // (no auto-RSVP/decline) — the in-app Opt In button on the detail is how they join.
   const _deepLinkParams = new URLSearchParams(location.search);
   const _deepLinkGame = _deepLinkParams.get('game') || _deepLinkParams.get('invite');
+  // Email links carry action and u (an account id) the page never acts on. They are read
+  // above and then removed from the address bar, so they are not kept or shared; game
+  // or invite stays.
+  try {
+    const _shown = csStripEmailParams(location.search);
+    if(_shown !== location.search) history.replaceState(history.state, '', location.pathname + _shown + location.hash);
+  } catch(e){}
   if(_deepLinkGame) openDeepLinkGame(_deepLinkGame);
 
   // ?view=tournaments is how the site nav reaches the tournament directory, and
@@ -10365,6 +10380,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
 });
 
+// The query string without the email-link action and u parameters; everything else kept.
+function csStripEmailParams(search){
+  const q = new URLSearchParams(search || '');
+  if(!q.has('action') && !q.has('u')) return search || '';
+  q.delete('action'); q.delete('u');
+  const rest = q.toString();
+  return rest ? '?' + rest : '';
+}
 // The only return paths the pickup page will follow after sign-in: the partner board,
 // and one pickup poll by its id. Anything else is ignored (no open redirect).
 function csReturnPath(r){
