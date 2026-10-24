@@ -650,6 +650,16 @@
     return { ok:true };
   }
 
+  // The link that brought this browser here (?src=, kept 30 days by /signup-source.js),
+  // sent with a new account as signupSource and signupSourceAt. Empty when the page did
+  // not load that script or there is none; never stops a sign-up.
+  function signupSourceFields(){
+    try {
+      const v = window.csSignupSource && window.csSignupSource.get();
+      return v ? { signupSource: v.signupSource, signupSourceAt: v.signupSourceAt } : {};
+    } catch(e){ return {}; }
+  }
+
   // ── quickSignup: a quick account from a pickup poll link ──────────────────
   // POST /auth/quick-signup with first and last name, email, password, the 13 or older
   // box, the 18 or older answer and the Turnstile token. On success the session is saved
@@ -664,7 +674,7 @@
       const r = await fetch(AUTH_WORKER + '/auth/quick-signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({
           firstName: String(o.firstName == null ? '' : o.firstName).trim(),
           lastName: String(o.lastName == null ? '' : o.lastName).trim(),
           email: email,
@@ -673,7 +683,7 @@
           adult: o.adult === true ? true : o.adult === false ? false : null,
           turnstileToken: String(o.turnstileToken == null ? '' : o.turnstileToken),
           remember: o.keepSignedIn !== false
-        })
+        }, signupSourceFields()))
       });
       res = await r.json();
     } catch(e) {
@@ -747,7 +757,7 @@
       const rr = await fetch(AUTH_WORKER + '/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({
           email: emailLower,
           password: password,
           displayName: displayName,
@@ -757,7 +767,7 @@
           leaguePlayerId: leagueMatch,
           tenant: (tenantSlug || tenantName) ? { slug: tenantSlug, name: tenantName } : null,
           remember: !!o.keepSignedIn
-        })
+        }, signupSourceFields()))
       });
       reg = await rr.json();
     } catch(e){

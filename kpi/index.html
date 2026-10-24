@@ -66,6 +66,12 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
 .list .fill{height:100%;background:var(--bar);border-radius:6px;}
 .list .val{font-weight:700;min-width:28px;text-align:right;}
 .list h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.tbl-wrap{overflow-x:auto;}
+.tbl{border-collapse:collapse;width:100%;font-size:14px;}
+.tbl th,.tbl td{padding:6px 8px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);}
+.tbl th:first-child,.tbl td:first-child{text-align:left;}
+.tbl th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600;}
+.tbl tr.none td{color:var(--muted);}
 .foot{margin-top:28px;display:flex;justify-content:center;}
 @media (min-width:900px){ .grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));} }
 </style>
@@ -227,6 +233,33 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     dash.appendChild(box);
   }
 
+  // A small table in a card: head is the column labels, rows are arrays of cells.
+  function table(dash, title, head, rows){
+    const box = el('div', 'list');
+    box.appendChild(el('h4', null, title));
+    const wrap = el('div', 'tbl-wrap'); const t = el('table', 'tbl');
+    const hr = el('tr'); head.forEach(h => hr.appendChild(el('th', null, h))); t.appendChild(hr);
+    rows.forEach(r => { const tr = el('tr', r.cls || null); r.cells.forEach(c => tr.appendChild(el('td', null, c))); t.appendChild(tr); });
+    wrap.appendChild(t); box.appendChild(wrap); dash.appendChild(box);
+  }
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function weekLabel(ymd){ const p = String(ymd).split('-').map(Number); return p.length === 3 && MONTHS[p[1] - 1] ? MONTHS[p[1] - 1] + ' ' + p[2] : String(ymd); }
+  // Sign-ups by source: the ?src= link each new account came from. Counts only.
+  function drawSources(dash, s){
+    section(dash, 'Sign-ups by source');
+    if(!s || !Array.isArray(s.rows)){ dash.appendChild(el('p', 'note', 'No data yet.')); return; }
+    const none = s.none || {};
+    if(!s.rows.length) dash.appendChild(el('p', 'note', 'No sign-ups from a tracked link yet. Links look like courtsense.app/pickup/?src=fb-orlando.'));
+    const all = s.rows.map(r => ({ cells: [r.source, fmt(r.d7), fmt(r.d30), fmt(r.all), fmt(r.rsvpd), fmt(r.voted)] }));
+    all.push({ cls: 'none', cells: ['No source', fmt(none.d7), fmt(none.d30), fmt(none.all), fmt(none.rsvpd), fmt(none.voted)] });
+    table(dash, 'New accounts by source', ['Source', '7 days', '30 days', 'All time', "RSVP'd", 'Voted'], all);
+    const weeks = Array.isArray(s.weeks) ? s.weeks : [];
+    const wk = s.rows.map(r => ({ cells: [r.source].concat((r.weekly || []).map(fmt)) }));
+    wk.push({ cls: 'none', cells: ['No source'].concat((none.weekly || []).map(fmt)) });
+    table(dash, 'By week, Monday to Monday (Eastern)', ['Source'].concat(weeks.map(weekLabel)), wk);
+    dash.appendChild(el('p', 'note', "RSVP'd: said yes to a game someone else posted. Voted: answered a pickup poll."));
+  }
+
   function render(m){
     const dash = $('dash'); dash.textContent = '';
     const g = m.growth || {}, a = m.active || {}, hs = m.highSchool || {}, cl = m.club || {}, lg = m.league || {}, pk = m.pickup || {}, en = m.engagement || {}, pl = m.pipeline || {}, cd = m.crossDoor || {};
@@ -237,6 +270,8 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
       { value: fmt(g.new30), label: 'New accounts, 30 days', d30: fmt(g.newPrior30) + ' the 30 days before', cur: g.new30, prior: g.newPrior30 },
       { value: fmt(g.new7), label: 'New accounts, 7 days' }
     ]);
+
+    drawSources(dash, m.signupSources);
 
     section(dash, 'Activation');
     const ac = m.activation || {};
