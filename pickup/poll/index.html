@@ -45,6 +45,8 @@
   .btn-teal{background:var(--teal);color:var(--white);}
   .btn-navy{background:var(--navy);color:var(--white);}
   .btn-red{background:#B42318;color:var(--white);}
+  .btn-ghost{background:transparent;border:2px solid var(--line);color:var(--slate);margin-top:10px;font-size:16px;}
+  .btn-ghost.on{border-color:var(--teal);color:var(--teal);background:var(--teal-soft);}
   .btn:disabled{opacity:.5;cursor:default;}
   .msg{font-size:15px;margin:12px 0 0;min-height:1em;}
   .msg.ok{color:var(--ok);font-weight:600;}
@@ -69,11 +71,13 @@
     <p class="meta" id="poll-where"></p>
     <p class="meta" id="poll-rule"></p>
     <p class="meta" id="poll-closes"></p>
+    <p class="meta" id="poll-answers" style="font-weight:600;color:var(--ink);"></p>
   </div>
 
   <div class="card hidden" id="vote-card">
     <div id="opts"></div>
     <button class="btn btn-teal" id="save-btn" type="button">Save my picks</button>
+    <button class="btn btn-ghost" id="none-btn" type="button" aria-pressed="false">None of these times work for me</button>
     <p class="msg" id="vote-msg" role="status"></p>
   </div>
 
@@ -115,6 +119,7 @@ window.csPollKit=(function(){
   var MSG={
     invalid:'This poll link is not valid. Ask the organizer for a new one.',
     saved:'Saved. You will get an email if a time is picked.',
+    none:'Got it. You can still pick times until the poll closes.',
     expired:'Voting has closed and no time reached the minimum, so no game was made.',
     offline:'Could not reach CourtSense. Check your connection and try again.',
     signin:'Sign in on the pickup page, then open this poll again.',
@@ -174,6 +179,19 @@ window.csPollKit=(function(){
     return null;
   }
   function infoReq(auth){ return {path:'/pickup/poll/info',body:auth}; }
+  // "None of these times work for me": the vote route with none: true and no picks.
+  function noneReq(auth){
+    var b={}; for(var k in auth) b[k]=auth[k];
+    b.none=true;
+    return {path:'/pickup/poll/vote',body:b};
+  }
+  // The organizer's results line, the same sentence as their emails. '' when the worker
+  // sent no counts.
+  function answersLine(v){
+    var a=v&&v.votedCount, n=v&&v.noneCount, w=v&&v.notAnsweredCount;
+    if(typeof a!=='number'||typeof n!=='number'||typeof w!=='number') return '';
+    return a+' can make a time, '+n+' said none work, '+w+' '+(w===1?'has':'have')+' not answered.';
+  }
   function voteReq(auth, picks){
     var b={}; for(var k in auth) b[k]=auth[k];
     b.picks=picks.slice();
@@ -283,7 +301,7 @@ window.csPollKit=(function(){
     return 'Needs '+view.minPlayers+' players, up to '+view.capacity+'. '+(auto?'The first time to reach '+view.minPlayers+' becomes the game.':'The organizer picks the game from times that reach '+view.minPlayers+'.');
   }
   return { WORKER:WORKER, MSG:MSG, readLink:readLink, cleanSearch:cleanSearch, hasSecret:hasSecret, linkKind:linkKind, storedSession:storedSession,
-    authBody:authBody, infoReq:infoReq, voteReq:voteReq, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
+    authBody:authBody, infoReq:infoReq, voteReq:voteReq, noneReq:noneReq, answersLine:answersLine, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
     cantMessage:cantMessage, gameLine:gameLine, gameUrl:gameUrl, countLine:countLine, ruleLine:ruleLine, dateLabel:dateLabel, time12:time12,
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText };
 })();
@@ -383,7 +401,16 @@ window.csPollKit=(function(){
     }
     picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; });
     drawOptions();
+    drawNone();
+    if(view.myNone){ $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none; }
     show('vote-card');
+  }
+  // The none button reads as chosen while the player's answer is "none of these".
+  function drawNone(){
+    var on=!!(view&&view.myNone);
+    $('none-btn').className='btn btn-ghost'+(on?' on':'');
+    $('none-btn').setAttribute('aria-pressed',on?'true':'false');
+    $('poll-answers').textContent=view&&view.isOrganizer?K.answersLine(view):'';
   }
   function plainKeepPoll(title,text){
     $('plain-title').textContent=title; $('plain-text').textContent=text; show('plain-card');
@@ -412,8 +439,24 @@ window.csPollKit=(function(){
       $('save-btn').disabled=false;
       var s=K.stateOf(res);
       if(s==='open'&&res.j&&res.j.ok!==false){
-        view=res.j; drawOptions();
+        view=res.j; drawOptions(); drawNone();
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.saved;
+        return;
+      }
+      if(s==='game'||s==='expired'){ render(res); return; }
+      $('vote-msg').className='msg err';
+      $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
+    });
+  });
+  // "None of these times work for me": clears every pick on the worker and here.
+  $('none-btn').addEventListener('click',function(){
+    $('none-btn').disabled=true; $('vote-msg').className='msg'; $('vote-msg').textContent='Saving...';
+    K.post(fetch,K.noneReq(auth)).then(function(res){
+      $('none-btn').disabled=false;
+      var s=K.stateOf(res);
+      if(s==='open'&&res.j&&res.j.ok!==false){
+        view=res.j; picks={}; drawOptions(); drawNone();
+        $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none;
         return;
       }
       if(s==='game'||s==='expired'){ render(res); return; }

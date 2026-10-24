@@ -8020,6 +8020,9 @@ function cancelPartnerPost(){
 
 // SETUP / EDIT
 let _userEditedTitle = false;
+// End time follows start + 2 hours until the host types their own end; clearing the end
+// field hands it back to the auto-fill (csPollPlanKit.autoEnd, shared with the poll rows).
+let _userEditedEnd = false;
 
 function autoTitle(dateISO){
   if(!dateISO) return 'Pickup';
@@ -8034,7 +8037,11 @@ function wireSetupListeners(){
     rebuildCourtPicker();
   };
   $('iv-date').onchange = onDateOrStart;
-  $('iv-start').onchange = onDateOrStart;
+  $('iv-start').onchange = ()=>{
+    if(!_userEditedEnd && window.csPollPlanKit) $('iv-end').value = csPollPlanKit.autoEnd($('iv-start').value);
+    onDateOrStart();
+  };
+  $('iv-end').oninput = ()=>{ _userEditedEnd = $('iv-end').value !== ''; };
   $('iv-end').onchange = rebuildCourtPicker;
 }
 
@@ -8234,6 +8241,7 @@ function startNewInvite(){
   inviteWideningTiers = [];
   inviteCancelDeadlineOffsetMins = null;
   _userEditedTitle = false;
+  _userEditedEnd = false;
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
     setTimeout(()=>{
@@ -8288,6 +8296,7 @@ function startEditInvite(id){
   inviteWideningTiers = Array.isArray(i.wideningTiers) ? deepCopy(i.wideningTiers) : [];
   inviteCancelDeadlineOffsetMins = Number.isInteger(i.cancelDeadlineOffsetMins) ? i.cancelDeadlineOffsetMins : null;
   _userEditedTitle = true; // existing title is whatever the host saved; do not auto-overwrite on date change
+  _userEditedEnd = true;   // same for the saved end time: a start change on edit leaves it alone
   ensureProfilesLoaded().then(()=>{
     showView('invite-setup');
     setTimeout(()=>{
@@ -10436,18 +10445,57 @@ window.csPollPlanKit=(function(){
     return 'Voting open, closes '+v.closesLabel;
   }
   function canConfirm(v, o){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready); }
-  // "Your picks: Sat, Oct 25, 9:00 AM" for a recipient who voted, else ''.
+  // "Your picks: Sat, Oct 25, 9:00 AM" for a recipient who voted, the none answer when
+  // they said none of these work, else ''.
   function picksLine(v){
-    if(!v.isRecipient||!Array.isArray(v.myPicks)||!v.myPicks.length) return '';
+    if(!v.isRecipient) return '';
+    if(v.myNone) return 'You said none of these times work.';
+    if(!Array.isArray(v.myPicks)||!v.myPicks.length) return '';
     var labels=v.options.filter(function(o){ return v.myPicks.indexOf(o.id)>=0; }).map(function(o){ return o.label; });
     return labels.length?'Your picks: '+labels.join('; '):'';
+  }
+  // "4 can make it, 1 can't, 2 not answered" from the worker's counts; '' without them.
+  function summaryLine(v){
+    var a=v&&v.votedCount, n=v&&v.noneCount, w=v&&v.notAnsweredCount;
+    if(typeof a!=='number'||typeof n!=='number'||typeof w!=='number') return '';
+    return a+' can make it, '+n+" can't, "+w+' not answered';
+  }
+  // End time auto-fill: start + 2 hours as HH:MM, held at 23:59 when that would pass
+  // midnight; '' for a start that is not a time.
+  function autoEnd(start){
+    var m=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(start||'');
+    if(!m) return '';
+    var t=(+m[1])*60+(+m[2])+120;
+    if(t>=24*60) return '23:59';
+    return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+  }
+  // A poll time row after its start changes: the end follows unless the organizer set it.
+  function rowAfterStart(row, start){
+    var r={}; for(var k in row) r[k]=row[k];
+    r.startTime=start;
+    if(!r.endEdited) r.endTime=autoEnd(start);
+    return r;
+  }
+  // A poll time row after its end is typed: edited while it has a value; cleared hands it
+  // back to the auto-fill.
+  function rowAfterEnd(row, end){
+    var r={}; for(var k in row) r[k]=row[k];
+    r.endTime=end;
+    r.endEdited=end!=='';
+    return r;
+  }
+  // A new poll time row: starts where the last one did, end filled by the auto-fill.
+  function newRow(last, fallbackLocation){
+    var start=(last&&last.startTime)||'09:00';
+    return { date:(last&&last.date)||'', startTime:start, endTime:autoEnd(start), endEdited:false, location:(last&&last.location)||fallbackLocation };
   }
   function voteUrl(id){ return '/pickup/poll/?p='+encodeURIComponent(id); }
   function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
-    statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, voteUrl:voteUrl, gameUrl:gameUrl };
+    statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
+    autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow };
 })();
 </script>
 
@@ -10492,7 +10540,7 @@ function ppLocMode(){
 async function startPollPlan(){
   if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   const K = window.csPollPlanKit;
-  ppOptions = [{ date:'', startTime:'09:00', endTime:'11:00', location:K.PRESETS[0] }, { date:'', startTime:'17:00', endTime:'19:00', location:K.PRESETS[0] }];
+  ppOptions = [K.newRow({ startTime:'09:00' }, K.PRESETS[0]), K.newRow({ startTime:'17:00' }, K.PRESETS[0])];
   ppSelected = []; ppCloseTouched = false;
   $('pp-title').value = ''; $('pp-min').value = '4'; $('pp-cap').value = '6';
   $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-close').value = ''; $('pp-err').textContent = '';
@@ -10523,8 +10571,8 @@ function ppDrawOptions(){
     '<div class="pp-opt"><div class="pp-opt-head"><span>Time '+(i+1)+'</span>'
     + (ppOptions.length > 2 ? '<button class="btn btn-g btn-sm" style="min-height:34px;padding:4px 10px;" onclick="ppRemoveOption('+i+')">Remove</button>' : '')
     + '</div><div class="fg"><label class="lbl">Date</label><input class="inp" type="date" id="pp-d-'+i+'" value="'+escapeHTML(o.date)+'" onchange="ppReadOptions(true)"></div>'
-    + '<div class="row2"><div><label class="lbl">Start</label><input class="inp" type="time" id="pp-s-'+i+'" value="'+escapeHTML(o.startTime)+'" onchange="ppReadOptions(true)"></div>'
-    + '<div><label class="lbl">End</label><input class="inp" type="time" id="pp-e-'+i+'" value="'+escapeHTML(o.endTime)+'" onchange="ppReadOptions()"></div></div>'
+    + '<div class="row2"><div><label class="lbl">Start</label><input class="inp" type="time" id="pp-s-'+i+'" value="'+escapeHTML(o.startTime)+'" onchange="ppStartChanged('+i+')"></div>'
+    + '<div><label class="lbl">End</label><input class="inp" type="time" id="pp-e-'+i+'" value="'+escapeHTML(o.endTime)+'" oninput="ppEndInput('+i+')"></div></div>'
     + (voted ? '<div class="fg"><label class="lbl">Location</label>'+ppLocSelectHTML('pp-l-'+i, o.location)+'</div>' : '')
     + '</div>').join('');
   $('pp-add-opt').style.display = ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX ? 'none' : '';
@@ -10537,6 +10585,7 @@ function ppReadOptions(timesChanged){
     date: $('pp-d-'+i) ? $('pp-d-'+i).value : o.date,
     startTime: $('pp-s-'+i) ? $('pp-s-'+i).value : o.startTime,
     endTime: $('pp-e-'+i) ? $('pp-e-'+i).value : o.endTime,
+    endEdited: !!o.endEdited,
     location: voted && $('pp-l-'+i) ? ppLocValue('pp-l-'+i) : o.location,
   }));
   if(timesChanged && !ppCloseTouched){
@@ -10547,9 +10596,18 @@ function ppReadOptions(timesChanged){
 function ppAddOption(){
   ppReadOptions();
   if(ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX) return;
-  const last = ppOptions[ppOptions.length - 1] || {};
-  ppOptions.push({ date: last.date || '', startTime: last.startTime || '09:00', endTime: last.endTime || '', location: last.location || window.csPollPlanKit.PRESETS[0] });
+  ppOptions.push(window.csPollPlanKit.newRow(ppOptions[ppOptions.length - 1], window.csPollPlanKit.PRESETS[0]));
   ppDrawOptions();
+}
+// A start change moves that row's end to start + 2 hours unless the end was typed.
+function ppStartChanged(i){
+  ppReadOptions();
+  ppOptions[i] = window.csPollPlanKit.rowAfterStart(ppOptions[i], ppOptions[i].startTime);
+  if($('pp-e-'+i)) $('pp-e-'+i).value = ppOptions[i].endTime;
+  ppReadOptions(true);
+}
+function ppEndInput(i){
+  ppOptions[i] = window.csPollPlanKit.rowAfterEnd(ppOptions[i], $('pp-e-'+i) ? $('pp-e-'+i).value : '');
 }
 function ppRemoveOption(i){
   ppReadOptions();
@@ -10641,7 +10699,8 @@ function ppDrawMyPolls(){
     const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
       + (v.isRecipient && v.open ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '');
     return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
-      + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')+'</div>'
+      + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')
+      + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')+'</div>'
       + rows + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
   }).join('');
 }
