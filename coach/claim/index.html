@@ -85,6 +85,7 @@
     </form>
     <div id="claim-dead" class="hidden">
       <h2>This link is done</h2>
+      <p id="claim-dead-nosave" class="hidden">Your PIN was not saved.</p>
       <p>This link has expired or was already used. Ask Mark for a new one.</p>
       <p><a href="mailto:mark@courtsense.app">mark@courtsense.app</a></p>
     </div>
@@ -114,7 +115,12 @@
   var btn=document.getElementById('claim-btn');
   var msg=document.getElementById('claim-msg');
 
-  function showDead(){ form.classList.add('hidden'); dead.classList.remove('hidden'); }
+  // afterSubmit: the coach typed a PIN and the worker refused the link, so say the PIN
+  // was not saved. A bad link on load never had a PIN typed, so it shows the plain screen.
+  function showDead(afterSubmit){
+    form.classList.add('hidden'); dead.classList.remove('hidden');
+    if(afterSubmit){ var ns=document.getElementById('claim-dead-nosave'); if(ns) ns.classList.remove('hidden'); }
+  }
   function say(text, kind){ msg.textContent=text; msg.className='msg'+(kind?' '+kind:''); }
 
   if(!/^[a-f0-9]{64}$/.test(token)){ showDead(); return; }
@@ -152,13 +158,15 @@
         return;
       }
       btn.disabled=false;
-      if(j.code==='invalid_token'){ showDead(); return; }
-      if(o.status===429){ say('Too many tries. Wait a few minutes and try again.','err'); return; }
-      if(o.status===400 && j.error){ say(j.error,'err'); return; }
-      say('Something went wrong. Try again.','err');
+      if(j.code==='invalid_token'){ showDead(true); return; }
+      // Every other refusal keeps the form open and says plainly that nothing was saved.
+      var NOT_SAVED='Your PIN was not saved. ';
+      if(o.status===429){ say(NOT_SAVED+'Too many tries. Wait a few minutes and try again.','err'); return; }
+      if(o.status===400 && j.error){ say(NOT_SAVED+j.error,'err'); return; }
+      say(NOT_SAVED+'Something went wrong. Try again.','err');
     }).catch(function(){
       btn.disabled=false;
-      say('Could not reach the server. Check your connection and try again.','err');
+      say('Your PIN was not saved. Could not reach the server. Check your connection and try again.','err');
     });
   });
 })();

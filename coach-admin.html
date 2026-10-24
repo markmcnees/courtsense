@@ -545,6 +545,12 @@ window.csColorKit=(function(){
   }
   function link(v){ if(!v) return null; var u=/^https?:\/\//.test(v)?v:'https://'+v; return '<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(v)+'</a>'; }
   function mailto(v){ if(!v) return null; return '<a href="mailto:'+esc(v)+'">'+esc(v)+'</a>'; }
+  // Live app link for a provisioned slug. Same slug rule as provision; anything else shows nothing.
+  function appLink(slug){
+    slug=String(slug||'');
+    if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) return null;
+    return '<a href="'+esc('https://courtsense.app/'+slug+'/')+'" target="_blank" rel="noopener">courtsense.app/'+esc(slug)+'/</a>';
+  }
 
   function fmtPhone(v){
     if(!v) return null;
@@ -579,6 +585,7 @@ window.csColorKit=(function(){
         '</div>';
     }
     var body='<div class="grid">'+
+      fieldRow('App', s.status==='approved'?appLink(s.provisionedSlug):null)+
       fieldRow('Coach', esc((s.coachFirstName||'')+' '+(s.coachLastName||''))+(s.coachRole?' &middot; '+esc(s.coachRole):''))+
       fieldRow('Email', mailto(s.coachEmail))+
       fieldRow('Cell', fmtPhone(s.coachCell))+
@@ -888,7 +895,7 @@ window.csColorKit=(function(){
       '<div class="card-top" style="align-items:center;">'+
         '<div class="card-head">'+
           '<div class="card-school">'+esc(name)+'</div>'+
-          '<div class="card-sub">/'+esc(slug)+'/ &middot; '+logoNote+'</div>'+
+          '<div class="card-sub">'+(appLink(slug)||esc('/'+slug+'/'))+' &middot; '+logoNote+'</div>'+
         '</div>'+
         '<button class="btn approve open-coach">Open as coach</button>'+
       '</div>'+
