@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Set your coach PIN &middot; CourtSense</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --navy:#082A4F;
+    --blue:#0081AB;
+    --teal:#217F7F;
+    --paper:#FBF7F0;
+    --ink:#13243A;
+    --slate:#5C6B7A;
+    --white:#FFFFFF;
+    --line:#E4DDCF;
+    --err:#B3261E;
+    --ok:#2E7D32;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1.5;
+  }
+  .brandbar{background:var(--white);text-align:center;padding:28px 20px;}
+  .brandbar .brand-logo{display:block;margin:0 auto;max-width:320px;width:100%;height:auto;}
+  .brandbar .brand-home{display:block;max-width:320px;margin:0 auto;}
+  .hero{background:var(--blue);color:var(--white);text-align:center;padding:44px 24px 40px;}
+  .hero h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:48px;letter-spacing:2px;line-height:1;margin:0 0 12px;}
+  .hero p{font-size:18px;margin:0 auto;max-width:460px;color:#e7f4fa;}
+  .page{max-width:480px;margin:0 auto;padding:32px 16px 10px;}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:0 1px 3px rgba(8,42,79,.05);}
+  .card h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:26px;letter-spacing:1px;color:var(--navy);margin:0 0 8px;}
+  .card p{margin:0 0 14px;}
+  label{display:block;font-weight:600;font-size:14px;color:var(--navy);margin:0 0 6px;}
+  input{
+    width:100%;font-size:28px;letter-spacing:10px;text-align:center;padding:10px 12px;
+    border:1px solid var(--line);border-radius:10px;margin:0 0 16px;font-family:inherit;color:var(--ink);background:#fff;
+  }
+  input:focus{outline:2px solid var(--blue);outline-offset:1px;}
+  button{
+    width:100%;background:var(--navy);color:var(--white);border:none;border-radius:10px;
+    font-family:inherit;font-weight:700;font-size:17px;padding:13px 16px;cursor:pointer;
+  }
+  button:disabled{opacity:.6;cursor:default;}
+  .msg{font-size:15px;margin:14px 0 0;min-height:1.5em;}
+  .msg.err{color:var(--err);}
+  .msg.ok{color:var(--ok);}
+  .note{font-size:13.5px;color:var(--slate);margin:14px 0 0;}
+  .hidden{display:none;}
+  footer{text-align:center;color:var(--slate);font-size:12.5px;margin-top:40px;padding:0 20px 44px;}
+  footer a{color:var(--blue);}
+</style>
+</head>
+<body>
+
+<div class="brandbar">
+  <a href="/" class="brand-home" aria-label="CourtSense home"><img src="/logo.png" alt="CourtSense" class="brand-logo"></a>
+</div>
+
+<div class="hero">
+  <h1>Set your coach PIN</h1>
+  <p>One step and you are in the coach side of your app.</p>
+</div>
+
+<div class="page">
+  <div class="card" id="claim-card">
+    <form id="claim-form" autocomplete="off" novalidate>
+      <h2>Choose your 4-digit coach PIN</h2>
+      <p>You will use it every time you open the coach side of your app. Keep it private.</p>
+      <label for="pin-new">New PIN</label>
+      <input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password" aria-describedby="claim-msg">
+      <label for="pin-confirm">Type it again</label>
+      <input id="pin-confirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password" aria-describedby="claim-msg">
+      <button type="submit" id="claim-btn">Set my PIN</button>
+      <p class="msg" id="claim-msg" role="status" aria-live="polite"></p>
+      <p class="note">This link works once. You can change your PIN later under Manage.</p>
+    </form>
+    <div id="claim-dead" class="hidden">
+      <h2>This link is done</h2>
+      <p>This link has expired or was already used. Ask Mark for a new one.</p>
+      <p><a href="mailto:mark@courtsense.app">mark@courtsense.app</a></p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Questions? <a href="mailto:mark@courtsense.app">mark@courtsense.app</a>
+</footer>
+
+<script>
+(function(){
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  // Read the one-time token once, then take it out of the address bar and history so it
+  // is not left behind in the browser.
+  var token='';
+  try{
+    var q=new URLSearchParams(location.search);
+    token=(q.get('t')||'').trim();
+    if(q.has('t')){ q.delete('t'); var rest=q.toString(); history.replaceState(null,'',location.pathname+(rest?'?'+rest:'')+location.hash); }
+  }catch(e){}
+
+  var form=document.getElementById('claim-form');
+  var dead=document.getElementById('claim-dead');
+  var pinEl=document.getElementById('pin-new');
+  var confEl=document.getElementById('pin-confirm');
+  var btn=document.getElementById('claim-btn');
+  var msg=document.getElementById('claim-msg');
+
+  function showDead(){ form.classList.add('hidden'); dead.classList.remove('hidden'); }
+  function say(text, kind){ msg.textContent=text; msg.className='msg'+(kind?' '+kind:''); }
+
+  if(!/^[a-f0-9]{64}$/.test(token)){ showDead(); return; }
+
+  // Same rule and wording as coach-admin and the worker's PIN policy. The worker also
+  // refuses public values and says why.
+  function pinProblem(pin){
+    if(!/^\d{4}$/.test(pin)) return 'The PIN must be exactly 4 digits.';
+    if(/^(\d)\1+$/.test(pin)||'0123456789'.indexOf(pin)>=0||'9876543210'.indexOf(pin)>=0) return "Pick a PIN that isn't a repeat or a straight run like 1234.";
+    return '';
+  }
+
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var pin=pinEl.value.trim(), conf=confEl.value.trim();
+    var problem=pinProblem(pin);
+    if(problem){ say(problem,'err'); pinEl.focus(); return; }
+    if(conf!==pin){ say("The two PINs don't match.",'err'); confEl.focus(); return; }
+    btn.disabled=true; say('Setting your PIN...','');
+    fetch(WORKER+'/auth/coach-claim',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ token:token, newPin:pin })
+    }).then(function(r){
+      return r.json().then(function(j){ return {status:r.status,j:j}; }, function(){ return {status:r.status,j:null}; });
+    }).then(function(o){
+      var j=o.j||{};
+      if(j.ok && typeof j.token==='string' && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(j.slug||'')){
+        // The exact session shape app.js stores after a PIN login; autoLogin checks it
+        // with the worker on the next page. dbRoot follows the provision rule.
+        var dbRoot=j.slug.replace(/-/g,'_')+'_matches';
+        try{ sessionStorage.setItem('csCoachSession', JSON.stringify({ token:j.token, dbRoot:dbRoot, expiresAt:j.expiresAt||null })); }catch(e){}
+        pinEl.value=''; confEl.value='';
+        say('Your PIN is set. Opening your app...','ok');
+        location.replace('/'+j.slug+'/');
+        return;
+      }
+      btn.disabled=false;
+      if(j.code==='invalid_token'){ showDead(); return; }
+      if(o.status===429){ say('Too many tries. Wait a few minutes and try again.','err'); return; }
+      if(o.status===400 && j.error){ say(j.error,'err'); return; }
+      say('Something went wrong. Try again.','err');
+    }).catch(function(){
+      btn.disabled=false;
+      say('Could not reach the server. Check your connection and try again.','err');
+    });
+  });
+})();
+</script>
+</body>
+</html>
