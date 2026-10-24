@@ -158,6 +158,11 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pp-orow{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--sand-border);font-size:13px;}
 .pp-orow:last-child{border-bottom:none;}
 .pp-ready{color:#217F7F;font-weight:700;}
+.pp-names{list-style:none;display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 2px;padding:0;}
+.pp-chip{font-size:12px;line-height:1.35;padding:2px 8px;border-radius:999px;background:var(--teal-soft);color:var(--ink);max-width:100%;overflow-wrap:anywhere;}
+.pp-chip.org{font-weight:700;}
+.pp-chip.pending{background:transparent;border:1px dashed var(--sand-border);color:var(--slate);}
+.pp-more{font:inherit;font-size:12px;font-weight:600;color:var(--teal);background:none;border:none;padding:2px 4px;cursor:pointer;text-decoration:underline;}
 .fg{margin-bottom:10px;}
 .lbl{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px;}
 .inp{width:100%;padding:13px 12px;border:1.5px solid var(--gray-light);border-radius:10px;font-family:'Barlow';font-size:15px;color:var(--black);background:var(--white);min-height:48px;}
@@ -9702,7 +9707,7 @@ async function claimSpot(){
 function showClaimForm(){ _showClaimForm = true; renderInviteDetail(); }
 
 // Door 2 (register-and-return): stash the current game id and send the visitor to the
-// real signup page. On return (now logged in), tryResumeJoin() — called from refreshAll —
+// real signup page. On return (now logged in), tryResumeJoin() (called from refreshAll)
 // auto-fires optInInvite for the stashed game exactly once. No email, no other writes.
 function registerAndReturn(){
   const inv = activeInvite; if(!inv) return;
@@ -10268,7 +10273,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // direct one-shot read, since the global invites listener has not resolved yet.
   // Email invite links use ?invite=<id> (worker deepLink), so accept either param
   // (game first, then invite). We open the same detail view; action=/u= are ignored
-  // (no auto-RSVP/decline) — the in-app Opt In button on the detail is how they join.
+  // (no auto-RSVP/decline); the in-app Opt In button on the detail is how they join.
   const _deepLinkParams = new URLSearchParams(location.search);
   const _deepLinkGame = _deepLinkParams.get('game') || _deepLinkParams.get('invite');
   // Email links carry action and u (an account id) the page never acts on. They are read
@@ -10608,6 +10613,32 @@ window.csPollPlanKit=(function(){
     var start=(last&&last.startTime)||'09:00';
     return { date:(last&&last.date)||'', startTime:start, endTime:autoEnd(start), endEdited:false, location:(last&&last.location)||fallbackLocation };
   }
+  // Who picked a time on a Your polls card, from the row's people list and the option's
+  // positions in it, in the order sent (the organizer first, then vote order). Anything
+  // malformed is skipped. The poll page has the same rules with 8 names before more.
+  var NAMES_SHOWN=6;
+  function optionVoters(v, o){
+    var people=v&&Array.isArray(v.people)?v.people:[], out=[];
+    (o&&Array.isArray(o.voters)?o.voters:[]).forEach(function(i){
+      var p=people[i];
+      if(p&&typeof p.label==='string'&&p.label) out.push({label:p.label,isOrganizer:p.isOrganizer===true,pending:p.pending===true});
+    });
+    return out;
+  }
+  // The chips to draw: the first 6 unless opened, and how many are left for "+N more".
+  function voterChips(list, opened){
+    var all=opened||list.length<=NAMES_SHOWN;
+    return {shown:all?list.slice():list.slice(0,NAMES_SHOWN),more:all?0:list.length-NAMES_SHOWN};
+  }
+  function chipText(p){ return p.label+(p.pending?' (pending)':''); }
+  // An organizer row's "Said none: A, B." '' for a recipient row, or when nobody did.
+  function noneLine(v){
+    var list=v&&v.role==='organizer'&&Array.isArray(v.noneVoters)?v.noneVoters:[];
+    var names=list.map(function(x){ return x&&typeof x.label==='string'?x.label:''; }).filter(Boolean);
+    if(!names.length) return '';
+    var t='Said none: '+names.join(', ');
+    return /\.$/.test(t)?t:t+'.';
+  }
   function voteUrl(id){ return '/pickup/poll/?p='+encodeURIComponent(id); }
   function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
@@ -10615,7 +10646,8 @@ window.csPollPlanKit=(function(){
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
     statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
-    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct };
+    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct,
+    NAMES_SHOWN:NAMES_SHOWN, optionVoters:optionVoters, voterChips:voterChips, chipText:chipText, noneLine:noneLine };
 })();
 </script>
 
@@ -10626,6 +10658,8 @@ let ppSelected = [];
 let ppPool = [];
 let ppCloseTouched = false;
 let _myPolls = { at: 0, list: [], busy: false };
+// Your polls times whose names were opened with "+N more", by poll id and option id.
+const _ppNamesOpen = {};
 
 function ppSession(){
   try { return (window.CourtSenseAuth && CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null; } catch(e){ return null; }
@@ -10826,7 +10860,7 @@ function ppDrawMyPolls(){
       '<div class="pp-orow" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
       + (o.ready ? '<span class="pp-tag ready">Ready</span>' : '') + (v.full && o.ready ? '<span class="pp-tag full">Full</span>' : '')
       + '</span><span>'+o.count+' / '+v.minPlayers+'</span></div>'
-      + '<div class="pp-bar"><span style="width:'+K.progressPct(o.count, v.minPlayers)+'%"></span></div></div>'
+      + '<div class="pp-bar"><span style="width:'+K.progressPct(o.count, v.minPlayers)+'%"></span></div>'+ppNames(v, o)+'</div>'
       + (K.canConfirm(v, o) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '')
     ).join('');
     // One game per day: a line per date.
@@ -10844,10 +10878,25 @@ function ppDrawMyPolls(){
       + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;"></div>' : '');
     return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
       + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')
-      + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')+'</div>'
+      + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')
+      + (K.noneLine(v) ? '<br>'+escapeHTML(K.noneLine(v)) : '')+'</div>'
       + days + rows + sugs + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
   }).join('');
 }
+// The names under a time's bar: the organizer first, "(pending)" muted, "+N more" past 6
+// opening the rest in place (a redraw, no new request). '' when nobody picked it.
+function ppNames(v, o){
+  const K = window.csPollPlanKit;
+  const who = K.optionVoters(v, o);
+  if(!who.length) return '';
+  const key = v.id+'|'+o.id;
+  const c = K.voterChips(who, !!_ppNamesOpen[key]);
+  return '<ul class="pp-names" aria-label="Who picked this time">'
+    + c.shown.map(p => '<li class="pp-chip'+(p.isOrganizer ? ' org' : '')+(p.pending ? ' pending' : '')+'">'+escapeHTML(K.chipText(p))+'</li>').join('')
+    + (c.more ? '<li><button type="button" class="pp-more" onclick="ppMoreNames(\''+v.id+'\',\''+o.id+'\')">+'+c.more+' more</button></li>' : '')
+    + '</ul>';
+}
+function ppMoreNames(pollId, optId){ _ppNamesOpen[pollId+'|'+optId] = true; ppDrawMyPolls(); }
 // Copy link: the phone share sheet, else the clipboard, else the link shown to copy.
 async function ppCopyLink(pollId){
   const K = window.csPollPlanKit;
