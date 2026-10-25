@@ -64,7 +64,10 @@
     // coachPin is deliberately NOT emitted. Nothing reads it: the PIN pad posts to the
     // worker, which checks a bcrypt hash in the deny-all coach pins node. Emitting it
     // only published the answer in the shell source.
-    lines.push("  defaultPw:       "+q(d.defaultPw||'Beach2026')+",");
+    // defaultPw is no longer emitted either. No real roster checks a team password any
+    // more; player sign-in is a CourtSense account, so a new school ships with player
+    // login closed until it moves to accounts.
+    lines.push("  playerLoginEnabled: false,");
     lines.push("  fbConfig:{apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'},");
     lines.push("  dbRoots:{matches:"+q(n.matches)+",profiles:"+q(n.profiles)+",passwords:"+q(n.passwords)+"},");
     lines.push("  logo:            "+q(d.logo||'')+",");
