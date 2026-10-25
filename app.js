@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.198';
+const APP_VERSION='1.1.199';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -730,6 +730,10 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .form-input:focus,.form-select:focus{outline:none;border-color:var(--red);}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.cs-addp .form-row>*{min-width:0;}
+.cs-addp-sub{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 6px;}
+.cs-needed{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red);}
+.cs-needed-hint{font-size:12px;color:var(--red);font-weight:700;}
 .team-section{padding:14px;border-radius:8px;margin-bottom:10px;}
 .team-section.team-a{background:#fef2f2;border:2px solid #fecaca;}
 .team-section.team-b{background:#f0f4ff;border:2px solid #c7d2fe;}
@@ -1493,7 +1497,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
     <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">Practice Groups is coming to the coach app.</p>
   </div></div>`}
   ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hsimport">
-    ${SC.tiersEnabled?'':`<div class="card"><div class="card-title"><span class="bar"></span> Add Player</div>
+    ${SC.tiersEnabled?'':SC.demoMode?`<div class="card"><div class="card-title"><span class="bar"></span> Add Player</div>
       <div class="form-row" style="margin-bottom:10px;"><input type="text" class="form-input" id="new-first" placeholder="First Name"><input type="text" class="form-input" id="new-last" placeholder="Last Name"></div>
       <div class="form-row" style="margin-bottom:4px;flex-wrap:wrap;gap:8px;">
         <input type="email" class="form-input" id="new-email" placeholder="Player Email (optional)" style="max-width:260px;" autocapitalize="none" spellcheck="false">
@@ -1519,7 +1523,41 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
         <input type="text" class="form-input" id="new-p2-name" placeholder="Parent 2 Name" style="max-width:170px;">
         <input type="email" class="form-input" id="new-p2-email" placeholder="Parent 2 Email" style="max-width:200px;">
         <input type="tel" class="form-input" id="new-p2-phone" placeholder="Parent 2 Phone" style="max-width:170px;"></div>
-      <button class="btn btn-secondary" id="add-player">Add Player</button></div>`}
+      <button class="btn btn-secondary" id="add-player">Add Player</button></div>`:`<div class="card cs-addp"><div class="card-title"><span class="bar"></span> Add Player</div>
+      <form id="add-player-form" autocomplete="off" onsubmit="return false;" oninput="_addpClearMark(event)">
+      <div class="form-row" style="margin-bottom:8px;"><input type="text" class="form-input" id="new-first" placeholder="First Name" ${_noFill('first')}><input type="text" class="form-input" id="new-last" placeholder="Last Name" ${_noFill('last')}></div>
+      <div class="form-row" style="margin-bottom:4px;">
+        <input type="email" class="form-input" id="new-email" placeholder="Player Email" inputmode="email" autocapitalize="none" spellcheck="false" ${_noFill('pe')}>
+        <input type="tel" class="form-input" id="new-phone" placeholder="Player Cell" inputmode="tel" ${_noFill('pc')}></div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:10px;">The player's own email and cell, not a parent's or guardian's.</div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <input type="number" class="form-input" id="new-jersey" placeholder="Jersey #" min="0" max="99" ${_noFill('jn')}>
+        <input type="number" class="form-input" id="new-truvolley" placeholder="TruVolley Rating" step="0.01" min="0" ${_noFill('tv')}></div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <select class="form-select" id="new-class"><option value="FR">Freshman</option><option value="SO">Sophomore</option><option value="JR">Junior</option><option value="SR">Senior</option></select>
+        <select class="form-select" id="new-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6, Exhib</option><option value="7">Court 7, Exhib</option><option value="8">Court 8, Exhib</option></select></div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <input type="number" class="form-input" id="new-gradyear" placeholder="Grad Year" min="2025" max="2035" ${_noFill('gy')}>
+        <input type="text" class="form-input" id="new-height" placeholder="Height e.g. 5'11&quot;" ${_noFill('ht')}></div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <input type="text" class="form-input" id="new-reach" placeholder="Standing reach e.g. 7'8&quot;" ${_noFill('rh')}>
+        <select class="form-select" id="new-hand"><option value="">Hand</option><option value="R">Right</option><option value="L">Left</option></select></div>
+      <div class="form-row" style="margin-bottom:12px;">
+        <select class="form-select" id="new-side"><option value="">Side</option><option value="L">Left</option><option value="R">Right</option></select>
+        <select class="form-select" id="new-role"><option value="">Role</option><option value="block">Block</option><option value="defense">Defense</option><option value="split">Split</option></select></div>
+      <div class="cs-addp-sub">Parent or Guardian 1</div>
+      <input type="text" class="form-input" id="new-p1-name" placeholder="Parent or Guardian 1 Name" style="margin-bottom:8px;" ${_noFill('g1n')}>
+      <div class="form-row" style="margin-bottom:12px;">
+        <input type="email" class="form-input" id="new-p1-email" placeholder="Parent or Guardian 1 Email" inputmode="email" autocapitalize="none" spellcheck="false" ${_noFill('g1e')}>
+        <input type="tel" class="form-input" id="new-p1-phone" placeholder="Parent or Guardian 1 Phone" inputmode="tel" ${_noFill('g1p')}></div>
+      <div class="cs-addp-sub">Parent or Guardian 2 (optional)</div>
+      <input type="text" class="form-input" id="new-p2-name" placeholder="Parent or Guardian 2 Name (optional)" style="margin-bottom:8px;" ${_noFill('g2n')}>
+      <div class="form-row" style="margin-bottom:12px;">
+        <input type="email" class="form-input" id="new-p2-email" placeholder="Parent or Guardian 2 Email (optional)" inputmode="email" autocapitalize="none" spellcheck="false" ${_noFill('g2e')}>
+        <input type="tel" class="form-input" id="new-p2-phone" placeholder="Parent or Guardian 2 Phone (optional)" inputmode="tel" ${_noFill('g2p')}></div>
+      <div id="addp-msg" class="cs-needed-hint" style="margin-bottom:8px;"></div>
+      <button type="button" class="btn btn-secondary" id="add-player">Add Player</button>
+      </form></div>`}
     <div class="card">
     <div class="card-title"><span class="bar"></span> Import and Export</div>
     <p style="font-size:13px;color:var(--gray);line-height:1.6;margin-bottom:14px;">Export your full program to Excel or JSON any time, for a backup or to share with staff. Import a roster from the CourtSense Excel template to add or update players.</p>
@@ -1875,11 +1913,11 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
           <select id="cpm-id-hand" class="form-select" style="flex:1;min-width:100px;padding:8px;font-size:13px;"><option value="">Hand</option><option value="R">Right</option><option value="L">Left</option></select>
           <input type="number" id="cpm-id-truvolley" class="form-input" placeholder="TruVolley Rating" step="0.01" min="0" style="flex:1;min-width:130px;padding:8px;font-size:13px;">
         </div>
-        ${!SC.tiersEnabled ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        ${SC.tiersEnabled ? '' : SC.demoMode ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
           <input type="email" id="cpm-id-email" class="form-input" placeholder="Player Email (optional)" autocapitalize="none" spellcheck="false" style="flex:1;min-width:200px;padding:8px;font-size:13px;">
           <input type="tel" id="cpm-id-phone" class="form-input" placeholder="Player Cell (optional)" autocomplete="off" style="flex:1;min-width:150px;padding:8px;font-size:13px;">
-        </div>` : ''}
-        ${!SC.tiersEnabled ? `<div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent Contacts</div>
+        </div>
+        <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent Contacts</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
           <input type="text" id="cpm-p1-name" class="form-input" placeholder="Parent 1 Name" style="flex:1;min-width:120px;padding:8px;font-size:13px;">
           <input type="email" id="cpm-p1-email" class="form-input" placeholder="Parent 1 Email" style="flex:1;min-width:150px;padding:8px;font-size:13px;">
@@ -1889,7 +1927,25 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
           <input type="text" id="cpm-p2-name" class="form-input" placeholder="Parent 2 Name" style="flex:1;min-width:120px;padding:8px;font-size:13px;">
           <input type="email" id="cpm-p2-email" class="form-input" placeholder="Parent 2 Email" style="flex:1;min-width:150px;padding:8px;font-size:13px;">
           <input type="tel" id="cpm-p2-phone" class="form-input" placeholder="Parent 2 Phone" style="flex:1;min-width:120px;padding:8px;font-size:13px;">
-        </div>` : ''}
+        </div>` : `<form id="cpm-contacts-form" autocomplete="off" onsubmit="return false;" oninput="_cpmMarkNeeded()">
+        <div class="form-row" style="gap:8px;margin-bottom:8px;">
+          <input type="email" id="cpm-id-email" placeholder="Player Email" inputmode="email" autocapitalize="none" spellcheck="false" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cpe')}>
+          <input type="tel" id="cpm-id-phone" placeholder="Player Cell" inputmode="tel" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cpc')}>
+        </div>
+        <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent or Guardian 1</div>
+        <input type="text" id="cpm-p1-name" placeholder="Parent or Guardian 1 Name" class="form-input" style="padding:8px;font-size:13px;margin-bottom:8px;" ${_noFill('cg1n')}>
+        <div class="form-row" style="gap:8px;margin-bottom:8px;">
+          <input type="email" id="cpm-p1-email" placeholder="Parent or Guardian 1 Email" inputmode="email" autocapitalize="none" spellcheck="false" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg1e')}>
+          <input type="tel" id="cpm-p1-phone" placeholder="Parent or Guardian 1 Phone" inputmode="tel" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg1p')}>
+        </div>
+        <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent or Guardian 2 (optional)</div>
+        <input type="text" id="cpm-p2-name" placeholder="Parent or Guardian 2 Name (optional)" class="form-input" style="padding:8px;font-size:13px;margin-bottom:8px;" ${_noFill('cg2n')}>
+        <div class="form-row" style="gap:8px;margin-bottom:8px;">
+          <input type="email" id="cpm-p2-email" placeholder="Parent or Guardian 2 Email (optional)" inputmode="email" autocapitalize="none" spellcheck="false" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg2e')}>
+          <input type="tel" id="cpm-p2-phone" placeholder="Parent or Guardian 2 Phone (optional)" inputmode="tel" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg2p')}>
+        </div>
+        <div id="cpm-contact-needed" class="cs-needed-hint" style="margin-bottom:8px;"></div>
+        </form>`}
         <button class="btn btn-red btn-small" style="width:100%;" onclick="coachSaveIdentity()">Save Identity</button>
         ${!SC.tiersEnabled?`<button class="btn btn-secondary btn-small" style="width:100%;margin-top:8px;" onclick="showAthleteCard(document.getElementById('coach-player-overlay').dataset.pid)">View Athlete Card</button>`:''}
       </div>
@@ -3145,7 +3201,18 @@ function _validPhone(s){
   if(raw.charAt(0)==='+')return d.length>=8&&d.length<=15;
   return d.length===10||(d.length===11&&d.charAt(0)==='1');
 }
-const _HS_CONTACT_LABELS={playerEmail:'player email',playerPhone:'player cell','parent1.name':'Parent 1 name','parent1.email':'Parent 1 email','parent1.phone':'Parent 1 phone','parent2.name':'Parent 2 name','parent2.email':'Parent 2 email','parent2.phone':'Parent 2 phone'};
+const _HS_CONTACT_LABELS={playerEmail:'player email',playerPhone:'player cell','parent1.name':'Parent or Guardian 1 name','parent1.email':'Parent or Guardian 1 email','parent1.phone':'Parent or Guardian 1 phone','parent2.name':'Parent or Guardian 2 name','parent2.email':'Parent or Guardian 2 email','parent2.phone':'Parent or Guardian 2 phone'};
+const _HS_CONTACT_TITLES={playerEmail:'Player Email',playerPhone:'Player Cell','parent1.name':'Parent or Guardian 1 Name','parent1.email':'Parent or Guardian 1 Email','parent1.phone':'Parent or Guardian 1 Phone','parent2.name':'Parent or Guardian 2 Name','parent2.email':'Parent or Guardian 2 Email','parent2.phone':'Parent or Guardian 2 Phone'};
+// The contacts a live school needs for every player. Parent or Guardian 2 is optional.
+const _HS_REQUIRED_CONTACTS=['playerEmail','playerPhone','parent1.name','parent1.email','parent1.phone'];
+// Attributes that keep the browser from filling the coach's own saved details into a
+// player or guardian field. Chrome ignores autocomplete="off" on fields that look like
+// contacts, so each field carries a token no autofill rule knows, which also falls back
+// to the form's autocomplete="off" in browsers that follow the spec, and a name no
+// autofill rule matches. Password managers are told to skip it too.
+function _noFill(key){
+  return 'autocomplete="cs-nofill-'+key+'" name="cs-nf-'+key+'" data-lpignore="true" data-1p-ignore="true" data-form-type="other"';
+}
 // Checks the flat fields before anything is written. Returns a message, or '' when fine.
 function _hsContactsInvalid(flat){
   for(const k of Object.keys(flat)){
@@ -4515,8 +4582,57 @@ const _elsave_sc_match=document.getElementById('save-sc-match');if(_elsave_sc_ma
 });
 
 // Roster
+// Live schools only: every required field present and every contact well formed, all
+// checked before anything is written. One message names what is missing or wrong, and
+// those fields are outlined. Parent or Guardian 2 is optional, but once any of its
+// fields is filled it needs a valid email or phone.
+function _addpValidate(){
+  const need=[], fix=[], marked=[];
+  const form=document.getElementById('add-player-form');
+  if(form)form.querySelectorAll('.cs-needed').forEach(el=>el.classList.remove('cs-needed'));
+  const val=id=>(document.getElementById(id)?.value||'').trim();
+  const mark=id=>{const el=document.getElementById(id);if(el){el.classList.add('cs-needed');marked.push(el);}};
+  const chk=(id,title,kind,required)=>{
+    const v=val(id);
+    if(!v){ if(required){need.push(title);mark(id);} return; }
+    if((kind==='email'&&!_validEmail(v))||(kind==='phone'&&!_validPhone(v))){fix.push(title);mark(id);}
+  };
+  chk('new-first','First Name','text',true);
+  chk('new-last','Last Name','text',true);
+  chk('new-email','Player Email','email',true);
+  chk('new-phone','Player Cell','phone',true);
+  chk('new-p1-name','Parent or Guardian 1 Name','text',true);
+  chk('new-p1-email','Parent or Guardian 1 Email','email',true);
+  chk('new-p1-phone','Parent or Guardian 1 Phone','phone',true);
+  const g2any=val('new-p2-name')||val('new-p2-email')||val('new-p2-phone');
+  if(g2any){
+    chk('new-p2-email','Parent or Guardian 2 Email','email',false);
+    chk('new-p2-phone','Parent or Guardian 2 Phone','phone',false);
+    if(!val('new-p2-email')&&!val('new-p2-phone')){need.push('Parent or Guardian 2 Email or Phone');mark('new-p2-email');mark('new-p2-phone');}
+  }
+  const parts=[];
+  if(need.length)parts.push('Still needed: '+need.join(', ')+'.');
+  if(fix.length)parts.push('Check: '+fix.join(', ')+'.');
+  const msg=parts.join(' ');
+  const box=document.getElementById('addp-msg');
+  if(box)box.textContent=msg;
+  if(!msg)return true;
+  toast(msg);
+  if(marked[0])try{marked[0].focus();}catch(e){}
+  return false;
+}
+// Clears a field's outline as soon as the coach types into it, and the message once
+// nothing is outlined.
+function _addpClearMark(ev){
+  const el=ev&&ev.target;
+  if(el&&el.classList&&el.classList.contains('cs-needed')&&(el.value||'').trim())el.classList.remove('cs-needed');
+  const form=document.getElementById('add-player-form');
+  const box=document.getElementById('addp-msg');
+  if(form&&box&&!form.querySelector('.cs-needed'))box.textContent='';
+}
 const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListener('click',()=>{
   const f=document.getElementById('new-first').value.trim(),l=document.getElementById('new-last').value.trim();
+  if(_hsContactsMode()&&!_addpValidate())return;
   if(!f||!l){toast('Enter first and last name');return;}
   // Player email is optional. A coach who does not have it yet still adds the player.
   // Validated only when something was typed, so a blank never blocks the add.
@@ -4560,6 +4676,9 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
       if(!ok)toast('Player added, but the email did not save. Add it from the player card.');
     });
   }
+  const _addpForm=document.getElementById('add-player-form');
+  if(_addpForm)_addpForm.querySelectorAll('.cs-needed').forEach(el=>el.classList.remove('cs-needed'));
+  const _addpMsg=document.getElementById('addp-msg');if(_addpMsg)_addpMsg.textContent='';
   ['new-first','new-last','new-email','new-phone','new-jersey','new-truvolley','new-gradyear','new-height','new-reach','new-hand','new-side','new-role','new-p1-name','new-p1-email','new-p1-phone','new-p2-name','new-p2-email','new-p2-phone'].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value='';});
   toast('Player added!');});
 
@@ -6382,6 +6501,21 @@ function _cpmContactValues(){
   return out;
 }
 let _cpmContactState=null;
+// Outlines the required contacts that are still blank and lists them under the fields.
+// Only once what is on file is known, so a slow worker never reads as "missing". Save
+// Identity still works for everything else.
+function _cpmMarkNeeded(){
+  const els=_cpmContactEls();
+  Object.keys(els).forEach(k=>els[k].classList.remove('cs-needed'));
+  const hint=document.getElementById('cpm-contact-needed');
+  if(hint)hint.textContent='';
+  if(!_hsContactsMode()||!hint)return;
+  const st=_cpmContactState;
+  if(!st||!st.loaded)return;
+  const miss=_HS_REQUIRED_CONTACTS.filter(k=>els[k]&&!(els[k].value||'').trim());
+  miss.forEach(k=>els[k].classList.add('cs-needed'));
+  if(miss.length)hint.textContent='Needed: '+miss.map(k=>_HS_CONTACT_TITLES[k]).join(', ');
+}
 function _cpmContactsPrefill(pid){
   const els=_cpmContactEls();
   if(!Object.keys(els).length){_cpmContactState=null;return;}
@@ -6397,6 +6531,7 @@ function _cpmContactsPrefill(pid){
   Object.keys(els).forEach(k=>{els[k].value=base[k]||'';});
   const st={pid:pid,loaded:!!cached,initial:Object.assign({},base)};
   _cpmContactState=st;
+  _cpmMarkNeeded();
   _hsContactsFetch([pid]).then(function(m){
     if(_cpmContactState!==st)return;           // the card moved on to someone else
     if(!m||!m[pid]){ if(!st.loaded)toast('Could not load this player\'s contact details. Try reopening the card.'); return; }
@@ -6406,6 +6541,7 @@ function _cpmContactsPrefill(pid){
     Object.keys(els).forEach(k=>{ if(_cpmNorm(k,els[k].value)===(st.initial[k]||''))els[k].value=fresh[k]||''; });
     st.initial=Object.assign({},fresh);
     st.loaded=true;
+    _cpmMarkNeeded();
   });
 }
 
@@ -7306,7 +7442,7 @@ function importRoster(file){
     const drills=drillRows?_importParseDrills(drillRows, byName):{plan:[],errors:[]};
     const verts=vertRows?_importParseVerts(vertRows, byName):{plan:[],errors:[]};
     if(!parsed.plan.length && !parsed.errors.length && !skills.plan.length && !drills.plan.length && !verts.plan.length){toast('No player rows found');return;}
-    _importShowConfirm(parsed.plan, parsed.errors, skills, drills, verts);
+    _importShowConfirm(parsed.plan, parsed.errors, skills, drills, verts, parsed.needsContact||[]);
   };
   reader.onerror=function(){toast('Could not read that file');};
   reader.readAsArrayBuffer(file);
@@ -7330,8 +7466,8 @@ function _importParseRows(rows){
     truv:col(['truvolley rating','vl rating','truvolley']),
     height:col(['height']), reach:col(['standing reach']),
     position:col(['position']), side:col(['side']), hand:col(['hand']),
-    p1n:col(['parent 1 name']), p1e:col(['parent 1 email']), p1p:col(['parent 1 phone']),
-    p2n:col(['parent 2 name']), p2e:col(['parent 2 email']), p2p:col(['parent 2 phone']),
+    p1n:col(['parent 1 name','parent or guardian 1 name']), p1e:col(['parent 1 email','parent or guardian 1 email']), p1p:col(['parent 1 phone','parent or guardian 1 phone']),
+    p2n:col(['parent 2 name','parent or guardian 2 name']), p2e:col(['parent 2 email','parent or guardian 2 email']), p2p:col(['parent 2 phone','parent or guardian 2 phone']),
     // The player's own address. 'player email' first so a sheet carrying both that and
     // a bare 'email' column resolves to the explicit one. Absent column means no email
     // in this file, which is not an error.
@@ -7343,7 +7479,7 @@ function _importParseRows(rows){
   const nameKey=s=>s.trim().toLowerCase();
   const byName={};
   (D.players||[]).forEach(p=>{byName[nameKey(p.firstName||'')+' '+nameKey(p.lastName||'')]=p;});
-  const plan=[];
+  const plan=[], needsContact=[];
   for(let i=hIdx+1;i<rows.length;i++){
     const r=rows[i]||[];
     const first=cell(r,C.first), last=cell(r,C.last), gradRaw=cell(r,C.grad);
@@ -7362,7 +7498,7 @@ function _importParseRows(rows){
     // On a live school a bad parent email or phone is skipped when contacts are saved,
     // so it is reported here the same way a bad player email is. Values are never echoed.
     if(_hsContactsMode()){
-      [['Parent 1',parent1],['Parent 2',parent2]].forEach(function(pp){
+      [['Parent or Guardian 1',parent1],['Parent or Guardian 2',parent2]].forEach(function(pp){
         const o=pp[1]; if(!o)return;
         if(o.email&&!_validEmail(o.email))errors.push({row:rowNum,why:pp[0]+' email is not a valid address, field skipped'});
         if(o.phone&&!_validPhone(o.phone))errors.push({row:rowNum,why:pp[0]+' phone is not a valid phone number, field skipped'});
@@ -7397,9 +7533,30 @@ function _importParseRows(rows){
     // Pre-assign the id a NEW player will get, so Skills/Star Drill/Verticals rows in the
     // same file can point at it before the roster commit runs. _importCommit reuses it.
     const newId=existing?null:gi('p');
+    // Live schools: a row still imports without its required contacts, but it is listed
+    // so the coach can finish it from the player card. A contact counts when the file
+    // has a valid one or the player already has one on file. For an existing player
+    // whose details have not loaded, nothing is claimed either way.
+    if(_hsContactsMode()){
+      const onFile=existing&&_hsContacts?(_hsContacts[existing.id]||{}):null;
+      if(!existing||onFile){
+        const fromFile={playerEmail:email,playerPhone:phone,
+          'parent1.name':parent1&&parent1.name||'',
+          'parent1.email':parent1&&parent1.email&&_validEmail(parent1.email)?parent1.email:'',
+          'parent1.phone':parent1&&parent1.phone&&_validPhone(parent1.phone)?parent1.phone:''};
+        const missing=_HS_REQUIRED_CONTACTS.some(k=>!fromFile[k]&&!(onFile&&onFile[k]));
+        if(missing)needsContact.push(rowNum);
+      }
+    }
     plan.push({row:rowNum, existing, newId, data:{first,last,gradYear,jersey,truvolley,height,reach,position,side,hand,parent1,parent2,email,phone}});
   }
-  return {plan, errors};
+  return {plan, errors, needsContact};
+}
+// The "needs contact info" note on the import screens. Row numbers only, never names.
+function _importNeedsHtml(rows){
+  if(!rows||!rows.length)return '';
+  const n=rows.length;
+  return '<div style="font-size:13px;color:var(--red);line-height:1.5;margin-top:10px;"><b>'+n+'</b> player'+(n===1?'':'s')+' need'+(n===1?'s':'')+' contact info (row'+(n===1?'':'s')+' '+rows.join(', ')+'). '+(n===1?'It imports':'They import')+' now; add the missing details from '+(n===1?'the':'each')+' player card.</div>';
 }
 function _importParent(name,email,phone){
   if(!name&&!email&&!phone)return null;
@@ -7709,7 +7866,7 @@ function _importAllErrors(errors, skills, drills, verts){
     (verts.errors||[]).map(e=>({sheet:'Verticals',row:e.row,why:e.why}))
   );
 }
-function _importShowConfirm(plan, errors, skills, drills, verts){
+function _importShowConfirm(plan, errors, skills, drills, verts, needsContact){
   const nNew=plan.filter(e=>!e.existing).length, nUpd=plan.length-nNew;
   // Only mention a sheet that actually has rows.
   const parts=[];
@@ -7719,7 +7876,7 @@ function _importShowConfirm(plan, errors, skills, drills, verts){
   if(verts.plan.length)parts.push('<b>'+verts.plan.length+'</b> vertical test'+(verts.plan.length===1?'':'s'));
   const anything=plan.length||skills.plan.length||drills.plan.length||verts.plan.length;
   const allErrors=_importAllErrors(errors, skills, drills, verts);
-  const body='<div style="font-size:14px;line-height:1.5;">'+(parts.length?'Found '+parts.join(', ')+'.':'Nothing to import.')+(anything?' Import?':'')+'</div>'+_importErrGroups(allErrors);
+  const body='<div style="font-size:14px;line-height:1.5;">'+(parts.length?'Found '+parts.join(', ')+'.':'Nothing to import.')+(anything?' Import?':'')+'</div>'+_importNeedsHtml(needsContact)+_importErrGroups(allErrors);
   const footer=anything
     ? '<button class="btn btn-small btn-secondary" id="_imp-cancel">Cancel</button><button class="btn btn-small" style="background:#082A4F;color:#fff;border:none;" id="_imp-go">Import</button>'
     : '<button class="btn btn-small btn-secondary" id="_imp-cancel">Close</button>';
@@ -7732,16 +7889,16 @@ function _importShowConfirm(plan, errors, skills, drills, verts){
     const nDr=_importCommitDrills(drills.plan);
     const nVt=_importCommitVerts(verts.plan);
     ov.remove();
-    _importShowResult(res.nNew, res.nUpd, nSk, nDr, nVt, allErrors);
+    _importShowResult(res.nNew, res.nUpd, nSk, nDr, nVt, allErrors, needsContact);
     toast('Imported: '+res.nNew+' new, '+res.nUpd+' updated');
   };
 }
-function _importShowResult(nNew, nUpd, nSk, nDr, nVt, allErrors){
+function _importShowResult(nNew, nUpd, nSk, nDr, nVt, allErrors, needsContact){
   const extra=[];
   if(nSk)extra.push('<b>'+nSk+'</b> skill row'+(nSk===1?'':'s'));
   if(nDr)extra.push('<b>'+nDr+'</b> star drill time'+(nDr===1?'':'s'));
   if(nVt)extra.push('<b>'+nVt+'</b> vertical test'+(nVt===1?'':'s'));
-  const body='<div style="font-size:14px;">Imported <b>'+nNew+'</b> new, <b>'+nUpd+'</b> updated'+(extra.length?', '+extra.join(', '):'')+'.</div>'+_importErrGroups(allErrors);
+  const body='<div style="font-size:14px;">Imported <b>'+nNew+'</b> new, <b>'+nUpd+'</b> updated'+(extra.length?', '+extra.join(', '):'')+'.</div>'+_importNeedsHtml(needsContact)+_importErrGroups(allErrors);
   const ov=_importModal('Import complete', body, '<button class="btn btn-small btn-secondary" id="_imp-close">Close</button>');
   const close=ov.querySelector('#_imp-close'); if(close)close.onclick=()=>ov.remove();
 }
