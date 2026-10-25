@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.197';
+const APP_VERSION='1.1.198';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1496,8 +1496,9 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
     ${SC.tiersEnabled?'':`<div class="card"><div class="card-title"><span class="bar"></span> Add Player</div>
       <div class="form-row" style="margin-bottom:10px;"><input type="text" class="form-input" id="new-first" placeholder="First Name"><input type="text" class="form-input" id="new-last" placeholder="Last Name"></div>
       <div class="form-row" style="margin-bottom:4px;flex-wrap:wrap;gap:8px;">
-        <input type="email" class="form-input" id="new-email" placeholder="Player Email (optional)" style="max-width:260px;" autocapitalize="none" spellcheck="false"></div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:10px;">The player's own address, not a parent's. Leave it blank if you do not have it yet and add it later.</div>
+        <input type="email" class="form-input" id="new-email" placeholder="Player Email (optional)" style="max-width:260px;" autocapitalize="none" spellcheck="false">
+        <input type="tel" class="form-input" id="new-phone" placeholder="Player Cell (optional)" style="max-width:200px;" autocomplete="off"></div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:10px;">The player's own email and cell, not a parent's. Leave them blank if you do not have them yet and add them later.</div>
       <div class="form-row" style="margin-bottom:10px;">
         <input type="number" class="form-input" id="new-jersey" placeholder="Jersey #" min="0" max="99" style="max-width:110px;">
         <input type="number" class="form-input" id="new-truvolley" placeholder="TruVolley Rating" step="0.01" min="0" style="max-width:150px;">
@@ -1876,6 +1877,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
         </div>
         ${!SC.tiersEnabled ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
           <input type="email" id="cpm-id-email" class="form-input" placeholder="Player Email (optional)" autocapitalize="none" spellcheck="false" style="flex:1;min-width:200px;padding:8px;font-size:13px;">
+          <input type="tel" id="cpm-id-phone" class="form-input" placeholder="Player Cell (optional)" autocomplete="off" style="flex:1;min-width:150px;padding:8px;font-size:13px;">
         </div>` : ''}
         ${!SC.tiersEnabled ? `<div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent Contacts</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -2747,7 +2749,7 @@ function listenData(){if(!db)return;
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
     D.practiceTournaments=(val&&val.practiceTournaments)||{};
     _rosterLoaded=true;
-    if(_hsEmailsPending)_hsEmailsLoad();
+    if(_hsContactsPending)_hsContactsLoad();
     refreshCurrent();
     if(typeof knRefreshPlayer==='function')knRefreshPlayer();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
@@ -3091,14 +3093,16 @@ function fbUpdateAt(path,val){
 // stopped by an obvious typo, not by a strict grammar that rejects a real address.
 function _validEmail(s){ return /^\S+@\S+\.\S+$/.test(String(s==null?'':s).trim()); }
 
-// ── PLAYER EMAIL ─────────────────────────────────────────────
+// ── PLAYER CONTACTS ──────────────────────────────────────────
 // The browser no longer reads or keeps player passwords. Player sign-in is a
 // CourtSense account, checked by the worker, so nothing here holds a password.
 //
-// A school player's own email lives in the school's private node, which browsers
-// cannot read. A coach reaches it only through the worker, under their coach session.
-// The club (SC.tiersEnabled) still keeps emailPrefs on its own passwords node, whose
-// rules open only that child, so club writes go there exactly as before.
+// A school player's contact details (their own email and cell, and both parents'
+// name, email and phone) live in the school's private node, which browsers cannot
+// read. A coach reaches them only through the worker, under their coach session.
+// The club (SC.tiersEnabled) still keeps emailPrefs on its own passwords node and
+// parents on its profiles node, and the demo saves nothing, so both keep the paths
+// they had (see _hsContactsMode).
 function _pwNodeUpdate(pid, patch){
   return fbUpdateAt(SC.dbRoots.passwords + '/' + pid, patch);
 }
@@ -3106,45 +3110,113 @@ function _hsCoachToken(){
   let s=null; try{s=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   return (s&&s.token&&s.dbRoot===DB_ROOT)?s.token:'';
 }
-// Coach roster cache, pid to email ('' for none). null until the worker has answered,
-// which callers read as "not known yet", never as "no email".
-let _hsEmails=null;
-let _hsEmailsPending=false;
-async function _hsEmailFetch(ids){
+// True on a live school shell, the only place contacts go through the worker.
+function _hsContactsMode(){ return !SC.tiersEnabled&&!SC.demoMode; }
+// The contact fields a coach edits, as flat keys. A parent field is 'parent1.phone'.
+const _HS_CONTACT_KEYS=['playerEmail','playerPhone','parent1.name','parent1.email','parent1.phone','parent2.name','parent2.email','parent2.phone'];
+function _hsFlatContacts(c){
+  const o={};
+  _HS_CONTACT_KEYS.forEach(k=>{
+    const dot=k.indexOf('.');
+    const v=dot<0?(c&&c[k]):(c&&c[k.slice(0,dot)]&&c[k.slice(0,dot)][k.slice(dot+1)]);
+    o[k]=typeof v==='string'?v:'';
+  });
+  return o;
+}
+// Flat keys to the worker's patch shape. Only the keys given are sent; blank clears.
+function _hsContactsPatch(flat){
+  const out={};
+  Object.keys(flat).forEach(k=>{
+    const v=(flat[k]==null?'':String(flat[k])).trim();
+    const dot=k.indexOf('.');
+    if(dot<0){ out[k]=v||null; return; }
+    const pk=k.slice(0,dot);
+    if(!out[pk])out[pk]={};
+    out[pk][k.slice(dot+1)]=v||null;
+  });
+  return out;
+}
+// Same acceptance as the worker's normalizePhone: ten digits, eleven with a leading 1,
+// or a + number of 8 to 15 digits. Blank is fine.
+function _validPhone(s){
+  const raw=String(s==null?'':s).trim();
+  if(!raw)return true;
+  const d=raw.replace(/\D/g,'');
+  if(raw.charAt(0)==='+')return d.length>=8&&d.length<=15;
+  return d.length===10||(d.length===11&&d.charAt(0)==='1');
+}
+const _HS_CONTACT_LABELS={playerEmail:'player email',playerPhone:'player cell','parent1.name':'Parent 1 name','parent1.email':'Parent 1 email','parent1.phone':'Parent 1 phone','parent2.name':'Parent 2 name','parent2.email':'Parent 2 email','parent2.phone':'Parent 2 phone'};
+// Checks the flat fields before anything is written. Returns a message, or '' when fine.
+function _hsContactsInvalid(flat){
+  for(const k of Object.keys(flat)){
+    const v=(flat[k]==null?'':String(flat[k])).trim();
+    if(!v)continue;
+    if(/email$/i.test(k)&&!_validEmail(v))return 'The '+_HS_CONTACT_LABELS[k]+' does not look right. Fix it or clear it.';
+    if(/phone$/i.test(k)&&!_validPhone(v))return 'The '+_HS_CONTACT_LABELS[k]+' does not look like a phone number. Fix it or clear it.';
+    if(/name$/.test(k)&&v.length>80)return 'The '+_HS_CONTACT_LABELS[k]+' is too long.';
+  }
+  return '';
+}
+// Coach roster cache, pid to flat contacts. null until the worker has answered, which
+// callers read as "not known yet", never as "nothing on file".
+let _hsContacts=null;
+let _hsContactsPending=false;
+async function _hsContactsFetch(ids){
   const token=_hsCoachToken();
   if(!token||!ids.length)return null;
   try{
-    const r=await fetch(AUTH_WORKER+'/hs/player-email/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerIds:ids})});
+    const r=await fetch(AUTH_WORKER+'/hs/player-contacts/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerIds:ids})});
     const j=await r.json().catch(()=>null);
-    if(!j||j.ok!==true||!j.emails)return null;
+    if(!j||j.ok!==true||!j.contacts)return null;
     const out={};
-    Object.keys(j.emails).forEach(pid=>{const e=j.emails[pid];out[pid]=(e&&e.hasEmail&&typeof e.email==='string')?e.email:'';});
+    Object.keys(j.contacts).forEach(pid=>{out[pid]=_hsFlatContacts(j.contacts[pid]);});
     return out;
   }catch(e){ return null; }
 }
 // Fills the cache once per coach sign-in. Called before the roster has arrived, it
 // waits and the roster listener calls it again.
-function _hsEmailsLoad(){
-  if(SC.tiersEnabled||SC.demoMode||currentRole!=='coach')return;
-  if(!_rosterLoaded){_hsEmailsPending=true;return;}
-  _hsEmailsPending=false;
-  _hsEmailFetch((D.players||[]).map(p=>p.id)).then(m=>{
-    if(!m){toast('Could not load player emails. Invites still work.');return;}
-    _hsEmails=m;
+function _hsContactsLoad(){
+  if(!_hsContactsMode()||currentRole!=='coach')return;
+  if(!_rosterLoaded){_hsContactsPending=true;return;}
+  _hsContactsPending=false;
+  _hsContactsFetch((D.players||[]).map(p=>p.id)).then(m=>{
+    if(!m){toast('Could not load player contacts. Invites still work.');return;}
+    _hsContacts=m;
     if(currentRole==='coach'&&typeof renderRoster==='function')renderRoster();
   });
 }
-// One player's email save, blank or null to clear. Resolves true only on a confirmed save.
-async function _playerEmailSave(pid,email){
+// One player's contacts save, flat keys, only the fields given. Resolves true only on a
+// confirmed save, and refreshes the cache from what the worker now holds.
+async function _hsContactsSave(pid,flat){
   if(!db)return true;   // demo: nothing saves, same as before
-  if(SC.tiersEnabled)return _pwNodeUpdate(pid,{'emailPrefs/email':email||null,'emailPrefs/updatedAt':td()});
   const token=_hsCoachToken();
   if(!token)return false;
   try{
-    const r=await fetch(AUTH_WORKER+'/hs/player-email/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerId:pid,email:email||null})});
+    const r=await fetch(AUTH_WORKER+'/hs/player-contacts/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerId:pid,contacts:_hsContactsPatch(flat)})});
     const j=await r.json().catch(()=>null);
-    if(!j||j.ok!==true){ console.warn('player email save refused',j&&j.code); return false; }
-    if(_hsEmails)_hsEmails[pid]=email||'';
+    if(!j||j.ok!==true){ console.warn('player contacts save refused',j&&j.code,j&&j.field); return false; }
+    if(_hsContacts&&j.contacts)_hsContacts[pid]=_hsFlatContacts(j.contacts);
+    return true;
+  }catch(e){ return false; }
+}
+// One player's email save on the paths that predate contacts: the club writes its own
+// passwords node, the demo saves nothing, and a school goes through the contacts route.
+async function _playerEmailSave(pid,email){
+  if(!db)return true;   // demo: nothing saves, same as before
+  if(SC.tiersEnabled)return _pwNodeUpdate(pid,{'emailPrefs/email':email||null,'emailPrefs/updatedAt':td()});
+  return _hsContactsSave(pid,{playerEmail:email||''});
+}
+// Clears a removed player's private record. Called only after the roster removal has
+// landed; the worker refuses while the player is still on the roster.
+async function _hsContactsDelete(pid){
+  if(!_hsContactsMode()||!db)return true;
+  const token=_hsCoachToken();
+  if(!token)return false;
+  try{
+    const r=await fetch(AUTH_WORKER+'/hs/player-contacts/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerId:pid})});
+    const j=await r.json().catch(()=>null);
+    if(!j||j.ok!==true){ console.warn('player contacts delete refused',j&&j.code); return false; }
+    if(_hsContacts)delete _hsContacts[pid];
     return true;
   }catch(e){ return false; }
 }
@@ -4114,13 +4186,13 @@ function renderRoster(){
 // Three states a coach needs to tell apart on the roster: claimed, invitable, and
 // missing an email. Club rosters (SC.tiersEnabled) already sign in with accounts and
 // have their own signup, so this renders nothing there.
-// The email comes from the worker-filled cache. null means the worker has not answered
-// yet, and the cell then offers Invite, since the worker checks for an email anyway.
-// Demo has no emails, which reads as none, as it always has.
+// The email comes from the worker-filled contacts cache. null means the worker has not
+// answered yet, and the cell then offers Invite, since the worker checks for an email
+// anyway. Demo has no emails, which reads as none, as it always has.
 function _hsPlayerEmail(pid){
   if(SC.demoMode)return '';
-  if(!_hsEmails)return null;
-  return _hsEmails[pid]||'';
+  if(!_hsContacts)return null;
+  return (_hsContacts[pid]&&_hsContacts[pid].playerEmail)||'';
 }
 function hsClaimCell(p){
   if(SC.tiersEnabled||currentRole!=='coach'||!p)return '';
@@ -4144,9 +4216,9 @@ async function hsInvitePlayer(pid){
   // A fresh answer for this one player, so the confirm names the address on file now.
   // If the worker cannot answer, the cache stands in, and the invite itself still
   // refuses a player with no email.
-  const _fresh=await _hsEmailFetch([pid]);
-  if(_fresh&&_hsEmails)_hsEmails[pid]=_fresh[pid]||'';
-  const to=_fresh?(_fresh[pid]||''):_hsPlayerEmail(pid);
+  const _fresh=await _hsContactsFetch([pid]);
+  if(_fresh&&_hsContacts&&_fresh[pid])_hsContacts[pid]=_fresh[pid];
+  const to=_fresh?((_fresh[pid]&&_fresh[pid].playerEmail)||''):_hsPlayerEmail(pid);
   if(to===''){toast(nm+' has no email yet. Add one on their player card first.');return;}
   if(!window.confirm((p.invitedAt?'Send another invite to ':'Invite ')+nm+(to?' at '+to:'')+'?\n\nThey get a link to set a password and see their stats. The link works for 48 hours.'))return;
   const btn=document.getElementById('inv-'+pid);
@@ -4215,7 +4287,16 @@ function remPlayer(id){
     Object.keys(vt).forEach(function(k){ if(vt[k]&&vt[k].playerId===id) u[P+'/verticals/'+k]=null; }); // legacy jump-data node
     Object.keys(pn).forEach(function(date){ if(pn[date]&&pn[date][id]!==undefined) u[M+'/player_notes/'+date+'/'+id]=null; });
     Object.keys(cn).forEach(function(date){ if(cn[date]&&cn[date].players&&cn[date].players[id]!==undefined) u[M+'/coach_notes/'+date+'/players/'+id]=null; });
-    db.ref().update(u,function(err){ if(err){toast('Could not remove player, try again');return;} toast('Player removed'); });
+    db.ref().update(u,function(err){
+      if(err){toast('Could not remove player, try again');return;}
+      toast('Player removed');
+      // The player's private contacts record goes too, once the roster removal has landed
+      // (the worker refuses while the player is still on the roster). A failure here never
+      // undoes the removal; it only says the details are still on file.
+      _hsContactsDelete(id).then(function(ok){
+        if(!ok)toast('Player removed, but their contact details were not cleared. Tell Mark.');
+      });
+    });
   }).catch(function(){ toast('Could not remove player, try again'); });
 }
 
@@ -4441,6 +4522,18 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
   // Validated only when something was typed, so a blank never blocks the add.
   const _em=(document.getElementById('new-email')?.value||'').trim().toLowerCase();
   if(_em&&!_validEmail(_em)){toast('That email does not look right. Check it, or clear it to add without one.');return;}
+  // On a live school the player's own email and cell and both parents go to the private
+  // node through the worker, never to profiles. Every field is checked before anything
+  // is written, so a typo never leaves a half-added player.
+  const _hsc=_hsContactsMode();
+  const _cv=elId=>(document.getElementById(elId)?.value||'').trim();
+  const _contacts={};
+  if(_hsc){
+    const _src={playerEmail:_em,playerPhone:_cv('new-phone'),'parent1.name':_cv('new-p1-name'),'parent1.email':_cv('new-p1-email').toLowerCase(),'parent1.phone':_cv('new-p1-phone'),'parent2.name':_cv('new-p2-name'),'parent2.email':_cv('new-p2-email').toLowerCase(),'parent2.phone':_cv('new-p2-phone')};
+    Object.keys(_src).forEach(k=>{if(_src[k])_contacts[k]=_src[k];});
+    const _bad=_hsContactsInvalid(_contacts);
+    if(_bad){toast(_bad);return;}
+  }
   const jersey=document.getElementById('new-jersey').value;
   const id=gi('p');const _rosterWrite=fbSet('players/'+id,{id,firstName:f,lastName:l,classYear:document.getElementById('new-class').value,court:parseInt(document.getElementById('new-court').value),jersey:jersey?parseInt(jersey):null});
   // Recruiting identity fields live on the profiles node (existing model: pp.height/position/preferredSide/dominantHand),
@@ -4452,18 +4545,22 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
   if(!isNaN(_tv))prof.truvolley=_tv;                                  // only write TruVolley when entered
   const _p1=_mkParent(_pv('new-p1-name'),_pv('new-p1-email'),_pv('new-p1-phone'));
   const _p2=_mkParent(_pv('new-p2-name'),_pv('new-p2-email'),_pv('new-p2-phone'));
-  if(_p1)prof.parent1=_p1;                                           // only write a parent with at least one field
-  if(_p2)prof.parent2=_p2;
+  if(!_hsc&&_p1)prof.parent1=_p1;                                    // only write a parent with at least one field
+  if(!_hsc&&_p2)prof.parent2=_p2;
   if(db)db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
-  // The player's own address is saved through the worker (see _playerEmailSave), after
-  // the roster write lands, because the worker only saves an email for a player who is
-  // on the roster. Nothing is sent at all when no email was entered.
-  if(_em){
+  // Contacts are saved through the worker after the roster write lands, because the
+  // worker only saves for a player who is on the roster. Nothing is sent when every
+  // contact field was blank. Off a live school the email keeps its old path.
+  if(_hsc&&Object.keys(_contacts).length){
+    _rosterWrite.then(function(ok){ return ok?_hsContactsSave(id,_contacts):false; }).then(function(ok){
+      if(!ok)toast('Player added, but the contact details did not save. Add them from the player card.');
+    });
+  }else if(!_hsc&&_em){
     _rosterWrite.then(function(ok){ return ok?_playerEmailSave(id,_em):false; }).then(function(ok){
       if(!ok)toast('Player added, but the email did not save. Add it from the player card.');
     });
   }
-  ['new-first','new-last','new-email','new-jersey','new-truvolley','new-gradyear','new-height','new-reach','new-hand','new-side','new-role','new-p1-name','new-p1-email','new-p1-phone','new-p2-name','new-p2-email','new-p2-phone'].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value='';});
+  ['new-first','new-last','new-email','new-phone','new-jersey','new-truvolley','new-gradyear','new-height','new-reach','new-hand','new-side','new-role','new-p1-name','new-p1-email','new-p1-phone','new-p2-name','new-p2-email','new-p2-phone'].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value='';});
   toast('Player added!');});
 
 // Data export (JSON). Named so the Manage Import/Export card can call it directly. Excel export is exportExcel().
@@ -4627,8 +4724,8 @@ function loginAsCoach(){
   let _execSess=null; try{_execSess=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   document.getElementById('header-username').textContent=(_execSess&&_execSess.execName)?_execSess.execName:COACH_LABEL;
   document.querySelector('.tabs').style.display='flex';
-  _hsEmails=null;
-  _hsEmailsLoad();
+  _hsContacts=null;
+  _hsContactsLoad();
   refreshCurrent();
   // Club only: the Broadcast tab is active on entry but the statically-active pane is
   // tab-duals, so content and tab disagree on first paint. Fire the existing tab handler
@@ -6152,7 +6249,7 @@ function coachOpenPlayer(pid){
   _setIdV('cpm-p2-name',_pp2.name); _setIdV('cpm-p2-email',_pp2.email); _setIdV('cpm-p2-phone',_pp2.phone);
   // The player's own email is not in any node the browser can read, so it prefills
   // from the coach cache and then from a fresh worker answer for this one player.
-  _cpmEmailPrefill(pid);
+  _cpmContactsPrefill(pid);
   // Athlete info demo editor: prefill from the in-memory demo dataset (demo only; unseeded ids leave inputs empty).
   if(SC.demoMode){
     const _aiEdit=_demoAthleteInfo[pid]||{};
@@ -6208,70 +6305,106 @@ async function coachSaveIdentity(){
   const _mkParent=(n,e,ph)=>{if(!n&&!e&&!ph)return null;const o={};if(n)o.name=n;if(e)o.email=e;if(ph)o.phone=ph;return o;};
   const _tvRaw=document.getElementById('cpm-id-truvolley')?.value.trim();
   const _tv=_tvRaw?parseFloat(_tvRaw):NaN;
-  // The player's own email is optional here too, and validated only when present.
-  // The input exists only on non-tier shells, so a missing element means this shell
-  // does not edit the player email at all and no email save is sent.
+  // On a live school the player's own email and cell and both parents are saved through
+  // the worker, and only the fields the coach changed are sent. Off a live school (the
+  // demo) the email keeps its old path and parents stay on the profile.
+  const _hsc=_hsContactsMode();
   const _emEl=document.getElementById('cpm-id-email');
   const _em=_emEl?(_emEl.value||'').trim().toLowerCase():null;
-  if(_em&&!_validEmail(_em)){toast('That email does not look right. Fix it, or clear it to save without one.');return;}
+  const _cst=_cpmContactState;
+  const _ready=!!(_cst&&_cst.pid===pid&&_cst.loaded);
+  const _changed={};
+  if(_hsc){
+    const vals=_cpmContactValues();
+    Object.keys(vals).forEach(k=>{ if(vals[k]!==(_ready?(_cst.initial[k]||''):'')) _changed[k]=vals[k]; });
+    const bad=_hsContactsInvalid(_changed);
+    if(bad){toast(bad);return;}
+  }else if(_em&&!_validEmail(_em)){toast('That email does not look right. Fix it, or clear it to save without one.');return;}
   // Merge-write to profiles/players so skills/notes/jumpTests under this player are never clobbered.
-  // truvolley/parent1/parent2 write null when cleared (update() removes the key).
-  const profOk=await fbUpdateAt(SC.dbRoots.profiles+'/players/'+pid,{
+  // truvolley (and parent1/parent2 off a live school) write null when cleared (update() removes the key).
+  const _prof={
     height:gv('cpm-id-height'),
     reach:gv('cpm-id-reach'),
     gradYear:parseInt(document.getElementById('cpm-id-gradyear')?.value)||null,
     position:document.getElementById('cpm-id-position')?.value||null,
     preferredSide:document.getElementById('cpm-id-side')?.value||null,
     dominantHand:document.getElementById('cpm-id-hand')?.value||null,
-    truvolley:isNaN(_tv)?null:_tv,
-    parent1:_mkParent(gv('cpm-p1-name'),gv('cpm-p1-email'),gv('cpm-p1-phone')),
-    parent2:_mkParent(gv('cpm-p2-name'),gv('cpm-p2-email'),gv('cpm-p2-phone'))
-  });
-  // Email goes through the worker (see _playerEmailSave). A cleared field clears it,
-  // matching how the parent fields behave when cleared. Sent only when it changed, and
-  // never when the address on file was not loaded, so a blank field that only means
-  // "the worker did not answer" can never erase a real address.
-  let emailOk=true;
-  const _emSt=_cpmEmailState;
-  if(_emEl&&_emSt&&_emSt.pid===pid&&_emSt.loaded&&_em!==_emSt.initial){
-    emailOk=await _playerEmailSave(pid,_em||null);
-    if(emailOk)_emSt.initial=_em;
-  }else if(_emEl&&_em&&!(_emSt&&_emSt.pid===pid&&_emSt.loaded)){
-    emailOk=false;
+    truvolley:isNaN(_tv)?null:_tv
+  };
+  if(!_hsc){
+    _prof.parent1=_mkParent(gv('cpm-p1-name'),gv('cpm-p1-email'),gv('cpm-p1-phone'));
+    _prof.parent2=_mkParent(gv('cpm-p2-name'),gv('cpm-p2-email'),gv('cpm-p2-phone'));
+  }
+  const profOk=await fbUpdateAt(SC.dbRoots.profiles+'/players/'+pid,_prof);
+  // Contacts are sent only when something changed, and never when what is on file was
+  // not loaded, so a blank field that only means "the worker did not answer" can never
+  // erase a real value. A cleared field clears that one field.
+  let contactsOk=true;
+  if(_hsc){
+    if(Object.keys(_changed).length){
+      if(_ready){
+        contactsOk=await _hsContactsSave(pid,_changed);
+        if(contactsOk)Object.assign(_cst.initial,_changed);
+      }else{
+        contactsOk=false;
+      }
+    }
+  }else if(_emEl&&_ready&&_em!==(_cst.initial.playerEmail||'')){
+    contactsOk=await _playerEmailSave(pid,_em||null);
+    if(contactsOk)_cst.initial.playerEmail=_em;
+  }else if(_emEl&&_em&&!_ready){
+    contactsOk=false;
   }
   // Report what actually landed. This used to toast success unconditionally, so a
   // rejected write looked exactly like a saved one.
-  if(profOk&&emailOk) toast('Identity saved');
-  else if(profOk&&!emailOk) toast('Identity saved, but the email did not save. Try again.');
-  else if(!profOk&&emailOk) toast('The email saved, but the rest of the identity did not. Try again.');
+  const _what=_hsc?'the contact details':'the email';
+  if(profOk&&contactsOk) toast('Identity saved');
+  else if(profOk&&!contactsOk) toast('Identity saved, but '+_what+' did not save. Try again.');
+  else if(!profOk&&contactsOk) toast(_what.charAt(4).toUpperCase()+_what.slice(5)+' saved, but the rest of the identity did not. Try again.');
   else toast('Identity did not save. Try again.');
   setTimeout(()=>renderPlayerProfileData(pid),600);
 }
 
-// The coach player card's email field. initial is the address on file when the card
-// opened, and loaded says whether that answer is real. Demo has no emails and counts
-// as loaded, so the demo card behaves as it always has.
-let _cpmEmailState=null;
-function _cpmEmailPrefill(pid){
-  const el=document.getElementById('cpm-id-email');
-  if(!el){_cpmEmailState=null;return;}
-  if(SC.demoMode||SC.tiersEnabled){
-    el.value='';
-    _cpmEmailState={pid:pid,loaded:true,initial:''};
+// The coach player card's contact fields. initial holds what is on file for each field
+// when the card opened, and loaded says whether that answer is real. Off a live school
+// (the demo) the fields keep their old sources and count as loaded, so the demo card
+// behaves as it always has. The club card has none of these fields.
+const _CPM_CONTACT_IDS={playerEmail:'cpm-id-email',playerPhone:'cpm-id-phone','parent1.name':'cpm-p1-name','parent1.email':'cpm-p1-email','parent1.phone':'cpm-p1-phone','parent2.name':'cpm-p2-name','parent2.email':'cpm-p2-email','parent2.phone':'cpm-p2-phone'};
+function _cpmNorm(k,v){ const s=String(v==null?'':v).trim(); return /email$/i.test(k)?s.toLowerCase():s; }
+function _cpmContactEls(){
+  const els={};
+  Object.keys(_CPM_CONTACT_IDS).forEach(k=>{const el=document.getElementById(_CPM_CONTACT_IDS[k]);if(el)els[k]=el;});
+  return els;
+}
+function _cpmContactValues(){
+  const els=_cpmContactEls(), out={};
+  Object.keys(els).forEach(k=>{out[k]=_cpmNorm(k,els[k].value);});
+  return out;
+}
+let _cpmContactState=null;
+function _cpmContactsPrefill(pid){
+  const els=_cpmContactEls();
+  if(!Object.keys(els).length){_cpmContactState=null;return;}
+  if(!_hsContactsMode()){
+    // Demo: no player email or cell, as always. Parents were already filled from the profile.
+    if(els.playerEmail)els.playerEmail.value='';
+    if(els.playerPhone)els.playerPhone.value='';
+    _cpmContactState={pid:pid,loaded:true,initial:_cpmContactValues()};
     return;
   }
-  const cached=_hsEmails?(_hsEmails[pid]||''):'';
-  el.value=cached;
-  const st={pid:pid,loaded:!!_hsEmails,initial:cached};
-  _cpmEmailState=st;
-  _hsEmailFetch([pid]).then(function(m){
-    if(_cpmEmailState!==st)return;           // the card moved on to someone else
-    if(!m){ if(!st.loaded)toast('Could not load this player\'s email. Try reopening the card.'); return; }
-    const fresh=m[pid]||'';
-    if(_hsEmails)_hsEmails[pid]=fresh;
+  const cached=(_hsContacts&&_hsContacts[pid])||null;
+  const base=cached||_hsFlatContacts(null);
+  Object.keys(els).forEach(k=>{els[k].value=base[k]||'';});
+  const st={pid:pid,loaded:!!cached,initial:Object.assign({},base)};
+  _cpmContactState=st;
+  _hsContactsFetch([pid]).then(function(m){
+    if(_cpmContactState!==st)return;           // the card moved on to someone else
+    if(!m||!m[pid]){ if(!st.loaded)toast('Could not load this player\'s contact details. Try reopening the card.'); return; }
+    const fresh=m[pid];
+    if(_hsContacts)_hsContacts[pid]=fresh;
     // Only replace what the coach has not already started editing.
-    if((el.value||'').trim().toLowerCase()===st.initial)el.value=fresh;
-    st.initial=fresh;
+    Object.keys(els).forEach(k=>{ if(_cpmNorm(k,els[k].value)===(st.initial[k]||''))els[k].value=fresh[k]||''; });
+    st.initial=Object.assign({},fresh);
     st.loaded=true;
   });
 }
@@ -7202,7 +7335,9 @@ function _importParseRows(rows){
     // The player's own address. 'player email' first so a sheet carrying both that and
     // a bare 'email' column resolves to the explicit one. Absent column means no email
     // in this file, which is not an error.
-    email:col(['player email','email','player e-mail'])
+    email:col(['player email','email','player e-mail']),
+    // The player's own cell. Absent column means no phone in this file, not an error.
+    phone:col(['player phone','player cell','cell phone','cell'])
   };
   const cell=(r,i)=>(i>=0&&r[i]!=null)?String(r[i]).trim():'';
   const nameKey=s=>s.trim().toLowerCase();
@@ -7224,6 +7359,15 @@ function _importParseRows(rows){
     const truvolley=(truvRaw!==''&&!isNaN(truvNum))?truvNum:null;
     const parent1=_importParent(cell(r,C.p1n),cell(r,C.p1e),cell(r,C.p1p));
     const parent2=_importParent(cell(r,C.p2n),cell(r,C.p2e),cell(r,C.p2p));
+    // On a live school a bad parent email or phone is skipped when contacts are saved,
+    // so it is reported here the same way a bad player email is. Values are never echoed.
+    if(_hsContactsMode()){
+      [['Parent 1',parent1],['Parent 2',parent2]].forEach(function(pp){
+        const o=pp[1]; if(!o)return;
+        if(o.email&&!_validEmail(o.email))errors.push({row:rowNum,why:pp[0]+' email is not a valid address, field skipped'});
+        if(o.phone&&!_validPhone(o.phone))errors.push({row:rowNum,why:pp[0]+' phone is not a valid phone number, field skipped'});
+      });
+    }
     // Player email: optional, and a malformed one is reported and skipped rather than
     // failing the row. Losing one address is recoverable; losing the whole roster row
     // over a typo is not.
@@ -7232,6 +7376,13 @@ function _importParseRows(rows){
     if(emailRaw){
       if(_validEmail(emailRaw)) email=emailRaw.toLowerCase();
       else errors.push({row:rowNum,why:'Player email "'+emailRaw+'" is not a valid address, field skipped'});
+    }
+    // Same rule for the player's cell: a bad number is reported and skipped, the row stays.
+    const phoneRaw=cell(r,C.phone);
+    let phone='';
+    if(phoneRaw){
+      if(_validPhone(phoneRaw)) phone=phoneRaw;
+      else errors.push({row:rowNum,why:'Player phone is not a valid phone number, field skipped'});
     }
     const existing=byName[nameKey(first)+' '+nameKey(last)]||null;
     const height=cell(r,C.height), reach=cell(r,C.reach);
@@ -7246,7 +7397,7 @@ function _importParseRows(rows){
     // Pre-assign the id a NEW player will get, so Skills/Star Drill/Verticals rows in the
     // same file can point at it before the roster commit runs. _importCommit reuses it.
     const newId=existing?null:gi('p');
-    plan.push({row:rowNum, existing, newId, data:{first,last,gradYear,jersey,truvolley,height,reach,position,side,hand,parent1,parent2,email}});
+    plan.push({row:rowNum, existing, newId, data:{first,last,gradYear,jersey,truvolley,height,reach,position,side,hand,parent1,parent2,email,phone}});
   }
   return {plan, errors};
 }
@@ -7448,20 +7599,38 @@ function _importCommit(plan){
       if(d.position)prof.position=d.position;
       if(d.side)prof.preferredSide=d.side;   // app reads preferredSide, not side
       if(d.hand)prof.dominantHand=d.hand;     // app reads dominantHand, not hand
-      if(d.parent1)prof.parent1=d.parent1;
-      if(d.parent2)prof.parent2=d.parent2;
+      // On a live school parents and the player's own email and cell go to the private
+      // node through the worker, once the roster write lands. Only the fields the file
+      // supplied are sent, so a blank cell never clears a value already on file.
+      const _hsc=_hsContactsMode();
+      if(!_hsc&&d.parent1)prof.parent1=d.parent1;
+      if(!_hsc&&d.parent2)prof.parent2=d.parent2;
       db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
-      // Player email through the worker, same path as the add form and the player card,
-      // once the roster write lands. Sent only when the file supplied one, so a blank
-      // cell never clears an address already on file.
-      if(d.email)emailSaves.push(_rosterWrite.then(function(ok){ return ok?_playerEmailSave(id,d.email):false; }));
+      if(_hsc){
+        const c={};
+        if(d.email)c.playerEmail=d.email;
+        if(d.phone)c.playerPhone=d.phone;
+        [['parent1',d.parent1],['parent2',d.parent2]].forEach(function(pp){
+          const o=pp[1]; if(!o)return;
+          if(o.name)c[pp[0]+'.name']=o.name;
+          if(o.email)c[pp[0]+'.email']=String(o.email).toLowerCase();
+          if(o.phone)c[pp[0]+'.phone']=o.phone;
+        });
+        // A bad parent email or phone would sink the whole save, so it is dropped here
+        // and the rest still lands.
+        Object.keys(c).forEach(function(k){ if(_hsContactsInvalid({[k]:c[k]}))delete c[k]; });
+        if(Object.keys(c).length)emailSaves.push(_rosterWrite.then(function(ok){ return ok?_hsContactsSave(id,c):false; }));
+      }else if(d.email){
+        emailSaves.push(_rosterWrite.then(function(ok){ return ok?_playerEmailSave(id,d.email):false; }));
+      }
     }
   });
   // One report for the whole import, after every email save has settled.
   if(emailSaves.length){
     Promise.all(emailSaves).then(function(rs){
       const missed=rs.filter(function(ok){return !ok;}).length;
-      if(missed)toast(missed+' player email'+(missed===1?'':'s')+' did not save. Add '+(missed===1?'it':'them')+' from the player card.');
+      const _noun=_hsContactsMode()?'player contact record':'player email';
+      if(missed)toast(missed+' '+_noun+(missed===1?'':'s')+' did not save. Add '+(missed===1?'it':'them')+' from the player card.');
     });
   }
   return {nNew,nUpd};
