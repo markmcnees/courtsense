@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.196';
+const APP_VERSION='1.1.197';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2747,11 +2747,11 @@ function listenData(){if(!db)return;
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
     D.practiceTournaments=(val&&val.practiceTournaments)||{};
     _rosterLoaded=true;
+    if(_hsEmailsPending)_hsEmailsLoad();
     refreshCurrent();
     if(typeof knRefreshPlayer==='function')knRefreshPlayer();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
   },err=>{console.error(err);setSS(false);});
-  db.ref(SC.dbRoots.passwords).on('value',s=>{passwords=s.val()||{};});
   db.ref(DB_ROOT+'/player_notes').on('value',s=>{
     const all=s.val()||{};
     // Restructure from [date][pid] → pgdNotes[pid][date]
@@ -3091,33 +3091,62 @@ function fbUpdateAt(path,val){
 // stopped by an obvious typo, not by a strict grammar that rejects a real address.
 function _validEmail(s){ return /^\S+@\S+\.\S+$/.test(String(s==null?'':s).trim()); }
 
-// ── LEGACY PLAYER PASSWORD NODE ──────────────────────────────
-// {passwords}/{playerId} has carried two incompatible shapes. The legacy login stores
-// the password as the node VALUE, a bare string. emailPrefs is written as a CHILD of
-// the same node, which turns it into an object. Once that happened the login compared
-// a typed password against an object, never matched, and the player was locked out.
+// ── PLAYER EMAIL ─────────────────────────────────────────────
+// The browser no longer reads or keeps player passwords. Player sign-in is a
+// CourtSense account, checked by the worker, so nothing here holds a password.
 //
-// The password now lives at its own pw leaf so the two can coexist. Nothing is
-// migrated: the resolver below accepts either shape, and a legacy record is promoted
-// only when something else writes to that node anyway.
-function _storedPw(pid){
-  const rec = passwords ? passwords[pid] : null;
-  if(typeof rec === 'string') return rec;                                   // legacy, node value is the password
-  if(rec && typeof rec === 'object' && typeof rec.pw === 'string') return rec.pw;  // current shape
-  return null;                                                              // no password on file, caller falls back
-}
-// Every write to {passwords}/{pid} goes through here. RTDB update() on a node whose
-// value is a primitive replaces that primitive with an object, so writing any child of
-// a record that still stores its password as the node value would destroy the password.
-// When the cache shows that legacy shape, this carries the password down to its pw leaf
-// in the SAME update, so the promotion and the caller's write land together or not at
-// all. A patch that already sets pw is left alone, so a password change is never
-// overwritten by the value it is replacing.
+// A school player's own email lives in the school's private node, which browsers
+// cannot read. A coach reaches it only through the worker, under their coach session.
+// The club (SC.tiersEnabled) still keeps emailPrefs on its own passwords node, whose
+// rules open only that child, so club writes go there exactly as before.
 function _pwNodeUpdate(pid, patch){
-  const rec = passwords ? passwords[pid] : null;
-  const out = Object.assign({}, patch);
-  if(typeof rec === 'string' && !Object.prototype.hasOwnProperty.call(out,'pw')) out.pw = rec;
-  return fbUpdateAt(SC.dbRoots.passwords + '/' + pid, out);
+  return fbUpdateAt(SC.dbRoots.passwords + '/' + pid, patch);
+}
+function _hsCoachToken(){
+  let s=null; try{s=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
+  return (s&&s.token&&s.dbRoot===DB_ROOT)?s.token:'';
+}
+// Coach roster cache, pid to email ('' for none). null until the worker has answered,
+// which callers read as "not known yet", never as "no email".
+let _hsEmails=null;
+let _hsEmailsPending=false;
+async function _hsEmailFetch(ids){
+  const token=_hsCoachToken();
+  if(!token||!ids.length)return null;
+  try{
+    const r=await fetch(AUTH_WORKER+'/hs/player-email/get',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerIds:ids})});
+    const j=await r.json().catch(()=>null);
+    if(!j||j.ok!==true||!j.emails)return null;
+    const out={};
+    Object.keys(j.emails).forEach(pid=>{const e=j.emails[pid];out[pid]=(e&&e.hasEmail&&typeof e.email==='string')?e.email:'';});
+    return out;
+  }catch(e){ return null; }
+}
+// Fills the cache once per coach sign-in. Called before the roster has arrived, it
+// waits and the roster listener calls it again.
+function _hsEmailsLoad(){
+  if(SC.tiersEnabled||SC.demoMode||currentRole!=='coach')return;
+  if(!_rosterLoaded){_hsEmailsPending=true;return;}
+  _hsEmailsPending=false;
+  _hsEmailFetch((D.players||[]).map(p=>p.id)).then(m=>{
+    if(!m){toast('Could not load player emails. Invites still work.');return;}
+    _hsEmails=m;
+    if(currentRole==='coach'&&typeof renderRoster==='function')renderRoster();
+  });
+}
+// One player's email save, blank or null to clear. Resolves true only on a confirmed save.
+async function _playerEmailSave(pid,email){
+  if(!db)return true;   // demo: nothing saves, same as before
+  if(SC.tiersEnabled)return _pwNodeUpdate(pid,{'emailPrefs/email':email||null,'emailPrefs/updatedAt':td()});
+  const token=_hsCoachToken();
+  if(!token)return false;
+  try{
+    const r=await fetch(AUTH_WORKER+'/hs/player-email/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,playerId:pid,email:email||null})});
+    const j=await r.json().catch(()=>null);
+    if(!j||j.ok!==true){ console.warn('player email save refused',j&&j.code); return false; }
+    if(_hsEmails)_hsEmails[pid]=email||'';
+    return true;
+  }catch(e){ return false; }
 }
 // Result-create writer: stamps seasonId onto full-object result creates (matches/duals/gamedays/scrimmages/schedule).
 // Preserves an explicit seasonId if the object already carries one. fbSet stays generic for non-result writes.
@@ -4085,17 +4114,20 @@ function renderRoster(){
 // Three states a coach needs to tell apart on the roster: claimed, invitable, and
 // missing an email. Club rosters (SC.tiersEnabled) already sign in with accounts and
 // have their own signup, so this renders nothing there.
+// The email comes from the worker-filled cache. null means the worker has not answered
+// yet, and the cell then offers Invite, since the worker checks for an email anyway.
+// Demo has no emails, which reads as none, as it always has.
 function _hsPlayerEmail(pid){
-  const rec=passwords?passwords[pid]:null;
-  const prefs=(rec&&typeof rec==='object'&&rec.emailPrefs)||null;
-  return (prefs&&typeof prefs.email==='string'&&prefs.email.trim())||'';
+  if(SC.demoMode)return '';
+  if(!_hsEmails)return null;
+  return _hsEmails[pid]||'';
 }
 function hsClaimCell(p){
   if(SC.tiersEnabled||currentRole!=='coach'||!p)return '';
   if(p.accountId){
     return '<span title="This player has claimed their record" style="font-size:10px;font-weight:700;color:var(--win,#059669);white-space:nowrap;padding:0 4px;">Claimed</span>';
   }
-  if(!_hsPlayerEmail(p.id)){
+  if(_hsPlayerEmail(p.id)===''){
     return '<span title="Add an email on the player card before inviting" style="font-size:10px;color:var(--gray);white-space:nowrap;padding:0 4px;">No email</span>';
   }
   const label=p.invitedAt?'Resend':'Invite';
@@ -4109,9 +4141,14 @@ async function hsInvitePlayer(pid){
   const nm=((p.firstName||'')+' '+(p.lastName||'')).trim()||'this player';
   let session=null;try{session=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   if(!session||!session.token||session.dbRoot!==DB_ROOT){toast('Your coach session expired. Sign in again.');return;}
-  const to=_hsPlayerEmail(pid);
-  if(!to){toast(nm+' has no email yet. Add one on their player card first.');return;}
-  if(!window.confirm((p.invitedAt?'Send another invite to ':'Invite ')+nm+' at '+to+'?\n\nThey get a link to set a password and see their stats. The link works for 48 hours.'))return;
+  // A fresh answer for this one player, so the confirm names the address on file now.
+  // If the worker cannot answer, the cache stands in, and the invite itself still
+  // refuses a player with no email.
+  const _fresh=await _hsEmailFetch([pid]);
+  if(_fresh&&_hsEmails)_hsEmails[pid]=_fresh[pid]||'';
+  const to=_fresh?(_fresh[pid]||''):_hsPlayerEmail(pid);
+  if(to===''){toast(nm+' has no email yet. Add one on their player card first.');return;}
+  if(!window.confirm((p.invitedAt?'Send another invite to ':'Invite ')+nm+(to?' at '+to:'')+'?\n\nThey get a link to set a password and see their stats. The link works for 48 hours.'))return;
   const btn=document.getElementById('inv-'+pid);
   const orig=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='Sending...';}
@@ -4405,7 +4442,7 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
   const _em=(document.getElementById('new-email')?.value||'').trim().toLowerCase();
   if(_em&&!_validEmail(_em)){toast('That email does not look right. Check it, or clear it to add without one.');return;}
   const jersey=document.getElementById('new-jersey').value;
-  const id=gi('p');fbSet('players/'+id,{id,firstName:f,lastName:l,classYear:document.getElementById('new-class').value,court:parseInt(document.getElementById('new-court').value),jersey:jersey?parseInt(jersey):null});
+  const id=gi('p');const _rosterWrite=fbSet('players/'+id,{id,firstName:f,lastName:l,classYear:document.getElementById('new-class').value,court:parseInt(document.getElementById('new-court').value),jersey:jersey?parseInt(jersey):null});
   // Recruiting identity fields live on the profiles node (existing model: pp.height/position/preferredSide/dominantHand),
   // written with merge semantics so skills/notes/jumpTests under this player are never clobbered. gradYear/reach are new keys.
   const _pv=elId=>document.getElementById(elId)?.value.trim()||'';
@@ -4418,12 +4455,11 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
   if(_p1)prof.parent1=_p1;                                           // only write a parent with at least one field
   if(_p2)prof.parent2=_p2;
   if(db)db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
-  // The player's own address goes to the passwords node's emailPrefs child, which is
-  // where saveEmailPrefs already keeps it and where the worker's resolvePlayerEmail
-  // reads it. Merge-written so it never disturbs the four notification toggles a
-  // player may have already set. Nothing is written at all when no email was entered.
+  // The player's own address is saved through the worker (see _playerEmailSave), after
+  // the roster write lands, because the worker only saves an email for a player who is
+  // on the roster. Nothing is sent at all when no email was entered.
   if(_em){
-    _pwNodeUpdate(id,{'emailPrefs/email':_em,'emailPrefs/updatedAt':td()}).then(function(ok){
+    _rosterWrite.then(function(ok){ return ok?_playerEmailSave(id,_em):false; }).then(function(ok){
       if(!ok)toast('Player added, but the email did not save. Add it from the player card.');
     });
   }
@@ -4443,8 +4479,8 @@ document.getElementById('set-modal').addEventListener('click',function(e){if(e.t
 // ============================================================
 // LOGIN SYSTEM
 // ============================================================
+// The demo's shared player password. Only the demo checks it; no real roster does.
 const DEFAULT_PW=SC.defaultPw;
-let passwords={};
 let currentRole=null; // 'coach' or 'player'
 let currentPlayerId=null;
 let pinEntry='';
@@ -4591,6 +4627,8 @@ function loginAsCoach(){
   let _execSess=null; try{_execSess=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   document.getElementById('header-username').textContent=(_execSess&&_execSess.execName)?_execSess.execName:COACH_LABEL;
   document.querySelector('.tabs').style.display='flex';
+  _hsEmails=null;
+  _hsEmailsLoad();
   refreshCurrent();
   // Club only: the Broadcast tab is active on entry but the statically-active pane is
   // tab-duals, so content and tab disagree on first paint. Fire the existing tab handler
@@ -4632,9 +4670,15 @@ function playerLogin(){
     if(_e)_e.textContent='You already set up a CourtSense account. Log in with that email and password.';
     return;
   }
+  // The team password is gone everywhere but the demo. The browser never checks a
+  // password for a real roster, so a live school fails closed here and points the
+  // player at the account path instead.
+  if(!SC.demoMode){
+    document.getElementById('pw-error').textContent='Player sign-in uses your CourtSense account. Ask your coach for an invite.';
+    return;
+  }
   if(!pw){document.getElementById('pw-error').textContent='Enter your password';return;}
-  const storedPw=_storedPw(pid)||DEFAULT_PW;
-  if(pw!==storedPw){document.getElementById('pw-error').textContent='Incorrect password';return;}
+  if(pw!==DEFAULT_PW){document.getElementById('pw-error').textContent='Incorrect password';return;}
   document.getElementById('pw-error').textContent='';
   currentRole='player';currentPlayerId=pid;
   sessionStorage.setItem('leonAuth',JSON.stringify({role:'player',pid}));
@@ -4791,6 +4835,26 @@ function logout(){
   document.getElementById('pw-error').textContent='';
   document.getElementById('login-pw').value='';
 }
+// A stored leonAuth names a player but proves nothing, since anyone can write it into
+// sessionStorage. Outside the demo it counts only when this tab also holds a worker
+// player session for the account linked to that roster record, and the worker confirms
+// that session now. Anything else is refused and the login screen shows.
+async function _leonAuthConfirmed(auth){
+  if(!auth||auth.role!=='player'||!auth.pid)return false;
+  if(SC.demoMode)return true;
+  const rec=gP(auth.pid);
+  if(!rec||!rec.accountId)return false;
+  let s=null;
+  try{ s=JSON.parse(sessionStorage.getItem(TN_PLAYER_SESSION_KEY)||'null'); }catch(e){ return false; }
+  if(!s||typeof s.token!=='string'||!TN_PLAYER_TOKEN_RE.test(s.token)||s.dbRoot!==DB_ROOT||s.accountId!==rec.accountId)return false;
+  if(s.expiresAt&&s.expiresAt<=Date.now())return false;
+  try{
+    const r=await fetch(AUTH_WORKER+'/auth/player-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:s.token})});
+    if(!r.ok)return false;
+    const j=await r.json().catch(()=>null);
+    return !!(j&&j.ok===true&&j.player&&j.player.id===rec.accountId);
+  }catch(e){ return false; }
+}
 async function autoLogin(){
   // Coach: validate the stored session token server-side before entering coach mode.
   // Never trust a bare flag; a forged sessionStorage entry fails the worker check.
@@ -4803,12 +4867,13 @@ async function autoLogin(){
       sessionStorage.removeItem('csCoachSession');
     }
   }catch(e){sessionStorage.removeItem('csCoachSession');}
-  // Player: unchanged, restored from leonAuth. A session minted before player login was
-  // turned off is dropped rather than honored, otherwise flipping the shell would leave
-  // anyone mid-session still inside.
+  // Player: restored from leonAuth only once it is confirmed (see _leonAuthConfirmed).
+  // A session minted before player login was turned off is dropped rather than honored,
+  // otherwise flipping the shell would leave anyone mid-session still inside.
   if(!PLAYER_LOGIN_ON){ sessionStorage.removeItem('leonAuth'); return; }
   try{
     let auth=JSON.parse(sessionStorage.getItem('leonAuth'));
+    if(auth&&!(await _leonAuthConfirmed(auth))){ sessionStorage.removeItem('leonAuth'); auth=null; }
     // Club configs: no member session in this tab, but the device may already hold a
     // CourtSense sign-in (for example after tapping a club alert). See clubAccountSession.
     if(!auth) auth=await clubAccountSession();
@@ -4835,17 +4900,13 @@ async function changePassword(){
   const cur=document.getElementById('t-pw-current').value;
   const newPw=document.getElementById('t-pw-new').value;
   const confirm=document.getElementById('t-pw-confirm').value;
-  const storedPw=_storedPw(currentPlayerId)||DEFAULT_PW;
-  if(cur!==storedPw){toast('Current password is incorrect');return;}
+  // No real roster keeps a password in the browser any more, so outside the demo there
+  // is nothing here to change. A CourtSense account password changes on its own page.
+  if(!SC.demoMode){toast('Player sign-in uses your CourtSense account. Ask your coach for an invite.');return;}
+  if(cur!==DEFAULT_PW){toast('Current password is incorrect');return;}
   if(!newPw||newPw.length<4){toast('New password must be at least 4 characters');return;}
   if(newPw!==confirm){toast('Passwords do not match');return;}
-  // Writes the pw leaf rather than the node value, so emailPrefs beside it survives.
-  // A record still holding a bare string is replaced by this object, which is correct:
-  // the string it held is the password being changed.
-  const ok=await _pwNodeUpdate(currentPlayerId,{pw:newPw});
-  // A password change is worth confirming honestly. This used to toast success even
-  // when the write was rejected, which would leave a player locked to the old one.
-  if(!ok){toast('Password did not save. Try again.');return;}
+  // Demo: nothing saves, so this confirms the way the demo always has.
   toast('Password updated!');
   document.getElementById('t-pw-current').value='';document.getElementById('t-pw-new').value='';document.getElementById('t-pw-confirm').value='';
 }
@@ -6089,12 +6150,9 @@ function coachOpenPlayer(pid){
   const _pp1=_idp.parent1||{},_pp2=_idp.parent2||{};
   _setIdV('cpm-p1-name',_pp1.name); _setIdV('cpm-p1-email',_pp1.email); _setIdV('cpm-p1-phone',_pp1.phone);
   _setIdV('cpm-p2-name',_pp2.name); _setIdV('cpm-p2-email',_pp2.email); _setIdV('cpm-p2-phone',_pp2.phone);
-  // The player's own email lives on the passwords node, not profiles, so it prefills
-  // from the passwords listener's cache. A legacy record still holding a bare password
-  // string has no emailPrefs child, which reads as no email rather than as an error.
-  const _pwRec=passwords&&passwords[pid];
-  const _pwPrefs=(_pwRec&&typeof _pwRec==='object'&&_pwRec.emailPrefs)||{};
-  _setIdV('cpm-id-email',_pwPrefs.email);
+  // The player's own email is not in any node the browser can read, so it prefills
+  // from the coach cache and then from a fresh worker answer for this one player.
+  _cpmEmailPrefill(pid);
   // Athlete info demo editor: prefill from the in-memory demo dataset (demo only; unseeded ids leave inputs empty).
   if(SC.demoMode){
     const _aiEdit=_demoAthleteInfo[pid]||{};
@@ -6152,7 +6210,7 @@ async function coachSaveIdentity(){
   const _tv=_tvRaw?parseFloat(_tvRaw):NaN;
   // The player's own email is optional here too, and validated only when present.
   // The input exists only on non-tier shells, so a missing element means this shell
-  // does not edit the player email at all and the passwords node is left alone.
+  // does not edit the player email at all and no email save is sent.
   const _emEl=document.getElementById('cpm-id-email');
   const _em=_emEl?(_emEl.value||'').trim().toLowerCase():null;
   if(_em&&!_validEmail(_em)){toast('That email does not look right. Fix it, or clear it to save without one.');return;}
@@ -6169,11 +6227,18 @@ async function coachSaveIdentity(){
     parent1:_mkParent(gv('cpm-p1-name'),gv('cpm-p1-email'),gv('cpm-p1-phone')),
     parent2:_mkParent(gv('cpm-p2-name'),gv('cpm-p2-email'),gv('cpm-p2-phone'))
   });
-  // Email goes to the passwords node's emailPrefs child, merge-written so the four
-  // notification toggles survive. A cleared field writes null, which removes the key,
-  // matching how the parent fields behave when cleared.
+  // Email goes through the worker (see _playerEmailSave). A cleared field clears it,
+  // matching how the parent fields behave when cleared. Sent only when it changed, and
+  // never when the address on file was not loaded, so a blank field that only means
+  // "the worker did not answer" can never erase a real address.
   let emailOk=true;
-  if(_emEl) emailOk=await _pwNodeUpdate(pid,{'emailPrefs/email':_em||null,'emailPrefs/updatedAt':td()});
+  const _emSt=_cpmEmailState;
+  if(_emEl&&_emSt&&_emSt.pid===pid&&_emSt.loaded&&_em!==_emSt.initial){
+    emailOk=await _playerEmailSave(pid,_em||null);
+    if(emailOk)_emSt.initial=_em;
+  }else if(_emEl&&_em&&!(_emSt&&_emSt.pid===pid&&_emSt.loaded)){
+    emailOk=false;
+  }
   // Report what actually landed. This used to toast success unconditionally, so a
   // rejected write looked exactly like a saved one.
   if(profOk&&emailOk) toast('Identity saved');
@@ -6181,6 +6246,34 @@ async function coachSaveIdentity(){
   else if(!profOk&&emailOk) toast('The email saved, but the rest of the identity did not. Try again.');
   else toast('Identity did not save. Try again.');
   setTimeout(()=>renderPlayerProfileData(pid),600);
+}
+
+// The coach player card's email field. initial is the address on file when the card
+// opened, and loaded says whether that answer is real. Demo has no emails and counts
+// as loaded, so the demo card behaves as it always has.
+let _cpmEmailState=null;
+function _cpmEmailPrefill(pid){
+  const el=document.getElementById('cpm-id-email');
+  if(!el){_cpmEmailState=null;return;}
+  if(SC.demoMode||SC.tiersEnabled){
+    el.value='';
+    _cpmEmailState={pid:pid,loaded:true,initial:''};
+    return;
+  }
+  const cached=_hsEmails?(_hsEmails[pid]||''):'';
+  el.value=cached;
+  const st={pid:pid,loaded:!!_hsEmails,initial:cached};
+  _cpmEmailState=st;
+  _hsEmailFetch([pid]).then(function(m){
+    if(_cpmEmailState!==st)return;           // the card moved on to someone else
+    if(!m){ if(!st.loaded)toast('Could not load this player\'s email. Try reopening the card.'); return; }
+    const fresh=m[pid]||'';
+    if(_hsEmails)_hsEmails[pid]=fresh;
+    // Only replace what the coach has not already started editing.
+    if((el.value||'').trim().toLowerCase()===st.initial)el.value=fresh;
+    st.initial=fresh;
+    st.loaded=true;
+  });
 }
 
 function coachAddDrill(){
@@ -7320,6 +7413,7 @@ function _importParseVerts(rows, byName){
 // Write the plan: matches node (fbSet, full record) + profiles node (merge update).
 function _importCommit(plan){
   let nNew=0,nUpd=0;
+  const emailSaves=[];
   plan.forEach(e=>{
     const d=e.data;
     let id, rec;
@@ -7344,7 +7438,7 @@ function _importCommit(plan){
     rec.classYear=rec.classYear||'FR';
     if(!Number.isFinite(rec.court))rec.court=1;
     if(rec.jersey===undefined)rec.jersey=null;
-    fbSet('players/'+id, rec);
+    const _rosterWrite=fbSet('players/'+id, rec);
     if(db){
       const prof={gradYear:d.gradYear};
       if(d.truvolley!=null)prof.truvolley=d.truvolley;
@@ -7357,12 +7451,19 @@ function _importCommit(plan){
       if(d.parent1)prof.parent1=d.parent1;
       if(d.parent2)prof.parent2=d.parent2;
       db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
-      // Player email to the passwords node's emailPrefs child, same target as the add
-      // form and the player card. Written only when the file supplied one, so a blank
-      // cell never clears an address the player already set for themselves.
-      if(d.email)_pwNodeUpdate(id,{'emailPrefs/email':d.email,'emailPrefs/updatedAt':td()});
+      // Player email through the worker, same path as the add form and the player card,
+      // once the roster write lands. Sent only when the file supplied one, so a blank
+      // cell never clears an address already on file.
+      if(d.email)emailSaves.push(_rosterWrite.then(function(ok){ return ok?_playerEmailSave(id,d.email):false; }));
     }
   });
+  // One report for the whole import, after every email save has settled.
+  if(emailSaves.length){
+    Promise.all(emailSaves).then(function(rs){
+      const missed=rs.filter(function(ok){return !ok;}).length;
+      if(missed)toast(missed+' player email'+(missed===1?'':'s')+' did not save. Add '+(missed===1?'it':'them')+' from the player card.');
+    });
+  }
   return {nNew,nUpd};
 }
 // Skills commit: merge-update the player's skills leaf so a blank leaves the existing
@@ -8603,8 +8704,15 @@ function notifyLineup(assignData){
   reportNotifyMisses(sends,'the lineup');
 }
 
+// Player email preferences. The club keeps them on its own passwords node, whose rules
+// open only the emailPrefs child, and that path is unchanged. A school's player email
+// now lives in a private node the browser cannot read, and there is no player route
+// to it yet, so a school portal neither reads nor writes here. School player sign-in
+// is closed (playerLoginEnabled false), so no school player reaches this today.
+function _schoolPrefsClosed(){ return !!db&&!SC.tiersEnabled; }
 function loadEmailPrefs(pid){
   if(!db||!pid)return;
+  if(_schoolPrefsClosed())return;
   db.ref(SC.dbRoots.passwords+'/'+pid+'/emailPrefs').once('value',function(snap){
     const prefs=snap.val()||{};
     const el=document.getElementById('pp-email-addr');if(el)el.value=prefs.email||'';
@@ -8621,6 +8729,7 @@ function loadEmailPrefs(pid){
 
 function saveEmailPrefs(){
   const pid=currentPlayerId;if(!pid){toast('Not logged in');return;}
+  if(_schoolPrefsClosed()){toast('Your coach keeps your email on file for now.');return;}
   const email=(document.getElementById('pp-email-addr')?document.getElementById('pp-email-addr').value:'').trim();
   if(email&&!email.includes('@')){toast('Enter a valid email address');return;}
   const prefs={
@@ -8637,8 +8746,7 @@ function saveEmailPrefs(){
   if(_clubEl)prefs.notifClub=!!_clubEl.checked;
   // emailPrefs is handed over as one object, so this keeps the whole-child replace the
   // old .set() did: a toggle absent from prefs is removed rather than left behind.
-  // Routed through _pwNodeUpdate so it can no longer destroy a legacy bare password,
-  // which is exactly how a player who saved preferences used to lock themselves out.
+  // Club only by now (see _schoolPrefsClosed), on the club's own passwords node.
   _pwNodeUpdate(pid,{emailPrefs:prefs}).then(function(ok){
     if(!ok){toast('Preferences did not save. Try again.');return;}
     toast('Email preferences saved!');
