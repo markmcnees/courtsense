@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.199';
+const APP_VERSION='1.1.200';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1361,6 +1361,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
 
 <!-- ====== DUALS / LIVE SCORING ====== -->
   <div class="tab-content active" id="tab-duals">
+<div id="cs-season-start"></div>
 <div class="card" style="border:2px solid var(--blue);">
       <div class="card-title blue"><span class="bar"></span> 🏐 Live Score Entry
         <span style="font-size:11px;font-weight:400;color:var(--gray);letter-spacing:0;font-family:'Barlow',sans-serif;margin-left:6px;">Auto-loads today's assignment</span>
@@ -2668,36 +2669,6 @@ const EXHIBITION_COURTS=new Set([6,7,8]);
 const CO={SR:0,JR:1,SO:2,FR:3};
 let db=null;
 
-const DEF_P=[
-  {id:'p01',firstName:'Riley',lastName:'Knipple',classYear:'SR',court:1,jersey:9},
-  {id:'p02',firstName:'Destyni',lastName:'Zuema',classYear:'SR',court:1,jersey:5},
-  {id:'p03',firstName:'Aubrey',lastName:'Brown',classYear:'JR',court:3,jersey:10},
-  {id:'p04',firstName:'Madi',lastName:'Bunker',classYear:'JR',court:3,jersey:2},
-  {id:'p05',firstName:'Eden',lastName:'Codd',classYear:'JR',court:2,jersey:7},
-  {id:'p06',firstName:'Kendall',lastName:'Cruse',classYear:'JR',court:2,jersey:8},
-  {id:'p07',firstName:'Aubri',lastName:'Moore',classYear:'JR',court:3,jersey:13},
-  {id:'p08',firstName:'Riley',lastName:'Perezluha',classYear:'JR',court:1,jersey:3},
-  {id:'p09',firstName:'Lizzie',lastName:'Roader',classYear:'JR',court:3,jersey:17},
-  {id:'p10',firstName:'Bentley',lastName:'Barnard',classYear:'SO',court:1,jersey:6},
-  {id:'p11',firstName:'Jazmin',lastName:'Burdick',classYear:'SO',court:2,jersey:4},
-  {id:'p12',firstName:'Madalynn',lastName:'Edenfield',classYear:'SO',court:3,jersey:11},
-  {id:'p13',firstName:'Jordyn',lastName:'Russell',classYear:'SO',court:1,jersey:15},
-  {id:'p14',firstName:'Leilani',lastName:'Winfrey',classYear:'SO',court:3,jersey:18},
-  {id:'p15',firstName:'Salem',lastName:'Ehrhardt',classYear:'FR',court:2,jersey:12},
-  {id:'p16',firstName:'Reagan',lastName:'Giles',classYear:'FR',court:2,jersey:1}
-];
-const DEF_M=[
-  {id:'m01',date:'2026-02-06',court:3,team1:['p07','p04'],team2:['p14','p03'],score1:21,score2:3},
-  {id:'m02',date:'2026-02-06',court:1,team1:['p01','p10'],team2:['p08','p13'],score1:21,score2:16},
-  {id:'m03',date:'2026-02-06',court:2,team1:['p05','p06'],team2:['p15','p16'],score1:21,score2:15},
-  {id:'m04',date:'2026-02-06',court:3,team1:['p09','p14'],team2:['p03','p07'],score1:21,score2:4},
-  {id:'m05',date:'2026-02-06',court:1,team1:['p01','p08'],team2:['p02','p10'],score1:21,score2:13},
-  {id:'m06',date:'2026-02-06',court:2,team1:['p16','p06'],team2:['p05','p12'],score1:21,score2:13},
-  {id:'m07',date:'2026-02-06',court:3,team1:['p09','p12'],team2:['p14','p04'],score1:21,score2:8},
-  {id:'m08',date:'2026-02-06',court:1,team1:['p02','p08'],team2:['p13','p10'],score1:21,score2:18},
-  {id:'m09',date:'2026-02-06',court:2,team1:['p15','p04'],team2:['p05','p06'],score1:21,score2:15}
-];
-
 let D={players:[],matches:[],planned:[],gamedays:[],scrimmages:[],schedule:[],standings:{},goals:{},assignments:{},duals:[],opponents:{},liveScoring:{},quizScores:{},tierRequests:{},broadcasts:{},threads:{},tryoutSessions:{},tryoutAttendance:{},dues:{},practiceSchedule:{},travel:{},standing:{},pinned:null};
 // Active competitive season. Config leaf at DB_ROOT/config/currentSeasonId; defaults to the current year, overwritten by the init read below if a stored value exists. Result creates are stamped with this via fbSetResult.
 let _currentSeasonId=(new Date()).getFullYear().toString();
@@ -2779,29 +2750,23 @@ function listenData(){if(!db)return;
   db.ref(SC.dbRoots.profiles+'/quizScores').on('value',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
   db.ref(DB_ROOT).on('value',snap=>{
     const val=snap.val();
-    const hasP=val&&val.players&&Object.keys(val.players).length>0;
-    if(hasP){
-      D.players=Object.values(val.players);
-      D.matches=val.matches?Object.values(val.matches):[];
-      D.planned=val.planned?Object.values(val.planned):[];
-      D.gamedays=val.gamedays?Object.values(val.gamedays):[];
-      D.scrimmages=val.scrimmages?Object.values(val.scrimmages):[];
-      D.schedule=val.schedule?Object.values(val.schedule):[];
-      D.standings=val.standings||{};
-      D.goals=val.goals||{};
-      D.assignments=val.assignments||{};
-      D.duals=val.duals?Object.values(val.duals):[];
-      D.opponents=val.opponents||{};
-      D.tierRequests=val.tier_requests||{};
-      D.chat=val.chat||{};
-    }else{
-      // DEF_P/DEF_M are the Leon roster. Only fall back to them on the Leon node when auto-seed is on; every other empty node starts empty (no phantom Leon roster in RAM). Matches the seedDB guard.
-      const _seedLeon=(DB_ROOT==='leon_queens_matches' && SC.allowAutoSeed);
-      D.players=_seedLeon?JSON.parse(JSON.stringify(DEF_P)):[];
-      D.matches=_seedLeon?JSON.parse(JSON.stringify(DEF_M)):[];
-      D.planned=[];D.gamedays=[];D.scrimmages=[];D.duals=[];D.chat={};
-      seedDB();
-    }
+    // Every node loads whether or not the roster is empty, so a school starting a new
+    // season with no players still sees its schedule, standings and settings. Nothing is
+    // ever written here; an empty live school opens to the Start your season card.
+    const v=val||{};
+    D.players=v.players?Object.values(v.players):[];
+    D.matches=v.matches?Object.values(v.matches):[];
+    D.planned=v.planned?Object.values(v.planned):[];
+    D.gamedays=v.gamedays?Object.values(v.gamedays):[];
+    D.scrimmages=v.scrimmages?Object.values(v.scrimmages):[];
+    D.schedule=v.schedule?Object.values(v.schedule):[];
+    D.standings=v.standings||{};
+    D.goals=v.goals||{};
+    D.assignments=v.assignments||{};
+    D.duals=v.duals?Object.values(v.duals):[];
+    D.opponents=v.opponents||{};
+    D.tierRequests=v.tier_requests||{};
+    D.chat=v.chat||{};
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
     D.practiceTournaments=(val&&val.practiceTournaments)||{};
     _rosterLoaded=true;
@@ -2986,13 +2951,6 @@ function listenData(){if(!db)return;
       }
     });
   });
-}
-function seedDB(){if(!db || !SC.allowAutoSeed)return;
-  if(DB_ROOT !== 'leon_queens_matches') return; // DEF_P is the Leon roster; never seed it into any other school node
-  const u={};
-  DEF_P.forEach(p=>{u[DB_ROOT+'/players/'+p.id]=JSON.parse(JSON.stringify(p));u[SC.dbRoots.profiles+'/players/'+p.id]=JSON.parse(JSON.stringify(p));});
-  DEF_M.forEach(m=>{u[DB_ROOT+'/matches/'+m.id]=JSON.parse(JSON.stringify(m));});
-  db.ref().update(u);
 }
 // Demo-mode (db===null) in-memory persistence. Mirrors how the DB_ROOT listener
 // maps each node into the D store, so demo edits made through fbSet/fbRemove
@@ -4198,7 +4156,10 @@ function _cmpLast(a,b){
 // Empty roster state (display only). A brand new school opens to this instead of a
 // blank list, and it goes away as soon as one player exists. Never shown in demo mode.
 function rosterEmptyHTML(){
-  if(currentRole!=='coach') return `<div style="font-size:14px;color:var(--gray);text-align:center;padding:18px 8px;">Your coach has not added the roster yet.</div>`;
+  if(currentRole!=='coach') return SC.tiersEnabled
+    ? `<div style="font-size:14px;color:var(--gray);text-align:center;padding:18px 8px;">Your coach has not added the roster yet.</div>`
+    : `<div style="font-size:14px;color:var(--gray);text-align:center;padding:18px 8px;">Roster coming soon.</div>`;
+  if(!SC.tiersEnabled) return seasonStartHTML();
   const canAdd=!!document.getElementById('add-player');
   const canImport=!!document.getElementById('roster-import-input');
   const btn='min-height:44px;padding:10px 18px;font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:1.2px;border-radius:10px;flex:1;min-width:150px;';
@@ -4211,12 +4172,44 @@ function rosterEmptyHTML(){
     </div>`:''}
   </div>`;
 }
-// Opens the existing Add Player form: Manage, then Import/Export, then focus First Name.
-function rosterEmptyAddPlayer(){
+// Start your season (live high schools, coach only). Shown once the roster has loaded and
+// has no players. Both buttons go to Manage, then Import/Export.
+function seasonStartHTML(){
+  const btn='min-height:44px;padding:10px 18px;font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:1.2px;border-radius:10px;flex:1;min-width:140px;';
+  return `<div style="text-align:center;padding:22px 12px 18px;border:2px dashed var(--red);border-radius:12px;background:var(--white);margin-bottom:12px;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;color:var(--red);margin-bottom:6px;">Start your season</div>
+    <p style="font-size:14px;color:var(--gray);line-height:1.55;margin:0 auto 16px;max-width:420px;">Your roster is empty and ready for this year's team. Add players one at a time, or import your whole roster from the CourtSense Excel template.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:420px;margin:0 auto;">
+      <button class="btn btn-primary" style="${btn}" onclick="rosterEmptyAddPlayer()">Add Player</button>
+      <button class="btn btn-secondary" style="${btn}" onclick="rosterEmptyImport()">Import roster</button>
+    </div>
+  </div>`;
+}
+// Fills the slot at the top of the coach's landing tab. Empty unless a live high school's
+// roster has finished loading with 0 players, so it never flashes while data is on its way.
+function renderSeasonStart(){
+  const el=document.getElementById('cs-season-start');
+  if(!el) return;
+  const show=!SC.demoMode&&!SC.tiersEnabled&&currentRole==='coach'&&_rosterLoaded&&!(D.players&&D.players.length);
+  el.innerHTML=show?seasonStartHTML():'';
+}
+// Goes to Manage, then Import/Export.
+function _goHsImportTab(){
   const mb=Array.from(document.querySelectorAll('#mode-bar .mode-btn')).find(b=>(b.getAttribute('onclick')||'').indexOf("hsNav('manage'")!==-1);
   if(typeof hsNav==='function') hsNav('manage', mb||null);
   const t=document.querySelector('#sub-tabs-hsmanage .tab[data-tab="hsimport"]');
   if(t) t.click();
+}
+// Opens Import/Export and brings the Import and Export card into view.
+function rosterEmptyImport(){
+  _goHsImportTab();
+  const inp=document.getElementById('roster-import-input');
+  const card=inp&&inp.closest('.card');
+  if(card) card.scrollIntoView({behavior:'smooth',block:'center'});
+}
+// Opens the existing Add Player form: Manage, then Import/Export, then focus First Name.
+function rosterEmptyAddPlayer(){
+  _goHsImportTab();
   const f=document.getElementById('new-first');
   if(f){ f.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>{ try{ f.focus(); }catch(e){} },300); }
 }
@@ -4372,6 +4365,7 @@ function remPlayer(id){
 // ============================================================
 function refreshCurrent(){
   if(currentRole==='player'){renderPlayerPortal();return;}
+  renderSeasonStart();
   const t=document.querySelector('.tab.active');if(t)refreshTab(t.dataset.tab);
   // Always refresh past lineups regardless of active tab
   if(typeof renderPastLineups==='function')renderPastLineups();
@@ -8494,7 +8488,7 @@ function buildAssignSlots(){
   }
   // Notes section
   let nh='<div style="margin-top:8px;"><div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:4px;">Player Notes (optional)</div>';
-  nh+='<textarea class="form-input" id="assign-notes" rows="2" style="font-size:12px;" placeholder="e.g. Riley K — focus on serving. Bentley — work on left side."></textarea></div>';
+  nh+='<textarea class="form-input" id="assign-notes" rows="2" style="font-size:12px;" placeholder="e.g. Pair 1 on Court 1, Pair 2 on Court 2. Focus on serving."></textarea></div>';
   document.getElementById('assign-notes-section').innerHTML=nh;
 }
 
@@ -9362,74 +9356,6 @@ const _elassign_type=document.getElementById('assign-type');if(_elassign_type)_e
   const showOpp=this.value==='gameday'||this.value==='scrimmage';
   document.getElementById('assign-opp').closest('.form-group').style.display=showOpp?'':'none';
 });
-
-// ============================================================
-// ONE-TIME MIGRATION (Leon only)
-// ============================================================
-function runMigration(){
-  // Leon-only: this writes Leon's 2/24 game day with Leon player ids. Same node gate as
-  // seedDB and the delayed seeder, so a config flag alone can never aim it at another school.
-  if(DB_ROOT!=='leon_queens_matches')return;
-  if(!SC.legacyMigration)return;
-  if(!db)return;
-  db.ref(DB_ROOT+'/_migrated_gamedays').once('value',snap=>{
-    if(snap.val())return;
-    db.ref((SC.dbRoots.profiles+'_gamedays')).once('value',gdSnap=>{
-      const gdData=gdSnap.val();
-      const updates={};
-      // Migrate old gameday node data
-      if(gdData){
-        Object.entries(gdData).forEach(([gdKey,gd])=>{
-          if(!gd||!gd.courts)return;
-          const date=gd.date||'';
-          const opponent=gd.opponent||'Unknown';
-          const isScrimmage=(date==='2026-02-19');
-          // Everything else from old node goes to gamedays
-          const node=isScrimmage?'scrimmages':'gamedays';
-          Object.entries(gd.courts).forEach(([courtNum,ct])=>{
-            if(!ct)return;
-            const pair=[ct.pairA,ct.pairB].filter(Boolean);
-            if(pair.length<2)return;
-            const oppLabel=ct.opponent||opponent+' CT'+courtNum;
-            const sets=(ct.sets||[]).map(s=>{
-              const newStats={};
-              pair.forEach(pid=>{
-                const old=s.stats?.[pid]||{};
-                newStats[pid]={k:old.kills||0,b:old.blocks||0,a:old.aces||0,d:old.digs||0,e:old.errors||0};
-              });
-              return{scoreUs:s.scoreUs||0,scoreThem:s.scoreThem||0,stats:newStats};
-            });
-            const id=gi(isScrimmage?'sc':'gd');
-            updates[DB_ROOT+'/'+node+'/'+id]={id,date,court:parseInt(courtNum),pair,opponent:oppLabel,sets};
-          });
-        });
-      }
-      // Seed 2/24/2026 — Leon vs Community Christian School (Game Day)
-      const ccs='Community Christian';
-      const gd24=[
-        {court:1,pair:['p01','p10'],opp:ccs+' CT1',sets:[{scoreUs:21,scoreThem:19},{scoreUs:16,scoreThem:21},{scoreUs:21,scoreThem:7}]},
-        {court:2,pair:['p16','p08'],opp:ccs+' CT2',sets:[{scoreUs:21,scoreThem:15},{scoreUs:21,scoreThem:19}]},
-        {court:3,pair:['p13','p06'],opp:ccs+' CT3',sets:[{scoreUs:21,scoreThem:9},{scoreUs:21,scoreThem:7}]},
-        {court:4,pair:['p02','p09'],opp:ccs+' CT4',sets:[{scoreUs:16,scoreThem:21},{scoreUs:22,scoreThem:20},{scoreUs:13,scoreThem:15}]},
-        {court:5,pair:['p11','p15'],opp:ccs+' CT5',sets:[{scoreUs:21,scoreThem:0},{scoreUs:21,scoreThem:7}]},
-        {court:5,pair:['p05','p03'],opp:ccs+' Exhibition',sets:[{scoreUs:21,scoreThem:10},{scoreUs:21,scoreThem:9}]}
-      ];
-      gd24.forEach(m=>{
-        const id=gi('gd');
-        const sets=m.sets.map(s=>{
-          const stats={};m.pair.forEach(pid=>{stats[pid]={k:0,b:0,a:0,se:0,re:0,he:0,de:0};});
-          return{scoreUs:s.scoreUs,scoreThem:s.scoreThem,stats};
-        });
-        updates[DB_ROOT+'/gamedays/'+id]={id,date:'2026-02-24',court:m.court,pair:m.pair,opponent:m.opp,sets};
-      });
-      updates[DB_ROOT+'/_migrated_gamedays']=true;
-      db.ref().update(updates,err=>{
-        if(!err)toast('Game day data migrated!');
-        else console.error('Migration error:',err);
-      });
-    });
-  });
-}
 
 // ============================================================
 // LIVE SCORE ENTRY (Coach)
@@ -20495,7 +20421,9 @@ function initDualScanner(){
       preview.innerHTML=`<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;border:2px solid var(--gray-lighter);">`;
       result.innerHTML='<div class="ai-loading"><div class="spinner"></div><div style="margin-top:8px;">AI is reading your dual scoresheet...</div></div>';
       const date=document.getElementById('dual-scan-date').value||td();
-      const playerList=D.players.map(p=>p.firstName+' '+p.lastName+' ('+p.id+')').join(', ');
+      // Built at scan time from this school's own roster only. An empty roster sends no block.
+      const playerList=(D.players||[]).map(p=>p.firstName+' '+p.lastName+(p.jersey!=null&&p.jersey!==''?' #'+p.jersey:'')+' ('+p.id+')').join(', ');
+      const rosterBlock=playerList?'PLAYER ROSTER - match abbreviated names to these IDs:\n'+playerList+'\n':'';
       // Reached only once a usable body is in hand. Before that a throw is an outage.
       let aiReached=false;
       try{
@@ -20510,18 +20438,7 @@ function initDualScanner(){
 A dual has courts 1-5 counting toward the result. Courts 6+ are exhibition.
 There may be ONE or MULTIPLE duals on this sheet (each has a different opponent header e.g. "VS Destin W5-0").
 
-PLAYER ROSTER - match abbreviated names to these IDs:
-${playerList}
-
-COMMON ABBREVIATIONS:
-Reag/RP = Reagan Giles (p16) + Riley Perezluha (p08)
-Jord/Kend = Jordyn Russell (p13) + Kendall Cruse (p06)
-Dez/Am = Destyni Zuema (p02) + Aubri Moore (p07)
-Ri/Bent or R/Bent = Riley Knipple (p01) + Bentley Barnard (p10)
-Liz/Madi = Lizzie Roader (p09) + Madalynn Edenfield (p12)
-Salem/Jaz = Salem Ehrhardt (p15) + Jazmin Burdick (p11)
-Eden/Madalynn = Eden Codd (p05) + Madalynn Edenfield (p12)
-
+${rosterBlock}
 SCORE FORMAT: W21-18 W21-11 means ${SCHOOL_NAME} won set1 21-18, won set2 21-11
 L19-21 means ${SCHOOL_NAME} lost a set 19-21
 
@@ -22063,7 +21980,9 @@ function renderFans(){
 
   // ── ROSTER ──
   var rostEl=document.getElementById('lf-roster');
-  if(rostEl){
+  if(rostEl&&!ROSTER.length&&_rosterLoaded&&!SC.demoMode){
+    rostEl.innerHTML='<div style="font-size:14px;color:'+RED+';text-align:center;padding:12px;">Roster coming soon.</div>';
+  }else if(rostEl){
     rostEl.innerHTML=ROSTER.map(function(p){
       return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#ffffff;border:1px solid #f7a8b8;border-radius:8px;margin-bottom:5px;">'
         +'<span style="'+BN+';font-size:18px;color:#f7a8b8;min-width:26px;text-align:right;">'+p.jersey+'</span>'
@@ -22317,30 +22236,6 @@ window.addEventListener('popstate',function(e){
   var ao=document.getElementById('athlete-overlay');
   if(ao&&ao.style.display!=='none'){if(typeof hideAthleteCard==='function')hideAthleteCard();else ao.style.display='none';}
 });
-setTimeout(runMigration,2000);
-setTimeout(function(){
-  if(!db)return;
-  // Leon-only seed data (schedule, standings, jersey backfill). Gate exactly like
-  // seedDB so it can never fire on another school's node with Leon's ids/values.
-  if(DB_ROOT!=='leon_queens_matches' || !SC.allowAutoSeed)return;
-  db.ref(DB_ROOT+'/schedule').once('value',function(snap){
-    var ex=snap.val()||{};var u={};
-    [{id:'sch01',date:'2026-02-24',opponent:'Community Christian',location:'home',scoreUs:4,scoreThem:1},{id:'sch02',date:'2026-02-26',opponent:'Wakulla',location:'home',scoreUs:4,scoreThem:1},{id:'sch03',date:'2026-02-26',opponent:'Sneads',location:'home',scoreUs:5,scoreThem:0},{id:'sch04',date:'2026-03-03',opponent:'Florida State University HS',location:'home',scoreUs:2,scoreThem:3},{id:'sch05',date:'2026-03-05',opponent:'Mosley',location:'home',scoreUs:3,scoreThem:2},{id:'sch06',date:'2026-03-09',opponent:'Chiles',location:'home',scoreUs:0,scoreThem:5},{id:'sch07',date:'2026-03-11',opponent:'Lincoln',location:'away',scoreUs:5,scoreThem:0},{id:'sch08',date:'2026-03-12',opponent:'Destin',location:'away',scoreUs:5,scoreThem:0},{id:'sch09',date:'2026-03-12',opponent:'South Walton',location:'away',scoreUs:1,scoreThem:4}].forEach(function(g){if(!ex[g.id]){u[DB_ROOT+'/schedule/'+g.id]=g;}});
-    db.ref(DB_ROOT+'/standings').once('value',function(snap2){
-      var exSt=snap2.val()||{};
-      if(Object.keys(exSt).length<5){var st={'Chiles':{w:7,l:0},'Lincoln':{w:4,l:3},'Florida State University HS':{w:4,l:2},'Wakulla':{w:3,l:3},'Mosley':{w:3,l:3},'Community Christian':{w:1,l:5},'Sneads':{w:1,l:4},'South Walton':{w:4,l:2},'Gulf Breeze':{w:4,l:1},'Destin':{w:2,l:3},'Maclay':{w:2,l:2},'Godby':{w:0,l:3}};Object.keys(st).forEach(function(t){u[DB_ROOT+'/standings/'+t]=st[t];});}
-      db.ref(DB_ROOT+'/_jerseys_seeded').once('value',function(snap3){
-        db.ref(DB_ROOT+'/players').once('value',function(snapP){
-          var existing=snapP.val()||{};
-          // Only backfill a jersey onto a player that ALREADY exists; never create a
-          // record. Creating a jersey-only record is what stripped the roster before.
-          if(!snap3.val()){var j={p01:9,p02:5,p03:10,p04:2,p05:7,p06:8,p07:13,p08:3,p09:17,p10:6,p11:4,p12:11,p13:15,p14:18,p15:12,p16:1};Object.keys(j).forEach(function(pid){if(existing[pid])u[DB_ROOT+'/players/'+pid+'/jersey']=j[pid];});u[DB_ROOT+'/_jerseys_seeded']=true;}
-          if(Object.keys(u).length){db.ref().update(u,function(err){console.log(err?'Seed err':('Seed OK '+Object.keys(u).length));});}else{console.log('Seed: nothing missing');}
-        });
-      });
-    });
-  });
-},2500);
 function togglePPQuiz(){
   const pid=currentPlayerId;if(!pid)return;
   const wrap=document.getElementById('pp-quiz-frame-wrap');
