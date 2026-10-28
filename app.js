@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.200';
+const APP_VERSION='1.1.201';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12478,6 +12478,7 @@ function tnDetach(){
 //   results/{mid} where the mid starts with "{divId}-" for a division of this tournament
 //   meta/status only with a known value (registration, setup, pools, playoffs, final) when
 //     the update map is checked
+//   poolsPrev/{divId} for a division of this tournament (the one-step pools undo), as a whole
 // Anything else is refused: either tournament node itself, a team node, registrations, a
 // listing node as a whole, and a listing's pool.
 var TN_META_STATUSES=['registration','setup','pools','playoffs','final'];
@@ -12509,6 +12510,9 @@ function tnWritePaths(tid,paths){
       if(mo) return divIds.indexOf(mo[1])>=0&&mo[2].indexOf(mo[1]+'-')===0;
       var mp=/^divisions\/([A-Za-z0-9_-]{1,64})\/playoff(\/[A-Za-z]{1,32})?$/.exec(rest);
       if(mp) return divIds.indexOf(mp[1])>=0;
+      // One-step undo of a division's pools and seeds: the whole saved step, nothing below it.
+      var mu=/^poolsPrev\/([A-Za-z0-9_-]{1,64})$/.exec(rest);
+      if(mu) return divIds.indexOf(mu[1])>=0;
       // End tournament: the rating run lock, and the rating marks on each result.
       if(rest==='meta/ratingRun'||rest.indexOf('meta/ratingRun/')===0) return /^meta\/ratingRun(\/[A-Za-z]{1,16})?$/.test(rest);
       var mr2=/^results\/([A-Za-z0-9_-]{1,160})\/(rated|ratedAt|ratedNote|ratedGameIds|ratedTs)$/.exec(rest);
@@ -13056,6 +13060,105 @@ async function tnExport(){
 // The live data arrives on the card's existing listener on DB_ROOT/tournaments, which already
 // carries this tournament's teams, pools and results; no second listener is added.
 var TN_GAME_STATUSES=['setup','pools','playoffs','final'];
+// ===== TN POOLS UNDO START =====
+// Pure helpers (no DOM, no Firebase) for Reset pools, Reset seeds and Undo last change. Kept
+// out of the TN ENGINE block, which pages copy verbatim. Uses tnClone from that block.
+// True once any match of the division has a result or a live record. Mids start "{divId}-".
+function tnDivHasPlay(t,divId){
+  var pre=divId+'-', R=(t&&t.results)||{}, L=(t&&t.live)||{};
+  return Object.keys(R).some(function(k){ return !!R[k]&&k.indexOf(pre)===0; })
+    ||Object.keys(L).some(function(k){ return !!L[k]&&k.indexOf(pre)===0; });
+}
+// A division's pool state: its pools, each of its teams' seed and pool (null for none), its
+// pool settings, and its playoff brackets and ref overrides when saved.
+function tnPoolsState(t,divId){
+  var T=(t&&t.teams)||{}, div=((t&&t.divisions)||{})[divId]||{}, seeds={}, poolOf={};
+  Object.keys(T).sort().forEach(function(id){
+    var x=T[id]; if(!x||x.divId!==divId) return;
+    seeds[id]=typeof x.seed==='number'?x.seed:null;
+    poolOf[id]=x.pool?String(x.pool):null;
+  });
+  var of=function(k){ var n=(t&&t[k])||{}; return n[divId]==null?null:tnClone(n[divId]); };
+  return {pools:of('pools'), seeds:seeds, poolOf:poolOf,
+    settings:{poolCount:div.poolCount==null?null:div.poolCount, advancePerPool:div.advancePerPool==null?null:div.advancePerPool, courts:div.courts==null?null:tnClone(div.courts)},
+    bracket:of('bracket'), silver:of('silver'), refOverrides:of('refOverrides')};
+}
+// Canonical text with sorted keys. Null, empty objects and empty arrays are left out, as
+// Firebase drops them, so a state read back from the database canonicalizes the same.
+function tnCanon(v){
+  if(v===undefined||v===null) return '';
+  if(typeof v!=='object') return JSON.stringify(v);
+  if(Array.isArray(v)){ var a=v.map(tnCanon); return a.some(function(x){ return x!==''; })?'['+a.map(function(x){ return x===''?'null':x; }).join(',')+']':''; }
+  var parts=Object.keys(v).sort().map(function(k){ var c=tnCanon(v[k]); return c===''?'':JSON.stringify(k)+':'+c; }).filter(function(x){ return x!==''; });
+  return parts.length?'{'+parts.join(',')+'}':'';
+}
+// A short fingerprint of a pool state (FNV-1a over the canonical text, plus its length).
+function tnPoolsHash(state){
+  var s=tnCanon(state), h=0x811c9dc5;
+  for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193)>>>0; }
+  return ('0000000'+h.toString(16)).slice(-8)+'-'+s.length;
+}
+// The tournament as it will be once rel (paths relative to the tournament) is written.
+function tnApplyRel(t,rel){
+  var out=tnClone(t)||{};
+  Object.keys(rel||{}).forEach(function(p){
+    var ks=p.split('/'), n=out;
+    for(var i=0;i<ks.length-1;i++){ if(!n[ks[i]]||typeof n[ks[i]]!=='object') n[ks[i]]={}; n=n[ks[i]]; }
+    if(rel[p]==null) delete n[ks[ks.length-1]]; else n[ks[ks.length-1]]=tnClone(rel[p]);
+  });
+  return out;
+}
+// What poolsPrev/{divId} holds for a change: the division as it is now, the time, and the
+// hash the division will have once rel is written. Undo checks that hash before restoring.
+function tnPoolsPrev(t,divId,rel,now){
+  var prev=tnPoolsState(t,divId);
+  prev.at=now;
+  prev.hash=tnPoolsHash(tnPoolsState(tnApplyRel(t,rel),divId));
+  return prev;
+}
+// Reset pools: clears the division's pools, each team's pool, and any brackets and ref
+// overrides. Keeps seeds and the division settings. seedsToo also clears each team's seed.
+function tnPoolsResetRel(t,divId,seedsToo){
+  var rel={}, cur=tnPoolsState(t,divId);
+  Object.keys(cur.pools||{}).forEach(function(k){ rel['pools/'+divId+'/'+k]=null; });
+  Object.keys(cur.poolOf).forEach(function(id){ if(cur.poolOf[id]!=null) rel['teams/'+id+'/pool']=null; });
+  if(seedsToo) Object.keys(cur.seeds).forEach(function(id){ if(cur.seeds[id]!=null) rel['teams/'+id+'/seed']=null; });
+  if(cur.bracket!=null) rel['bracket/'+divId]=null;
+  if(cur.silver!=null) rel['silver/'+divId]=null;
+  Object.keys(cur.refOverrides||{}).forEach(function(mid){ rel['refOverrides/'+divId+'/'+mid]=null; });
+  return rel;
+}
+// Undo: puts the division back to prev. Every pool key now or then, the seed and pool of
+// every team now in the division, the pool settings, the brackets and the ref overrides.
+// A team no longer in the division is left alone (the hash check refuses that case anyway).
+function tnPoolsRestoreRel(t,divId,prev){
+  var rel={}, cur=tnPoolsState(t,divId), P=(prev&&prev.pools)||{}, S=(prev&&prev.seeds)||{}, Q=(prev&&prev.poolOf)||{};
+  Object.keys(cur.pools||{}).forEach(function(k){ if(!(k in P)) rel['pools/'+divId+'/'+k]=null; });
+  Object.keys(P).forEach(function(k){ rel['pools/'+divId+'/'+k]=tnClone(P[k]); });
+  Object.keys(cur.seeds).forEach(function(id){
+    rel['teams/'+id+'/seed']=S[id]==null?null:S[id];
+    rel['teams/'+id+'/pool']=Q[id]==null?null:String(Q[id]);
+  });
+  var div=tnClone(((t&&t.divisions)||{})[divId])||{}, st=(prev&&prev.settings)||{};
+  ['poolCount','advancePerPool','courts'].forEach(function(k){ if(st[k]==null) delete div[k]; else div[k]=tnClone(st[k]); });
+  rel['divisions/'+divId]=div;
+  rel['bracket/'+divId]=prev&&prev.bracket!=null?tnClone(prev.bracket):null;
+  rel['silver/'+divId]=prev&&prev.silver!=null?tnClone(prev.silver):null;
+  var RO=(prev&&prev.refOverrides)||{}, CR=cur.refOverrides||{};
+  Object.keys(CR).forEach(function(mid){ if(!(mid in RO)) rel['refOverrides/'+divId+'/'+mid]=null; });
+  Object.keys(RO).forEach(function(mid){ rel['refOverrides/'+divId+'/'+mid]=RO[mid]; });
+  return rel;
+}
+// Whether undo may run: the saved step exists, no match of the division has a result or a
+// live record, and the division is still exactly as that change left it.
+function tnPoolsUndoCheck(t,divId,prev){
+  if(!prev||typeof prev.hash!=='string') return {ok:false, code:'none'};
+  if(tnDivHasPlay(t,divId)) return {ok:false, code:'play'};
+  if(tnPoolsHash(tnPoolsState(t,divId))!==prev.hash) return {ok:false, code:'changed'};
+  return {ok:true};
+}
+// ===== TN POOLS UNDO END =====
+
 function tnGdDefaults(){ return {div:'', order:{}, opts:{}, preview:{}, edit:null, po:{preview:{}, tie:{}, refEdit:null}}; }
 var _tnGd=tnGdDefaults();
 
@@ -13071,6 +13174,11 @@ function tnGdRegTeams(t,divId){
 function tnGdPools(t,divId){ return ((t&&t.pools)||{})[divId]||{}; }
 function tnGdHasPools(t,divId){ return Object.keys(tnGdPools(t,divId)).length>0; }
 function tnGdResults(t){ return (t&&t.results)||{}; }
+// A match of the division being scored live (no result yet).
+function tnGdHasLive(t,divId){
+  var L=(t&&t.live)||{};
+  return Object.keys(L).some(function(mid){ return !!L[mid]&&mid.indexOf(divId+'-')===0; });
+}
 function tnGdHasResults(t,divId){
   var R=tnGdResults(t);
   return Object.keys(R).some(function(mid){ return !!R[mid]&&mid.indexOf(divId+'-')===0; });
@@ -13110,12 +13218,27 @@ function tnGdMove(i,dir){
   _tnGd.order[divId]=order; delete _tnGd.preview[divId];
   tnCardRender();
 }
+// rel (paths under the tournament) as one absolute update, carrying the division's state
+// before this change to poolsPrev/{divId}, so Undo last change can put it back.
+function tnGdWithPrev(t,tid,divId,rel){
+  var base=DB_ROOT+'/tournaments/'+tid+'/', u={};
+  Object.keys(rel).forEach(function(p){ u[base+p]=rel[p]; });
+  u[base+'poolsPrev/'+divId]=tnPoolsPrev(t,divId,rel,Date.now());
+  return u;
+}
+function tnGdPrev(t,divId){ return (((t&&t.poolsPrev)||{})[divId])||null; }
+// After pools change, once the pools email has gone out: offer to send it again.
+function tnGdPoolsChanged(t){
+  var at=((t&&t.meta&&t.meta.notify)||{}).poolsSentAt;
+  if(typeof at==='number') tnNotifyResend('pools','Pools changed. Resend the pools email? Each player gets a fresh link, and their older links stop working.');
+}
 function tnGdLockSeeds(){
   var t=tnCur(), divId=_tnGd.div; if(!t||!divId||_tnUi.busy) return;
   if(tnGdHasPools(t,divId)){ toast('Pools are saved, so seeds are locked in'); return; }
   var order=tnGdOrder(t,divId); if(!order.length){ toast('No registered teams to seed'); return; }
-  var tid=_tnUi.tid, base=DB_ROOT+'/tournaments/'+tid+'/', u={};
-  order.forEach(function(id,i){ u[base+'teams/'+id+'/seed']=i+1; });
+  var tid=_tnUi.tid, rel={};
+  order.forEach(function(id,i){ rel['teams/'+id+'/seed']=i+1; });
+  var u=tnGdWithPrev(t,tid,divId,rel);
   _tnUi.busy=true; tnCardRender();
   tnWrite(tid,u).then(function(ok){
     _tnUi.busy=false;
@@ -13135,7 +13258,7 @@ function tnGdParseOpts(t,divId){
 }
 function tnGdPreview(){
   var t=tnCur(), divId=_tnGd.div; if(!t||!divId) return;
-  if(tnGdHasResults(t,divId)){ toast('Scores are already in for this division, so pools cannot change'); return; }
+  if(tnGdHasResults(t,divId)||tnGdHasLive(t,divId)){ toast('Scores are already in for this division, so pools cannot change'); return; }
   var opt=tnGdParseOpts(t,divId); if(opt.error){ toast(opt.error); return; }
   var T=tnTeams(t), order=tnGdOrder(t,divId);
   if(order.length<2){ toast('Pools need at least 2 registered teams'); return; }
@@ -13155,27 +13278,73 @@ function tnGdPreview(){
 }
 function tnGdSavePools(){
   var t=tnCur(), divId=_tnGd.div, pv=_tnGd.preview[divId]; if(!t||!divId||!pv||_tnUi.busy) return;
-  if(tnGdHasResults(t,divId)){ toast('Scores are already in for this division, so pools cannot change'); return; }
+  // A match being scored live has no result yet, so live records block a save too.
+  if(tnGdHasResults(t,divId)||tnGdHasLive(t,divId)){ toast('Scores are already in for this division, so pools cannot change'); return; }
   if(pv.issues.length){ toast('Fix the issues listed before saving pools'); return; }
   if(!window.confirm('Save these pools? Players see their pool and schedule once pool play starts.')) return;
-  var tid=_tnUi.tid, base=DB_ROOT+'/tournaments/'+tid+'/', u={};
-  u[base+'divisions/'+divId]=Object.assign({},tnDivs(t)[divId],{poolCount:pv.opt.P, advancePerPool:pv.opt.adv, courts:pv.opt.courts});
+  var tid=_tnUi.tid, rel={};
+  rel['divisions/'+divId]=Object.assign({},tnDivs(t)[divId],{poolCount:pv.opt.P, advancePerPool:pv.opt.adv, courts:pv.opt.courts});
   var keep={};
   Object.keys(pv.pools).forEach(function(k){
     var p=pv.pools[k]; keep[k]=1;
-    u[base+'pools/'+divId+'/'+k]={teamIds:p.teamIds, courts:p.courts, matches:p.matches};
-    p.teamIds.forEach(function(id){ u[base+'teams/'+id+'/pool']=k; });
+    rel['pools/'+divId+'/'+k]={teamIds:p.teamIds, courts:p.courts, matches:p.matches};
+    p.teamIds.forEach(function(id){ rel['teams/'+id+'/pool']=k; });
   });
-  Object.keys(tnGdPools(t,divId)).forEach(function(k){ if(!keep[k]) u[base+'pools/'+divId+'/'+k]=null; });
-  pv.order.forEach(function(id,i){ u[base+'teams/'+id+'/seed']=i+1; });
+  Object.keys(tnGdPools(t,divId)).forEach(function(k){ if(!keep[k]) rel['pools/'+divId+'/'+k]=null; });
+  pv.order.forEach(function(id,i){ rel['teams/'+id+'/seed']=i+1; });
   // Teams in the division that are not in a pool (incomplete or dropped) lose any old pool.
   var T=tnTeams(t);
-  Object.keys(T).forEach(function(id){ if(T[id]&&T[id].divId===divId&&pv.order.indexOf(id)<0&&T[id].pool) u[base+'teams/'+id+'/pool']=null; });
+  Object.keys(T).forEach(function(id){ if(T[id]&&T[id].divId===divId&&pv.order.indexOf(id)<0&&T[id].pool) rel['teams/'+id+'/pool']=null; });
+  var u=tnGdWithPrev(t,tid,divId,rel);
   _tnUi.busy=true; tnCardRender();
   tnWrite(tid,u).then(function(ok){
     _tnUi.busy=false;
     if(ok){ delete _tnGd.preview[divId]; delete _tnGd.order[divId]; toast('Pools saved'); }
     tnCardRender();
+    if(ok) tnGdPoolsChanged(t);
+  });
+}
+// Reset pools (seedsToo false) or Reset seeds (true) for the selected division. Allowed only
+// while no match of the division has a result or a live record.
+function tnGdReset(seedsToo){
+  var t=tnCur(), divId=_tnGd.div; if(!t||!divId||_tnUi.busy) return;
+  if(tnDivHasPlay(t,divId)){ toast('Scores are already in for this division, so pools cannot change'); return; }
+  var rel=tnPoolsResetRel(t,divId,!!seedsToo);
+  if(!Object.keys(rel).length){ toast(seedsToo?'No seeds or pools to reset':'No pools to reset'); return; }
+  var name=(tnDivs(t)[divId]||{}).name||'this division';
+  var msg=seedsToo
+    ?'Reset seeds for '+name+'? This clears its seeds and its pools, schedule and any saved playoffs. Teams go back to rating order. You can undo this once.'
+    :'Reset pools for '+name+'? This clears its pools, schedule and any saved playoffs. Seeds and pool settings stay. You can undo this once.';
+  if(!window.confirm(msg)) return;
+  var tid=_tnUi.tid, u=tnGdWithPrev(t,tid,divId,rel);
+  _tnUi.busy=true; tnCardRender();
+  tnWrite(tid,u).then(function(ok){
+    _tnUi.busy=false;
+    // No resend here: the division has no pools now. The next Save pools offers it.
+    if(ok){ delete _tnGd.preview[divId]; delete _tnGd.order[divId]; delete _tnGd.po.preview[divId]; toast(seedsToo?'Seeds and pools reset':'Pools reset'); }
+    tnCardRender();
+  });
+}
+// Undo last change: puts the division back as it was before the last Save pools, Lock seeds,
+// Reset pools or Reset seeds, in one update, then clears the saved step.
+function tnGdUndo(){
+  var t=tnCur(), divId=_tnGd.div; if(!t||!divId||_tnUi.busy) return;
+  var prev=tnGdPrev(t,divId), ck=tnPoolsUndoCheck(t,divId,prev);
+  if(!ck.ok){
+    toast(ck.code==='play'?'Scores are already in for this division, so pools cannot change'
+      :ck.code==='changed'?'This division changed since then, so that step cannot be undone':'Nothing to undo');
+    return;
+  }
+  if(!window.confirm('Undo the last change to pools and seeds? The division goes back to how it was before it. This can only be done once.')) return;
+  var tid=_tnUi.tid, base=DB_ROOT+'/tournaments/'+tid+'/', rel=tnPoolsRestoreRel(t,divId,prev), u={};
+  Object.keys(rel).forEach(function(p){ u[base+p]=rel[p]; });
+  u[base+'poolsPrev/'+divId]=null;
+  _tnUi.busy=true; tnCardRender();
+  tnWrite(tid,u).then(function(ok){
+    _tnUi.busy=false;
+    if(ok){ delete _tnGd.preview[divId]; delete _tnGd.order[divId]; delete _tnGd.po.preview[divId]; toast('Last change undone'); }
+    tnCardRender();
+    if(ok&&prev.pools&&Object.keys(prev.pools).length) tnGdPoolsChanged(t);
   });
 }
 function tnGdStart(){
@@ -13355,6 +13524,7 @@ function tnGdHtml(t,h){
       }
     }
   }
+  html+=tnGdResetHtml(t,divId,status,btn);
   // Saved pools: schedule, scoring, standings.
   if(hasPools){
     if(status==='setup') html+='<div style="font-weight:700;font-size:14px;margin-top:14px;">Saved pools</div><div style="font-size:12px;color:var(--gray);">Scores open once pool play starts.</div>';
@@ -13363,6 +13533,24 @@ function tnGdHtml(t,h){
   if(hasPools&&status!=='setup') html+=tnPoHtml(t,h);
   if(status!=='setup'&&ids.some(function(d){ return tnGdHasPools(t,d); })) html+=tnEndHtml(t,h);
   return html+'</div>';
+}
+
+// Reset pools, Reset seeds and Undo last change for one division. Shown only while no match
+// of the division has a result or a live record, and never once the tournament is final.
+function tnGdResetHtml(t,divId,status,btn){
+  if(status==='final'||tnDivHasPlay(t,divId)) return '';
+  var cur=tnPoolsState(t,divId), prev=tnGdPrev(t,divId);
+  var hasPools=!!(cur.pools&&Object.keys(cur.pools).length), hasPlayoffs=cur.bracket!=null||cur.silver!=null;
+  var hasSeeds=Object.keys(cur.seeds).some(function(id){ return cur.seeds[id]!=null; });
+  var undo=prev&&tnPoolsUndoCheck(t,divId,prev).ok;
+  if(!hasPools&&!hasPlayoffs&&!hasSeeds&&!undo) return '';
+  var b='';
+  if(hasPools||hasPlayoffs) b+=btn('Reset pools','tnGdReset(false)',false);
+  if(hasSeeds||hasPools) b+=btn('Reset seeds','tnGdReset(true)',false);
+  if(undo) b+=btn('Undo last change','tnGdUndo()',false);
+  return '<div style="margin-top:12px;"><div style="font-weight:700;font-size:14px;">Start over</div>'
+    +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">Reset pools clears this division’s pools, schedule and saved playoffs, and keeps its seeds. Reset seeds also clears the seeds. You can undo the last change once.</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'+b+'</div></div>';
 }
 
 // Pools with their teams, the schedule by wave, and (when saved) scores and standings.
@@ -14283,9 +14471,10 @@ async function tnNotify(kind,force){
   }
   tnCardRender();
 }
-function tnNotifyResend(kind){
+// ask (optional) replaces the question, e.g. after pools change.
+function tnNotifyResend(kind,ask){
   var what=kind==='pools'?'schedules':'playoff emails';
-  if(!window.confirm('Send the '+what+' again to every player? Each gets a fresh link, and their older links stop working.')) return;
+  if(!window.confirm(ask||('Send the '+what+' again to every player? Each gets a fresh link, and their older links stop working.'))) return;
   tnNotify(kind,true);
 }
 function tnNotifyHtml(t,h){
