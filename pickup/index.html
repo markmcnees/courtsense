@@ -10654,10 +10654,17 @@ window.csPollPlanKit=(function(){
     if(!res||res.status===0) return 'Could not reach CourtSense. Check your connection and try again.';
     return (res.j&&res.j.error)||'Something went wrong. Try again.';
   }
+  // A poll that became its game (one game, or a game on every day): the game card in the
+  // games list stands for it, so the poll gets no card of its own.
+  function becameGame(v){
+    if(v&&v.outcome==='game') return true;
+    return !!(v&&Array.isArray(v.days)&&v.days.length&&v.days.every(function(d){ return d&&d.inviteId; }));
+  }
   // The rows of /pickup/poll/mine worth showing: every open poll, then the most recent
-  // closed ones, at most max in all, in the worker's newest-first order.
+  // closed ones, at most max in all, in the worker's newest-first order. The worker has
+  // already left out ended polls; one that became a game is dropped here.
   function minePolls(res, max){
-    var list=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls.filter(function(v){ return v&&POLL_RE.test(v.id)&&Array.isArray(v.options); }):[];
+    var list=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls.filter(function(v){ return v&&POLL_RE.test(v.id)&&Array.isArray(v.options)&&!becameGame(v); }):[];
     var open=list.filter(function(v){ return v.open; }), shut=list.filter(function(v){ return !v.open; });
     return open.concat(shut).slice(0,max);
   }
@@ -10787,7 +10794,7 @@ window.csPollPlanKit=(function(){
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, OTHER:OTHER, isPreset:isPreset, savedChoices:savedChoices, locPicker:locPicker, locProblem:locProblem,
     rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
-    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls,
+    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
     statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
     suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct,

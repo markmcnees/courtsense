@@ -210,6 +210,7 @@ window.csPollKit=(function(){
     saved:'Saved. You will get an email if a time is picked.',
     none:'Got it. You can still pick times until the poll closes.',
     expired:'Voting has closed and no time reached the minimum, so no game was made.',
+    ended:'Voting is closed and every time on this poll has passed. Nothing here can change now.',
     offline:'Could not reach CourtSense. Check your connection and try again.',
     signin:'Sign in on the pickup page, then open this poll again.',
     notOnPoll:'This poll is for invited players.',
@@ -377,6 +378,8 @@ window.csPollKit=(function(){
     if(j.outcome==='game'&&j.inviteId) return 'game';
     // One game per day: closed with at least one day's game.
     if(j.games==='perDay'&&j.status==='closed'&&Array.isArray(j.days)&&j.days.some(function(d){ return d.status==='game'&&d.inviteId; })) return 'days_done';
+    // Ended: closed and every offered time has passed (the worker decides). Read only.
+    if(j.ended===true) return 'ended';
     if(j.status==='closed'||j.open===false) return 'expired';
     return 'open';
   }
@@ -660,14 +663,23 @@ window.csPollKit=(function(){
     $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';
     $('poll-rule').textContent=K.ruleLine(view);
     $('poll-closes').textContent=(s==='open'?'Voting closes ':'Voting closed ')+view.closesLabel+'.';
+    // An ended poll (a game made or not) is read only: the heading says so and there is
+    // nothing to vote on or decide.
+    if(view.ended===true) $('hero-title').textContent='This poll has ended';
     drawDays();
     show('poll-card');
-    drawOrganizer();
+    if(view.ended===true) hide('org-card'); else drawOrganizer();
     if(s==='game'||s==='days_done'){
       hide('vote-card');
       $('hero-sub').textContent='A time was picked.';
       drawGame(s);
       show('game-card');
+      return;
+    }
+    if(s==='ended'){
+      hide('vote-card');
+      $('hero-sub').textContent='Voting is closed.';
+      plainKeepPoll('This poll has ended',K.MSG.ended);
       return;
     }
     if(s==='expired'){
@@ -867,7 +879,7 @@ window.csPollKit=(function(){
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=view.myVotePending?K.MSG.pending:K.MSG.saved;
         return;
       }
-      if(s==='game'||s==='expired'||s==='days_done'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'){ render(res); return; }
       if(res.j&&res.j.options&&(res.j.code==='full'||res.j.code==='closed')) render(res);
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
@@ -884,7 +896,7 @@ window.csPollKit=(function(){
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none;
         return;
       }
-      if(s==='game'||s==='expired'||s==='days_done'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'){ render(res); return; }
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
     });
