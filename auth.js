@@ -520,7 +520,9 @@
     }
   }
 
-  function showLogin(){
+  // message (optional) is shown in the login view's message line, e.g. why the page is
+  // asking to sign in again.
+  function showLogin(message){
     if(!_overlayBuilt) buildOverlay();
     const overlay = document.getElementById('cs-auth-overlay');
     if(overlay) overlay.classList.add('on');
@@ -529,6 +531,9 @@
     ['cs-auth-err','cs-auth-reg-err'].forEach(id => {
       const el = document.getElementById(id); if(el) el.textContent = '';
     });
+    if(typeof message === 'string' && message){
+      const err = document.getElementById('cs-auth-err'); if(err) err.textContent = message;
+    }
     const pw  = document.getElementById('cs-auth-pw');      if(pw)  pw.value = '';
     const rpw = document.getElementById('cs-auth-reg-pw');  if(rpw) rpw.value = '';
     const rpw2 = document.getElementById('cs-auth-reg-pw2'); if(rpw2) rpw2.value = '';
@@ -545,6 +550,25 @@
 
   function getSessionToken(){ return _verified ? _sessionToken : null; }
   function isVerified(){ return _verified; }
+
+  // Runs the worker confirm again for the stored token, for a player who is signed in
+  // but unverified (say the check at autoLogin hit a network error). Resolves to the
+  // verified token, or null. A token the worker rejects is dropped, as at autoLogin.
+  async function recheckSession(){
+    if(_verified && _sessionToken) return _sessionToken;
+    if(!_currentPlayer || !_currentPlayer.id) return null;
+    let token = '';
+    updateStoredSession(function(p){ token = typeof p.sessionToken === 'string' ? p.sessionToken : ''; });
+    if(!token) return null;
+    const chk = await checkSessionToken(token);
+    if(chk.result === 'ok' && chk.player && chk.player.id === _currentPlayer.id){
+      _sessionToken = token;
+      _verified = true;
+      return token;
+    }
+    if(chk.result === 'rejected' || chk.result === 'ok') dropSessionToken();
+    return null;
+  }
 
   // The stored token, verified or not, so logout can end it on the worker.
   function storedSessionToken(){
@@ -895,6 +919,7 @@
     createPlayer,
     quickSignup,
     getSessionToken,
-    isVerified
+    isVerified,
+    recheckSession
   };
 })(typeof window !== 'undefined' ? window : globalThis);

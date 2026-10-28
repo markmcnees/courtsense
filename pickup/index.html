@@ -1730,6 +1730,11 @@ function fbUpdate(p,obj){
 // or not the email goes out. A failure only changes what the toast says.
 const NOTIFY_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 async function notifyWorker(path, payload){
+  return (await notifyWorkerCode(path, payload)) === 'ok';
+}
+// Same call, but resolves to 'ok', the worker's error code (no_session, not_host, ...),
+// or 'error' when there is no code (network, a body that is not JSON).
+async function notifyWorkerCode(path, payload){
   try{
     const res = await fetch(NOTIFY_WORKER + path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1738,12 +1743,13 @@ async function notifyWorker(path, payload){
     if(!res.ok){
       let t=''; try{ t = await res.text(); }catch(te){ t='(body unavailable)'; }
       console.error('notify HTTP', path, res.status, t.slice(0,300));
-      return false;
+      let c=''; try{ c = String((JSON.parse(t) || {}).code || ''); }catch(pe){ c=''; }
+      return c || 'error';
     }
     let j=null; try{ j = await res.json(); }catch(je){ j=null; }
-    if(j && j.ok === false){ console.error('notify rejected', path, JSON.stringify(j).slice(0,300)); return false; }
-    return true;
-  }catch(e){ console.error('notify failed', path, e); return false; }
+    if(j && j.ok === false){ console.error('notify rejected', path, JSON.stringify(j).slice(0,300)); return String(j.code || '') || 'error'; }
+    return 'ok';
+  }catch(e){ console.error('notify failed', path, e); return 'error'; }
 }
 // Adds the signed-in player's worker session to a notify payload, so the worker can tell
 // who is asking. Signed out (or no session yet), the payload goes as it was.
@@ -1765,6 +1771,80 @@ function warnIfAnyNotEmailed(list, note){
     const missed = rs.filter(function(r){ return r.status !== 'fulfilled' || r.value !== true; }).length;
     if(!missed) return;
     toast(missed === rs.length ? note : (missed + ' of ' + rs.length + ' were not emailed.'));
+  });
+}
+
+// ─── INVITE EMAILS NEED A VERIFIED SESSION (pickup security step 3c) ───
+// The worker sends invite emails only for the host's own verified session. A host can
+// look signed in (restored from storage) while the session is unverified, so the page
+// checks before posting and, if the worker still answers no_session, offers to sign in
+// and send again. The worker accepts that resend for 30 minutes after posting.
+
+// One action to run right after the next sign-in, for this page only. It lapses after
+// ten minutes so a later, unrelated sign-in never fires it.
+let _afterSignIn = null;
+function afterSignIn(fn){ _afterSignIn = { fn: fn, at: Date.now() }; }
+function runAfterSignIn(){
+  const a = _afterSignIn; _afterSignIn = null;
+  if(!a || Date.now() - a.at > 10 * 60 * 1000) return;
+  try { a.fn(); } catch(e){ console.warn('after sign-in action failed', e); }
+}
+function askSignIn(message, then){
+  afterSignIn(then);
+  if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(message);
+}
+// True when a verified worker session is available, confirming the stored token once
+// more if the first check did not finish.
+async function ensureNotifySession(){
+  const A = window.CourtSenseAuth;
+  if(!A) return false;
+  try {
+    if(A.getSessionToken && A.getSessionToken()) return true;
+    return !!(A.recheckSession && await A.recheckSession());
+  } catch(e){ return false; }
+}
+// A notice that stays until dismissed, with an optional action button. Uses the same
+// fixed host and colours as the score failure notice.
+function inviteEmailNotice(msg, actionLabel, action){
+  try{
+    const host = _scoreFailHost();
+    const row = document.createElement('div');
+    const txt = document.createElement('div');
+    txt.style.cssText = 'flex:1;';
+    const close = function(){ row.remove(); if(host && !host.children.length) host.remove(); };
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = actionLabel || 'Dismiss';
+    btn.onclick = function(){ close(); if(action) action(); };
+    row.appendChild(txt);
+    row.appendChild(btn);
+    row._txt = txt;
+    row._btn = btn;
+    _paintNotice(row, msg, 'wait');
+    if(action){
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.textContent = 'Dismiss';
+      dismiss.style.cssText = btn.style.cssText;
+      dismiss.onclick = close;
+      row.appendChild(dismiss);
+    }
+    host.appendChild(row);
+  }catch(e){ toast(msg); }
+}
+// Emails the host-checked circle for a just-posted game and tells the host what happened.
+// Only the host's session, inviteId and players go to the worker.
+function sendInviteEmails(inviteId, players){
+  notifyWorkerCode('/pickup/invite-notify', withNotifySession({ inviteId, players })).then(function(code){
+    if(code === 'ok') return;
+    if(code === 'no_session'){
+      inviteEmailNotice('Game posted. Sign in again to email your invites.', 'Sign in and send', function(){
+        askSignIn('Sign in again so your invites can be emailed.', function(){ sendInviteEmails(inviteId, players); });
+      });
+      return;
+    }
+    if(code === 'not_host'){ toast('Only the host can email invites for this game.'); return; }
+    toast('Game posted, but the invites were not emailed.');
   });
 }
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -8808,6 +8888,13 @@ function buildInviteRecord(){
   return { name, date, startTime, endTime, location, court, courts, description, slots, minSlots, rsvpDeadline, ...(startMs !== null ? { startMs } : {}), eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
 }
 
+// The host-checked circle (inviteIncSelected) as worker recipients: account ids only.
+function inviteEmailPlayers(){
+  return [...inviteIncSelected].map(nm => ({ playerId: resolveAccountId(nm) })).filter(p => p.playerId);
+}
+// True while saveInvite waits on the session check, so a second tap does not post twice.
+let _inviteSessionCheck = false;
+
 async function saveInvite(){
   // Defense-in-depth create gate: refuse to write unless a real account is logged
   // in, closing any path that reaches saveInvite without going through the guarded
@@ -8823,6 +8910,20 @@ async function saveInvite(){
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
   const tierCheck = validateWideningTiers();
   if(!tierCheck.ok){ toast(tierCheck.msg); return; }
+
+  // Step 3c: a new game that will email invites needs a verified worker session. Check
+  // before anything is written; a host who is not verified signs in again and the post
+  // carries on from there. Edits and games with no one to email are not held up.
+  if(!inviteEditId && inviteEmailPlayers().length && !(CourtSenseAuth.getSessionToken && CourtSenseAuth.getSessionToken())){
+    if(_inviteSessionCheck) return;
+    _inviteSessionCheck = true;
+    let ok = false;
+    try { ok = await ensureNotifySession(); } finally { _inviteSessionCheck = false; }
+    if(!ok){
+      askSignIn('Sign in again so your invites can be emailed.', function(){ saveInvite(); });
+      return;
+    }
+  }
 
   // Soft coordination signal (NEVER blocks): if the chosen court looks in use by another
   // CourtSense game at the same park and overlapping time on this date, flag it and proceed.
@@ -8979,25 +9080,10 @@ async function saveInvite(){
     // Fire-and-forget so it never blocks the UI; the worker resolves each player's
     // private email by account id and skips any it cannot resolve.
     try {
-      const checked = [...inviteIncSelected];
-      const players = checked.map(nm => ({ playerId: resolveAccountId(nm), name: nm }))
-        .filter(p => p.playerId);
-      if(players.length){
-        // The game is already scheduled. A failed invite email does not unschedule it,
-        // but the host must know the invites did not reach anyone.
-        warnIfNotEmailed(
-          notifyWorker('/pickup/invite-notify', withNotifySession({
-            inviteId: firstId,
-            hostKey: base.hostId || null,
-            players,
-            event: {
-              name: base.name, date: base.date, startTime: base.startTime, slots: base.slots,
-              rsvpDeadline: base.rsvpDeadline, hostName: base.hostName, location: base.location
-            }
-          })),
-          'Game posted, but the invites were not emailed.'
-        );
-      }
+      // The game is already scheduled. A failed invite email does not unschedule it,
+      // but the host must know the invites did not reach anyone.
+      const players = inviteEmailPlayers();
+      if(players.length) sendInviteEmails(firstId, players);
     } catch(e){ console.warn('invite-notify build failed', e); }
   } catch(err){
     console.error(err);
@@ -10358,6 +10444,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if(dn) Identity.setCurrent(dn, player.id || undefined);
       }
       if(returnAfterLogin()) return;
+      // A post or invite resend that was waiting on this sign-in (step 3c).
+      runAfterSignIn();
       // Re-render whatever view is active now that auth has resolved, so the list
       // (and any other view) repaints with the correct gameplayKey(). On a fresh
       // reload the list first paints before auth resolves, using a stale identity
