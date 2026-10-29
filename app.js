@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.201';
+const APP_VERSION='1.1.202';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12618,7 +12618,7 @@ function tnTeamRows(t){
     var tr=tnTeamRating(ratings.map(function(r){ return r.value; }));
     return {id:k, name:String(x.name||'Team'), divId:String(x.divId||''),
       division:(divs[x.divId]&&divs[x.divId].name)||'(removed division)', status:status,
-      players:players.map(function(p){ return tnFullName(p); }),
+      players:players.map(function(p){ return tnFullName(p); }), ids:players.map(function(p){ return String(p.accountId); }),
       ratingLabels:ratings.map(function(r){ return r.label; }),
       teamRating:tr.avg, rated:tr.rated, total:tr.total, seed:null,
       guys:players.filter(function(p){ return p.gender==='M'; }).length,
@@ -12643,7 +12643,7 @@ function tnSeededRows(t){
 // ---- UI state -------------------------------------------------------------
 function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
-function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.move=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
+function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.move=null; _tnUi.swap=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
 // Checks a schedule (meta-shaped). forOpen adds what opening registration needs: a deadline
 // in the future plus check-in and play start times. Returns a message, or '' when fine.
@@ -12960,7 +12960,7 @@ function tnMoveNeedsRebuild(t,fromDiv,toDiv){
   var has=function(d){ return !!d&&(tnGdHasPools(t,d)||tnGdHasResults(t,d)); };
   return has(fromDiv)||has(toDiv);
 }
-function tnMoveOpen(teamId){ _tnUi.move={teamId:String(teamId), to:'', rebuild:false, step:'pick', err:'', needRebuild:false}; tnCardRender(); }
+function tnMoveOpen(teamId){ _tnUi.swap=null; _tnUi.move={teamId:String(teamId), to:'', rebuild:false, step:'pick', err:'', needRebuild:false}; tnCardRender(); }
 function tnMoveSet(key,val){ if(!_tnUi.move) return; _tnUi.move[key]=val; _tnUi.move.err=''; tnCardRender(); }
 function tnMoveCancel(){ _tnUi.move=null; tnCardRender(); }
 function tnMoveAsk(){
@@ -12989,6 +12989,79 @@ async function tnMoveGo(){
     mv.step='pick';
     mv.err=(j&&j.error)||'Could not reach CourtSense. Nothing was changed.';
     if(j&&j.code==='schedule_exists') mv.needRebuild=true;
+  }
+  tnCardRender();
+}
+// ---- Replace player (exec) -----------------------------------------------------------
+// The worker owns teams, so a swap goes through /club/tournament-team-swap with the exec
+// session. The exec picks a club member, or enters a new player's name and email (a new
+// account gets the set-password link). A team with scored or live matches needs "Override:
+// matches already scored"; the worker then stamps the roster before the swap on each scored
+// match so End tournament rates those matches for who played. Hidden on final tournaments.
+function tnTeamHasPlay(t,teamId){
+  var R=tnGdResults(t), L=(t&&t.live)||{};
+  if(Object.keys(R).some(function(mid){ var r=R[mid]; return !!r&&(r.t1===teamId||r.t2===teamId); })) return true;
+  return Object.keys(L).some(function(mid){
+    var x=L[mid]; if(!x) return false;
+    if(x.byTeam===teamId) return true;
+    var hit=tnGdMatch(t,mid); return !!hit&&(hit.m.t1===teamId||hit.m.t2===teamId);
+  });
+}
+// Club members who could come in: on the club roster with an account, active, and not on an
+// active team in this division. Sorted by name.
+function tnSwapCandidates(t,divId){
+  var T=tnTeams(t), taken={};
+  Object.keys(T).forEach(function(k){
+    var x=T[k]; if(!x||x.divId!==divId||x.status==='dropped') return;
+    tnArr(x.players).forEach(function(p){ if(p&&p.accountId) taken[p.accountId]=1; });
+  });
+  var seen={};
+  return (D.players||[]).filter(function(p){
+    if(!p||!p.accountId||p.active===false||taken[p.accountId]||seen[p.accountId]) return false;
+    seen[p.accountId]=1; return true;
+  }).map(function(p){ return {id:p.accountId, name:(String(p.firstName||'').trim()+' '+String(p.lastName||'').trim()).trim()||'(no name)'}; })
+    .sort(function(a,b){ return a.name.localeCompare(b.name); });
+}
+function tnSwapOpen(teamId,outId){
+  _tnUi.move=null;
+  _tnUi.swap={teamId:String(teamId), outId:String(outId), inId:'', first:'', last:'', email:'', gender:'', override:false, step:'pick', err:''};
+  tnCardRender();
+}
+function tnSwapSet(key,val){ if(!_tnUi.swap) return; _tnUi.swap[key]=val; _tnUi.swap.err=''; if(key!=='first'&&key!=='last'&&key!=='email') tnCardRender(); }
+function tnSwapCancel(){ _tnUi.swap=null; tnCardRender(); }
+function tnSwapAsk(){
+  var sw=_tnUi.swap, t=tnCur(); if(!sw||!t) return;
+  var team=tnTeams(t)[sw.teamId]; if(!team){ _tnUi.swap=null; tnCardRender(); return; }
+  var div=tnDivs(t)[team.divId]||{}, coed=div.category==='coed';
+  if(!sw.inId){ sw.err='Pick a club member, or Someone new.'; tnCardRender(); return; }
+  if(sw.inId==='new'){
+    sw.first=String(sw.first||'').trim(); sw.last=String(sw.last||'').trim(); sw.email=String(sw.email||'').trim();
+    if(!sw.first||!sw.last){ sw.err='Enter a first and last name.'; tnCardRender(); return; }
+    if(!/^\S+@\S+\.\S+$/.test(sw.email)){ sw.err='Enter an email we can send the team details to.'; tnCardRender(); return; }
+    if(coed&&sw.gender!=='M'&&sw.gender!=='F'){ sw.err='Pick Guy or Girl so the coed mix counts.'; tnCardRender(); return; }
+  }
+  if(tnTeamHasPlay(t,sw.teamId)&&!sw.override){ sw.err='This team already has scored or live matches. Tick "Override: matches already scored" to go ahead.'; tnCardRender(); return; }
+  sw.step='confirm'; tnCardRender();
+}
+async function tnSwapGo(){
+  var sw=_tnUi.swap; if(!sw||_tnUi.busy) return;
+  var tok=tnScToken();
+  if(!tok){ sw.step='pick'; sw.err='Sign in as an exec again to replace players.'; tnCardRender(); return; }
+  var inc=sw.inId==='new'?{firstName:sw.first, lastName:sw.last, email:sw.email, gender:sw.gender||'unspecified'}:{accountId:sw.inId, gender:sw.gender};
+  _tnUi.busy=true; tnCardRender();
+  var j=null;
+  try {
+    var r=await fetch(AUTH_WORKER+'/club/tournament-team-swap',{method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({slug:TN_SLUG, tid:_tnUi.tid, exec:tok, teamId:sw.teamId, outAccountId:sw.outId, in:inc, override:!!sw.override})});
+    j=await r.json().catch(function(){ return null; });
+  } catch(e){ j=null; }
+  _tnUi.busy=false;
+  if(j&&j.ok===true){
+    _tnUi.swap=null;
+    toast(j.emailsSent?'Player replaced. Everyone affected was emailed.':'Player replaced. No emails were sent.');
+  } else {
+    sw.step='pick';
+    sw.err=(j&&j.error)||'Could not reach CourtSense. Nothing was changed.';
   }
   tnCardRender();
 }
@@ -13158,6 +13231,20 @@ function tnPoolsUndoCheck(t,divId,prev){
   return {ok:true};
 }
 // ===== TN POOLS UNDO END =====
+// ===== TN ROSTER STAMP START =====
+// Who played a scored match. An exec Replace player with scored matches stamps the team's
+// roster before the swap on each of its results (results/{mid}/roster/{teamId} = [account ids],
+// written by the worker). A stamped result credits those players, not the current roster.
+// Each id maps to the team's current player record when that player is still on it, else to
+// { accountId, name:'' } (the caller fills the name). No stamp: the current roster.
+function tnPlayedRoster(r,teamId,team){
+  var cur=tnArr(team&&team.players).filter(function(p){ return p&&p.accountId; });
+  var st=(r&&r.roster&&typeof r.roster==='object')?r.roster[teamId]:null;
+  var ids=tnArr(st).filter(function(id){ return typeof id==='string'&&!!id; });
+  if(!ids.length) return cur;
+  return ids.map(function(id){ return cur.filter(function(p){ return p.accountId===id; })[0]||{accountId:id, name:''}; });
+}
+// ===== TN ROSTER STAMP END =====
 
 function tnGdDefaults(){ return {div:'', order:{}, opts:{}, preview:{}, edit:null, po:{preview:{}, tie:{}, refEdit:null}}; }
 var _tnGd=tnGdDefaults();
@@ -13439,6 +13526,9 @@ function tnGdSaveScore(){
   if(live&&!window.confirm('This match is being scored live right now. Save your score instead? It replaces the live score.')) return;
   u[DB_ROOT+'/tournaments/'+tid+'/results/'+mid]={t1:c.hit.m.t1, t2:c.hit.m.t2,
     sets:c.sets.map(function(s){ return {a:+s.a, b:+s.b}; }), winner:c.winner, at:Date.now(), by:ptBy(), byRole:'exec'};
+  // A roster stamped by Replace player stays with the match when the exec edits its score.
+  var stamp=(tnGdResults(t)[mid]||{}).roster;
+  if(stamp&&typeof stamp==='object') u[DB_ROOT+'/tournaments/'+tid+'/results/'+mid].roster=stamp;
   if(live) u[DB_ROOT+'/tournaments/'+tid+'/live/'+mid]=null;
   _tnUi.busy=true;
   tnWrite(tid,u).then(function(ok){ _tnUi.busy=false; if(ok){ _tnGd.edit=null; toast('Score saved'); } tnCardRender(); });
@@ -13921,7 +14011,9 @@ function tnRateCheck(t,mid){
   if(!w.valid||!w.winner) return skip('The score is not a finished match');
   var a=T[r.t1], b=T[r.t2];
   if(!a||!b) return skip('A team is no longer in the tournament');
-  var pa=tnArr(a.players).filter(function(p){ return p&&p.accountId; }), pb=tnArr(b.players).filter(function(p){ return p&&p.accountId; });
+  // Who played: the roster stamped on the result by an exec Replace player, else the team now.
+  var pa=tnPlayedRoster(r,r.t1,a), pb=tnPlayedRoster(r,r.t2,b);
+  pa.concat(pb).forEach(function(p){ if(!p.name&&typeof tnFullName==='function') p.name=tnFullName(p); });
   var demo=function(x,ps){ return x.demo===true||ps.some(function(p){ return String(p.accountId).indexOf('demo_')===0; }); };
   if(demo(a,pa)||demo(b,pb)) return skip('Practice team, not rated');
   if(!tnRateSizeOk(size)) return {kind:'defer', note:'Team size not supported for ratings yet'};
@@ -15286,6 +15378,46 @@ function tnCardRender(){
         +err
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn('Continue','tnMoveAsk()',true)+btn('Cancel','tnMoveCancel()',false)+'</div></div>';
     };
+    // Replace player: a button per player on each active team, then a small form and a confirm
+    // step. Hidden once the tournament is final.
+    var swapHtml=function(r){
+      if(r.status==='dropped'||m.status==='final') return '';
+      var sw=_tnUi.swap;
+      if(!sw||sw.teamId!==r.id){
+        return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'+r.ids.map(function(id,i){
+          return btn('Replace '+esc(r.players[i]||'player'),"tnSwapOpen('"+esc(r.id)+"','"+esc(id)+"')",false);
+        }).join('')+'</div>';
+      }
+      var outName=r.players[r.ids.indexOf(sw.outId)]||'this player';
+      var box='<div style="margin-top:8px;padding:10px 12px;border:1px solid var(--border,#ddd);border-radius:8px;">';
+      var err=sw.err?'<div role="alert" style="font-size:13px;color:#b3261e;margin-top:8px;">'+esc(sw.err)+'</div>':'';
+      var team=T[r.id]||{}, practice=team.demo===true||r.ids.some(function(id){ return String(id).indexOf('demo_')===0; });
+      var coed=(divs[r.divId]||{}).category==='coed';
+      var cands=tnSwapCandidates(t,r.divId);
+      if(sw.step==='confirm'){
+        var inName=sw.inId==='new'?(sw.first+' '+sw.last):((cands.filter(function(c){ return c.id===sw.inId; })[0]||{}).name||'the new player');
+        return box+'<div style="font-size:14px;line-height:1.5;">Replace <strong>'+esc(outName)+'</strong> with <strong>'+esc(inName)+'</strong> on '+esc(r.name)+'?</div>'
+          +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">'+(practice?'Practice team: nobody is emailed.':'The new player, '+esc(outName)+' and the rest of the team will be emailed.')+'</div>'
+          +(sw.override?'<div style="font-size:12px;color:var(--gray);margin-top:4px;">Scored matches stay credited to the players who played them.</div>':'')
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn(_tnUi.busy?'Replacing...':'Replace player','tnSwapGo()',true)+btn('Cancel','tnSwapCancel()',false)+'</div></div>';
+      }
+      var hasPlay=tnTeamHasPlay(t,r.id);
+      var gsel=function(opts){ return sel('tn-sw-g',sw.gender,opts,"tnSwapSet('gender',this.value)"); };
+      return box+'<div style="font-size:14px;font-weight:700;">Replace '+esc(outName)+'</div>'
+        +'<label style="'+lbl+'" for="tn-sw-in">Who comes in</label>'
+        +sel('tn-sw-in',sw.inId,[['','Pick a club member']].concat(cands.map(function(c){ return [c.id,c.name]; }),practice?[]:[['new','Someone new (enter name and email)']]),"tnSwapSet('inId',this.value)")
+        +(sw.inId==='new'
+          ?two('<label style="'+lbl+'" for="tn-sw-first">First name</label>'+txt('tn-sw-first',sw.first,"tnSwapSet('first',this.value)",' maxlength="40" autocomplete="off"'),
+               '<label style="'+lbl+'" for="tn-sw-last">Last name</label>'+txt('tn-sw-last',sw.last,"tnSwapSet('last',this.value)",' maxlength="40" autocomplete="off"'))
+           +'<label style="'+lbl+'" for="tn-sw-email">Email</label>'+txt('tn-sw-email',sw.email,"tnSwapSet('email',this.value)",' type="email" inputmode="email" autocomplete="off"')
+           +'<label style="'+lbl+'" for="tn-sw-g">Gender</label>'+gsel(coed?[['','Pick one'],['M','Guy'],['F','Girl']]:[['','Prefer not to say'],['M','Guy'],['F','Girl']])
+           +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">They get a CourtSense account and an email to set their password.</div>'
+          :(coed&&sw.inId?'<label style="'+lbl+'" for="tn-sw-g">Gender <span style="font-weight:400;color:var(--gray);">(only used if their profile has none)</span></label>'+gsel([['','From their profile'],['M','Guy'],['F','Girl']]):''))
+        +(hasPlay?'<div role="note" style="font-size:13px;color:#8a4b08;background:#fbeee0;border-radius:8px;padding:8px 10px;margin-top:10px;line-height:1.5;">This team already has scored or live matches. Those scores stay, and End tournament credits them to the players who played them.</div>'
+          +'<label style="display:flex;gap:10px;align-items:center;min-height:44px;font-size:14px;cursor:pointer;"><input type="checkbox" id="tn-sw-ov" style="width:22px;height:22px;"'+(sw.override?' checked':'')+' onchange="tnSwapSet(\'override\',this.checked)"> Override: matches already scored</label>':'')
+        +err
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+btn('Continue','tnSwapAsk()',true)+btn('Cancel','tnSwapCancel()',false)+'</div></div>';
+    };
     if(!rows.length){
       html+='<div style="font-size:13px;color:var(--gray);">No teams yet.</div>';
     } else {
@@ -15297,7 +15429,7 @@ function tnCardRender(){
           +(r.seed?'<span style="color:var(--red);">#'+r.seed+'</span> ':'')+esc(r.name)+'</span>'+badge(r.status)+'</div>'
           +'<div style="font-size:12px;color:var(--gray);line-height:1.5;">'+esc(r.division)
           +' &middot; Team rating <strong style="color:var(--charcoal);">'+(r.teamRating!=null?r.teamRating:'Unrated')+'</strong> ('+r.rated+' of '+r.total+' rated)'
-          +'<br>'+(who||'No players')+'</div>'+moveHtml(r)+'</div>';
+          +'<br>'+(who||'No players')+'</div>'+swapHtml(r)+moveHtml(r)+'</div>';
       }).join('');
     }
     html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Seeds sort each division by team rating, the average of its rated players. Ratings are for execs only. Email and phone are never shown here.</p></div>';
