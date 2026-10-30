@@ -412,7 +412,7 @@
           <div class="section-head"><span class="section-num">05</span><span class="section-title">Before you go</span></div>
           <label class="agree">
             <input type="checkbox" id="sms">
-            <span class="atext"><strong>Text messages.</strong> I agree to receive text messages from <strong>FSU Grass Club</strong> about practices and events. Message and data rates may apply, and I can reply STOP to opt out at any time. <a href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a href="/privacy/" target="_blank" rel="noopener">Privacy</a>.</span>
+            <span class="atext"><strong>Text messages.</strong> Yes, text me CourtSense Alerts at this number: league weather and schedule alerts, club practice alerts, pickup game updates and reminders, and tournament game-day notices. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to cancel. Consent is not required to play. <a href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a href="/privacy/" target="_blank" rel="noopener">Privacy</a>.</span>
           </label>
           <label class="agree sub-agree">
             <input type="checkbox" id="adult">
@@ -494,7 +494,9 @@ const ROSTER_PATH   = 'tally_kotb_pickup/players'; // CourtSense community accou
 const CLUB_ROOT     = 'grass_club_matches';        // club roster lives here (app.js DB_ROOT)
 const CLUB_PROFILES = 'grass_club_profiles';       // club profile detail node
 const CLUB_PASSWORDS = 'grass_club_passwords';     // emailPrefs live here; the worker reads {id}/emailPrefs.email
-const SMS_CONSENT_VERSION = 'fsu-grass-sms-v1';    // stored alongside the consent timestamp
+// Stored alongside the consent timestamp. The box shows the same CourtSense Alerts wording
+// as the profile card, so it records the same version (courtsense-sms-v2).
+const SMS_CONSENT_VERSION = 'courtsense-sms-v2';
 
 const AUTH_WORKER  = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
 const CLUB_APP_URL = '/fsu_grass/';                // where an existing club member logs in

@@ -3794,12 +3794,42 @@ function lcOnLogin(player){
   else if(_lcOpen){ $('lc-as').textContent = _lcName ? ('Posting as ' + _lcName) : ''; }
   pcLoad(); // the weather poll card shows the signed-in player's vote
   ocLoad();
+  snLoad();
 }
 function lcOnLogout(){
   _lcPid = null; _lcName = '';
   if(_lcOpen) closeLeagueChat();
   pcLoad();
   ocLoad();
+  snLoad();
+}
+
+// ─── TEXT ALERTS NUDGE ───
+// A dismissible card for a signed-in player whose texts are off and who may get them
+// (smsNudge from /auth/contact-status: not high school, not under 18, never dismissed).
+// It only links to the text alerts card in the CourtSense profile, where the consent is
+// given. Dismissed is stored by the worker, so it never comes back on any device.
+async function snLoad(){
+  const el=$('sms-nudge'); if(!el) return;
+  const tok=pcToken();
+  if(!tok){ el.innerHTML=''; return; }
+  const res=await pcFetch('/auth/contact-status', { sessionToken:tok });
+  if(pcToken()!==tok) return; // signed out or switched while asking
+  el.innerHTML=snCardHtml(res.j);
+}
+// Pure: the card for a contact-status answer, or '' for none.
+function snCardHtml(j){
+  if(!j||j.ok!==true||j.smsNudge!==true) return '';
+  return '<div class="card" id="sms-nudge-card"><div class="ctitle"><span class="bar"></span>Get text alerts</div>'
+    +'<p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Get text alerts for cancellations and game times.</p>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    +'<a class="btn btn-p btn-sm" href="/community/profile/?tab=settings#sms-card">Turn on text alerts</a>'
+    +'<button class="btn btn-g btn-sm" onclick="snDismiss()">No thanks</button></div></div>';
+}
+async function snDismiss(){
+  const el=$('sms-nudge'); if(el) el.innerHTML='';
+  const tok=pcToken(); if(!tok) return;
+  await pcFetch('/auth/sms-nudge-dismiss', { sessionToken:tok });
 }
 
 function openLeagueChat(){

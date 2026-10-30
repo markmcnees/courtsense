@@ -305,10 +305,27 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
        number never touches a client-readable node. -->
   <section class="section" id="sms-card">
     <h3>Text alerts</h3>
-    <p class="sub">League and game alerts by text, for the programs you play in.</p>
+    <p class="sub">CourtSense Alerts by text: league, club, pickup and tournament alerts for the programs you play in.</p>
     <div id="sms-loading" class="help">Checking your text alert settings...</div>
     <div id="sms-signin" class="note" style="display:none;">Sign out and back in to manage text alerts.</div>
     <div id="sms-hs" class="note" style="display:none;">Text alerts are available for adult players. Your coach will keep reaching you by email.</div>
+    <!-- One-time card for a consent from before the 18 or older check existed
+         (needsAdultConfirm). Confirm re-consents under the wording below. -->
+    <div id="sms-confirm" style="display:none;">
+      <div class="sms-status">You signed up for CourtSense text alerts. Confirm you're 18 or older to start getting them.</div>
+      <label class="sms-agree">
+        <input type="checkbox" id="sms-confirm-consent">
+        <span>Yes, text me CourtSense Alerts at this number: league weather and schedule alerts, club practice alerts, pickup game updates and reminders, and tournament game-day notices. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to cancel. Consent is not required to play. <a class="help-link" href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a class="help-link" href="/privacy/" target="_blank" rel="noopener">Privacy</a>.</span>
+      </label>
+      <label class="sms-agree">
+        <input type="checkbox" id="sms-confirm-adult">
+        <span>I am 18 or older.</span>
+      </label>
+      <div class="actions" style="margin-top:6px;">
+        <button type="button" class="btn btn-p btn-w" id="sms-confirm-btn" onclick="doSmsConfirm()" disabled>Confirm</button>
+        <button type="button" class="btn btn-g btn-w" id="sms-confirm-off-btn" onclick="doSmsConfirmOff()">Turn off</button>
+      </div>
+    </div>
     <div id="sms-on" style="display:none;">
       <div class="sms-status">Texts are on to <strong id="sms-on-num"></strong></div>
       <div class="actions" style="margin-top:12px;">
@@ -325,7 +342,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <label class="sms-agree">
         <input type="checkbox" id="sms-consent">
-        <span>Yes, text me CourtSense league and game alerts at this number (weather cancellations, poll results, schedule changes, game-day notices). Message frequency varies. Msg and data rates may apply. Reply STOP to cancel, HELP for help. Consent is not required to play. <a class="help-link" href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a class="help-link" href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+        <span>Yes, text me CourtSense Alerts at this number: league weather and schedule alerts, club practice alerts, pickup game updates and reminders, and tournament game-day notices. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to cancel. Consent is not required to play. <a class="help-link" href="/sms-terms/" target="_blank" rel="noopener">Text Terms</a> and <a class="help-link" href="/privacy/" target="_blank" rel="noopener">Privacy</a>.</span>
       </label>
       <label class="sms-agree">
         <input type="checkbox" id="sms-adult">
@@ -588,7 +605,7 @@ const FB_CFG = {
 };
 const ROSTER_PATH = 'tally_kotb_pickup/players';
 const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
-const SMS_CONSENT_VERSION = 'courtsense-sms-v1';
+const SMS_CONSENT_VERSION = 'courtsense-sms-v2';
 const RATINGS_PATH = 'tally_kotb_pickup/ratings';
 const INVITES_PATH = 'tally_kotb_pickup/invites';
 const GROUPS_PATH = 'tally_kotb_pickup/groups';
@@ -1588,7 +1605,7 @@ function smsPhoneOk(input){
 }
 
 function smsShow(state){
-  ['sms-loading','sms-signin','sms-hs','sms-on','sms-form'].forEach(function(id){
+  ['sms-loading','sms-signin','sms-hs','sms-confirm','sms-on','sms-form'].forEach(function(id){
     $(id).style.display = (id === 'sms-' + state) ? '' : 'none';
   });
 }
@@ -1606,9 +1623,22 @@ function showSmsForm(){
   smsShow('form');
 }
 
+function smsConfirmUpdateBtn(){
+  $('sms-confirm-btn').disabled = !($('sms-confirm-consent').checked && $('sms-confirm-adult').checked);
+}
+
 function smsRenderStatus(j){
   $('sms-err').textContent = '';
   if(j.hsBlocked){ smsShow('hs'); return; }
+  // A consent from before the 18 or older check: the one-time confirm card, both boxes
+  // unticked every time it shows.
+  if(j.needsAdultConfirm){
+    $('sms-confirm-consent').checked = false;
+    $('sms-confirm-adult').checked = false;
+    smsConfirmUpdateBtn();
+    smsShow('confirm');
+    return;
+  }
   if(j.smsConsent && j.last4){
     $('sms-on-num').textContent = '•••-•••-' + j.last4;
     smsShow('on');
@@ -1691,6 +1721,60 @@ async function doSmsSave(){
 async function doSmsOff(){
   const ok = await smsSave({ smsConsent: false }, $('sms-off-btn'));
   if(ok){ toast('Text alerts are off.'); loadSmsStatus(); }
+}
+
+// The confirm card's two buttons. The worker records the confirmation (/auth/sms-confirm,
+// the signed-in account only) and refuses a high school or under 18 account.
+async function smsConfirmPost(action, btn){
+  const token = CourtSenseAuth.getSessionToken();
+  if(!currentPid || !token){ smsShow('signin'); return null; }
+  $('sms-err').textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await smsPost('/auth/sms-confirm', { sessionToken: token, action: action, adultConfirmed: action === 'confirm' });
+    if(res.j.ok === true) return res.j;
+    if(res.j.code === 'hs_account'){ smsShow('hs'); return null; }
+    if(res.status === 401){ smsShow('signin'); return null; }
+    if(res.j.code === 'needs_phone'){
+      // No usable number on file: the regular form takes the number and a fresh consent.
+      showSmsForm();
+      $('sms-err').textContent = 'Add your cell number below to keep text alerts on.';
+      return null;
+    }
+    console.error('text alert confirm rejected', res.status, res.j.code || '');
+    $('sms-err').textContent = res.j.error || 'Could not save. Try again in a moment.';
+    return null;
+  } catch(e){
+    console.error('text alert confirm failed to reach the worker');
+    $('sms-err').textContent = 'Could not reach CourtSense. Check your connection and try again.';
+    return null;
+  } finally {
+    btn.disabled = false;
+    if(btn.id === 'sms-confirm-btn') smsConfirmUpdateBtn();
+  }
+}
+
+async function doSmsConfirm(){
+  if(!($('sms-confirm-consent').checked && $('sms-confirm-adult').checked)){ smsConfirmUpdateBtn(); return; }
+  const j = await smsConfirmPost('confirm', $('sms-confirm-btn'));
+  if(j){ toast('Text alerts are on.'); loadSmsStatus(); }
+}
+
+async function doSmsConfirmOff(){
+  const j = await smsConfirmPost('off', $('sms-confirm-off-btn'));
+  if(j){ toast('Text alerts are off.'); loadSmsStatus(); }
+}
+
+// ?tab=settings opens the Settings tab and brings the text alerts card into view (the
+// link the FSU Grass and league page cards use).
+function maybeOpenTab(){
+  let tab = '';
+  try { tab = new URLSearchParams(window.location.search).get('tab') || ''; } catch(e){}
+  if(tab !== 'settings') return;
+  switchTab('settings');
+  if(window.location.hash === '#sms-card'){
+    setTimeout(function(){ const el = $('sms-card'); if(el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+  }
 }
 
 // ── Phone notifications ──────────────────────────────────────────────────────
@@ -1797,6 +1881,7 @@ async function onLogin(player){
   // user. Read-only; defensive (unrated players hit the empty state, not an error).
   loadOverview();
   maybeShowWelcome();
+  maybeOpenTab();
 }
 
 function onLogout(){
@@ -1814,6 +1899,7 @@ document.addEventListener('DOMContentLoaded', () => {
   ['sms-cell','sms-consent','sms-adult'].forEach(function(id){
     $(id).addEventListener(id === 'sms-cell' ? 'input' : 'change', smsUpdateSaveBtn);
   });
+  ['sms-confirm-consent','sms-confirm-adult'].forEach(function(id){ $(id).addEventListener('change', smsConfirmUpdateBtn); });
   $('push-adult').addEventListener('change', function(){ $('push-on-btn').disabled = !$('push-adult').checked; });
   CourtSenseAuth.init({
     firebaseDb: db,
