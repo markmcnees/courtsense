@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.202';
+const APP_VERSION='1.1.203';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1858,7 +1858,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   ${(SC.chatEnabled && !SC.tiersEnabled)?'<div class="pp-panel" id="pp-panel-chat"></div>':''}
   ${SC.tiersEnabled?`<!-- ══ CLUB LIFE PANEL (group-facing: practice schedule, club chat, travel, partner posts) ══ -->
   <div class="pp-panel" id="pp-panel-clublife">
-    ${(SC.emailLogin&&SC.tiersEnabled)?`<div style="font-size:12px;color:var(--gray);margin:0 0 10px;line-height:1.5;">📲 <a href="https://courtsense.app/community/profile/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;display:inline-block;padding:12px 0;margin:-12px 0;">Turn on phone alerts in your CourtSense profile</a> to get club announcements.</div>`:''}
+    ${(SC.emailLogin&&SC.tiersEnabled)?'<div id="pp-sms-card"></div>':''}
     <div id="pp-latest-alert"></div>
     <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
@@ -5282,6 +5282,110 @@ function ppShowAllClubChat(){
     if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'start'});
   },60);
 }
+// ===== CLUB SMS CARD START =====
+// The text alert card at the top of Club Life, chosen by the worker's /auth/contact-status
+// for the signed-in member (the worker session from tnPlayerSessionToken): the one-time
+// confirm card when their text consent predates the 18 or older check (needsAdultConfirm),
+// else the nudge to turn texts on (smsNudge), else nothing. Confirm and Turn off go to
+// /auth/sms-confirm, No thanks to /auth/sms-nudge-dismiss; the worker keeps every record,
+// so a dismissed nudge never comes back on any device. The answer is kept 10 minutes per
+// account. Tick state lives here so a Club Life re-render never clears a box.
+var _ppSms={acct:'', ts:0, data:null, loading:false, consent:false, adult:false, busy:false, msg:''};
+var PP_SMS_TTL=10*60000;
+var PP_SMS_PROFILE='https://courtsense.app/community/profile/?tab=settings#sms-card';
+// Pure: the card a contact-status answer calls for: 'confirm', 'nudge' or ''.
+function ppSmsCardKind(j){
+  if(!j||j.ok!==true||j.hsBlocked===true) return '';
+  if(j.needsAdultConfirm===true) return 'confirm';
+  if(j.smsNudge===true) return 'nudge';
+  return '';
+}
+async function ppSmsLoad(){
+  var tok=(typeof tnPlayerSessionToken==='function')?tnPlayerSessionToken():'';
+  var acct=(typeof tnMyAccountId==='function')?tnMyAccountId():'';
+  if(!tok||!acct||_ppSms.loading) return;
+  _ppSms.loading=true;
+  var j=null;
+  try{
+    var r=await fetch(AUTH_WORKER+'/auth/contact-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:tok})});
+    j=await r.json().catch(function(){ return null; });
+  }catch(e){ j=null; }
+  _ppSms.loading=false;
+  if(((typeof tnMyAccountId==='function')?tnMyAccountId():'')!==acct) return; // switched accounts while asking
+  _ppSms.ts=Date.now(); _ppSms.data=(j&&j.ok===true)?j:{ok:false};
+  ppSmsRender();
+}
+function ppSmsRender(){
+  var el=document.getElementById('pp-sms-card'); if(!el) return;
+  var tok=(typeof tnPlayerSessionToken==='function')?tnPlayerSessionToken():'';
+  var acct=(typeof tnMyAccountId==='function')?tnMyAccountId():'';
+  if(!tok||!acct){ el.innerHTML=''; return; }
+  if(_ppSms.acct!==acct){ _ppSms={acct:acct, ts:0, data:null, loading:false, consent:false, adult:false, busy:false, msg:''}; }
+  if(!_ppSms.data||Date.now()-_ppSms.ts>PP_SMS_TTL) ppSmsLoad();
+  var kind=ppSmsCardKind(_ppSms.data);
+  var msg=_ppSms.msg?'<div role="alert" style="font-size:13px;color:#b3261e;margin-top:8px;">'+_ppSms.msg+'</div>':'';
+  var box='<div class="card" style="border-top:3px solid var(--blue);margin-bottom:12px;">';
+  var head='<div style="font-family:\'Bebas Neue\';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:4px;">Text alerts</div>';
+  var chk='width:20px;height:20px;margin-top:2px;flex-shrink:0;';
+  var lbl='display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--charcoal);padding:6px 0;cursor:pointer;';
+  var btn='min-height:44px;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;';
+  if(kind==='confirm'){
+    el.innerHTML=box+head
+      +'<div style="font-weight:700;font-size:15px;color:var(--charcoal);margin-bottom:6px;">You signed up for CourtSense text alerts. Confirm you\'re 18 or older to start getting them.</div>'
+      +'<label style="'+lbl+'"><input type="checkbox" id="pp-sms-consent" style="'+chk+'"'+(_ppSms.consent?' checked':'')+' onchange="ppSmsTick(\'consent\',this.checked)">'
+      +'<span>Yes, text me CourtSense Alerts at this number: league weather and schedule alerts, club practice alerts, pickup game updates and reminders, and tournament game-day notices. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to cancel. Consent is not required to play. <a href="/sms-terms/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;">Text Terms</a> and <a href="/privacy/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;">Privacy</a>.</span></label>'
+      +'<label style="'+lbl+'"><input type="checkbox" id="pp-sms-adult" style="'+chk+'"'+(_ppSms.adult?' checked':'')+' onchange="ppSmsTick(\'adult\',this.checked)"><span>I am 18 or older.</span></label>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+      +'<button type="button" id="pp-sms-confirm-btn" style="'+btn+'background:var(--blue);color:#fff;border:none;"'+((_ppSms.consent&&_ppSms.adult&&!_ppSms.busy)?'':' disabled')+' onclick="ppSmsConfirm(\'confirm\')">Confirm</button>'
+      +'<button type="button" style="'+btn+'background:transparent;color:var(--charcoal);border:1px solid var(--border,#ddd);"'+(_ppSms.busy?' disabled':'')+' onclick="ppSmsConfirm(\'off\')">Turn off</button>'
+      +'</div>'+msg+'</div>';
+    return;
+  }
+  if(kind==='nudge'){
+    el.innerHTML=box+head
+      +'<div style="font-size:14px;color:var(--charcoal);line-height:1.5;">Get text alerts for cancellations and game times.</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+      +'<a href="'+PP_SMS_PROFILE+'" target="_blank" rel="noopener" style="'+btn+'display:inline-flex;align-items:center;background:var(--blue);color:#fff;text-decoration:none;">Turn on text alerts</a>'
+      +'<button type="button" style="'+btn+'background:transparent;color:var(--charcoal);border:1px solid var(--border,#ddd);" onclick="ppSmsDismiss()">No thanks</button>'
+      +'</div></div>';
+    return;
+  }
+  el.innerHTML='';
+}
+function ppSmsTick(key,on){
+  _ppSms[key]=!!on; _ppSms.msg='';
+  var b=document.getElementById('pp-sms-confirm-btn'); if(b) b.disabled=!(_ppSms.consent&&_ppSms.adult&&!_ppSms.busy);
+}
+async function ppSmsConfirm(action){
+  if(_ppSms.busy) return;
+  if(action==='confirm'&&!(_ppSms.consent&&_ppSms.adult)) return;
+  var tok=(typeof tnPlayerSessionToken==='function')?tnPlayerSessionToken():'';
+  if(!tok){ _ppSms.msg='Sign in again to change text alerts.'; ppSmsRender(); return; }
+  _ppSms.busy=true; _ppSms.msg=''; ppSmsRender();
+  var j=null;
+  try{
+    var r=await fetch(AUTH_WORKER+'/auth/sms-confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:tok, action:action, adultConfirmed:action==='confirm'})});
+    j=await r.json().catch(function(){ return null; });
+  }catch(e){ j=null; }
+  _ppSms.busy=false;
+  if(j&&j.ok===true){
+    _ppSms.data={ok:true}; _ppSms.ts=Date.now();
+    toast(action==='confirm'?'Text alerts are on.':'Text alerts are off.');
+  } else if(j&&j.code==='needs_phone'){
+    _ppSms.msg='Add your cell number in your <a href="'+PP_SMS_PROFILE+'" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;">CourtSense profile</a> to keep text alerts on.';
+  } else {
+    _ppSms.msg=(j&&j.code==='hs_account')?'Text alerts are available for adult players.':'Could not save. Try again in a moment.';
+  }
+  ppSmsRender();
+}
+async function ppSmsDismiss(){
+  var tok=(typeof tnPlayerSessionToken==='function')?tnPlayerSessionToken():'';
+  _ppSms.data={ok:true}; _ppSms.ts=Date.now(); ppSmsRender();
+  if(!tok) return;
+  try{ await fetch(AUTH_WORKER+'/auth/sms-nudge-dismiss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:tok})}); }catch(e){}
+}
+// ===== CLUB SMS CARD END =====
+
 // Latest alert: the newest All Club post an exec sent as a phone alert (via:'alert') in the
 // last 24 hours, at the top of Club Life. Read from the chat data already loaded.
 function renderLatestAlert(){
@@ -16364,6 +16468,7 @@ function renderMemberTravel(){
 // then travel, then tournament partner posts, into the containers nested in pp-panel-clublife. Each
 // renderer targets its own id, so nesting them under one tab does not change how they draw.
 function renderClubLife(){
+  ppSmsRender();
   renderLatestAlert();
   var p=gP(currentPlayerId);
   var pr=document.getElementById('pp-practice'); if(pr&&p) pr.innerHTML=memberPracticeHtml(p);
