@@ -3713,6 +3713,16 @@ function nameStr(p){
   return '';
 }
 
+// A parent-only account: made by the high school parent or guardian confirm and never
+// played since. Same rule as the worker's isParentOnly (accounts.ts). It is a parent's way
+// in to their player's team, not a player, so it stays off player lists and polls.
+function csParentOnly(p){
+  if(!p||typeof p!=='object'||p.guardian!==true||p.guardianCreated!==true) return false;
+  const has = (o)=>!!o&&typeof o==='object'&&Object.keys(o).length>0;
+  if(p.playsToo===true||has(p.memberships)||has(p.history)) return false;
+  return typeof p.rating!=='number'&&!p.leaguePlayerId;
+}
+
 function allKnownPlayerNames(){
   const byKey = {};
   const blocked = new Set();
@@ -3721,6 +3731,8 @@ function allKnownPlayerNames(){
     if(!nm) return;
     const k = Identity.nameKey(nm);
     if(p.blocked){ blocked.add(k); return; }
+    // Skipped, not blocked: a player with the same name must still show.
+    if(csParentOnly(p)) return;
     byKey[k] = nm;
   });
   Object.values(D.ratings||{}).forEach(r=>{
@@ -10599,6 +10611,7 @@ window.csPollPlanKit=(function(){
       var p=profiles[id];
       if(!p||typeof p!=='object'||id.indexOf('demo_')===0||!/^[a-zA-Z0-9_-]{1,200}$/.test(id)) return;
       if(p.blocked||p.merged||p.mergedInto) return;
+      if(typeof csParentOnly==='function'&&csParentOnly(p)) return;
       var nm=nameOf(p);
       if(!nm) return;
       out.push({ id:id, name:nm, rating:ratingOf(nm,id) });

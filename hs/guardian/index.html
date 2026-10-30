@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Confirm Your Player | CourtSense</title>
+<meta name="description" content="Confirm your player's high school beach volleyball sign-up on CourtSense.">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="/auth.js?v=8fd84c9f"></script>
+<style>
+:root{
+  --navy:#082A4F;--gold:#F2B22E;--teal:#217F7F;--red:#B3261E;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.55;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+.hdr{background:var(--navy);padding:16px;text-align:center;}
+.hdr a{color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;text-decoration:none;}
+main{max-width:560px;margin:0 auto;padding:22px 16px 48px;}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+h1{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.2px;line-height:1.1;color:var(--navy);margin-bottom:6px;}
+h2{font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:1.2px;color:var(--navy);margin-bottom:8px;}
+.sub{color:var(--slate);font-size:15px;}
+p+p{margin-top:10px;}
+label{display:block;font-size:14px;font-weight:600;margin:10px 0 4px;}
+input[type=text],input[type=password]{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px solid #CFC6B4;border-radius:10px;background:#fff;color:var(--ink);}
+input:focus{outline:2px solid var(--navy);outline-offset:1px;}
+.row{display:flex;gap:10px;}
+.row>div{flex:1;min-width:0;}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:15px;font-weight:600;margin:10px 0 0;}
+.check input{width:20px;height:20px;margin-top:2px;flex:none;}
+#ts-box{margin:14px 0 4px;min-height:65px;}
+.btn{display:block;width:100%;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;padding:12px;border:none;border-radius:12px;background:var(--navy);color:#fff;cursor:pointer;margin-top:14px;}
+.btn:disabled{opacity:.55;cursor:default;}
+.link-btn{background:none;border:none;color:var(--navy);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;padding:0;}
+.msg{font-size:15px;margin-top:10px;min-height:1.2em;}
+.msg.err{color:var(--red);font-weight:600;}
+.hint{font-weight:700;}
+a{color:var(--navy);font-weight:600;}
+.hidden{display:none;}
+footer{text-align:center;font-size:14px;color:var(--slate);padding:20px 16px 32px;border-top:1px solid var(--line);}
+footer a{margin:0 6px;text-decoration:none;}
+@media (max-width:420px){.row{flex-direction:column;gap:0;}}
+</style>
+</head>
+<body>
+
+<div class="hdr"><a href="/">CourtSense</a></div>
+
+<main>
+  <div id="loading" class="card"><p>Loading...</p></div>
+
+  <div id="refused" class="card hidden">
+    <h2 id="refused-title">This link isn't working</h2>
+    <p id="refused-text"></p>
+  </div>
+
+  <div id="main" class="hidden">
+    <section class="card">
+      <h1 id="title"></h1>
+      <p class="sub" id="grad"></p>
+      <label class="check" for="a-guardian"><input type="checkbox" id="a-guardian"> <span>I am this player's parent or guardian</span></label>
+      <label class="check" for="a-13"><input type="checkbox" id="a-13"> <span>My player is 13 or older</span></label>
+    </section>
+
+    <section class="card hidden" id="signin-card">
+      <h2>Sign in to confirm</h2>
+      <p>You already have a CourtSense account for <span class="hint" id="hint-a"></span>. Sign in to it to confirm.</p>
+      <button type="button" class="btn" id="signin-btn">Sign in to confirm</button>
+      <p class="msg" id="signin-msg" role="status" aria-live="polite"></p>
+      <p class="hidden" id="signout-row"><button type="button" class="link-btn" id="signout-btn">Sign out and use a different account</button></p>
+    </section>
+
+    <section class="card hidden" id="create-card">
+      <h2>Create your account</h2>
+      <p>We'll make your CourtSense account for <span class="hint" id="hint-b"></span>, the email this link went to.</p>
+      <div class="row">
+        <div><label for="c-first">First name</label><input type="text" id="c-first" maxlength="30" autocomplete="given-name"></div>
+        <div><label for="c-last">Last name</label><input type="text" id="c-last" maxlength="30" autocomplete="family-name"></div>
+      </div>
+      <label for="c-pw">Password (8 or more characters)</label>
+      <input type="password" id="c-pw" minlength="8" autocomplete="new-password">
+      <div id="ts-box"></div>
+      <button type="button" class="btn" id="create-btn">Create account and confirm</button>
+      <p class="msg" id="create-msg" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <div id="done" class="card hidden">
+    <h2 id="done-title"></h2>
+    <p>A parent view is coming soon, with the team schedule and your coaches' announcements in one place.</p>
+    <p class="hidden" id="done-created">Your account is ready. Sign in any time with this email address and the password you just set.</p>
+    <p>We sent you a short confirmation email.</p>
+  </div>
+
+  <p class="sub">Questions? Email <a href="mailto:hello@courtsense.app">hello@courtsense.app</a>. Read our <a href="/privacy/">Privacy Policy</a>.</p>
+</main>
+
+<footer>
+  CourtSense, LLC
+  <br><a href="/">Home</a><a href="/privacy/">Privacy</a>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var SITE_KEY='0x4AAAAAAFkHEY06nnevuhhM';
+  var TURNSTILE_SCRIPT='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  var FB_CONFIG={apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'};
+  var TOKEN_RE=/^[A-Za-z0-9_-]{20,100}$/, SLUG_RE=/^[a-z0-9]+([_-][a-z0-9]+)*$/;
+
+  // Pure helpers, kept apart from the page so the pages check can run them.
+  var K={
+    SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT,
+    readLink:function(search){
+      var q={}; String(search||'').replace(/^\?/,'').split('&').forEach(function(kv){ var i=kv.indexOf('='); if(i>0){ try{ q[kv.slice(0,i)]=decodeURIComponent(kv.slice(i+1)); }catch(e){} } });
+      var t=q.t||'', s=(q.s||'').toLowerCase();
+      return TOKEN_RE.test(t)&&SLUG_RE.test(s)&&s.length<=80?{t:t,s:s}:null;
+    },
+    REFUSED:{
+      invalid:['This link isn\'t working','This link isn\'t valid. Ask your player\'s coach for a new sign-up link.'],
+      expired:['This link has expired','Confirm links last 7 days. Ask your player to sign up again and we\'ll send a new one.'],
+      used:['Already confirmed','This link was already used, so you are all set. Thank you.']
+    },
+    title:function(info){ return 'Confirm '+info.playerFirstName+' for '+(info.schoolName||'your school')+' beach volleyball'; },
+    gradLine:function(info){ return info.gradYear?'Graduation year '+info.gradYear:''; },
+    attested:function(g,a13){ return g===true&&a13===true; },
+    createProblem:function(c){
+      if(!c.firstName||!c.lastName) return 'Add your first and last name.';
+      if(c.password.length<8) return 'Your password needs 8 or more characters.';
+      if(!c.turnstileToken) return 'Complete the check first.';
+      return '';
+    },
+    confirmBody:function(link,extra){
+      var b={ t:link.t, s:link.s, attestGuardian:true, attest13:true };
+      if(extra.sessionToken) b.sessionToken=extra.sessionToken;
+      else { b.create={ firstName:extra.firstName, lastName:extra.lastName, password:extra.password }; b.turnstileToken=extra.turnstileToken; }
+      return b;
+    },
+    errorText:function(j,status){
+      var code=j&&j.code;
+      if(status===429||code==='rate_limited') return 'Too many tries just now. Wait a few minutes and try again.';
+      if(code==='wrong_account') return 'You are signed in with a different account. Sign out, then sign in with the account for this email.';
+      if(code==='signin_required') return 'Sign in again to confirm.';
+      if(code==='has_account') return 'You already have a CourtSense account. Sign in to confirm instead.';
+      if(code==='attest_required') return 'Check both boxes first.';
+      if(code==='turnstile') return 'We could not confirm you are a person. Try the check again.';
+      if(code==='weak_password') return 'Your password needs 8 or more characters.';
+      if(code==='bad_name') return (j&&j.error)||'Check your name.';
+      if(code==='unavailable'||status===503) return 'This is not available right now. Try again later.';
+      return 'Something went wrong. Try again.';
+    },
+    doneTitle:function(first){ return 'Thank you. You\'re confirmed as '+first+'\'s parent or guardian.'; }
+  };
+  window.HsGuardian=K;
+  if(!document.getElementById('main')) return;
+
+  function $(id){ return document.getElementById(id); }
+  function show(id){ $(id).classList.remove('hidden'); }
+  function hide(id){ $(id).classList.add('hidden'); }
+  function post(path,body){
+    return fetch(WORKER+path,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+      .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return { status:r.status, j:j }; }); });
+  }
+  function refused(code){
+    var m=K.REFUSED[code]||K.REFUSED.invalid;
+    hide('loading'); hide('main'); $('refused-title').textContent=m[0]; $('refused-text').textContent=m[1]; show('refused');
+  }
+
+  var link=K.readLink(location.search);
+  // The token stays in memory only; the address bar and history keep the bare page.
+  try{ history.replaceState(null,'',location.pathname); }catch(e){}
+  if(!link){ refused('invalid'); return; }
+
+  var info=null, created=false, pendingSignIn=false;
+  function boxes(){ return K.attested($('a-guardian').checked,$('a-13').checked); }
+  function finish(){
+    hide('main'); $('done-title').textContent=K.doneTitle(info.playerFirstName);
+    if(created) show('done-created');
+    show('done'); window.scrollTo(0,0);
+  }
+  function handleResult(res,msgId,btnId){
+    $(btnId).disabled=false;
+    if(res.j&&res.j.ok===true){ finish(); return true; }
+    var code=res.j&&res.j.code;
+    if(code==='invalid'||code==='expired'||code==='used'){ refused(code); return false; }
+    $(msgId).className='msg err'; $(msgId).textContent=K.errorText(res.j,res.status);
+    if(code==='wrong_account') show('signout-row');
+    return false;
+  }
+
+  // Sign in with the existing auth.js overlay, staying on this page.
+  function sessionToken(){ return (window.CourtSenseAuth&&CourtSenseAuth.getSessionToken&&CourtSenseAuth.getSessionToken())||''; }
+  function confirmWithSession(){
+    var tok=sessionToken();
+    if(!tok){ pendingSignIn=true; if(window.CourtSenseAuth) CourtSenseAuth.showLogin(); return; }
+    $('signin-btn').disabled=true; $('signin-msg').className='msg'; $('signin-msg').textContent='Confirming...';
+    post('/hs/guardian/confirm',K.confirmBody(link,{ sessionToken:tok })).then(function(res){ handleResult(res,'signin-msg','signin-btn'); })
+      .catch(function(){ $('signin-btn').disabled=false; $('signin-msg').className='msg err'; $('signin-msg').textContent='Could not reach CourtSense. Check your connection and try again.'; });
+  }
+  $('signin-btn').addEventListener('click',function(){
+    if(!boxes()){ $('signin-msg').className='msg err'; $('signin-msg').textContent='Check both boxes first.'; return; }
+    confirmWithSession();
+  });
+  $('signout-btn').addEventListener('click',function(){
+    try{ if(window.CourtSenseAuth) CourtSenseAuth.logout(); }catch(e){}
+    hide('signout-row'); $('signin-msg').textContent=''; pendingSignIn=true;
+    if(window.CourtSenseAuth) CourtSenseAuth.showLogin();
+  });
+
+  // New account for the email on file.
+  var tsToken='', tsWidget=null;
+  function loadTurnstile(){
+    function draw(){
+      if(!window.turnstile||tsWidget!==null) return;
+      tsWidget=window.turnstile.render('#ts-box',{ sitekey:K.SITE_KEY, theme:'light',
+        callback:function(t){ tsToken=t; }, 'expired-callback':function(){ tsToken=''; }, 'error-callback':function(){ tsToken=''; } });
+    }
+    if(window.turnstile){ draw(); return; }
+    if($('ts-script')) return;
+    var sc=document.createElement('script');
+    sc.id='ts-script'; sc.src=K.TURNSTILE_SCRIPT; sc.async=true; sc.defer=true; sc.onload=draw;
+    document.head.appendChild(sc);
+  }
+  $('create-btn').addEventListener('click',function(){
+    $('create-msg').className='msg err';
+    if(!boxes()){ $('create-msg').textContent='Check both boxes first.'; return; }
+    var c={ firstName:$('c-first').value.trim(), lastName:$('c-last').value.trim(), password:$('c-pw').value, turnstileToken:tsToken };
+    var p=K.createProblem(c); if(p){ $('create-msg').textContent=p; return; }
+    $('create-btn').disabled=true; $('create-msg').className='msg'; $('create-msg').textContent='Creating your account...';
+    post('/hs/guardian/confirm',K.confirmBody(link,c)).then(function(res){
+      created=!!(res.j&&res.j.ok===true);
+      if(!handleResult(res,'create-msg','create-btn')){ tsToken=''; try{ if(window.turnstile&&tsWidget!==null) window.turnstile.reset(tsWidget); }catch(e){} }
+    }).catch(function(){ $('create-btn').disabled=false; $('create-msg').className='msg err'; $('create-msg').textContent='Could not reach CourtSense. Check your connection and try again.'; });
+  });
+
+  post('/hs/guardian/lookup',{ t:link.t, s:link.s }).then(function(res){
+    var j=res.j;
+    if(!j||j.ok!==true){ refused(j&&j.code); return; }
+    info=j;
+    $('title').textContent=K.title(j);
+    $('grad').textContent=K.gradLine(j);
+    $('hint-a').textContent=j.emailHint||'';
+    $('hint-b').textContent=j.emailHint||'';
+    hide('loading'); show('main');
+    if(j.hasAccount){
+      show('signin-card');
+      try{
+        if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+        CourtSenseAuth.init({ firebaseDb:firebase.database(), rosterPath:'tally_kotb_pickup/players', autoShowLogin:false,
+          onLogin:function(){ if(pendingSignIn){ pendingSignIn=false; if(window.CourtSenseAuth&&CourtSenseAuth.hideLogin) CourtSenseAuth.hideLogin(); if(boxes()) setTimeout(confirmWithSession,0); } } });
+      }catch(e){}
+    }else{
+      show('create-card'); loadTurnstile();
+    }
+  }).catch(function(){ hide('loading'); show('refused'); $('refused-title').textContent='Could not load'; $('refused-text').textContent='Could not reach CourtSense. Check your connection and reload the link from your email.'; });
+})();
+</script>
+</body>
+</html>

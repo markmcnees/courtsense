@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Player Sign-up | CourtSense</title>
+<meta name="description" content="Sign up for high school beach volleyball tryouts and the team on CourtSense.">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --navy:#082A4F;--gold:#F2B22E;--teal:#217F7F;--red:#B3261E;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;
+  --school:#082A4F;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:16px;line-height:1.55;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+.hdr{background:var(--school);padding:22px 16px 20px;color:#fff;text-align:center;}
+.hdr .logo{height:64px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:44px;}
+.hdr .logo img{max-height:64px;max-width:200px;width:auto;background:#fff;border-radius:12px;padding:4px;}
+.hdr h1{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1.5px;line-height:1.05;}
+.hdr .sub{font-size:15px;opacity:.92;margin-top:4px;}
+main{max-width:560px;margin:0 auto;padding:22px 16px 48px;}
+.lead{font-size:16px;margin-bottom:16px;}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+h2{font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:1.2px;color:var(--navy);margin-bottom:10px;}
+.opt{font-family:'Barlow',sans-serif;font-size:13px;letter-spacing:0;color:var(--slate);font-weight:500;}
+label{display:block;font-size:14px;font-weight:600;margin:10px 0 4px;}
+input[type=text],input[type=email],input[type=tel],select{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px solid #CFC6B4;border-radius:10px;background:#fff;color:var(--ink);}
+input:focus,select:focus{outline:2px solid var(--school);outline-offset:1px;}
+.row{display:flex;gap:10px;}
+.row>div{flex:1;min-width:0;}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:15px;font-weight:600;margin:4px 0 0;}
+.check input{width:20px;height:20px;margin-top:2px;flex:none;}
+.hp{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;}
+#ts-box{margin:14px 0 4px;min-height:65px;}
+.btn{display:block;width:100%;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;padding:12px;border:none;border-radius:12px;background:var(--school);color:#fff;cursor:pointer;}
+.btn:disabled{opacity:.55;cursor:default;}
+.msg{font-size:15px;margin-top:10px;min-height:1.2em;}
+.msg.err{color:var(--red);font-weight:600;}
+.privacy{font-size:14px;color:var(--slate);margin-top:14px;}
+a{color:var(--navy);font-weight:600;}
+.done h2{font-size:26px;}
+.done p+p{margin-top:10px;}
+.hidden{display:none;}
+footer{text-align:center;font-size:14px;color:var(--slate);padding:20px 16px 32px;border-top:1px solid var(--line);}
+footer a{margin:0 6px;text-decoration:none;}
+@media (max-width:420px){.row{flex-direction:column;gap:0;}}
+</style>
+</head>
+<body>
+
+<div class="hdr" id="hdr">
+  <div class="logo" id="logo"></div>
+  <h1 id="school-title">CourtSense</h1>
+  <div class="sub">Beach Volleyball</div>
+</div>
+
+<main>
+  <div id="loading" class="card"><p>Loading...</p></div>
+
+  <div id="closed" class="card hidden">
+    <h2>Sign-up isn't open here</h2>
+    <p>This link isn't for a high school team sign-up. Check the link with your coach.</p>
+  </div>
+
+  <form id="form" class="hidden" autocomplete="off" novalidate onsubmit="return false;">
+    <p class="lead" id="for-line"></p>
+    <p class="lead">Fill this out, then we'll email your parent or guardian to confirm. Your coaches see your sign-up once they do.</p>
+
+    <section class="card">
+      <h2>Player</h2>
+      <div class="row">
+        <div><label for="f-first">First name</label><input type="text" id="f-first" maxlength="80" autocomplete="given-name" required></div>
+        <div><label for="f-last">Last name</label><input type="text" id="f-last" maxlength="80" autocomplete="family-name" required></div>
+      </div>
+      <label for="f-email">Player email</label>
+      <input type="email" id="f-email" maxlength="254" inputmode="email" autocomplete="email" required>
+      <label for="f-phone">Player cell</label>
+      <input type="tel" id="f-phone" maxlength="20" inputmode="tel" autocomplete="tel" required>
+      <label for="f-grad">Graduation year</label>
+      <select id="f-grad" required><option value="">Choose a year</option></select>
+    </section>
+
+    <section class="card">
+      <h2>Parent or Guardian 1</h2>
+      <label for="g1-name">Name</label>
+      <input type="text" id="g1-name" maxlength="80" autocomplete="cs-nofill-p1name" name="cs-nf-p1name" data-lpignore="true" data-1p-ignore="true" data-form-type="other" required>
+      <label for="g1-email">Email</label>
+      <input type="email" id="g1-email" maxlength="254" inputmode="email" autocomplete="cs-nofill-p1email" name="cs-nf-p1email" data-lpignore="true" data-1p-ignore="true" data-form-type="other" required>
+      <label for="g1-phone">Phone</label>
+      <input type="tel" id="g1-phone" maxlength="20" inputmode="tel" autocomplete="cs-nofill-p1phone" name="cs-nf-p1phone" data-lpignore="true" data-1p-ignore="true" data-form-type="other" required>
+    </section>
+
+    <section class="card">
+      <h2>Parent or Guardian 2 <span class="opt">(optional)</span></h2>
+      <label for="g2-name">Name</label>
+      <input type="text" id="g2-name" maxlength="80" autocomplete="cs-nofill-p2name" name="cs-nf-p2name" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
+      <label for="g2-email">Email</label>
+      <input type="email" id="g2-email" maxlength="254" inputmode="email" autocomplete="cs-nofill-p2email" name="cs-nf-p2email" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
+      <label for="g2-phone">Phone</label>
+      <input type="tel" id="g2-phone" maxlength="20" inputmode="tel" autocomplete="cs-nofill-p2phone" name="cs-nf-p2phone" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
+    </section>
+
+    <section class="card">
+      <label class="check" for="f-13"><input type="checkbox" id="f-13" required> <span>My player is 13 or older</span></label>
+      <div class="hp" aria-hidden="true"><label for="f-website">Leave this empty</label><input type="text" id="f-website" tabindex="-1" autocomplete="off"></div>
+      <div id="ts-box"></div>
+      <button type="button" class="btn" id="send">Sign up</button>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+      <p class="privacy">Your contact details are only shared with your coaches. <a href="/privacy/">Privacy Policy</a></p>
+    </section>
+  </form>
+
+  <div id="done" class="card done hidden">
+    <h2>You're signed up</h2>
+    <p id="done-thanks"></p>
+    <p>Next, we've emailed your parent or guardian a link to confirm your sign-up. Ask them to check their inbox (and spam folder).</p>
+    <p>Once they confirm, your coaches will see your sign-up. We sent you a short email too.</p>
+  </div>
+</main>
+
+<footer>
+  CourtSense, LLC
+  <br><a href="/">Home</a><a href="/privacy/">Privacy</a>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var SITE_KEY='0x4AAAAAAFkHEY06nnevuhhM';
+  var TURNSTILE_SCRIPT='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  var FB_CONFIG={apiKey:'AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8',authDomain:'leon-beach-volleyball.firebaseapp.com',databaseURL:'https://leon-beach-volleyball-default-rtdb.firebaseio.com',projectId:'leon-beach-volleyball',storageBucket:'leon-beach-volleyball.firebasestorage.app',messagingSenderId:'937804799976',appId:'1:937804799976:web:02121e68655b4febeb8e5d'};
+  var SLUG_RE=/^[a-z0-9]+([_-][a-z0-9]+)*$/;
+  var EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  var YEARS_OUT=6;
+
+  // Pure helpers, kept apart from the page so the pages check can run them.
+  var K={
+    SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, YEARS_OUT:YEARS_OUT,
+    slugFrom:function(search){
+      var m=/[?&]s=([^&#]*)/.exec(search||'');
+      var s=m?decodeURIComponent(m[1]).trim().toLowerCase():'';
+      return s.length<=80&&SLUG_RE.test(s)?s:'';
+    },
+    // A real high school only: never the club (tiersEnabled) or a demo school.
+    isOpenSchool:function(slug,cfg){
+      if(!slug||!cfg||typeof cfg!=='object') return false;
+      if(cfg.tiersEnabled===true||cfg.demoMode===true||slug==='demo') return false;
+      var m=cfg.dbRoots&&typeof cfg.dbRoots.matches==='string'?cfg.dbRoots.matches:'';
+      return !!m&&m.indexOf('demo_')!==0;
+    },
+    gradYears:function(now){ var y=now.getUTCFullYear(), out=[]; for(var i=0;i<=YEARS_OUT;i++) out.push(y+i); return out; },
+    phoneOk:function(v){
+      var raw=String(v||'').trim(), d=raw.replace(/\D/g,'');
+      if(!raw) return false;
+      if(raw.charAt(0)==='+') return d.length>=8&&d.length<=15;
+      return d.length===10||(d.length===11&&d.charAt(0)==='1');
+    },
+    emailOk:function(v){ var s=String(v||'').trim(); return s.length<=254&&EMAIL_RE.test(s); },
+    // Returns a plain message for the first problem, or '' when the form can be sent.
+    problem:function(x){
+      if(!x.firstName||!x.lastName) return 'Add the player\'s first and last name.';
+      if(!K.emailOk(x.playerEmail)) return 'Check the player email.';
+      if(!K.phoneOk(x.playerPhone)) return 'Check the player cell number.';
+      if(!x.gradYear) return 'Choose a graduation year.';
+      var p1=x.parent1;
+      if(!p1.name||!p1.email||!p1.phone) return 'Add Parent or Guardian 1\'s name, email and phone.';
+      if(!K.emailOk(p1.email)) return 'Check Parent or Guardian 1\'s email.';
+      if(!K.phoneOk(p1.phone)) return 'Check Parent or Guardian 1\'s phone number.';
+      if(x.parent2){
+        var p2=x.parent2;
+        if(!p2.name||!p2.email||!p2.phone) return 'Add all three for Parent or Guardian 2 (name, email and phone), or leave them all blank.';
+        if(!K.emailOk(p2.email)) return 'Check Parent or Guardian 2\'s email.';
+        if(!K.phoneOk(p2.phone)) return 'Check Parent or Guardian 2\'s phone number.';
+      }
+      if(x.age13!==true) return 'Check the box to confirm the player is 13 or older.';
+      if(!x.turnstileToken) return 'Complete the check first.';
+      return '';
+    },
+    // The request body: only the fields the worker accepts.
+    body:function(slug,f){
+      var b={ school:slug, firstName:f.firstName, lastName:f.lastName, gradYear:parseInt(f.gradYear,10),
+        playerEmail:f.playerEmail, playerPhone:f.playerPhone, parent1:f.parent1, age13:f.age13===true,
+        turnstileToken:f.turnstileToken, honeypot:f.honeypot||'' };
+      if(f.parent2) b.parent2=f.parent2;
+      return b;
+    },
+    errorText:function(j,status){
+      var code=j&&j.code;
+      if(status===429||code==='rate_limited') return 'Too many sign-ups from here just now. Try again in an hour.';
+      if(code==='under_13') return 'Players must be 13 or older to sign up.';
+      if(code==='unknown_school') return 'Sign-up isn\'t open for this team. Check the link with your coach.';
+      if(code==='turnstile') return 'We could not confirm you are a person. Try the check again.';
+      if(code==='unavailable'||status===503) return 'Sign-up is not available right now. Try again later.';
+      if(j&&typeof j.error==='string'&&j.error&&status===400) return j.error;
+      return 'Something went wrong. Try again.';
+    }
+  };
+  window.HsSignup=K;
+  if(!document.getElementById('form')) return;
+
+  function $(id){ return document.getElementById(id); }
+  function show(id){ $(id).classList.remove('hidden'); }
+  function hide(id){ $(id).classList.add('hidden'); }
+  function v(id){ return $(id).value.trim(); }
+  function closed(){ hide('loading'); show('closed'); }
+
+  var slug=K.slugFrom(location.search);
+  var tsToken='', tsWidget=null;
+  function loadTurnstile(){
+    function draw(){
+      if(!window.turnstile||tsWidget!==null) return;
+      tsWidget=window.turnstile.render('#ts-box',{ sitekey:K.SITE_KEY, theme:'light',
+        callback:function(t){ tsToken=t; }, 'expired-callback':function(){ tsToken=''; }, 'error-callback':function(){ tsToken=''; } });
+    }
+    if(window.turnstile){ draw(); return; }
+    if($('ts-script')) return;
+    var sc=document.createElement('script');
+    sc.id='ts-script'; sc.src=K.TURNSTILE_SCRIPT; sc.async=true; sc.defer=true; sc.onload=draw;
+    document.head.appendChild(sc);
+  }
+  function resetTurnstile(){ tsToken=''; try{ if(window.turnstile&&tsWidget!==null) window.turnstile.reset(tsWidget); }catch(e){} }
+
+  function paintSchool(cfg){
+    // schoolName, not displayName: some display names already end in Beach.
+    var name=cfg.schoolName||cfg.shortName||cfg.displayName||'Your school';
+    var color=cfg.colors&&/^#[0-9a-fA-F]{6}$/.test(cfg.colors.primary||'')?cfg.colors.primary:'';
+    if(color) document.documentElement.style.setProperty('--school',color);
+    $('school-title').textContent=name;
+    document.title=name+' Player Sign-up | CourtSense';
+    $('for-line').textContent=name+' beach volleyball tryouts and team sign-up.';
+    function emoji(){ $('logo').textContent=cfg.teamEmoji||'\u{1F3D0}'; }
+    function img(src){
+      var i=document.createElement('img'); i.alt=name; i.onerror=function(){ emoji(); }; i.src=src;
+      $('logo').innerHTML=''; $('logo').appendChild(i);
+    }
+    if(cfg.logo==='firebase'){
+      firebase.database().ref('courtsense_school_logos/'+slug).once('value').then(function(snap){
+        var url=snap.val(); if(typeof url==='string'&&url) img(url); else emoji();
+      }).catch(emoji);
+    }else if(cfg.logo){ img('/'+slug+'/'+encodeURIComponent(cfg.logo).replace(/%2F/g,'/')); }
+    else emoji();
+  }
+
+  function fillYears(){
+    var sel=$('f-grad');
+    K.gradYears(new Date()).forEach(function(y){ var o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); });
+  }
+
+  function readForm(){
+    var p2={ name:v('g2-name'), email:v('g2-email'), phone:v('g2-phone') };
+    return {
+      firstName:v('f-first'), lastName:v('f-last'), playerEmail:v('f-email'), playerPhone:v('f-phone'), gradYear:$('f-grad').value,
+      parent1:{ name:v('g1-name'), email:v('g1-email'), phone:v('g1-phone') },
+      parent2:(p2.name||p2.email||p2.phone)?p2:null,
+      age13:$('f-13').checked===true, turnstileToken:tsToken, honeypot:$('f-website').value
+    };
+  }
+
+  function send(){
+    var f=readForm();
+    var problem=K.problem(f);
+    $('msg').className='msg err';
+    if(problem){ $('msg').textContent=problem; return; }
+    $('send').disabled=true; $('msg').className='msg'; $('msg').textContent='Sending...';
+    fetch(WORKER+'/hs/signup',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(K.body(slug,f)) })
+      .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return { status:r.status, j:j }; }); })
+      .then(function(res){
+        $('send').disabled=false;
+        if(res.j&&res.j.ok===true){
+          hide('form'); show('done');
+          $('done-thanks').textContent='Thanks, '+f.firstName+'. Your sign-up is in.';
+          window.scrollTo(0,0);
+          return;
+        }
+        $('msg').className='msg err'; $('msg').textContent=K.errorText(res.j,res.status);
+        resetTurnstile();
+      })
+      .catch(function(){
+        $('send').disabled=false; $('msg').className='msg err';
+        $('msg').textContent='Could not reach CourtSense. Check your connection and try again.';
+        resetTurnstile();
+      });
+  }
+
+  if(!slug){ closed(); return; }
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    firebase.database().ref('courtsense_school_configs/'+slug).once('value').then(function(snap){
+      var cfg=snap.val();
+      if(!K.isOpenSchool(slug,cfg)){ closed(); return; }
+      paintSchool(cfg);
+      fillYears();
+      hide('loading'); show('form');
+      $('send').addEventListener('click',send);
+      loadTurnstile();
+    }).catch(closed);
+  }catch(e){ closed(); }
+})();
+</script>
+</body>
+</html>
