@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.203';
+const APP_VERSION='1.1.204';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -12083,6 +12083,49 @@ function avatarHtml(person, size){
   const initials=((fi+li).toUpperCase()||'?').replace(/[&<>"']/g,'');
   return '<div style="height:'+s+'px;width:'+s+'px;border-radius:50%;background:var(--gold,#CEB888);color:#2d2d2d;display:flex;align-items:center;justify-content:center;font-family:\'Bebas Neue\',sans-serif;font-size:'+Math.round(s*0.4)+'px;letter-spacing:1px;border:2px solid rgba(255,255,255,0.5);flex:none;">'+initials+'</div>';
 }
+// ===== HS SIGNUP CARD START =====
+// High schools only: the public sign-up link (/hs/signup/?s={slug}) with Copy and a QR, at the top
+// of Players > Recruiting. Hidden until launch: SC.hsSignupLive true turns it on. Before then,
+// ?hsSignupPreview=1 on the app URL shows it marked Coming soon with Copy off, for a look only.
+// The slug is the shell's own folder (/leon/, /south-walton/), which is the registry key.
+function hsSignupSlug(){
+  var seg=String(location.pathname||'').replace(/^\/+/,'').split('/')[0].toLowerCase();
+  return /^[a-z0-9]+([_-][a-z0-9]+)*$/.test(seg)&&seg!=='demo'?seg:'';
+}
+function hsSignupUrl(){ var s=hsSignupSlug(); return s?location.origin+'/hs/signup/?s='+encodeURIComponent(s):''; }
+function hsSignupCardMode(){
+  if(SC.tiersEnabled||SC.demoMode||!hsSignupSlug()) return '';
+  if(SC.hsSignupLive===true) return 'live';
+  return /[?&]hsSignupPreview=1(&|$)/.test(location.search||'')?'preview':'';
+}
+function hsSignupCardHtml(esc){
+  var mode=hsSignupCardMode(); if(!mode) return '';
+  var url=hsSignupUrl(), live=mode==='live';
+  return '<div id="hs-signup-card" style="border:1px solid var(--gray-lighter);border-radius:10px;padding:12px;margin-bottom:14px;">'
+    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
+    +'<span style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);">SHARE SIGN-UP LINK</span>'
+    +(live?'':'<span style="font-size:10px;font-weight:700;background:#F2B22E;color:#13243A;border-radius:10px;padding:1px 8px;">Coming soon</span>')
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--gray);margin-bottom:8px;">Players sign up here for tryouts and the team. A parent or guardian confirms each sign-up by email.</div>'
+    +'<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">'
+    +'<div id="hs-signup-qr" style="width:150px;min-height:150px;"></div>'
+    +'<div style="flex:1;min-width:160px;">'
+    +(live?'<a href="'+esc(url)+'" target="_blank" rel="noopener" style="font-size:12px;color:var(--red);word-break:break-all;">'+esc(url)+'</a>'
+          :'<span style="font-size:12px;color:var(--gray);word-break:break-all;">'+esc(url)+'</span>')
+    +'<div style="margin-top:8px;"><button class="btn btn-small" id="hs-signup-copy" style="padding:4px 12px;font-size:11px;"'+(live?' onclick="hsSignupCopy()"':' disabled')+'>Copy link</button></div>'
+    +'</div></div></div>';
+}
+function hsSignupCopy(){
+  if(hsSignupCardMode()!=='live') return;
+  var url=hsSignupUrl(); if(!url) return;
+  var fail=function(){ toast('Copy did not work. Press and hold the link to copy it.'); };
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ toast('Sign-up link copied.'); },fail);
+    else fail();
+  }catch(e){ fail(); }
+}
+// ===== HS SIGNUP CARD END =====
+
 // Recruiting tab: sessions with door check-in and manual attendance, and a prospect list built from
 // the real roster (D.players, status 'prospect') showing name, class, tier request, TruVolley,
 // invitation state, and attendance.
@@ -12281,6 +12324,7 @@ function renderRecruiting(){
   }
   pane.innerHTML='<div class="card"><div class="card-title"><span class="bar"></span> \u{1F3AF} Recruiting</div>'
     +'<p style="font-size:11px;color:var(--gray);margin-bottom:12px;">Create tryout sessions and take attendance at the door. Invitations are optional; anyone on the roster can check in or be marked present.</p>'
+    +hsSignupCardHtml(esc)
     +assessHtml
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px;">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);">TRYOUT SESSIONS</div>'
@@ -12298,6 +12342,7 @@ function renderRecruiting(){
     +'</div>';
 
   sessions.forEach(function(sess){ if(_tsOpenDoor[sess.sid]) renderQrInto('ts-qr-'+sess.sid, tryoutAttendUrl(sess.sid)); });
+  if(hsSignupCardMode()) renderQrInto('hs-signup-qr', hsSignupUrl());
   // Re-apply any live roster search so a redraw does not dump the exec back to the full list.
   sessions.forEach(function(sess){ if(_tsOpenPicker[sess.sid]&&_tsPickerQuery[sess.sid]) tsPickerFilter(sess.sid); });
 }
