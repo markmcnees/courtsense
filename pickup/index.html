@@ -732,9 +732,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">One game per day: each day can become its own game.</div>
       </div>
       <div class="fg">
-        <label class="lbl">Poll closes at</label>
-        <input class="inp" id="pp-close" type="datetime-local" onchange="ppCloseTouched=true">
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">At least 2 hours before the earliest time. Default: 3 hours before.</div>
+        <label class="lbl">When voting closes</label>
+        <div id="pp-close-note" style="font-size:13px;color:var(--gray);">Each time closes 90 minutes before it starts.</div>
       </div>
     </div>
     <div class="card">
@@ -10516,7 +10515,7 @@ window.csPollPlanKit=(function(){
   var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
   // The preset parks, from csPickupParks (the one list on this page).
   var PRESETS=(window.csPickupParks||[]).map(function(p){ return p[0]; });
-  var L={ OPTIONS_MIN:2, OPTIONS_MAX:10, RECIPIENTS_MAX:60, CAPACITY_MAX:60, TITLE_MAX:100, LOCATION_MAX:150, RATING_MAX:5000, CLOSE_MIN_MS:2*3600000, CLOSE_DEFAULT_MS:3*3600000 };
+  var L={ OPTIONS_MIN:2, OPTIONS_MAX:10, RECIPIENTS_MAX:60, CAPACITY_MAX:60, TITLE_MAX:100, LOCATION_MAX:150, RATING_MAX:5000, OPTION_CLOSE_MS:90*60000, OPTION_LEAD_MS:105*60000 };
   var DATE_RE=/^\d{4}-\d{2}-\d{2}$/, TIME_RE=/^([01]\d|2[0-3]):[0-5]\d$/, POLL_RE=/^pp[a-z0-9]{8,24}$/;
   function isInt(v){ return typeof v==='number'&&isFinite(v)&&Math.floor(v)===v; }
   // An option's start in this browser's zone (Eastern here, same as the worker's).
@@ -10529,11 +10528,6 @@ window.csPollPlanKit=(function(){
     var best=null;
     (options||[]).forEach(function(o){ var s=startMs(o.date,o.startTime); if(s!=null&&(best==null||s<best)) best=s; });
     return best;
-  }
-  // Earliest option minus 3 hours; never later than minus 2 hours.
-  function defaultCloseAt(options){
-    var e=earliestStart(options);
-    return e==null?null:e-L.CLOSE_DEFAULT_MS;
   }
   function toLocalInput(ms){
     if(ms==null||!isFinite(ms)) return '';
@@ -10563,6 +10557,8 @@ window.csPollPlanKit=(function(){
       var s=startMs(o.date,o.startTime);
       if(s==null) return 'One option has a date that cannot be read.';
       if(s<=now) return 'Every option must be in the future.';
+      // Each time closes 90 minutes before it starts, so it must start far enough ahead.
+      if(s<now+L.OPTION_LEAD_MS) return 'Each time must start at least 1 hour 45 minutes from now. Each time closes 90 minutes before it starts.';
       var ol=String(o.location||'').trim();
       if(x.locationMode==='voted'&&(!ol||ol.length>L.LOCATION_MAX)) return 'Each option needs a location.';
       var sig=o.date+'|'+o.startTime+'|'+(x.locationMode==='voted'?ol.toLowerCase():'');
@@ -10571,8 +10567,6 @@ window.csPollPlanKit=(function(){
     }
     if(!isInt(x.minPlayers)||x.minPlayers<2) return 'The minimum must be at least 2 players.';
     if(!isInt(x.capacity)||x.capacity<x.minPlayers||x.capacity>L.CAPACITY_MAX) return 'Capacity must be at least the minimum and at most 60.';
-    if(!isInt(x.expiresAt)||x.expiresAt<=now) return 'Voting must close in the future.';
-    if(x.expiresAt>earliestStart(opts)-L.CLOSE_MIN_MS) return 'The poll must close at least 2 hours before the earliest time.';
     var open=x.audience==='open';
     var r=x.recipients||[];
     // An open poll may invite nobody: the link is the invitation.
@@ -10588,7 +10582,7 @@ window.csPollPlanKit=(function(){
   // The create body, exactly the fields the worker reads.
   function createBody(x, session){
     var b={ sessionToken:session, title:String(x.title||'').trim(), locationMode:x.locationMode, minPlayers:x.minPlayers, capacity:x.capacity,
-      mode:x.mode, expiresAt:x.expiresAt, recipients:(x.recipients||[]).slice(),
+      mode:x.mode, recipients:(x.recipients||[]).slice(),
       audience:x.audience==='open'?'open':'invited', games:x.games==='perDay'?'perDay':'one' };
     if(x.locationMode==='fixed') b.location=String(x.location||'').trim();
     b.options=(x.options||[]).map(function(o){
@@ -10686,9 +10680,11 @@ window.csPollPlanKit=(function(){
     if(v.outcome==='game') return 'Game made';
     if(v.full&&v.status==='open') return 'Full. The organizer is picking the game.';
     if(v.status==='closed'||v.open===false) return v.outcome==='ready_unconfirmed'?'Closed, no time confirmed':'Closed, no time reached '+v.minPlayers;
-    return 'Voting open, closes '+v.closesLabel;
+    // A poll where each time closes on its own is open until its last time closes.
+    return v.closeRule==='perOption'?'Open until '+v.closesLabel:'Voting open, closes '+v.closesLabel;
   }
-  function canConfirm(v, o){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready); }
+  // A ready time can be confirmed until its own close (o.closed on a per-time poll).
+  function canConfirm(v, o){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready&&!o.closed); }
   // "Your picks: Sat, Oct 25, 9:00 AM" for a recipient who voted, the none answer when
   // they said none of these work, else ''.
   function picksLine(v){
@@ -10805,7 +10801,7 @@ window.csPollPlanKit=(function(){
   function voteUrl(id){ return '/pickup/poll/?p='+encodeURIComponent(id); }
   function gameUrl(inviteId){ return '/pickup/?game='+encodeURIComponent(inviteId); }
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, OTHER:OTHER, isPreset:isPreset, savedChoices:savedChoices, locPicker:locPicker, locProblem:locProblem,
-    rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, defaultCloseAt:defaultCloseAt, toLocalInput:toLocalInput,
+    rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
     statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
@@ -10820,7 +10816,6 @@ window.csPollPlanKit=(function(){
 let ppOptions = [];
 let ppSelected = [];
 let ppPool = [];
-let ppCloseTouched = false;
 let _myPolls = { at: 0, list: [], busy: false };
 // Your polls times whose names were opened with "+N more", by poll id and option id.
 const _ppNamesOpen = {};
@@ -10913,9 +10908,9 @@ async function startPollPlan(){
   if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   const K = window.csPollPlanKit;
   ppOptions = [K.newRow({ startTime:'09:00' }, ''), K.newRow({ startTime:'17:00' }, '')];
-  ppSelected = []; ppCloseTouched = false;
+  ppSelected = [];
   $('pp-title').value = ''; $('pp-min').value = '4'; $('pp-cap').value = '6';
-  $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-close').value = ''; $('pp-err').textContent = '';
+  $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-err').textContent = '';
   document.querySelector('input[name="pp-locmode"][value="fixed"]').checked = true;
   document.querySelector('input[name="pp-mode"][value="auto"]').checked = true;
   document.querySelector('input[name="pp-games"][value="one"]').checked = true;
@@ -10948,8 +10943,8 @@ function ppDrawOptions(){
     + '</div>').join('');
   $('pp-add-opt').style.display = ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX ? 'none' : '';
 }
-// Reads the option fields back into ppOptions; a date or start change moves the default
-// close time unless the organizer set it.
+// Reads the option fields back into ppOptions. There is no poll-wide close to move: each
+// time closes 90 minutes before it starts.
 function ppReadOptions(timesChanged){
   const voted = ppLocModeValue() === 'voted';
   ppOptions = ppOptions.map((o, i) => ({
@@ -10959,10 +10954,6 @@ function ppReadOptions(timesChanged){
     endEdited: !!o.endEdited,
     location: voted && $('pp-l-'+i) ? ppLocValue('pp-l-'+i) : o.location,
   }));
-  if(timesChanged && !ppCloseTouched){
-    const c = window.csPollPlanKit.defaultCloseAt(ppOptions);
-    $('pp-close').value = window.csPollPlanKit.toLocalInput(c);
-  }
 }
 function ppAddOption(){
   ppReadOptions();
@@ -11025,7 +11016,6 @@ function ppAudience(){
 function ppModeValue(){ const r = document.querySelector('input[name="pp-mode"]:checked'); return r ? r.value : 'auto'; }
 function ppReadForm(){
   ppReadOptions();
-  const K = window.csPollPlanKit;
   const audience = ppAudienceValue();
   // An open poll never sends a rating range (the fields are hidden and cleared).
   const rmin = audience === 'open' ? null : ppNum('pp-rmin'), rmax = audience === 'open' ? null : ppNum('pp-rmax');
@@ -11034,7 +11024,7 @@ function ppReadForm(){
     title: $('pp-title').value, locationMode, location: locationMode === 'fixed' ? ppLocValue('pp-loc') : '',
     options: ppOptions.map(o => ({ date:o.date, startTime:o.startTime, endTime:o.endTime, location:o.location })),
     minPlayers: Number($('pp-min').value), capacity: Number($('pp-cap').value), mode: ppModeValue(),
-    expiresAt: K.fromLocalInput($('pp-close').value), recipients: ppSelected.slice(),
+    recipients: ppSelected.slice(),
     ratingMin: rmin, ratingMax: rmax, audience, games: ppGamesValue(),
   };
 }

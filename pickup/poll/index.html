@@ -64,6 +64,8 @@
   .note{font-size:13px;color:var(--slate);margin:10px 0 0;}
   .hidden{display:none !important;}
   .opt.frozen{opacity:.7;cursor:default;}
+  .opt.closed{opacity:.55;background:#f1f1f1;border-color:#d8d8d8;}
+  .opt .closes{font-size:12px;color:var(--slate);display:block;margin-top:2px;}
   .opt .tag{display:inline-block;margin-top:6px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;background:var(--navy);color:var(--white);padding:2px 8px;border-radius:5px;}
   .meta.day{color:var(--ink);font-weight:600;}
   .lbl{display:block;font-size:13px;font-weight:700;color:var(--slate);margin:10px 0 4px;}
@@ -209,6 +211,8 @@ window.csPollKit=(function(){
     invalid:'This poll link is not valid. Ask the organizer for a new one.',
     saved:'Saved. You will get an email if a time is picked.',
     none:'Got it. You can still pick times until the poll closes.',
+    nonePer:'Got it. You can still pick times until each one closes.',
+    perTime:'Each time closes 90 minutes before it starts.',
     expired:'Voting has closed and no time reached the minimum, so no game was made.',
     ended:'Voting is closed and every time on this poll has passed. Nothing here can change now.',
     offline:'Could not reach CourtSense. Check your connection and try again.',
@@ -439,8 +443,19 @@ window.csPollKit=(function(){
     return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
   }
   // Whether a time still takes votes: 'open', 'day_done' (its day has a game) or 'full'.
+  // A per-time poll's closed time reads its result: the game, a day that has its game,
+  // not confirmed, or plain closed.
+  function closedState(o){
+    if(!o||!o.closed) return '';
+    if(o.result==='game') return 'game_set';
+    if(o.result==='day_has_game') return 'day_done';
+    if(o.result==='not_confirmed') return 'not_confirmed';
+    return 'closed';
+  }
   function optionState(view, o){
     if(!view||!o) return 'open';
+    var cs=closedState(o);
+    if(cs) return cs;
     if(view.games==='perDay'&&Array.isArray(view.days)){
       var d=view.days.filter(function(x){ return x.date===o.date; })[0];
       if(d&&d.status==='game') return 'day_done';
@@ -449,7 +464,25 @@ window.csPollKit=(function(){
     }
     return view.full?'full':'open';
   }
-  function frozenLabel(state){ return state==='day_done'?'This day has a game':state==='full'?'Full':''; }
+  function frozenLabel(state){
+    if(state==='day_done') return 'This day has a game';
+    if(state==='full') return 'Full';
+    if(state==='game_set') return 'Game set';
+    if(state==='not_confirmed') return 'Not confirmed';
+    if(state==='closed') return 'Closed';
+    return '';
+  }
+  // "Closes Sat, Oct 25 at 7:30 AM" under an open time on a per-time poll; '' otherwise.
+  function closesLine(view, o){
+    if(!view||view.closeRule!=='perOption'||!o||o.closed||!o.closesLabel) return '';
+    return 'Closes '+o.closesLabel;
+  }
+  // The poll's closing line: per-time polls say how times close.
+  function pollClosesLine(view, open){
+    if(view&&view.closeRule==='perOption') return open?MSG.perTime+' Open until '+view.closesLabel+'.':'Voting closed '+view.closesLabel+'.';
+    return (open?'Voting closes ':'Voting closed ')+view.closesLabel+'.';
+  }
+  function noneMsg(view){ return view&&view.closeRule==='perOption'?MSG.nonePer:MSG.none; }
   function dayLines(view){ return Array.isArray(view&&view.days)?view.days.map(function(d){ return String(d.line||''); }):[]; }
   // The day games a per-day poll made, for links.
   function dayGames(view){ return Array.isArray(view&&view.days)?view.days.filter(function(d){ return d.status==='game'&&d.inviteId; }):[]; }
@@ -532,7 +565,7 @@ window.csPollKit=(function(){
     voterChips:voterChips, chipText:chipText, noneLine:noneLine, cantMakeReq:cantMakeReq, previewReq:previewReq, post:post, stateOf:stateOf, cantStateOf:cantStateOf,
     cantMessage:cantMessage, gameLine:gameLine, gameUrl:gameUrl, countLine:countLine, ruleLine:ruleLine, dateLabel:dateLabel, time12:time12,
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
-    PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel,
+    PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel, closedState:closedState, closesLine:closesLine, pollClosesLine:pollClosesLine, noneMsg:noneMsg,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
     suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
@@ -662,7 +695,7 @@ window.csPollKit=(function(){
     $('poll-org').textContent='From '+view.organizerName;
     $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';
     $('poll-rule').textContent=K.ruleLine(view);
-    $('poll-closes').textContent=(s==='open'?'Voting closes ':'Voting closed ')+view.closesLabel+'.';
+    $('poll-closes').textContent=K.pollClosesLine(view, s==='open');
     // An ended poll (a game made or not) is read only: the heading says so and there is
     // nothing to vote on or decide.
     if(view.ended===true) $('hero-title').textContent='This poll has ended';
@@ -692,7 +725,7 @@ window.csPollKit=(function(){
     drawNone();
     drawNote();
     drawSuggest();
-    if(view.myNone){ $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none; }
+    if(view.myNone){ $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.noneMsg(view); }
     show('vote-card');
   }
   function drawDays(){
@@ -745,13 +778,17 @@ window.csPollKit=(function(){
     (view.options||[]).forEach(function(o){
       var state=K.optionState(view,o), frozen=state!=='open'||!voting;
       var b=document.createElement('button');
-      b.type='button'; b.className='opt'+(picks[o.id]?' on':'')+(frozen?' frozen':'');
+      // Voting is off on a closed time only; the rest of the poll stays open. Only a time
+      // that has itself closed (a per-time poll) is grayed out.
+      b.type='button'; b.className='opt'+(picks[o.id]?' on':'')+(frozen?' frozen':'')+(o.closed===true?' closed':'');
       b.disabled=frozen;
       b.setAttribute('aria-pressed',picks[o.id]?'true':'false');
       var w=document.createElement('span'); w.className='when'; w.textContent=view.locationMode==='voted'?o.label.replace(' at '+o.location,''):o.label;
       b.appendChild(w);
       if(view.locationMode==='voted'&&o.location){ var l=document.createElement('span'); l.className='where'; l.textContent=o.location; b.appendChild(l); }
       var c=document.createElement('span'); c.className='count'+(o.ready?' ready':''); c.textContent=K.countLine(o,view.minPlayers); b.appendChild(c);
+      var cl=K.closesLine(view,o);
+      if(cl){ var ce=document.createElement('span'); ce.className='closes'; ce.textContent=cl; b.appendChild(ce); }
       if(state!=='open'){ var t=document.createElement('span'); t.className='tag'; t.textContent=K.frozenLabel(state); b.appendChild(t); }
       b.addEventListener('click',function(){
         if(frozen) return;
@@ -893,7 +930,7 @@ window.csPollKit=(function(){
       var s=K.stateOf(res);
       if(s==='open'&&res.j&&res.j.ok!==false){
         view=res.j; picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; }); drawOptions(); drawNone();
-        $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.MSG.none;
+        $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.noneMsg(view);
         return;
       }
       if(s==='game'||s==='expired'||s==='days_done'||s==='ended'){ render(res); return; }
