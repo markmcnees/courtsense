@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.208';
+const APP_VERSION='1.1.209';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1209,6 +1209,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">SW Score</label><input type="number" class="form-input" id="sched-us" placeholder="—" min="0" max="5" style="padding:8px;font-size:13px;"></div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opp Score</label><input type="number" class="form-input" id="sched-them" placeholder="—" min="0" max="5" style="padding:8px;font-size:13px;"></div>
         </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--charcoal);margin:0 0 8px;cursor:pointer;"><input type="checkbox" id="sched-scrimmage" style="width:16px;height:16px;"> Scrimmage</label>
         <button class="btn btn-primary btn-small" onclick="addScheduleGame()">Add Game</button>
       </div>
     </div>
@@ -2071,8 +2072,30 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:16px 0 8px;">Roster</div>
     <div id="lf-roster"></div>
 
-    <!-- Stay Updated (fan email and text alerts) is hidden until fan alerts ship. It returns
-         through the worker, which keeps fan contacts in a worker-only node. -->
+    <!-- Stay Updated: fan alerts by email, text or both, through the worker (/fans/subscribe),
+         which keeps fan contacts in a worker-only node. Live high schools only: the club and the
+         demo never render it. Static markup only; the consent text is set with textContent. -->
+    ${(HS_ACCOUNT_SIGNIN&&hsSignupSlug())?`
+    <div id="lf-alerts" style="margin-top:24px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:18px;box-sizing:border-box;max-width:100%;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#fff;margin-bottom:4px;">Stay Updated</div>
+      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:14px;line-height:1.4;">Get final results and schedule changes by email, text or both.</div>
+      <div id="lf-alerts-done" style="display:none;font-family:'Barlow',sans-serif;font-size:14px;color:#fff;line-height:1.5;text-align:center;padding:6px 0;"></div>
+      <form id="lf-alerts-form" onsubmit="return false;" novalidate>
+        <label for="lf-alerts-email" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:4px;">Email</label>
+        <input type="email" id="lf-alerts-email" maxlength="254" inputmode="email" autocomplete="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;font-family:'Barlow',sans-serif;font-size:16px;margin-bottom:10px;">
+        <label for="lf-alerts-phone" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:4px;">Mobile</label>
+        <input type="tel" id="lf-alerts-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="(850) 555-0123" oninput="fanFormPhoneChanged()" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;font-family:'Barlow',sans-serif;font-size:16px;">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0;">
+          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:#fff;cursor:pointer;"><input type="checkbox" id="lf-alerts-results" checked style="width:16px;height:16px;accent-color:#ffffff;"> Game results</label>
+          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:#fff;cursor:pointer;"><input type="checkbox" id="lf-alerts-schedule" checked style="width:16px;height:16px;accent-color:#ffffff;"> Schedule changes</label>
+        </div>
+        <label id="lf-alerts-consent-row" style="display:none;align-items:flex-start;gap:8px;font-family:'Barlow',sans-serif;font-size:12px;color:#fff;line-height:1.45;margin:0 0 12px;cursor:pointer;"><input type="checkbox" id="lf-alerts-consent" style="width:18px;height:18px;margin-top:1px;flex:none;accent-color:#ffffff;"><span id="lf-alerts-consent-text"></span></label>
+        <div id="lf-alerts-ts" style="margin:4px 0 12px;min-height:65px;max-width:100%;overflow:hidden;"></div>
+        <button type="button" id="lf-alerts-send" onclick="fanFormSubmit()" style="width:100%;box-sizing:border-box;padding:12px;background:#ffffff;color:${SC.colors.primaryDeeper};font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;border:none;border-radius:10px;cursor:pointer;">Sign Me Up</button>
+        <div id="lf-alerts-msg" role="status" aria-live="polite" style="font-family:'Barlow',sans-serif;font-size:13px;color:#fff;margin-top:8px;text-align:center;min-height:1.2em;"></div>
+      </form>
+    </div>
+    `:''}
   </div>
 </div>
 <div id="athlete-overlay" style="display:none;position:fixed;inset:0;background:linear-gradient(160deg,${SC.colors.primaryDeeper} 0%,${SC.colors.primary} 50%,${SC.colors.primaryDark} 100%);z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -3439,14 +3462,24 @@ function addScheduleGame(){
   const us=document.getElementById('sched-us').value;
   const them=document.getElementById('sched-them').value;
   const id=gi('sch');
+  const scrim=!!document.getElementById('sched-scrimmage')?.checked;
   const entry={id,date,opponent:opp,location:loc,time:time||null};
+  if(scrim)entry.type='scrimmage';
   if(us!==''&&them!==''){entry.scoreUs=parseInt(us);entry.scoreThem=parseInt(them);}
   fbSetResult('schedule',id,entry);
+  if(entry.scoreUs!=null&&entry.scoreThem!=null) fanNotifyResult(date,opp,entry.scoreUs,entry.scoreThem,scrim);
+  else if(date>=td()) fanNotifySchedule('new',entry);
   toast('Game added!');
   document.getElementById('sched-opp').value='';document.getElementById('sched-us').value='';
   document.getElementById('sched-them').value='';document.getElementById('sched-time').value='';
+  const _scrimEl=document.getElementById('sched-scrimmage');if(_scrimEl)_scrimEl.checked=false;
 }
-function delSchedule(id){fbRemove('schedule/'+id);toast('Removed');}
+function delSchedule(id){
+  const g=(D.schedule||[]).find(x=>x&&x.id===id);
+  fbRemove('schedule/'+id);toast('Removed');
+  // A future game with no score, taken off the schedule, is a cancellation for fans.
+  if(g&&g.date>=td()&&(g.scoreUs==null||g.scoreUs==='')) fanNotifySchedule('cancel',g);
+}
 
 function normTeam(name){
   const aliases={
@@ -3458,8 +3491,8 @@ function normTeam(name){
   return aliases[(name||'').toLowerCase().trim()]||name;
 }
 function renderStandings(){
-  // Leon's record from schedule
-  const games=[...D.schedule.filter(inSeason)];
+  // Leon's record from schedule. Scrimmages never count toward a record.
+  const games=[...D.schedule.filter(inSeason)].filter(g=>g.type!=='scrimmage');
   let leonW=0,leonL=0;
   const oppFromSchedule={}; // auto-compute opponent records vs Leon
   games.forEach(g=>{
@@ -6113,7 +6146,8 @@ function renderPlayerSchedule(){
 }
 
 function renderPlayerStandings(){
-  const games=[...D.schedule.filter(inSeason)];
+  // Scrimmages never count toward a record.
+  const games=[...D.schedule.filter(inSeason)].filter(g=>g.type!=='scrimmage');
   let leonW=0,leonL=0;
   const oppFromSchedule={};
   games.forEach(g=>{
@@ -9693,6 +9727,7 @@ function closeDual(){
   const id=existing?existing.id:dualId;
 
   fbSetResult('duals',id,{id,date,opponent,location:loc,leonCourts,oppCourts,dualWin,createdAt:existing?existing.createdAt:td()});
+  fanNotifyResult(date,opponent,leonCourts,oppCourts); // fan alert, once per dual (fire and forget)
   const _normOpp=s=>(s||'').toLowerCase().replace(/^[@\s]+/,'').replace(/[^a-z0-9]/g,'');
   const _oppNorm=_normOpp(opponent);
   let schedMatch=(D.schedule||[]).find(g=>g.date===date&&_normOpp(g.opponent)===_oppNorm);
@@ -12239,6 +12274,142 @@ function hsSignupCopy(){
   }catch(e){ fail(); }
 }
 // ===== HS SIGNUP CARD END =====
+
+// ===== FAN ALERTS START =====
+// The fan page's Stay Updated form and the coach-side triggers for fan alerts (the worker's
+// /fans/subscribe and /fans/notify). Live high schools only (HS_ACCOUNT_SIGNIN): the club and
+// the demo never render the form and never call the worker. A fan's email and number go
+// straight to the worker and are never stored in the browser. Triggers are fire and forget:
+// a coach's save never waits on them, and a failure is only logged to the console.
+
+// Copied word for word from FAN_SMS_CONSENT_TEXT in courtsense-email-worker/src/fans-store.ts;
+// the fan form check proves the two match. {School} is the school's name.
+const FAN_SMS_CONSENT_TEXT =
+  "I'm 18 or older and agree to receive {School} beach volleyball alerts from CourtSense by text: " +
+  'game results and schedule changes. Up to 3 messages a week in season. Message and data rates may apply. ' +
+  'Reply HELP for help, STOP to cancel. Consent is not required to follow the team.';
+var FAN_TS_SITE_KEY='0x4AAAAAAFkHEY06nnevuhhM';
+var FAN_TS_SCRIPT='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+var _fanTs={token:'',widget:null,busy:false};
+function fanFormOn(){ return HS_ACCOUNT_SIGNIN&&!!hsSignupSlug()&&!!document.getElementById('lf-alerts-form'); }
+function fanSchoolLabel(){ return SC.schoolName||SC.shortName||SC.displayName||'the team'; }
+// Fills the consent line (text only, then the two links) and draws Turnstile, once.
+function fanFormInit(){
+  if(!fanFormOn()) return;
+  var span=document.getElementById('lf-alerts-consent-text');
+  if(span&&!span.childNodes.length){
+    span.appendChild(document.createTextNode(FAN_SMS_CONSENT_TEXT.replace('{School}',fanSchoolLabel())+' '));
+    var a1=document.createElement('a'); a1.setAttribute('href','/sms-terms/'); a1.setAttribute('target','_blank'); a1.setAttribute('rel','noopener'); a1.setAttribute('style','color:#fff;text-decoration:underline;'); a1.textContent='Text Terms';
+    var a2=document.createElement('a'); a2.setAttribute('href','/privacy/'); a2.setAttribute('target','_blank'); a2.setAttribute('rel','noopener'); a2.setAttribute('style','color:#fff;text-decoration:underline;'); a2.textContent='Privacy';
+    span.appendChild(a1); span.appendChild(document.createTextNode(' \u00b7 ')); span.appendChild(a2);
+  }
+  fanFormPhoneChanged();
+  function draw(){
+    if(!window.turnstile||_fanTs.widget!==null) return;
+    try{
+      _fanTs.widget=window.turnstile.render('#lf-alerts-ts',{ sitekey:FAN_TS_SITE_KEY, theme:'dark',
+        callback:function(t){ _fanTs.token=t; }, 'expired-callback':function(){ _fanTs.token=''; }, 'error-callback':function(){ _fanTs.token=''; } });
+    }catch(e){}
+  }
+  if(window.turnstile){ draw(); return; }
+  if(document.getElementById('lf-ts-script')) return;
+  var sc=document.createElement('script');
+  sc.id='lf-ts-script'; sc.src=FAN_TS_SCRIPT; sc.async=true; sc.defer=true; sc.onload=draw;
+  document.head.appendChild(sc);
+}
+function fanTsReset(){ _fanTs.token=''; try{ if(window.turnstile&&_fanTs.widget!==null) window.turnstile.reset(_fanTs.widget); }catch(e){} }
+// The consent box shows only while Mobile has a value, and starts unchecked every time it appears.
+function fanFormPhoneChanged(){
+  var ph=document.getElementById('lf-alerts-phone'), row=document.getElementById('lf-alerts-consent-row'), box=document.getElementById('lf-alerts-consent');
+  if(!ph||!row||!box) return;
+  var has=!!ph.value.trim();
+  if(!has) box.checked=false;
+  row.style.display=has?'flex':'none';
+}
+// The first problem with the form, or '' when it can be sent.
+function fanFormProblem(f){
+  if(!f.email&&!f.phone) return 'Add an email or a mobile number.';
+  if(f.email&&!_validEmail(f.email)) return 'Check the email address.';
+  if(f.phone&&!_validPhone(f.phone)) return 'Check the mobile number.';
+  if(!f.results&&!f.schedule) return 'Choose game results, schedule changes or both.';
+  if(f.phone&&f.smsConsent!==true) return 'Check the box to agree to texts, or clear the mobile number.';
+  if(!f.turnstileToken) return 'Complete the check first.';
+  return '';
+}
+function fanFormRead(){
+  var g=function(id){ var el=document.getElementById(id); return el?String(el.value||'').trim():''; };
+  var c=function(id){ var el=document.getElementById(id); return !!(el&&el.checked); };
+  var phone=g('lf-alerts-phone');
+  return { email:g('lf-alerts-email').toLowerCase(), phone:phone, results:c('lf-alerts-results'), schedule:c('lf-alerts-schedule'),
+    smsConsent:phone?c('lf-alerts-consent'):false, turnstileToken:_fanTs.token };
+}
+function fanFormSubmit(){
+  if(!fanFormOn()||_fanTs.busy) return;
+  var msg=document.getElementById('lf-alerts-msg'), btn=document.getElementById('lf-alerts-send');
+  var f=fanFormRead();
+  var p=fanFormProblem(f);
+  if(p){ if(msg) msg.textContent=p; return; }
+  _fanTs.busy=true; if(btn) btn.disabled=true; if(msg) msg.textContent='Sending...';
+  var body={ slug:hsSignupSlug(), email:f.email, phone:f.phone, results:f.results, schedule:f.schedule, smsConsent:f.smsConsent, turnstileToken:f.turnstileToken };
+  fetch(AUTH_WORKER+'/fans/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return {status:r.status,j:j}; }); })
+    .catch(function(){ return {status:0,j:null}; })
+    .then(function(res){
+      _fanTs.busy=false; if(btn) btn.disabled=false;
+      if(res.status===200&&res.j&&res.j.ok===true){
+        var lines=[];
+        if(f.email) lines.push('Check your email to confirm.');
+        if(f.phone) lines.push("We'll text you to confirm. Reply YES.");
+        var form=document.getElementById('lf-alerts-form'), done=document.getElementById('lf-alerts-done');
+        if(form){ form.reset(); form.style.display='none'; }
+        fanFormPhoneChanged();
+        if(done){ done.textContent=lines.join(' '); done.style.display='block'; }
+        return;
+      }
+      if(msg) msg.textContent=(res.status===429)?"We're busy right now. Try again in a minute.":'Something went wrong. Try again.';
+      fanTsReset();
+    });
+}
+
+// ── Coach triggers ──
+function fanAlertsOn(){ return HS_ACCOUNT_SIGNIN&&currentRole==='coach'&&!!db; }
+// The opponent as one key: lowercase, trimmed, punctuation stripped, spaces collapsed, and a
+// trailing "high school", "hs" or "high" dropped, so "Chiles", "Chiles HS" and "chiles high
+// school." are the same team.
+function fanNormOpponent(name){
+  let n=String(name||'').toLowerCase().replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();
+  const before=n;
+  n=n.replace(/ (high school|hs|high)$/,'').trim();
+  return n||before;
+}
+// One stable id per dual: the date and the normalized opponent, the same however the result was
+// entered (live scoring, the scanner or the schedule), so a later save never sends a second alert.
+function fanDualEventId(date,opponent){
+  return ('dual-'+String(date||'')+'-'+fanNormOpponent(opponent).replace(/ /g,'-')).replace(/[^A-Za-z0-9_-]/g,'').slice(0,80);
+}
+function fanNotify(body){
+  if(!fanAlertsOn()) return;
+  var token=_hsCoachToken(); if(!token) return;
+  try{
+    fetch(AUTH_WORKER+'/fans/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({dbRoot:DB_ROOT,token:token},body))})
+      .then(function(r){ if(!r.ok) console.warn('fan alert not sent:',r.status); })
+      .catch(function(){ console.warn('fan alert not sent: network'); });
+  }catch(e){ console.warn('fan alert not sent'); }
+}
+// A scrimmage goes to fans by email only, labeled Scrimmage (the worker never texts it).
+function fanNotifyResult(date,opponent,ours,theirs,scrimmage){
+  if(!date||!opponent) return;
+  var o=parseInt(ours,10), t=parseInt(theirs,10);
+  if(!isFinite(o)||!isFinite(t)||o===t) return;
+  var body={ kind:'result', eventId:fanDualEventId(date,opponent), opponent:String(opponent), ourScore:o, theirScore:t, date:String(date) };
+  if(scrimmage===true) body.scrimmage=true;
+  fanNotify(body);
+}
+function fanNotifySchedule(change,g){
+  if(!g||!g.id||!g.date||!g.opponent) return;
+  fanNotify({ kind:'schedule', eventId:String(g.id).replace(/[^A-Za-z0-9_-]/g,'').slice(0,80), change:change, opponent:String(g.opponent), date:String(g.date), time:g.time?String(g.time):'' });
+}
+// ===== FAN ALERTS END =====
 
 // ===== HS RECRUITING START =====
 // High schools only (SC.tiersEnabled off): Players > Recruiting lists the public sign-ups that
@@ -20980,6 +21151,7 @@ function getDualRecord(seasonId){
   sched.forEach(g=>{if(g.type==='scrimmage')return;if(g.scoreUs!=null&&g.scoreThem!=null&&g.scoreUs!==''&&g.scoreThem!==''){parseInt(g.scoreUs)>parseInt(g.scoreThem)?w++:l++;}});
   // Also count from D.duals that have no matching schedule entry with scores
   duals.forEach(d=>{
+    if(d.type==='scrimmage')return; // scrimmages never count toward the record
     if(d.leonCourts==null&&d.oppCourts==null)return;
     const hasSchedEntry=sched.some(g=>g.type!=='scrimmage'&&g.date===d.date&&(g.opponent||'').toLowerCase()===(d.opponent||'').toLowerCase()&&g.scoreUs!=null&&g.scoreUs!=='');
     if(!hasSchedEntry){d.dualWin?w++:l++;}
@@ -20989,6 +21161,7 @@ function getDualRecord(seasonId){
   // Schedule stores court scores per dual (e.g. 4-1 means Leon won 4 courts)
   let cw=0,cl=0;
   sched.forEach(g=>{
+    if(g.type==='scrimmage')return;
     if(g.scoreUs!=null&&g.scoreThem!=null&&g.scoreUs!==''&&g.scoreThem!==''){
       cw+=parseInt(g.scoreUs)||0;
       cl+=parseInt(g.scoreThem)||0;
@@ -21004,7 +21177,7 @@ function getDualRecord(seasonId){
     });
   });
   // Also count from structured duals if present
-  duals.forEach(d=>{(d.courts||[]).filter(c=>!c.isExhibition).forEach(c=>{
+  duals.forEach(d=>{if(d.type==='scrimmage')return;(d.courts||[]).filter(c=>!c.isExhibition).forEach(c=>{
     (c.sets||[]).forEach(s=>{(s.scoreUs||0)>(s.scoreThem||0)?sw++:sl++;});
   });});
 
@@ -21104,6 +21277,7 @@ function renderDuals(){
   if(currentRole==='coach'&&db){
     const _normOpp=s=>(s||'').toLowerCase().replace(/^[@\s]+/,'').replace(/[^a-z0-9]/g,'');
     duals.forEach(d=>{
+      if(d.type==='scrimmage')return; // never copy a scrimmage score onto an unmarked entry
       const lc=d.leonCourts||0,oc=d.oppCourts||0;
       if(lc===0&&oc===0)return;
       const hasCourts=(d.courts||[]).some(c=>!c.isExhibition&&(c.sets||[]).length>0);
@@ -21386,6 +21560,7 @@ function showDualReviewUI(duals,date,container){
         <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opp Courts Won</label>
           <input type="number" class="form-input" id="dr-${di}-oppc" value="${d.oppCourts||0}" min="0" max="7" style="padding:8px;font-size:13px;"></div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--charcoal);margin:0 0 10px;cursor:pointer;"><input type="checkbox" id="dr-${di}-scrim" style="width:16px;height:16px;"> Scrimmage</label>
       <div style="font-family:'Bebas Neue';font-size:11px;letter-spacing:1px;color:var(--gray);margin-bottom:6px;">COURT RESULTS</div>`;
     (d.courts||[]).forEach((c,ci)=>{
       const isExhib=(c.isExhibition)||(c.court>=6);
@@ -21430,6 +21605,7 @@ function confirmDualSave(){
     const location=document.getElementById('dr-'+di+'-loc')?.value||'home';
     const leonCourts=parseInt(document.getElementById('dr-'+di+'-leon')?.value)||0;
     const oppCourts=parseInt(document.getElementById('dr-'+di+'-oppc')?.value)||0;
+    const scrim=!!document.getElementById('dr-'+di+'-scrim')?.checked;
     const courts=[];
     (d.courts||[]).forEach((c,ci)=>{
       const court=parseInt(document.getElementById('dr-'+di+'-'+ci+'-court')?.value)||c.court||ci+1;
@@ -21448,21 +21624,30 @@ function confirmDualSave(){
       courts.push({court,pair:[p1,p2].filter(Boolean),sets,isExhibition,courtResult:sw>sl?'W':'L'});
       if(p1&&p2&&sets.length){
         const pair=[p1,p2];
-        const already=D.gamedays.find(m=>m.date===date&&arrEq(m.pair||[],pair));
+        const already=(scrim?(D.scrimmages||[]):D.gamedays).find(m=>m.date===date&&arrEq(m.pair||[],pair));
         if(!already){
-          const mid=gi('gd');
+          const mid=gi(scrim?'sc':'gd');
           const matchSets=sets.map(s=>{const stats={};pair.forEach(pid=>{stats[pid]={k:0,b:0,a:0,se:0,re:0,he:0,de:0};});return{...s,stats};});
-          fbSetResult('gamedays',mid,{id:mid,date,court,pair,opponent:opponent+' CT'+court,sets:matchSets,isExhibition});
+          if(scrim) fbSetResult('scrimmages',mid,{id:mid,date,court,pair,opponent,sets:matchSets});
+          else fbSetResult('gamedays',mid,{id:mid,date,court,pair,opponent:opponent+' CT'+court,sets:matchSets,isExhibition});
           matchesCreated++;
         }
       }
     });
     const dualId=gi('dual');
-    fbSetResult('duals',dualId,{id:dualId,date,opponent,location,leonCourts,oppCourts,dualWin:leonCourts>oppCourts,courts,createdAt:td()});
+    const _dualRec={id:dualId,date,opponent,location,leonCourts,oppCourts,dualWin:leonCourts>oppCourts,courts,createdAt:td()};
+    if(scrim)_dualRec.type='scrimmage';
+    fbSetResult('duals',dualId,_dualRec);
+    fanNotifyResult(date,opponent,leonCourts,oppCourts,scrim); // fan alert, once per dual (fire and forget)
     dualsSaved++;
     // Auto-update schedule result if date+opponent match
     const schedMatch=D.schedule.find(g=>g.date===date&&(g.opponent||'').toLowerCase().includes(opponent.toLowerCase().split(' ')[0]));
-    if(schedMatch&&schedMatch.scoreUs==null){fbSet('schedule/'+schedMatch.id+'/scoreUs',leonCourts);fbSet('schedule/'+schedMatch.id+'/scoreThem',oppCourts);}
+    // A scrimmage's score lands on its schedule entry together with the scrimmage mark, in one
+    // write, so the entry never shows a scrimmage score without it.
+    if(schedMatch&&schedMatch.scoreUs==null){
+      if(scrim) fbSet('schedule/'+schedMatch.id,Object.assign({},schedMatch,{scoreUs:leonCourts,scoreThem:oppCourts,type:'scrimmage'}));
+      else{fbSet('schedule/'+schedMatch.id+'/scoreUs',leonCourts);fbSet('schedule/'+schedMatch.id+'/scoreThem',oppCourts);}
+    }
   });
   toast(dualsSaved+' dual(s) + '+matchesCreated+' match records saved!');
   document.getElementById('dual-scan-result').innerHTML='<div style="color:var(--green);font-size:14px;font-weight:700;padding:12px;background:var(--green-bg);border-radius:8px;">Saved! Check Dual History below and Game Day tab for match entries.</div>';
@@ -22376,6 +22561,7 @@ function showLeonFans(){
   if(loginOl)loginOl.classList.add('hidden');
   var ol=document.getElementById('school-fans-overlay');
   if(ol){ol.style.display='block';renderFans();history.pushState({fanPage:true},'');}
+  if(typeof fanFormInit==='function')fanFormInit();
   // Auto-refresh every 30 seconds while page is open
   if(_lfRefreshTimer)clearInterval(_lfRefreshTimer);
   _lfRefreshTimer=setInterval(function(){
