@@ -138,6 +138,9 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pp-tag{display:inline-block;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;padding:1px 7px;border-radius:5px;margin-left:6px;}
 .pp-tag.ready{background:var(--teal);color:#fff;}
 .pp-tag.full{background:var(--navy);color:#fff;}
+.pp-tag.shut{background:#8a8a8a;color:#fff;}
+.pp-orow.shut{opacity:.55;}
+.pp-close{display:block;font-size:11px;color:var(--gray);margin-top:2px;}
 .pp-day{font-size:13px;color:var(--ink);padding:3px 0;}
 .pp-day b{font-weight:700;}
 .pp-sug{border:1.5px dashed var(--sand-border);border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13px;}
@@ -10683,8 +10686,37 @@ window.csPollPlanKit=(function(){
     // A poll where each time closes on its own is open until its last time closes.
     return v.closeRule==='perOption'?'Open until '+v.closesLabel:'Voting open, closes '+v.closesLabel;
   }
-  // A ready time can be confirmed until its own close (o.closed on a per-time poll).
-  function canConfirm(v, o){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready&&!o.closed); }
+  // Per-time polls only: whether a time has closed. The worker's result counts when it
+  // sent one; otherwise the clock decides, so a reload shows the close before the tick.
+  function timeClosed(v, o, now){
+    if(!v||v.closeRule!=='perOption'||!o) return false;
+    if(o.closed===true||o.result) return true;
+    return typeof o.closesAt==='number'&&isFinite(o.closesAt)&&(now==null?Date.now():now)>=o.closesAt;
+  }
+  // The tag a closed time wears, the poll page's words: Game set, This day has a game,
+  // Not confirmed, else Closed (a time that closed short, too late, or lost to another
+  // time on a one-game poll). '' while the time is open.
+  function closedTag(v, o, now){
+    if(!timeClosed(v, o, now)) return '';
+    var r=o.result||'';
+    if(r==='game') return 'Game set';
+    if(r==='day_has_game') return 'This day has a game';
+    if(r==='not_confirmed') return 'Not confirmed';
+    // Judged by the clock (no result yet): an ask-me time that was ready never got confirmed.
+    if(!r&&v.mode==='manual'&&o.ready) return 'Not confirmed';
+    return 'Closed';
+  }
+  // "Closes 7:16 PM" under an open time on a per-time poll; the day is added only when it
+  // is not the time's own day. '' otherwise.
+  function closeLine(v, o, now){
+    if(!v||v.closeRule!=='perOption'||!o||!o.closesLabel||timeClosed(v, o, now)) return '';
+    var cl=String(o.closesLabel), i=cl.lastIndexOf(' at ');
+    if(i<0) return 'Closes '+cl;
+    var day=cl.slice(0,i), time=cl.slice(i+4);
+    return String(o.label||'').indexOf(day+',')===0?'Closes '+time:'Closes '+cl;
+  }
+  // A ready time can be confirmed until its own close (by the worker's word or the clock).
+  function canConfirm(v, o, now){ return !!(v.role==='organizer'&&v.mode==='manual'&&v.open&&o.ready&&!o.closed&&!timeClosed(v, o, now)); }
   // "Your picks: Sat, Oct 25, 9:00 AM" for a recipient who voted, the none answer when
   // they said none of these work, else ''.
   function picksLine(v){
@@ -10804,7 +10836,7 @@ window.csPollPlanKit=(function(){
     rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
-    statusLine:statusLine, canConfirm:canConfirm, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
+    statusLine:statusLine, canConfirm:canConfirm, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
     suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct,
     NAMES_SHOWN:NAMES_SHOWN, optionVoters:optionVoters, voterChips:voterChips, chipText:chipText, noneLine:noneLine };
@@ -11066,14 +11098,20 @@ function ppDrawMyPolls(){
   const K = window.csPollPlanKit;
   if(!_myPolls.list.length){ box.innerHTML = ''; return; }
   box.innerHTML = '<div class="ctitle"><span class="bar"></span>Your polls</div>' + _myPolls.list.map(v => {
-    // Each time: label, count against the minimum with a bar, and Ready or Full tags.
-    const rows = v.options.map(o =>
-      '<div class="pp-orow" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
-      + (o.ready ? '<span class="pp-tag ready">Ready</span>' : '') + (v.full && o.ready ? '<span class="pp-tag full">Full</span>' : '')
+    // Each time: label, count against the minimum with a bar, and Ready or Full tags. On a
+    // per-time poll an open time shows its own close, and a closed one is grayed out with
+    // the poll page's tag instead.
+    const now = Date.now();
+    const rows = v.options.map(o => {
+      const shut = K.closedTag(v, o, now), cl = K.closeLine(v, o, now);
+      return '<div class="pp-orow'+(shut ? ' shut' : '')+'" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
+      + (shut ? '<span class="pp-tag shut">'+escapeHTML(shut)+'</span>'
+        : (o.ready ? '<span class="pp-tag ready">Ready</span>' : '') + (v.full && o.ready ? '<span class="pp-tag full">Full</span>' : ''))
+      + (cl ? '<span class="pp-close">'+escapeHTML(cl)+'</span>' : '')
       + '</span><span>'+o.count+' / '+v.minPlayers+'</span></div>'
       + '<div class="pp-bar"><span style="width:'+K.progressPct(o.count, v.minPlayers)+'%"></span></div>'+ppNames(v, o)+'</div>'
-      + (K.canConfirm(v, o) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '')
-    ).join('');
+      + (K.canConfirm(v, o, now) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '');
+    }).join('');
     // One game per day: a line per date.
     const days = Array.isArray(v.days) ? v.days.map(d => '<div class="pp-day">'+escapeHTML(d.line || '')+'</div>').join('') : '';
     // Organizer only: suggested times waiting, with who suggested each.
