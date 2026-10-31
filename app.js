@@ -4,6 +4,10 @@ const SC=window.SCHOOL_CONFIG;
 // close that door, which is the high school position until personal logins ship in
 // December. Coach login and the fan page are untouched either way.
 const PLAYER_LOGIN_ON = SC.playerLoginEnabled !== false;
+// A live high school with the name-and-team-password login closed: players sign in with
+// their own CourtSense account instead (the invite claim links it to their roster record).
+// Never the club and never the demo, which keep their own login exactly as before.
+const HS_ACCOUNT_SIGNIN = !SC.tiersEnabled && !SC.demoMode && !PLAYER_LOGIN_ON;
 // User-facing label for the privileged role. Config-driven via SC.coachLabel, defaulting to Coach so every existing school is unchanged. Display only; the internal role string stays 'coach'.
 const COACH_LABEL = (SC && SC.coachLabel) ? SC.coachLabel : 'Coach';
 // Label for the roster leadership marker (leadership:'exec'), which grants chat
@@ -48,7 +52,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.205';
+const APP_VERSION='1.1.206';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -994,12 +998,12 @@ body.demo .login-error{margin-top:4px;min-height:14px;}
   document.body.innerHTML=`
 </head>
 <body>
-${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — Nothing saves — Refresh to reset</div>' : ''}
+${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Nothing saves · Refresh to reset</div>' : ''}
 <!-- LOGIN SCREEN -->
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
     <div class="login-logo" style="flex-direction:column;align-items:center;gap:6px;">${logoHTML('cs-logo-login',LOGO_H,SC.logoAlt,'')}<span>${SC.displayName}</span></div>
-    <div class="login-sub">2026 Beach Volleyball Season</div>
+    <div class="login-sub" id="login-season">${seasonLabelText(String(new Date().getFullYear()))}</div>
     ${SC.demoMode ? '<div class="demo-creds-inline">'+COACH_LABEL+' PIN: <strong>1234</strong><span class="sep">·</span>Player password: <strong>'+SC.defaultPw+'</strong></div>' : ''}
     <!-- Door check-in prompt. Filled by tryoutLoginPrompt only when a scanned session id is
          being held; empty on every other visit and on every school shell. -->
@@ -1048,7 +1052,26 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       </div>
       <div class="login-error" id="pin-error"></div>
       </div>
+      ${HS_ACCOUNT_SIGNIN?`
+      <!-- Players on a live high school sign in with their own CourtSense account. -->
+      <button type="button" class="login-btn" id="hs-player-signin-open" onclick="hsPlayerSigninShow()" style="margin-top:16px;background:#082A4F;">Player sign in</button>
+      `:''}
     </div>
+    ${HS_ACCOUNT_SIGNIN ? `
+    <div class="login-section" id="login-hsplayer">
+      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Player Sign In</div>
+      <div id="hs-acct-block">
+        <div id="hs-acct-note" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);line-height:1.5;margin:0 0 8px;">Use the email and password from your team invite.</div>
+        <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="hs-login-email" placeholder="Email" autocomplete="email" autocapitalize="none" spellcheck="false">
+        <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="hs-login-pw" placeholder="Password" autocomplete="current-password">
+        <label style="display:flex;align-items:center;gap:8px;font-family:'Barlow',sans-serif;font-size:13px;color:var(--charcoal);margin-top:10px;cursor:pointer;"><input type="checkbox" id="hs-login-keep" checked style="width:18px;height:18px;"> Keep me signed in</label>
+        <div class="login-error" id="hs-pw-error"></div>
+        <button class="login-btn" id="hs-player-login-btn" onclick="playerLoginEmail()">Sign in</button>
+        <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it</a></div>
+      </div>
+      <button type="button" onclick="hsPlayerSigninHide()" style="display:block;width:100%;background:none;border:none;color:var(--gray);font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;padding:12px 8px 0;cursor:pointer;text-decoration:underline;">${COACH_LABEL} sign in</button>
+    </div>
+    ` : ''}
     ${PLAYER_LOGIN_ON ? `
     <div class="login-section" id="login-player">
       ${SC.emailLogin?`
@@ -1092,7 +1115,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <button onclick="showLeonFans()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--white);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
         🏐 ${SC.displayName} Fan Page
       </button>
-      <div style="font-size:11px;color:var(--red);font-weight:700;margin-top:6px;">Parents · Fans · Press — No login required</div>
+      <div style="font-size:11px;color:var(--red);font-weight:700;margin-top:6px;">Parents · Fans · Press. No login required</div>
       `}
     </div>
   </div>
@@ -1646,7 +1669,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
     ${SC.pickupEnabled?`<button class="pp-tab-btn" onclick="window.open('https://courtsense.app/pickup/','_blank')">🏖️ Pickup</button>`:''}
     ` : `
     <button class="pp-tab-btn active" onclick="switchPPTab('stats',this)">📊 My Stats</button>
-    <button class="pp-tab-btn" onclick="switchPPTab('live',this)">🏐 Live Score Entry</button>
+    ${HS_ACCOUNT_SIGNIN?'':`<button class="pp-tab-btn" onclick="switchPPTab('live',this)">🏐 Live Score Entry</button>`}
     ${!SC.clubPortalLite?`<button class="pp-tab-btn" onclick="switchPPTab('scouts',this)">🕵️ Scouts</button>`:''}
     ${!SC.clubPortalLite?`<button class="pp-tab-btn" onclick="switchPPTab('matches',this)">📋 My Matches</button>`:''}
     ${!SC.clubPortalLite?`<button class="pp-tab-btn" onclick="switchPPTab('learn',this)">🎓 Learn</button>`:''}
@@ -1678,7 +1701,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
       <div style="margin-top:14px;border-top:1px solid var(--gray-lighter);padding-top:14px;">
         <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:8px;">Add a Goal</div>
         <select class="form-select" id="pp-goal-select" style="margin-bottom:8px;">
-          <option value="">— Choose a Goal —</option>
+          <option value="">Choose a goal</option>
           <optgroup label="🏐 Court Goals">
             <option value="court1">Move up to Court 1</option>
             <option value="court2">Move up to Court 2</option>
@@ -1733,7 +1756,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
 
     <!-- Rankings. Club build: skill ranking is exec only and never shown to the general membership, so
          the club omits this card. High schools keep it. -->
-    ${!SC.tiersEnabled?`<div class="card"><div class="card-title"><span class="bar"></span> My Team Rankings</div>
+    ${(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN)?`<div class="card"><div class="card-title"><span class="bar"></span> My Team Rankings</div>
       <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">How you stack up against your teammates</p>
       <div id="pp-rankings"></div>
     </div>`:''}
@@ -2732,6 +2755,7 @@ function initFB(){
     if(D.assignments && D.assignments.asg02) D.assignments.asg02.date = _t;
     if(D.assignments && D.assignments.asg03) D.assignments.asg03.date = _t;
     setSS(true);
+    updateSeasonLabel();
     refreshCurrent();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
     return;
@@ -2742,7 +2766,7 @@ function initFB(){
 }
 function setSS(on){const d=document.getElementById('sync-dot');d.className='sync-dot '+(on?'online':'offline');d.title=on?'Connected':'Offline';}
 function listenData(){if(!db)return;
-  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();});
+  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();updateSeasonLabel();});
   db.ref(SC.dbRoots.profiles+'/quizScores').on('value',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
   db.ref(DB_ROOT).on('value',snap=>{
     const val=snap.val();
@@ -4916,13 +4940,17 @@ async function playerLoginEmail(){
   const pw=pwEl?pwEl.value:'';
   if(!email){if(errEl)errEl.textContent='Enter your email';return;}
   if(!pw){if(errEl)errEl.textContent='Enter your password';return;}
+  const _keepEl=HS_ACCOUNT_SIGNIN?document.getElementById('hs-login-keep'):null;
+  const _hsKeep=!!(_keepEl&&_keepEl.checked);
   _emailLoginBusy=true;
   const btn=document.getElementById('hs-player-login-btn')||document.getElementById('player-login-btn');
   if(btn)btn.disabled=true;
   if(errEl)errEl.textContent='Checking...';
   let j=null, netErr=false;
   try{
-    const r=await fetch(AUTH_WORKER+'/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rosterPath:'tally_kotb_pickup/players',email:email,password:pw})});
+    const _verifyBody={rosterPath:'tally_kotb_pickup/players',email:email,password:pw};
+    if(_hsKeep)_verifyBody.remember=true;   // a live high school's Keep me signed in
+    const r=await fetch(AUTH_WORKER+'/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_verifyBody)});
     j=await r.json().catch(()=>null);
   }catch(e){netErr=true;}
   const done=()=>{_emailLoginBusy=false;if(btn)btn.disabled=false;};
@@ -4936,7 +4964,17 @@ async function playerLoginEmail(){
   }
   // Verified. Resolve the club roster record by matching accountId to the account id.
   const accountId=j.player&&j.player.id;
-  const rec=accountId?D.players.find(p=>p.accountId===accountId):null;
+  let rec=accountId?D.players.find(p=>p.accountId===accountId):null;
+  // A live high school opens a player only when the account matches exactly one active
+  // roster record, the same rule as the device sign-in.
+  if(HS_ACCOUNT_SIGNIN){
+    const _recs=accountId?D.players.filter(p=>p&&p.accountId===accountId&&p.active!==false):[];
+    if(_recs.length!==1){
+      if(errEl)errEl.textContent=_recs.length?'This account is on the roster more than once. Ask your coach.':hsNotOnRosterText();
+      done();return;
+    }
+    rec=_recs[0];
+  }
   // Names the actual tenant rather than hardcoding one school, and points at whoever
   // runs that program: an exec at the club, a coach at a school.
   if(!rec){
@@ -4964,6 +5002,10 @@ async function playerLoginEmail(){
   // The worker session this sign-in minted, kept so the member can score their own tournament
   // matches. A sign-in that came back without one clears any older token.
   tnPlayerSessionSave(j.sessionToken,j.sessionExpiresAt,accountId);
+  if(HS_ACCOUNT_SIGNIN){
+    hsPersistDeviceSignin(accountId,email,j,_hsKeep);
+    const _pw=document.getElementById('hs-login-pw'); if(_pw)_pw.value='';
+  }
   document.getElementById('login-overlay').classList.add('hidden');
   document.getElementById('app-wrapper').style.display='block';
   document.getElementById('coach-content').style.display='none';
@@ -5021,7 +5063,9 @@ async function execLoginEmail(){
   loginAsCoach();
 }
 function logout(){
+  const _wasHsPlayer=HS_ACCOUNT_SIGNIN&&currentRole==='player';
   currentRole=null;currentPlayerId=null;pinEntry='';
+  if(_wasHsPlayer){ hsClearDeviceSignin(); hsPlayerSigninHide(); }
   // Door mode is a full-screen layer above the app; signing out has to take it down with them.
   if(typeof tsDoorClose==='function')tsDoorClose();
   // Kings Night listeners belong to the session that is ending.
@@ -5039,8 +5083,9 @@ function logout(){
   document.getElementById('player-portal').style.display='none';
   document.getElementById('player-portal').classList.remove('active');
   document.getElementById('pin-error').textContent='';
-  document.getElementById('pw-error').textContent='';
-  document.getElementById('login-pw').value='';
+  // A shell with player login closed has no player section, so these two may be absent.
+  const _pwErr=document.getElementById('pw-error'); if(_pwErr)_pwErr.textContent='';
+  const _pwIn=document.getElementById('login-pw'); if(_pwIn)_pwIn.value='';
 }
 // A stored leonAuth names a player but proves nothing, since anyone can write it into
 // sessionStorage. Outside the demo it counts only when this tab also holds a worker
@@ -5077,14 +5122,17 @@ async function autoLogin(){
   // Player: restored from leonAuth only once it is confirmed (see _leonAuthConfirmed).
   // A session minted before player login was turned off is dropped rather than honored,
   // otherwise flipping the shell would leave anyone mid-session still inside.
-  if(!PLAYER_LOGIN_ON){ sessionStorage.removeItem('leonAuth'); return; }
+  // A live high school (HS_ACCOUNT_SIGNIN) keeps going: its players sign in with a CourtSense
+  // account, and _leonAuthConfirmed accepts only a worker-verified session for the account
+  // linked to that roster record, so a name-picker session from before is still refused.
+  if(!PLAYER_LOGIN_ON&&!HS_ACCOUNT_SIGNIN){ sessionStorage.removeItem('leonAuth'); return; }
   try{
     let auth=JSON.parse(sessionStorage.getItem('leonAuth'));
     if(auth&&!(await _leonAuthConfirmed(auth))){ sessionStorage.removeItem('leonAuth'); auth=null; }
-    // Club configs: no member session in this tab, but the device may already hold a
-    // CourtSense sign-in (for example after tapping a club alert). See clubAccountSession.
+    // Club configs and live high schools: no player session in this tab, but the device may
+    // already hold a CourtSense sign-in (a club alert, a home screen icon). See clubAccountSession.
     if(!auth) auth=await clubAccountSession();
-    if(!auth)return;
+    if(!auth){ if(HS_ACCOUNT_SIGNIN&&_hsSigninParam) hsPlayerSigninShow(''); return; }
     if(auth.role==='player'&&auth.pid){currentPlayerId=auth.pid;currentRole='player';
       document.getElementById('login-overlay').classList.add('hidden');
       document.getElementById('app-wrapper').style.display='block';
@@ -5210,7 +5258,7 @@ function ppRenderRating(){
 // carry that account. Read only on the CourtSense side: courtsenseAuth is never
 // written. Anything unexpected returns null and the normal login screen shows.
 async function clubAccountSession(){
-  if(!(SC.tiersEnabled&&SC.emailLogin))return null;
+  if(!((SC.tiersEnabled&&SC.emailLogin)||HS_ACCOUNT_SIGNIN))return null;
   let tok='';
   try{
     const p=JSON.parse(localStorage.getItem('courtsenseAuth')||'null');
@@ -5227,6 +5275,10 @@ async function clubAccountSession(){
   const aid=j&&j.ok===true&&j.player&&j.player.id;
   if(!aid)return null;
   const recs=(D.players||[]).filter(p=>p&&p.accountId===aid&&p.active!==false);
+  // A live high school says so when the signed-in account has no roster record here. The
+  // note sits quietly under Player sign in, since a coach, parent or fan signed in to
+  // CourtSense lands on this same screen and still has the PIN pad and the fan page.
+  if(HS_ACCOUNT_SIGNIN&&recs.length===0) hsDeviceNote(hsNotOnRosterText());
   if(recs.length!==1)return null;
   const auth={role:'player',pid:recs[0].id};
   try{ sessionStorage.setItem('leonAuth',JSON.stringify(auth)); }catch(e){}
@@ -5236,6 +5288,78 @@ async function clubAccountSession(){
   try{ const p=JSON.parse(localStorage.getItem('courtsenseAuth')||'null'); if(p&&typeof p.sessionExpiresAt==='number')exp=p.sessionExpiresAt; }catch(e){}
   tnPlayerSessionSave(tok,exp,aid);
   return auth;
+}
+// ── HS player sign-in (live high schools, HS_ACCOUNT_SIGNIN) ────────────────
+// The name picker and the team password stay retired. A player signs in with the CourtSense
+// account their team invite set up, through playerLoginEmail, and Keep me signed in (on by
+// default) stores the same device sign-in auth.js keeps, so the team's home screen icon opens
+// straight into their portal next time. ?signin=player on the school URL (the invite's
+// "Go to" button) opens this form directly; the parameter is dropped from the address bar.
+var _hsSigninParam=false;
+(function(){
+  if(!HS_ACCOUNT_SIGNIN) return;
+  try{
+    var q=new URLSearchParams(location.search);
+    if(q.get('signin')!=='player') return;
+    _hsSigninParam=true;
+    q.delete('signin');
+    var rest=q.toString();
+    history.replaceState(history.state,'',location.pathname+(rest?'?'+rest:'')+location.hash);
+  }catch(e){}
+})();
+function hsNotOnRosterText(){
+  return 'This account isn\'t on the '+(SC.shortName||SC.schoolName||'team')+' roster yet. Ask your coach.';
+}
+function hsPlayerSigninShow(msg){
+  if(!HS_ACCOUNT_SIGNIN) return;
+  var coach=document.getElementById('login-coach'), pl=document.getElementById('login-hsplayer');
+  if(!pl) return;
+  if(coach) coach.classList.remove('active');
+  pl.classList.add('active');
+  var err=document.getElementById('hs-pw-error'); if(err) err.textContent=msg||'';
+  var em=document.getElementById('hs-login-email'); if(em) try{ em.focus(); }catch(e){}
+}
+function hsPlayerSigninHide(){
+  var coach=document.getElementById('login-coach'), pl=document.getElementById('login-hsplayer');
+  if(pl) pl.classList.remove('active');
+  if(coach) coach.classList.add('active');
+  var err=document.getElementById('hs-pw-error'); if(err) err.textContent='';
+}
+// A quiet line under the Player sign in button (device sign-in that is not on this roster).
+function hsDeviceNote(text){
+  var btn=document.getElementById('hs-player-signin-open'); if(!btn) return;
+  var n=document.getElementById('hs-device-note');
+  if(!n){
+    n=document.createElement('div'); n.id='hs-device-note';
+    n.setAttribute('style','font-family:\'Barlow\',sans-serif;font-size:12px;color:var(--gray);text-align:center;line-height:1.4;margin-top:8px;');
+    btn.parentNode.insertBefore(n,btn.nextSibling);
+  }
+  n.textContent=text||'';
+}
+// The device-wide CourtSense sign-in, in the shape auth.js persistSession writes, so the
+// profile, pickup and this team's icon all see the same signed-in player.
+function hsPersistDeviceSignin(accountId,email,j,keep){
+  if(!HS_ACCOUNT_SIGNIN||typeof accountId!=='string'||!accountId) return;
+  var now=Date.now();
+  var rec={playerId:accountId,ts:now};
+  if(email) rec.email=email;
+  if(j&&typeof j.sessionToken==='string'&&j.sessionToken){ rec.sessionToken=j.sessionToken; rec.sessionExpiresAt=Number(j.sessionExpiresAt)||0; }
+  try{
+    if(keep){ rec.exp=now+75*24*60*60*1000; localStorage.setItem('courtsenseAuth',JSON.stringify(rec)); sessionStorage.removeItem('courtsenseAuth'); }
+    else sessionStorage.setItem('courtsenseAuth',JSON.stringify(rec));
+  }catch(e){}
+}
+// Signing a player out on a high school also signs this device out of CourtSense, so a shared
+// phone never reopens the team as them.
+function hsClearDeviceSignin(){
+  try{ localStorage.removeItem('courtsenseAuth'); }catch(e){}
+  try{ sessionStorage.removeItem('courtsenseAuth'); }catch(e){}
+}
+function seasonLabelText(id){ return String(id||new Date().getFullYear())+' Beach Volleyball Season'; }
+// The login screen's season line, from {matches}/config/currentSeasonId once it arrives.
+function updateSeasonLabel(){
+  var el=document.getElementById('login-season'); if(!el) return;
+  el.textContent=seasonLabelText(_activeSeason());
 }
 // ── Member scoring session ──────────────────────────────────────────────────
 // The signed-in member's worker session (kind 'player'), kept beside leonAuth in this tab the
@@ -5725,7 +5849,7 @@ function renderPlayerPortal(){
     <div style="grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px;">
       <div class="stat-box"><div class="stat-number green">${gs.matchesWon}-${gs.matchesLost}</div><div class="stat-label">Match W-L</div></div>
       <div class="stat-box"><div class="stat-number green">${gs.setsWon}-${gs.setsLost}</div><div class="stat-label">Set W-L</div></div>
-      <div class="stat-box"><div class="stat-number ${pmClass(gs.diff)}">${gs.sets>0?pmStr(gs.diff):'—'}</div><div class="stat-label">Pts +/-</div></div>
+      <div class="stat-box"><div class="stat-number ${pmClass(gs.diff)}">${gs.sets>0?pmStr(gs.diff):'-'}</div><div class="stat-label">Pts +/-</div></div>
     </div>
     <div style="grid-column:1/-1;display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
       <div class="stat-box"><div class="stat-number" style="font-size:22px;">${gs.k}</div><div class="stat-label">Kills</div></div>
@@ -5742,7 +5866,9 @@ function renderPlayerPortal(){
   // Club build: skill ranking is exec only, never shown to the general membership, so the whole
   // section is skipped for the club (its pp-rankings card is not rendered). High schools still show it.
   // The exec-side ranking (cpm-rankings, coach player modal) is a separate render path, unaffected.
-  if(!SC.tiersEnabled){
+  // A live high school's players see their own numbers only (HS_ACCOUNT_SIGNIN): no teammate
+  // comparison, so the card is not rendered and this block is skipped. The demo keeps it.
+  if(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN){
   // Build stats for all players
   const allPlayers=D.players.filter(pl=>pl.id);
   const rankings=[];
@@ -6797,7 +6923,7 @@ function playerGoalCollapse(gid){
 }
 function archivePlayerGoal(pid,gid){
   fbSet('goals/'+pid+'/'+gid+'/archivedPlayer',true);
-  toast('Goal archived \u2014 find it in Past Goals any time');
+  toast('Goal archived. Find it in Past Goals any time');
 }
 function unarchivePlayerGoal(pid,gid){
   fbSet('goals/'+pid+'/'+gid+'/archivedPlayer',false);
@@ -6808,14 +6934,14 @@ function renderPlayerGoals(){
   const goals=D.goals[pid]||{};
   const entries=Object.entries(goals);
   if(!entries.length){
-    document.getElementById('pp-goals-list').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;"><div style="font-size:28px;margin-bottom:8px;">\ud83c\udfaf</div>No goals set yet \u2014 choose one from the dropdown below!</div>';
+    document.getElementById('pp-goals-list').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;"><div style="font-size:28px;margin-bottom:8px;">\ud83c\udfaf</div>No goals set yet. Choose one from the dropdown below!</div>';
     return;
   }
   const active=entries.filter(([,g])=>!(g.archivedPlayer??g.archived));
   const archived=entries.filter(([,g])=>!!(g.archivedPlayer??g.archived));
   let h='';
   if(!active.length){
-    h+='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;"><div style="font-size:24px;margin-bottom:6px;">\ud83c\udfaf</div>All goals responded to \u2014 add a new one below or check Past Goals!</div>';
+    h+='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;"><div style="font-size:24px;margin-bottom:6px;">\ud83c\udfaf</div>All goals responded to. Add a new one below or check Past Goals!</div>';
   }
   active.forEach(([gid,g])=>{
     const fb=g.aiFeedback;
@@ -22853,7 +22979,7 @@ Return ONLY valid JSON: {"opponent":"team name or empty","courts":[{"court":1,"p
         // Show review form
         const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
         function pOpts(selId){return'<option value="">Select</option>'+sorted.map(pl=>`<option value="${pl.id}" ${pl.id===selId?'selected':''}>${pl.firstName} ${pl.lastName.charAt(0)}. (CT${pl.court})</option>`).join('');}
-        let h=`<div style="font-family:'Bebas Neue';font-size:14px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.courts.length} court(s) — review & save</div>`;
+        let h=`<div style="font-family:'Bebas Neue';font-size:14px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.courts.length} court(s). Review and save</div>`;
         parsed.courts.forEach((c,i)=>{
           h+=`<div style="padding:10px;background:var(--off-white);border-radius:8px;margin-bottom:8px;">
             <div style="font-family:'Bebas Neue';font-size:12px;margin-bottom:6px;">COURT ${c.court||i+1}</div>
@@ -23038,7 +23164,7 @@ function renderPPQuizHistory(){
     const pct=Math.round(a.score/a.maxScore*100);
     const grade=pct>=90?'A+':pct>=70?'B':pct>=50?'C':'D';
     const col=pct>=70?'green':pct>=50?'#f5a623':'var(--red)';
-    h+=`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(0,0,0,0.05);color:var(--gray);"><span>${a.date}</span><span style="font-family:'Bebas Neue';font-size:15px;color:${col};">${a.score}/${a.maxScore} pts — ${grade}</span></div>`;
+    h+=`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(0,0,0,0.05);color:var(--gray);"><span>${a.date}</span><span style="font-family:'Bebas Neue';font-size:15px;color:${col};">${a.score}/${a.maxScore} pts · ${grade}</span></div>`;
   });
   el.innerHTML=h;
 }
