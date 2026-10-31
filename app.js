@@ -48,7 +48,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.204';
+const APP_VERSION='1.1.205';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1488,10 +1488,6 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA — '+SC.schoolName+' — No
   ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hspractice"><div class="card" style="text-align:center;padding:34px 20px;">
     <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Practice</div>
     <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">The practice planner is coming to the coach app. Team analysis, development plans, and the practice builder land here next.</p>
-  </div></div>`}
-  ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hsrecruiting"><div class="card" style="text-align:center;padding:34px 20px;">
-    <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Recruiting</div>
-    <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">Recruiting is coming to the coach app.</p>
   </div></div>`}
   ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hspgroups"><div class="card" style="text-align:center;padding:34px 20px;">
     <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Practice Groups</div>
@@ -5034,6 +5030,7 @@ function logout(){
   if(typeof tnDetach==='function')tnDetach(); // the exec tournament card's listener
   sessionStorage.removeItem('leonAuth');
   sessionStorage.removeItem('csCoachSession');
+  if(typeof hsRecClear==='function')hsRecClear(); // drop any sign-up list or open contacts
   tnPlayerSessionClear();
   updatePinDots();
   document.getElementById('login-overlay').classList.remove('hidden');
@@ -11736,6 +11733,7 @@ function tsInvitesForProspect(pid){
 // fields (a Firebase echo must not clobber an edit in progress).
 function _maybeRenderRecruiting(){
   if(currentRole!=='coach') return;
+  if(!SC.tiersEnabled) return; // a high school's Recruiting has no tryout sessions to follow
   var pane=document.getElementById('tab-recruiting'); if(!pane) return;
   var ae=document.activeElement;
   if(ae&&pane.contains(ae)&&(ae.tagName==='INPUT'||ae.tagName==='SELECT'||ae.tagName==='TEXTAREA')) return;
@@ -12126,11 +12124,322 @@ function hsSignupCopy(){
 }
 // ===== HS SIGNUP CARD END =====
 
+// ===== HS RECRUITING START =====
+// High schools only (SC.tiersEnabled off): Players > Recruiting lists the public sign-ups that
+// a parent or guardian has confirmed, through the worker's coach routes (/hs/prospects/list,
+// /get, /stage, /made-team). The club keeps its own Recruiting below, untouched.
+// - The list carries names, grad year and stage only. Contacts are fetched when one sign-up
+//   is opened and dropped from memory when it closes. Nothing goes to localStorage or
+//   sessionStorage.
+// - Prospect data is only ever written with textContent and setAttribute. The one innerHTML
+//   below is the sign-up link card, which holds no prospect data.
+// - The demo school shows the empty state and never calls the worker.
+// - Data refreshes (refreshCurrent) re-render from memory; the list is fetched again only when
+//   it is first shown or older than a minute, so an open sign-up never closes under the coach.
+var HS_REC_STAGES=[['new','Signed up'],['tryout','Tryout'],['made_team','Made team'],['not_this_year','Not this year']];
+var HS_REC_MSG={
+  signin:'Sign in as a coach again to see sign-ups',
+  busy:'We\'re busy right now. Try again in a minute.',
+  error:'Something went wrong. Try again.'
+};
+var _hsRec={status:'idle',rows:[],waiting:0,stage:'new',seq:0,loadedAt:0,detail:null};
+function hsRecMode(){ return !SC.tiersEnabled; }
+function hsRecClear(){ _hsRec={status:'idle',rows:[],waiting:0,stage:'new',seq:_hsRec.seq+1,loadedAt:0,detail:null}; }
+function hsRecStageLabel(s){ for(var i=0;i<HS_REC_STAGES.length;i++){ if(HS_REC_STAGES[i][0]===s) return HS_REC_STAGES[i][1]; } return 'Signed up'; }
+function hsRecWaitingText(n){ return n>0?(n+' waiting on a parent or guardian'):''; }
+// A refusal as one of three plain messages. Raw worker text is never shown.
+function hsRecErr(status,j){
+  var code=j&&j.code;
+  if(status===403&&code==='forbidden') return 'signin';
+  if(status===429||code==='rate_limited') return 'busy';
+  return 'error';
+}
+function _hrPost(path,body){
+  return fetch(AUTH_WORKER+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return {status:r.status,j:j}; }); })
+    .catch(function(){ return {status:0,j:null}; });
+}
+function _hrEl(tag,attrs,text){
+  var e=document.createElement(tag);
+  if(attrs) Object.keys(attrs).forEach(function(k){ e.setAttribute(k,attrs[k]); });
+  if(text!=null) e.textContent=String(text);
+  return e;
+}
+function _hrBtn(label,style,fn,disabled){
+  var b=_hrEl('button',{type:'button','class':'btn btn-small',style:'font-family:\'Barlow\',sans-serif;font-weight:600;font-size:13px;padding:8px 12px;border-radius:8px;'+(style||'')},label);
+  if(disabled) b.disabled=true;
+  b.addEventListener('click',fn);
+  return b;
+}
+function _hrEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
+// A tap-to-call or tap-to-email link, or null when there is nothing on file.
+function _hrLink(kind,val){
+  var v=String(val==null?'':val).trim(); if(!v) return null;
+  var href=kind==='tel'?'tel:'+v.replace(/[^\d+]/g,''):'mailto:'+v;
+  return _hrEl('a',{href:href,style:'color:#0081AB;font-weight:600;word-break:break-all;'},v);
+}
+var _HR_PRIMARY='background:#082A4F;color:#fff;border:1px solid #082A4F;';
+var _HR_GHOST='background:#fff;color:#082A4F;border:1px solid #082A4F;';
+
+// Entry point from renderRecruiting on a high school.
+function hsRecShow(){
+  if(SC.demoMode){ _hsRec.status='ok'; _hsRec.rows=[]; _hsRec.waiting=0; _hsRec.detail=null; hsRecRender(); return; }
+  var stale=!_hsRec.loadedAt||(Date.now()-_hsRec.loadedAt>60000);
+  if(!_hsRec.detail&&_hsRec.status!=='loading'&&(_hsRec.status==='idle'||stale)){ hsRecLoad(); return; }
+  hsRecRender();
+}
+function hsRecLoad(){
+  if(SC.demoMode) return;
+  var token=_hsCoachToken();
+  _hsRec.loadedAt=Date.now();
+  if(!token){ _hsRec.status='signin'; hsRecRender(); return; }
+  var seq=++_hsRec.seq;
+  _hsRec.status='loading'; hsRecRender();
+  _hrPost('/hs/prospects/list',{dbRoot:DB_ROOT,token:token}).then(function(res){
+    if(seq!==_hsRec.seq) return;
+    var j=res.j;
+    if(res.status===200&&j&&j.ok===true&&Array.isArray(j.prospects)){
+      _hsRec.rows=j.prospects.filter(function(p){ return p&&typeof p.id==='string'; });
+      _hsRec.waiting=typeof j.waitingCount==='number'?j.waitingCount:0;
+      _hsRec.status='ok';
+    }else{
+      _hsRec.status=hsRecErr(res.status,j);
+    }
+    _hsRec.loadedAt=Date.now();
+    hsRecRender();
+  });
+}
+function hsRecPatchRow(id,patch){
+  _hsRec.rows.forEach(function(r){ if(r.id===id) Object.keys(patch).forEach(function(k){ r[k]=patch[k]; }); });
+}
+function hsRecProblem(box,kind,retry){
+  box.appendChild(_hrEl('p',{style:'font-size:14px;color:var(--charcoal);margin:6px 0 10px;'},HS_REC_MSG[kind]||HS_REC_MSG.error));
+  if(kind==='signin') box.appendChild(_hrBtn('Sign in again','width:100%;'+_HR_PRIMARY,function(){ logout(); }));
+  else box.appendChild(_hrBtn('Try again','width:100%;'+_HR_PRIMARY,retry));
+}
+function hsRecRender(){
+  var pane=document.getElementById('tab-recruiting'); if(!pane) return;
+  pane.textContent='';
+  var card=_hrEl('div',{'class':'card',style:'max-width:100%;overflow:hidden;'});
+  var title=_hrEl('div',{'class':'card-title'});
+  title.appendChild(_hrEl('span',{'class':'bar'}));
+  title.appendChild(_hrEl('span',null,' Recruiting'));
+  card.appendChild(title);
+  pane.appendChild(card);
+  if(_hsRec.detail){ hsRecRenderDetail(card); return; }
+
+  // The share card, on its own rules (hsSignupCardMode: live, or a preview for a look).
+  if(hsSignupCardMode()){
+    var sc=_hrEl('div');
+    sc.innerHTML=hsSignupCardHtml(_hrEsc);
+    card.appendChild(sc);
+    renderQrInto('hs-signup-qr',hsSignupUrl());
+  }
+  if(_hsRec.status==='idle'||_hsRec.status==='loading'){
+    card.appendChild(_hrEl('p',{style:'font-size:14px;color:var(--gray);margin:6px 0;'},'Loading sign-ups...'));
+    return;
+  }
+  if(_hsRec.status!=='ok'){ hsRecProblem(card,_hsRec.status,hsRecLoad); return; }
+  if(_hsRec.waiting>0){
+    card.appendChild(_hrEl('div',{'class':'hs-rec-waiting',style:'font-size:13px;color:var(--gray);margin:0 0 10px;'},hsRecWaitingText(_hsRec.waiting)));
+  }
+  if(!_hsRec.rows.length){
+    card.appendChild(_hrEl('p',{'class':'hs-rec-empty',style:'font-size:14px;color:var(--charcoal);line-height:1.5;margin:6px 0;'},
+      hsSignupCardMode()==='live'?'No confirmed sign-ups yet.':'Share your sign-up link when tryouts open. Confirmed sign-ups show up here.'));
+    return;
+  }
+
+  // Stage chips: one row that scrolls sideways inside itself on a phone.
+  var chips=_hrEl('div',{'class':'hs-rec-chips',style:'display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;padding:2px 0 8px;margin:0 0 6px;'});
+  HS_REC_STAGES.forEach(function(s){
+    var n=_hsRec.rows.filter(function(r){ return (r.stage||'new')===s[0]; }).length;
+    var on=_hsRec.stage===s[0];
+    chips.appendChild(_hrBtn(s[1]+' ('+n+')','flex:0 0 auto;white-space:nowrap;border-radius:16px;'+(on?_HR_PRIMARY:_HR_GHOST),function(){ _hsRec.stage=s[0]; hsRecRender(); }));
+  });
+  card.appendChild(chips);
+
+  var shown=_hsRec.rows.filter(function(r){ return (r.stage||'new')===_hsRec.stage; });
+  if(!shown.length){
+    card.appendChild(_hrEl('p',{style:'font-size:14px;color:var(--gray);margin:6px 0;'},'Nobody in '+hsRecStageLabel(_hsRec.stage)+' right now.'));
+    return;
+  }
+  shown.forEach(function(p){
+    var b=_hrEl('button',{type:'button','class':'hs-rec-row',style:'display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--gray-lighter,#E6DDCC);border-radius:10px;padding:10px 12px;margin:0 0 8px;cursor:pointer;font:inherit;color:inherit;'});
+    b.appendChild(_hrEl('div',{style:'font-weight:700;font-size:15px;color:#082A4F;overflow-wrap:anywhere;'},((p.firstName||'')+' '+(p.lastName||'')).trim()||'Player'));
+    var sub=_hrEl('div',{style:'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:13px;color:var(--gray);'});
+    if(p.gradYear) sub.appendChild(_hrEl('span',null,'Class of '+p.gradYear));
+    sub.appendChild(_hrEl('span',{style:'font-size:11px;font-weight:700;background:#E8F4F8;color:#0081AB;border-radius:10px;padding:1px 8px;'},hsRecStageLabel(p.stage)));
+    b.appendChild(sub);
+    b.addEventListener('click',function(){ hsRecOpenDetail(p.id); });
+    card.appendChild(b);
+  });
+}
+
+// ---- One sign-up --------------------------------------------------------------
+function hsRecOpenDetail(id){
+  var d={id:id,status:'loading',prospect:null,busy:false,confirm:'',msg:'',rosterPid:null};
+  _hsRec.detail=d;
+  var token=_hsCoachToken();
+  if(!token){ d.status='signin'; hsRecRender(); return; }
+  hsRecRender();
+  try{ window.scrollTo(0,0); }catch(e){}
+  _hrPost('/hs/prospects/get',{dbRoot:DB_ROOT,token:token,prospectId:id}).then(function(res){
+    if(_hsRec.detail!==d) return;   // closed or replaced while loading: drop the answer
+    var j=res.j;
+    if(res.status===200&&j&&j.ok===true&&j.prospect){
+      d.prospect=j.prospect;
+      d.rosterPid=typeof j.prospect.rosterPid==='string'&&j.prospect.rosterPid?j.prospect.rosterPid:null;
+      d.status='ok';
+    }else if(res.status===404){
+      d.status='gone';
+    }else{
+      d.status=hsRecErr(res.status,j);
+    }
+    hsRecRender();
+  });
+}
+// Closing drops the contacts from memory.
+function hsRecCloseDetail(){ _hsRec.detail=null; hsRecRender(); }
+function _hrSection(box,label){
+  box.appendChild(_hrEl('div',{style:'font-family:\'Bebas Neue\',sans-serif;font-size:15px;letter-spacing:1px;color:#082A4F;margin:14px 0 4px;'},label));
+}
+function _hrLine(box,label,node){
+  var row=_hrEl('div',{style:'display:flex;gap:8px;align-items:baseline;font-size:14px;margin:3px 0;min-width:0;'});
+  row.appendChild(_hrEl('span',{style:'color:var(--gray);flex:0 0 auto;min-width:48px;'},label));
+  var v=_hrEl('span',{style:'min-width:0;overflow-wrap:anywhere;'});
+  if(node) v.appendChild(node); else v.textContent='Not on file';
+  row.appendChild(v);
+  box.appendChild(row);
+}
+function hsRecRenderDetail(card){
+  var d=_hsRec.detail;
+  card.appendChild(_hrBtn('‹ All sign-ups','margin:0 0 10px;'+_HR_GHOST,hsRecCloseDetail));
+  if(d.status==='loading'){ card.appendChild(_hrEl('p',{style:'font-size:14px;color:var(--gray);'},'Loading...')); return; }
+  if(d.status==='gone'){ card.appendChild(_hrEl('p',{style:'font-size:14px;'},'This sign-up is not on the list anymore.')); return; }
+  if(d.status!=='ok'){ hsRecProblem(card,d.status,function(){ hsRecOpenDetail(d.id); }); return; }
+  var p=d.prospect, c=p.contacts||{};
+  card.appendChild(_hrEl('div',{'class':'hs-rec-name',style:'font-family:\'Bebas Neue\',sans-serif;font-size:26px;letter-spacing:1px;color:#082A4F;line-height:1.1;overflow-wrap:anywhere;'},((p.firstName||'')+' '+(p.lastName||'')).trim()||'Player'));
+  if(p.gradYear) card.appendChild(_hrEl('div',{style:'font-size:14px;color:var(--gray);'},'Class of '+p.gradYear));
+
+  if(d.rosterPid&&!c.playerEmail&&!c.playerPhone&&!c.parent1&&!c.parent2){
+    card.appendChild(_hrEl('p',{style:'font-size:14px;margin:12px 0 0;'},'Contact details now live on the player\'s roster card.'));
+  }else{
+    _hrSection(card,'Player');
+    _hrLine(card,'Email',_hrLink('mailto',c.playerEmail));
+    _hrLine(card,'Cell',_hrLink('tel',c.playerPhone));
+    [['parent1','Parent or Guardian 1'],['parent2','Parent or Guardian 2']].forEach(function(g){
+      var x=c[g[0]]; if(!x) return;
+      _hrSection(card,g[1]);
+      _hrLine(card,'Name',x.name?_hrEl('span',null,x.name):null);
+      _hrLine(card,'Email',_hrLink('mailto',x.email));
+      _hrLine(card,'Phone',_hrLink('tel',x.phone));
+      _hrLine(card,'Status',_hrEl('span',{style:'font-weight:700;color:'+(x.status==='confirmed'?'#059669':'var(--gray)')+';'},x.status==='confirmed'?'Confirmed':'Not confirmed yet'));
+    });
+  }
+
+  if(!d.rosterPid){
+    _hrSection(card,'Stage');
+    var stages=_hrEl('div',{style:'display:flex;gap:6px;flex-wrap:wrap;'});
+    [['new','Signed up'],['tryout','Tryout'],['not_this_year','Not this year']].forEach(function(s){
+      var on=(p.stage||'new')===s[0];
+      var b=_hrBtn(s[1],'flex:1 1 30%;min-width:0;'+(on?_HR_PRIMARY:_HR_GHOST),function(){ if(!on) hsRecSetStage(s[0]); },d.busy);
+      b.setAttribute('aria-pressed',on?'true':'false');
+      stages.appendChild(b);
+    });
+    card.appendChild(stages);
+  }
+
+  var team=_hrEl('div',{'class':'hs-rec-team',style:'margin-top:16px;'});
+  var first=p.firstName||'this player';
+  if(d.rosterPid){
+    team.appendChild(_hrEl('div',{style:'font-weight:700;color:#059669;font-size:15px;margin-bottom:8px;'},'On the roster'));
+    team.appendChild(_hrBtn('Send app invite','width:100%;padding:12px;'+_HR_PRIMARY,function(){ hsRecInvite(d.rosterPid); }));
+  }else if(d.confirm==='ask'){
+    team.appendChild(_hrEl('p',{style:'font-size:14px;margin:0 0 8px;'},'Add '+first+' to the roster?'));
+    var row=_hrEl('div',{style:'display:flex;gap:8px;'});
+    row.appendChild(_hrBtn('Add to roster','flex:1;padding:12px;'+_HR_PRIMARY,function(){ hsRecMadeTeam(false); },d.busy));
+    row.appendChild(_hrBtn('Cancel','flex:1;padding:12px;'+_HR_GHOST,function(){ d.confirm=''; hsRecRender(); },d.busy));
+    team.appendChild(row);
+  }else if(d.confirm==='dup'){
+    team.appendChild(_hrEl('p',{style:'font-size:14px;margin:0 0 8px;'},'A player with this name is already on the roster. Add anyway?'));
+    var row2=_hrEl('div',{style:'display:flex;gap:8px;'});
+    row2.appendChild(_hrBtn('Add anyway','flex:1;padding:12px;'+_HR_PRIMARY,function(){ hsRecMadeTeam(true); },d.busy));
+    row2.appendChild(_hrBtn('Cancel','flex:1;padding:12px;'+_HR_GHOST,function(){ d.confirm=''; hsRecRender(); },d.busy));
+    team.appendChild(row2);
+  }else{
+    team.appendChild(_hrBtn('Made team','width:100%;padding:12px;font-size:15px;background:#0081AB;color:#fff;border:1px solid #0081AB;',function(){ d.confirm='ask'; d.msg=''; hsRecRender(); },d.busy));
+  }
+  card.appendChild(team);
+  if(d.msg) card.appendChild(_hrEl('p',{'class':'hs-rec-msg',style:'font-size:13px;color:var(--red,#B3261E);font-weight:600;margin:10px 0 0;'},d.msg));
+}
+// A refused stage or Made team call on an open sign-up: sign-in sends the whole view to the
+// sign-in message, anything else is a plain line under the buttons.
+function _hrDetailRefused(d,res){
+  var k=hsRecErr(res.status,res.j);
+  if(k==='signin'){ d.status='signin'; return; }
+  d.msg=HS_REC_MSG[k];
+}
+function hsRecSetStage(stage){
+  var d=_hsRec.detail; if(!d||d.busy||!d.prospect||d.rosterPid) return;
+  var token=_hsCoachToken();
+  if(!token){ d.status='signin'; hsRecRender(); return; }
+  d.busy=true; d.msg=''; hsRecRender();
+  _hrPost('/hs/prospects/stage',{dbRoot:DB_ROOT,token:token,prospectId:d.id,stage:stage}).then(function(res){
+    if(_hsRec.detail!==d) return;
+    d.busy=false;
+    var j=res.j;
+    if(res.status===200&&j&&j.ok===true){
+      d.prospect.stage=stage; hsRecPatchRow(d.id,{stage:stage});
+    }else if(j&&j.code==='made_team'){
+      d.msg='This player is already on the roster.'; _hsRec.loadedAt=0;
+    }else{
+      _hrDetailRefused(d,res);
+    }
+    hsRecRender();
+  });
+}
+// Made team. The worker answers the same roster id on a second call and writes nothing, so a
+// double tap is harmless; busy keeps the buttons off while the call is out.
+function hsRecMadeTeam(confirmDuplicate){
+  var d=_hsRec.detail; if(!d||d.busy||!d.prospect||d.rosterPid) return;
+  var token=_hsCoachToken();
+  if(!token){ d.status='signin'; hsRecRender(); return; }
+  d.busy=true; d.msg=''; hsRecRender();
+  var body={dbRoot:DB_ROOT,token:token,prospectId:d.id};
+  if(confirmDuplicate===true) body.confirmDuplicate=true;
+  _hrPost('/hs/prospects/made-team',body).then(function(res){
+    if(_hsRec.detail!==d) return;
+    d.busy=false;
+    var j=res.j;
+    if(res.status===200&&j&&j.ok===true&&typeof j.rosterPid==='string'){
+      d.rosterPid=j.rosterPid; d.confirm='';
+      d.prospect.stage='made_team'; d.prospect.rosterPid=j.rosterPid;
+      hsRecPatchRow(d.id,{stage:'made_team',rosterPid:j.rosterPid});
+      toast(j.already?'Already on the roster.':'Added to the roster.');
+    }else if(res.status===409&&j&&j.code==='possible_duplicate'){
+      d.confirm='dup';
+    }else{
+      d.confirm='';
+      _hrDetailRefused(d,res);
+    }
+    hsRecRender();
+  });
+}
+// The app invite reuses the roster's own invite flow. The roster listener brings the new
+// player in a moment after Made team; until then there is nothing to invite.
+function hsRecInvite(pid){
+  if(!gP(pid)){ toast('The roster is still updating. Try again in a moment.'); return; }
+  hsInvitePlayer(pid);
+}
+// ===== HS RECRUITING END =====
+
 // Recruiting tab: sessions with door check-in and manual attendance, and a prospect list built from
 // the real roster (D.players, status 'prospect') showing name, class, tier request, TruVolley,
 // invitation state, and attendance.
 function renderRecruiting(){
   var pane=document.getElementById('tab-recruiting'); if(!pane) return;
+  // High schools get their own view (HS RECRUITING above). No tryout sessions there.
+  if(hsRecMode()){ hsRecShow(); return; }
   var esc=function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); };
   var sessions=tsTryoutSessionsArr();
   var prospects=tsProspects();
