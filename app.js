@@ -4,10 +4,12 @@ const SC=window.SCHOOL_CONFIG;
 // close that door, which is the high school position until personal logins ship in
 // December. Coach login and the fan page are untouched either way.
 const PLAYER_LOGIN_ON = SC.playerLoginEnabled !== false;
-// A live high school with the name-and-team-password login closed: players sign in with
-// their own CourtSense account instead (the invite claim links it to their roster record).
-// Never the club and never the demo, which keep their own login exactly as before.
-const HS_ACCOUNT_SIGNIN = !SC.tiersEnabled && !SC.demoMode && !PLAYER_LOGIN_ON;
+// A live high school: not the club, not the demo, and not running on demo data (the pitch
+// page uses the demo's nodes without the demo flag). Its players sign in with their own
+// CourtSense account (the invite claim links it to their roster record), on the Player side
+// of the Coach / Player toggle. The retired name picker and team password never render here,
+// whatever the shell or registry config says about playerLoginEnabled.
+const HS_ACCOUNT_SIGNIN = !SC.tiersEnabled && !SC.demoMode && String((SC.dbRoots&&SC.dbRoots.matches)||'').indexOf('demo_')!==0;
 // User-facing label for the privileged role. Config-driven via SC.coachLabel, defaulting to Coach so every existing school is unchanged. Display only; the internal role string stays 'coach'.
 const COACH_LABEL = (SC && SC.coachLabel) ? SC.coachLabel : 'Coach';
 // Label for the roster leadership marker (leadership:'exec'), which grants chat
@@ -52,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.206';
+const APP_VERSION='1.1.207';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1004,11 +1006,11 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
   <div class="login-box">
     <div class="login-logo" style="flex-direction:column;align-items:center;gap:6px;">${logoHTML('cs-logo-login',LOGO_H,SC.logoAlt,'')}<span>${SC.displayName}</span></div>
     <div class="login-sub" id="login-season">${seasonLabelText(String(new Date().getFullYear()))}</div>
-    ${SC.demoMode ? '<div class="demo-creds-inline">'+COACH_LABEL+' PIN: <strong>1234</strong><span class="sep">·</span>Player password: <strong>'+SC.defaultPw+'</strong></div>' : ''}
+    ${SC.demoMode ? '<div class="demo-creds-inline">'+COACH_LABEL+' PIN: <strong>1234</strong><span class="sep"> · </span>Player password: <strong>'+SC.defaultPw+'</strong></div>' : ''}
     <!-- Door check-in prompt. Filled by tryoutLoginPrompt only when a scanned session id is
          being held; empty on every other visit and on every school shell. -->
     <div id="tryout-login-note"></div>
-    ${PLAYER_LOGIN_ON ? `
+    ${(PLAYER_LOGIN_ON||HS_ACCOUNT_SIGNIN) ? `
     <div class="login-toggle">
       <button class="login-toggle-btn active" onclick="switchLogin('coach')">${COACH_LABEL.toUpperCase()}</button>
       <button class="login-toggle-btn" onclick="switchLogin('player')">Player</button>
@@ -1052,14 +1054,11 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       </div>
       <div class="login-error" id="pin-error"></div>
       </div>
-      ${HS_ACCOUNT_SIGNIN?`
-      <!-- Players on a live high school sign in with their own CourtSense account. -->
-      <button type="button" class="login-btn" id="hs-player-signin-open" onclick="hsPlayerSigninShow()" style="margin-top:16px;background:#082A4F;">Player sign in</button>
-      `:''}
     </div>
     ${HS_ACCOUNT_SIGNIN ? `
-    <div class="login-section" id="login-hsplayer">
-      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Player Sign In</div>
+    <!-- Player side on a live high school: the CourtSense account form only. -->
+    <div class="login-section" id="login-player">
+      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Sign In With Your Email</div>
       <div id="hs-acct-block">
         <div id="hs-acct-note" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);line-height:1.5;margin:0 0 8px;">Use the email and password from your team invite.</div>
         <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="hs-login-email" placeholder="Email" autocomplete="email" autocapitalize="none" spellcheck="false">
@@ -1068,11 +1067,11 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <div class="login-error" id="hs-pw-error"></div>
         <button class="login-btn" id="hs-player-login-btn" onclick="playerLoginEmail()">Sign in</button>
         <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it</a></div>
+        <div id="hs-device-note" style="font-family:'Barlow',sans-serif;font-size:12px;color:var(--gray);text-align:center;line-height:1.4;margin-top:8px;"></div>
       </div>
-      <button type="button" onclick="hsPlayerSigninHide()" style="display:block;width:100%;background:none;border:none;color:var(--gray);font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;padding:12px 8px 0;cursor:pointer;text-decoration:underline;">${COACH_LABEL} sign in</button>
     </div>
     ` : ''}
-    ${PLAYER_LOGIN_ON ? `
+    ${(PLAYER_LOGIN_ON&&!HS_ACCOUNT_SIGNIN) ? `
     <div class="login-section" id="login-player">
       ${SC.emailLogin?`
       <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Log In With Your Email</div>
@@ -4719,7 +4718,7 @@ let _pinChecking=false;
 function switchLogin(mode){
   // With player login off there is no toggle and no player section to switch to, so a
   // stray call (the door check-in prompt makes one) is a no-op rather than a null crash.
-  if(mode!=='coach'&&!PLAYER_LOGIN_ON)return;
+  if(mode!=='coach'&&!PLAYER_LOGIN_ON&&!HS_ACCOUNT_SIGNIN)return;
   document.querySelectorAll('.login-toggle-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.login-section').forEach(s=>s.classList.remove('active'));
   const _coachBtn=document.querySelector('.login-toggle-btn:nth-child(1)');
@@ -5276,8 +5275,8 @@ async function clubAccountSession(){
   if(!aid)return null;
   const recs=(D.players||[]).filter(p=>p&&p.accountId===aid&&p.active!==false);
   // A live high school says so when the signed-in account has no roster record here. The
-  // note sits quietly under Player sign in, since a coach, parent or fan signed in to
-  // CourtSense lands on this same screen and still has the PIN pad and the fan page.
+  // note sits quietly on the Player side of the toggle, since a coach, parent or fan signed
+  // in to CourtSense lands on this same screen, Coach side first, with the fan page below.
   if(HS_ACCOUNT_SIGNIN&&recs.length===0) hsDeviceNote(hsNotOnRosterText());
   if(recs.length!==1)return null;
   const auth={role:'player',pid:recs[0].id};
@@ -5312,28 +5311,18 @@ function hsNotOnRosterText(){
 }
 function hsPlayerSigninShow(msg){
   if(!HS_ACCOUNT_SIGNIN) return;
-  var coach=document.getElementById('login-coach'), pl=document.getElementById('login-hsplayer');
-  if(!pl) return;
-  if(coach) coach.classList.remove('active');
-  pl.classList.add('active');
+  switchLogin('player');
   var err=document.getElementById('hs-pw-error'); if(err) err.textContent=msg||'';
   var em=document.getElementById('hs-login-email'); if(em) try{ em.focus(); }catch(e){}
 }
 function hsPlayerSigninHide(){
-  var coach=document.getElementById('login-coach'), pl=document.getElementById('login-hsplayer');
-  if(pl) pl.classList.remove('active');
-  if(coach) coach.classList.add('active');
+  if(!HS_ACCOUNT_SIGNIN) return;
+  switchLogin('coach');
   var err=document.getElementById('hs-pw-error'); if(err) err.textContent='';
 }
-// A quiet line under the Player sign in button (device sign-in that is not on this roster).
+// A quiet line on the Player side (a device sign-in whose account is not on this roster).
 function hsDeviceNote(text){
-  var btn=document.getElementById('hs-player-signin-open'); if(!btn) return;
-  var n=document.getElementById('hs-device-note');
-  if(!n){
-    n=document.createElement('div'); n.id='hs-device-note';
-    n.setAttribute('style','font-family:\'Barlow\',sans-serif;font-size:12px;color:var(--gray);text-align:center;line-height:1.4;margin-top:8px;');
-    btn.parentNode.insertBefore(n,btn.nextSibling);
-  }
+  var n=document.getElementById('hs-device-note'); if(!n) return;
   n.textContent=text||'';
 }
 // The device-wide CourtSense sign-in, in the shape auth.js persistSession writes, so the
