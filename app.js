@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.207';
+const APP_VERSION='1.1.208';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2040,13 +2040,14 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     <select id="ca-type" style="display:none;"><option value="gameday">Dual</option><option value="scrimmage">Scrimmage</option><option value="queens">Queens</option></select>
     <select id="ca-team" style="display:none;"><option value="mine">My Sheet</option><option value="opponent">Opponent's Sheet</option></select>
     <div id="ca-preview" style="display:none;"></div>
-    <div id="ca-result" style="margin-top:10px;"></div><div id="school-fans-overlay" style="display:none;position:fixed;inset:0;background:linear-gradient(160deg,${SC.colors.primaryDeeper} 0%,${SC.colors.primary} 50%,${SC.colors.primaryDark} 100%);z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+    <div id="ca-result" style="margin-top:10px;"></div><div id="school-fans-overlay" style="display:none;position:fixed;inset:0;background:${fanHeaderBg()};z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
   <div style="max-width:480px;margin:0 auto;padding:16px 14px 40px;">
     <div style="text-align:center;padding:24px 0 12px;">
-      <div style="margin-bottom:8px;">${logoHTML('cs-logo-fans',80,SC.logoAlt,'filter:drop-shadow(0 2px 8px rgba(0,0,0,0.4));')}</div>
+      <!-- The school logo always sits in a white circle, so any logo reads on any school color. -->
+      <div id="lf-logo-circle" style="width:104px;height:104px;margin:0 auto 10px;box-sizing:border-box;padding:12px;border-radius:50%;background:#ffffff;box-shadow:0 4px 14px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;">${logoHTML('cs-logo-fans',72,SC.logoAlt,'line-height:1;max-width:80px;object-fit:contain;')}</div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:3px;color:#fff;">${SC.schoolName}</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.65);margin-top:2px;">Beach Volleyball &middot; 2026 Season</div>
-      <div id="lf-record" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:#d4a843;margin-top:8px;"></div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.65);margin-top:2px;">Beach Volleyball &middot; <span id="lf-season">${String(new Date().getFullYear())}</span> Season</div>
+      <div id="lf-record" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:#ffffff;margin-top:8px;"></div>
       <div style="margin-top:12px;display:flex;justify-content:center;gap:8px;">
         <button onclick="hideLeonFans()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 18px;border-radius:20px;cursor:pointer;">&#x2715; Close</button>
         <button onclick="lfManualRefresh()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 14px;border-radius:20px;cursor:pointer;">&#x21BA; Refresh</button>
@@ -2057,11 +2058,11 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       </div>
     </div>
     <div id="lf-banner" style="border-radius:12px;padding:14px;margin-bottom:14px;"></div>
-    <div id="lf-today" style="display:none;background:#ffffff;border:2px solid ${SC.colors.primary};border-radius:14px;padding:14px;margin-bottom:14px;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${SC.colors.primary};margin-bottom:10px;">&#x26A1; IN PROGRESS</div>
+    <div id="lf-today" style="display:none;background:#ffffff;border:2px solid ${fanMainColor()};border-radius:14px;padding:14px;margin-bottom:14px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${fanMainColor()};margin-bottom:10px;">&#x26A1; IN PROGRESS</div>
       <div id="lf-today-courts"></div>
     </div>
-    <div id="lf-upcoming-section" style="display:none;background:#ffffff;border:1px solid #f7a8b8;border-radius:14px;margin-bottom:14px;overflow:hidden;">
+    <div id="lf-upcoming-section" style="display:none;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:14px;margin-bottom:14px;overflow:hidden;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${SC.colors.primaryDeeper};padding:12px 14px 8px;">Upcoming Games</div>
       <div id="lf-upcoming"></div>
     </div>
@@ -2070,28 +2071,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:16px 0 8px;">Roster</div>
     <div id="lf-roster"></div>
 
-    <!-- Email Opt-In -->
-    <div id="lf-email-section" style="margin-top:24px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:18px;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#fff;margin-bottom:4px;">&#x1F4E7; Stay Updated</div>
-      <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:14px;">Get notified about game results and schedule changes.</div>
-      <div id="lf-email-success" style="display:none;text-align:center;padding:10px;background:rgba(74,222,128,0.15);border-radius:8px;border:1px solid rgba(74,222,128,0.4);">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:#4ade80;">&#x2713; You&rsquo;re signed up!</div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:2px;">We&rsquo;ll keep you in the loop.</div>
-      </div>
-      <div id="lf-email-form">
-        <input type="email" id="lf-email-input" placeholder="your@email.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;font-family:'Barlow',sans-serif;font-size:14px;margin-bottom:10px;outline:none;" />
-        <div style="display:flex;gap:16px;margin-bottom:12px;">
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,0.75);cursor:pointer;">
-            <input type="checkbox" id="lf-notif-results" checked style="width:14px;height:14px;accent-color:#d4a843;"> Game Results
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,0.75);cursor:pointer;">
-            <input type="checkbox" id="lf-notif-schedule" checked style="width:14px;height:14px;accent-color:#d4a843;"> Schedule Updates
-          </label>
-        </div>
-        <button onclick="submitLeonFanEmail()" style="width:100%;padding:10px;background:#d4a843;color:${SC.colors.primaryDeeper};font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Subscribe</button>
-        <div id="lf-email-error" style="color:#f87171;font-size:12px;margin-top:6px;text-align:center;"></div>
-      </div>
-    </div>
+    <!-- Stay Updated (fan email and text alerts) is hidden until fan alerts ship. It returns
+         through the worker, which keeps fan contacts in a worker-only node. -->
   </div>
 </div>
 <div id="athlete-overlay" style="display:none;position:fixed;inset:0;background:linear-gradient(160deg,${SC.colors.primaryDeeper} 0%,${SC.colors.primary} 50%,${SC.colors.primaryDark} 100%);z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -5344,11 +5325,31 @@ function hsClearDeviceSignin(){
   try{ localStorage.removeItem('courtsenseAuth'); }catch(e){}
   try{ sessionStorage.removeItem('courtsenseAuth'); }catch(e){}
 }
+// Fan page colors. White text must read on the school's main color: at a contrast ratio below
+// 4.5 (WCAG AA), the deepest shade stands in behind white text and as the accent on white.
+function fanContrastWithWhite(hex){
+  var h=String(hex||'').replace('#','');
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) return 21;
+  var c=[0,2,4].map(function(i){ var v=parseInt(h.slice(i,i+2),16)/255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); });
+  var L=0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
+  return 1.05/(L+0.05);
+}
+function fanMainColor(){
+  var col=SC.colors||{};
+  return fanContrastWithWhite(col.primary)>=4.5?col.primary:(col.primaryDeeper||col.primary);
+}
+function fanHeaderBg(){
+  var col=SC.colors||{};
+  if(fanContrastWithWhite(col.primary)>=4.5) return 'linear-gradient(160deg,'+col.primaryDeeper+' 0%,'+col.primary+' 50%,'+col.primaryDark+' 100%)';
+  return 'linear-gradient(160deg,'+col.primaryDeeper+' 0%,'+col.primaryDeeper+' 100%)';
+}
 function seasonLabelText(id){ return String(id||new Date().getFullYear())+' Beach Volleyball Season'; }
 // The login screen's season line, from {matches}/config/currentSeasonId once it arrives.
 function updateSeasonLabel(){
   var el=document.getElementById('login-season'); if(!el) return;
   el.textContent=seasonLabelText(_activeSeason());
+  // The fan page's season line follows the same value.
+  var fan=document.getElementById('lf-season'); if(fan) fan.textContent=String(_activeSeason());
 }
 // ── Member scoring session ──────────────────────────────────────────────────
 // The signed-in member's worker session (kind 'player'), kept beside leonAuth in this tab the
@@ -22662,7 +22663,9 @@ function renderAthleteCard(pid){
 
 function renderFans(){
   var BN='font-family:"Bebas Neue",sans-serif';
-  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=SC.colors.primary,DARK_RED=SC.colors.primaryDeeper,GOLD=SC.colors.gold||'#d4a843';
+  // School colors only: the main color (or its deepest shade when white text on it would be
+  // hard to read), the deepest shade, and the school's own light background for chips.
+  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=SC.colors.primaryDeeper,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
   var today=td();
   var TIER={1:'Top',2:'Mid',3:'Dev',4:'Court 4',5:'Court 5'};
 
@@ -22712,7 +22715,7 @@ function renderFans(){
           +'<div style="'+BN+';font-size:38px;color:'+(win2?WIN_C:LOSS_C)+';">'+lW+'-'+lL+' '+(win2?'WIN':'LOSS')+'</div>'
           +(schedToday.location?'<div style="font-size:11px;color:#555;">\uD83D\uDCCD '+schedToday.location+'</div>':'')
           +'</div>';
-        bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid #f7a8b8;';
+        bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
       } else {
         bannerEl.innerHTML='<div style="display:flex;align-items:center;gap:12px;">'
           +'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#4ade80;animation:pulse 1.5s infinite;flex-shrink:0;"></span>'
@@ -22733,7 +22736,7 @@ function renderFans(){
         +'</div>'
         +'<div style="'+BN+';font-size:24px;color:'+RED+';">'+dStr+'</div>'
         +'</div>';
-      bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid #f7a8b8;';
+      bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
     } else {
       bannerEl.style.display='none';
     }
@@ -22811,8 +22814,8 @@ function renderFans(){
           scoreHtml='<div style="font-size:11px;color:#bbb;font-style:italic;">Warming up</div>';
         }
         var dot=(c.status==='live'||c.status==='live_with_history')?'<span style="display:inline-block;width:7px;height:7px;background:#e67e00;border-radius:50%;margin-right:5px;animation:pulse 1.5s infinite;"></span>':'';
-        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #fde2e8;">'
-          +'<div><span style="'+BN+';font-size:11px;background:#fde2e8;color:'+RED+';padding:2px 7px;border-radius:4px;margin-right:8px;">CT'+c.ct+'</span>'
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eeeeee;">'
+          +'<div><span style="'+BN+';font-size:11px;background:'+CHIP_BG+';color:'+RED+';padding:2px 7px;border-radius:4px;margin-right:8px;">CT'+c.ct+'</span>'
           +dot+'<span style="color:'+DARK_RED+';font-size:13px;font-weight:700;">'+c.pair+'</span></div>'
           +scoreHtml+'</div>';
       }).join('');
@@ -22831,7 +22834,7 @@ function renderFans(){
         var pts3=g.date.split('-');
         var dStr3=mon3[parseInt(pts3[1])-1]+' '+parseInt(pts3[2]);
         var loc3=g.location==='away'?'@ ':'vs ';
-        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #fde2e8;">'
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #eeeeee;">'
           +'<div><div style="'+BN+';font-size:14px;color:'+DARK_RED+';">'+loc3+g.opponent+'</div>'
           +(g.location?'<div style="font-size:11px;color:#555;">'+(g.location==='away'?'Away':'Home')+(g.time?' \xb7 '+g.time:'')+'</div>':'')
           +'</div><div style="'+BN+';font-size:16px;color:'+RED+';">'+dStr3+'</div>'
@@ -22855,20 +22858,20 @@ function renderFans(){
         var mon4=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         var pts4=d.date.split('-');var dateStr=pts4.length>=3?mon4[parseInt(pts4[1])-1]+' '+parseInt(pts4[2]):'';
         var courts3=d.courts.map(function(c){
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #fde2e8;">'
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eeeeee;">'
             +'<div style="display:flex;align-items:center;gap:8px;">'
-            +'<span style="'+BN+';font-size:10px;background:#fde2e8;color:'+RED+';padding:1px 6px;border-radius:3px;">CT'+c.ct+'</span>'
-            +'<span style="font-size:12px;color:#5a0010;">'+c.pair+'</span></div>'
+            +'<span style="'+BN+';font-size:10px;background:'+CHIP_BG+';color:'+RED+';padding:1px 6px;border-radius:3px;">CT'+c.ct+'</span>'
+            +'<span style="font-size:12px;color:'+DARK_RED+';">'+c.pair+'</span></div>'
             +'<div style="font-size:12px;font-weight:700;color:'+(c.win?WIN_C:LOSS_C)+';">'+c.sets+'</div></div>';
         }).join('');
-        return '<div style="background:#ffffff;border:1px solid #f7a8b8;border-radius:12px;margin-bottom:10px;overflow:hidden;">'
+        return '<div style="background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;margin-bottom:10px;overflow:hidden;">'
           +'<div onclick="lfToggle(\''+uid+'\')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;">'
           +'<div><span style="'+BN+';font-size:15px;color:'+DARK_RED+';">vs '+d.opp+'</span>'
           +'<span style="font-size:12px;color:#888;margin-left:8px;">'+dateStr+'</span></div>'
           +'<div style="display:flex;align-items:center;gap:10px;">'
           +'<span style="'+BN+';font-size:14px;color:'+rc+';">'+d.w+'-'+d.l+' '+(win?'WIN':'LOSS')+'</span>'
           +'<span style="color:#bbb;">\u25b8</span></div></div>'
-          +'<div id="'+uid+'_body" style="display:none;padding:10px 14px;background:#fff9f9;">'+courts3+'</div></div>';
+          +'<div id="'+uid+'_body" style="display:none;padding:10px 14px;background:#f7f7f7;">'+courts3+'</div></div>';
       }).join('');
     }
   }
@@ -22879,8 +22882,8 @@ function renderFans(){
     rostEl.innerHTML='<div style="font-size:14px;color:'+RED+';text-align:center;padding:12px;">Roster coming soon.</div>';
   }else if(rostEl){
     rostEl.innerHTML=ROSTER.map(function(p){
-      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#ffffff;border:1px solid #f7a8b8;border-radius:8px;margin-bottom:5px;">'
-        +'<span style="'+BN+';font-size:18px;color:#f7a8b8;min-width:26px;text-align:right;">'+p.jersey+'</span>'
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;margin-bottom:5px;">'
+        +'<span style="'+BN+';font-size:18px;color:'+DARK_RED+';min-width:26px;text-align:right;">'+p.jersey+'</span>'
         +'<div><div style="font-size:14px;font-weight:700;color:'+DARK_RED+';">'+p.name+'</div>'
         +'<div style="font-size:11px;color:'+RED+';">'+p.cls+'</div></div></div>';
     }).join('');
@@ -22890,32 +22893,12 @@ function renderFans(){
 // ============================================================
 // FAN PAGE EMAIL OPT-IN
 // ============================================================
+// Stay Updated is hidden until fan alerts ship. When they do, the signup goes through the
+// worker, which keeps fan emails and phone numbers in a worker-only node; nothing is written
+// from the browser to {school}_matches/fan_emails any more. Kept as a no-op so an old page
+// still open from before this release cannot write there either.
 function submitLeonFanEmail(){
-  var input=document.getElementById('lf-email-input');
-  var errEl=document.getElementById('lf-email-error');
-  var email=(input?input.value:'').trim();
-  if(!email||!email.includes('@')){
-    if(errEl)errEl.textContent='Please enter a valid email address.';
-    return;
-  }
-  if(errEl)errEl.textContent='';
-  var notifResults=document.getElementById('lf-notif-results');
-  var notifSchedule=document.getElementById('lf-notif-schedule');
-  try{
-    if(db){
-      var id='fe'+Date.now().toString(36);
-      db.ref(DB_ROOT+'/fan_emails/'+id).set({
-        email:email,
-        notifResults:notifResults?notifResults.checked:true,
-        notifSchedule:notifSchedule?notifSchedule.checked:true,
-        signedUpAt:new Date().toISOString()
-      });
-    }
-  }catch(e){console.error('Fan email save error:',e);}
-  var form=document.getElementById('lf-email-form');
-  var success=document.getElementById('lf-email-success');
-  if(form)form.style.display='none';
-  if(success)success.style.display='block';
+  return false;
 }
 
 // ============================================================
