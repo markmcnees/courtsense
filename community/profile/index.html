@@ -205,11 +205,11 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
 
   <section class="who">
     <div>
-      <div class="who-name" id="who-name">—</div>
+      <div class="who-name" id="who-name">-</div>
       <div class="who-email" id="who-email"></div>
     </div>
     <div class="rating" id="who-rating">
-      <strong>—</strong>
+      <strong>-</strong>
       <span>No rating yet</span>
     </div>
   </section>
@@ -419,7 +419,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-gender">Gender</label>
           <select class="inp" id="f-gender">
-            <option value="">— Leave unset —</option>
+            <option value="">Leave unset</option>
             <option value="M">Male</option>
             <option value="F">Female</option>
             <option value="unspecified">Prefer not to say</option>
@@ -436,7 +436,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-skill">Skill level</label>
           <select class="inp" id="f-skill">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <!-- Recreational is in the platform vocabulary auth.js validates but was
                  missing here, so a player who picked it at signup could not see their
                  own answer and any save silently moved them off it. -->
@@ -466,7 +466,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-hand">Dominant hand</label>
           <select class="inp" id="f-hand">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <option value="Left">Left</option>
             <option value="Right">Right</option>
             <option value="Ambidextrous">Ambidextrous</option>
@@ -509,7 +509,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-usual-side">Usual side</label>
           <select class="inp" id="f-usual-side">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <option value="Left">Left</option>
             <option value="Right">Right</option>
           </select>
@@ -517,7 +517,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-pref-side">Preferred side</label>
           <select class="inp" id="f-pref-side">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <option value="Left">Left</option>
             <option value="Right">Right</option>
           </select>
@@ -525,7 +525,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-usual-def">Usual defense</label>
           <select class="inp" id="f-usual-def">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <option value="Block">Block</option>
             <option value="Defend">Defend</option>
             <option value="Split">Split</option>
@@ -534,7 +534,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="fg">
           <label class="lbl" for="f-pref-def">Preferred defense</label>
           <select class="inp" id="f-pref-def">
-            <option value="">— Select —</option>
+            <option value="">Select</option>
             <option value="Block">Block</option>
             <option value="Defend">Defend</option>
             <option value="Split">Split</option>
@@ -618,7 +618,7 @@ let currentPid = null;
 // state and stops a save from downgrading an approved request.
 let currentExternal = null;
 let currentDisplayName = '';
-let myKey = ''; // nameKey(currentDisplayName); the key ratings/history/leaderboard resolve by
+let myKey = ''; // the gameplay key ratings/history/leaderboard resolve by (gameplayKeyOf)
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2400); }
@@ -672,7 +672,7 @@ function doLogout(){
 // ── NOTIFICATIONS (migrated from identity.js openProfile modal) ──────────────
 // Reads/writes the SAME flat fields on the players record the pickup settings
 // modal uses: notificationsEnabled, muteUntil (and reads blocked/blockedReason).
-// Keyed by the account id (currentPid), NOT nameKey — matching the modal, whose
+// Keyed by the account id (currentPid), NOT nameKey, matching the modal, whose
 // local identity key is pinned to player.id on pickup login. Email is deliberately
 // not edited here: post-Track-B it comes from the session and shows in the who-bar,
 // and we never write it back to the public players record. Name is not written
@@ -1031,6 +1031,13 @@ async function doChangePassword(){
 // Single implementation lives in ratings.js, which loads at the top of this
 // page. This delegates so the profile can never drift from live scoring.
 function nameKey(name){ return Ratings.nameKey(name); }
+// The account's gameplay key, the same order pickup's gameplayKey() uses: the stored
+// nameKey (every new account has one, never used by anyone before), else the name key of
+// the display name for a legacy account without one.
+function gameplayKeyOf(player, displayName){
+  const stored = player && typeof player.nameKey === 'string' ? player.nameKey.trim() : '';
+  return stored || nameKey(displayName);
+}
 
 // Volleyball Life player link -> { playerId, url }, or null when it does not
 // match. Tolerates http or https, a leading www, a trailing slash, and a query
@@ -1166,7 +1173,8 @@ function renderVbStatus(){
 
 async function loadRating(displayName){
   try {
-    const snap = await db.ref(RATINGS_PATH+'/'+nameKey(displayName)).once('value');
+    // myKey is set by onLogin before this runs: the stored nameKey when there is one.
+    const snap = await db.ref(RATINGS_PATH+'/'+(myKey || nameKey(displayName))).once('value');
     const r = snap.val();
     // Same gate as pickup and the leaderboard: a record alone is not a rating.
     if(Ratings.isRated(r)){
@@ -1202,9 +1210,10 @@ function displayNameOf(p){
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// OVERVIEW TAB — read-only stats ported verbatim from community/dashboard.
+// OVERVIEW TAB: read-only stats ported verbatim from community/dashboard.
 // Same nodes (ratings, invites, groups), same computations, same keying:
-//   - rating, history, leaderboard, games resolve by myKey = nameKey(displayName)
+//   - rating, history, leaderboard, games resolve by myKey = gameplayKeyOf(player): the
+//     account's stored nameKey, else nameKey(displayName) for a legacy account with none
 //   - profile is NOT read here (that is the Settings tab's job, by account id)
 // once('value') reads only. No code path below writes to Firebase.
 // ══════════════════════════════════════════════════════════════════════════
@@ -1860,7 +1869,7 @@ async function doPushOff(){
 async function onLogin(player){
   currentPid = player.id;
   currentDisplayName = player.displayName || displayNameOf(player);
-  myKey = nameKey(currentDisplayName);
+  myKey = gameplayKeyOf(player, currentDisplayName);
   $('who-name').textContent = displayNameOf(player);
   $('who-email').textContent = player.email || (player.emails && player.emails.primary) || '';
   $('logout-btn').style.display = 'inline-flex';

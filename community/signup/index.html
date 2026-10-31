@@ -367,6 +367,15 @@ async function doSubmit(e){
       return false;
     }
 
+    // The name was used before on CourtSense: the message goes on the name field, which
+    // is highlighted and focused so they can add a middle initial or nickname and retry.
+    if(res && res.code === 'NAME_TAKEN'){
+      setFieldErr('displayName', res.error || 'Someone has already used that name on CourtSense. Add a middle initial or nickname so your rating stays yours.');
+      $('f-displayName').focus();
+      $('f-displayName').scrollIntoView({ block:'center', behavior:'smooth' });
+      return false;
+    }
+
     const msg = (res && res.error) || 'Could not create account. Try again.';
     $('form-err').textContent = msg;
     // Surface field-specific errors when possible.

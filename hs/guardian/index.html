@@ -45,6 +45,7 @@ a.btn{text-align:center;text-decoration:none;font-weight:400;overflow-wrap:anywh
 .link-btn{background:none;border:none;color:var(--navy);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;padding:0;}
 .msg{font-size:15px;margin-top:10px;min-height:1.2em;}
 .msg.err{color:var(--red);font-weight:600;}
+input[aria-invalid=true]{border-color:var(--red);box-shadow:0 0 0 2px rgba(180,40,40,.15);}
 .hint{font-weight:700;}
 a{color:var(--navy);font-weight:600;}
 .hidden{display:none;}
@@ -133,6 +134,8 @@ footer a{margin:0 6px;text-decoration:none;}
   // Pure helpers, kept apart from the page so the pages check can run them.
   var K={
     SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT,
+    // The worker sends this with name_taken; the copy here covers a reply without it.
+    NAME_TAKEN:'Someone has already used that name on CourtSense. Add a middle initial or nickname so your rating stays yours.',
     readLink:function(search){
       var q={}; String(search||'').replace(/^\?/,'').split('&').forEach(function(kv){ var i=kv.indexOf('='); if(i>0){ try{ q[kv.slice(0,i)]=decodeURIComponent(kv.slice(i+1)); }catch(e){} } });
       var t=q.t||'', s=(q.s||'').toLowerCase();
@@ -168,6 +171,7 @@ footer a{margin:0 6px;text-decoration:none;}
       if(code==='turnstile') return 'We could not confirm you are a person. Try the check again.';
       if(code==='weak_password') return 'Your password needs 8 or more characters.';
       if(code==='bad_name') return (j&&j.error)||'Check your name.';
+      if(code==='name_taken') return (j&&j.error)||K.NAME_TAKEN;
       if(code==='unavailable'||status===503) return 'This is not available right now. Try again later.';
       return 'Something went wrong. Try again.';
     },
@@ -237,6 +241,9 @@ footer a{margin:0 6px;text-decoration:none;}
     if(code==='invalid'||code==='expired'||code==='used'){ refused(code); return false; }
     $(msgId).className='msg err'; $(msgId).textContent=K.errorText(res.j,res.status);
     if(code==='wrong_account') show('signout-row');
+    // Name already used: the boxes and the rest of the form stay as they are; the parent
+    // edits their name (a middle initial or nickname) and presses the button again.
+    if(code==='name_taken'&&$('c-first')){ $('c-first').setAttribute('aria-invalid','true'); $('c-last').setAttribute('aria-invalid','true'); $('c-first').focus(); }
     return false;
   }
 
@@ -278,6 +285,7 @@ footer a{margin:0 6px;text-decoration:none;}
     if(!boxes()){ $('create-msg').textContent='Check both boxes first.'; return; }
     var c={ firstName:$('c-first').value.trim(), lastName:$('c-last').value.trim(), password:$('c-pw').value, turnstileToken:tsToken };
     var p=K.createProblem(c); if(p){ $('create-msg').textContent=p; return; }
+    $('c-first').removeAttribute('aria-invalid'); $('c-last').removeAttribute('aria-invalid');
     $('create-btn').disabled=true; $('create-msg').className='msg'; $('create-msg').textContent='Creating your account...';
     post('/hs/guardian/confirm',K.confirmBody(link,c)).then(function(res){
       created=!!(res.j&&res.j.ok===true);

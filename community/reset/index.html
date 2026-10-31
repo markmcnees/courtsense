@@ -143,6 +143,14 @@ main{max-width:560px;margin:0 auto;padding:24px 16px 60px;}
     </div>
 
     <form class="section" id="reset-form" onsubmit="return doReset(event)" novalidate>
+      <!-- School claim only, for a new account: shown by the claim lookup. -->
+      <div class="fg" id="name-fg" style="display:none;">
+        <label class="lbl" for="f-name">Your name on CourtSense <span class="req">*</span></label>
+        <input class="inp" id="f-name" type="text" autocomplete="name" maxlength="40">
+        <div class="help">This is how you appear in games and ratings. Your team roster does not change.</div>
+        <div class="fld-err" id="err-name"></div>
+      </div>
+
       <div class="fg">
         <label class="lbl" for="f-password">New password <span class="req">*</span></label>
         <div class="pw-wrap">
@@ -197,6 +205,55 @@ let resetToken = '';
 // roster record. Absent means the pickup reset this page has always served, which is
 // left exactly as it was.
 let schoolSlug = '';
+// True once the claim page shows the name field (a new account will be made).
+let claimNameShown = false;
+const CLAIM_NAME_MAX = 40;
+const NAME_TAKEN_MESSAGE = 'Someone has already used that name on CourtSense. Add a middle initial or nickname so your rating stays yours.';
+
+// Pure helpers, exposed for the pages check.
+const ResetClaim = {
+  // The claim body: the chosen name rides along only when the name field is showing.
+  claimPayload(slug, token, pw, nameShown, name){
+    const p = { slug: slug, token: token, newPassword: pw };
+    if(nameShown) p.displayName = String(name || '').trim().replace(/\s+/g, ' ');
+    return p;
+  },
+  nameProblem(name){
+    const n = String(name || '').trim();
+    if(!n) return 'Add your name.';
+    if(n.length > CLAIM_NAME_MAX) return 'Keep your name to ' + CLAIM_NAME_MAX + ' characters.';
+    if(!/[\p{L}\p{N}]/u.test(n)) return 'Use letters and numbers in your name.';
+    return '';
+  }
+};
+window.ResetClaim = ResetClaim;
+
+function showClaimName(prefill){
+  const fg = $('name-fg'); if(!fg) return;
+  if(typeof prefill === 'string' && !$('f-name').value) $('f-name').value = prefill;
+  fg.style.display = '';
+  claimNameShown = true;
+}
+
+// A school claim asks the worker, before the player types anything, for the roster
+// name to prefill and whether a new account will be made. The token is not used up.
+// If the lookup cannot be reached the form works as before, with the roster name.
+async function claimLookup(){
+  try {
+    const r = await fetch(AUTH_WORKER + '/hs/claim/lookup', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: schoolSlug, token: resetToken })
+    });
+    const j = await r.json().catch(() => null);
+    if(j && j.code === 'invalid_token'){
+      showInvalid('This reset link is invalid or has expired', "This reset link is invalid or has expired. Request a new one to set your password.");
+      return;
+    }
+    if(j && j.ok === true && j.newAccount === true){
+      showClaimName(typeof j.displayName === 'string' ? j.displayName : '');
+    }
+  } catch(e){ /* keep the plain form */ }
+}
 
 const $ = id => document.getElementById(id);
 
@@ -265,6 +322,7 @@ function init(){
   // so we show the consume form directly rather than peeking at the single-use token.
   showState('form');
   setTimeout(() => { try { $('f-password').focus(); } catch(e){} }, 0);
+  if(schoolSlug) claimLookup();
 }
 
 function setErr(field, msg){
@@ -275,8 +333,12 @@ function setErr(field, msg){
 
 async function doReset(e){
   if(e) e.preventDefault();
-  setErr('password',''); setErr('confirm',''); $('form-err').textContent = '';
+  setErr('password',''); setErr('confirm',''); setErr('name',''); $('form-err').textContent = '';
 
+  if(schoolSlug && claimNameShown){
+    const np = ResetClaim.nameProblem($('f-name').value);
+    if(np){ setErr('name', np); $('f-name').focus(); return false; }
+  }
   const pw = $('f-password').value;
   const cf = $('f-confirm').value;
   if(!pw || pw.length < 8){ setErr('password','Password must be at least 8 characters.'); $('f-password').focus(); return false; }
@@ -299,7 +361,7 @@ async function doReset(e){
     const isSchoolClaim = !!schoolSlug;
     const endpoint = isSchoolClaim ? '/hs/claim' : '/auth/reset-consume';
     const payload = isSchoolClaim
-      ? { slug: schoolSlug, token: resetToken, newPassword: pw }
+      ? ResetClaim.claimPayload(schoolSlug, resetToken, pw, claimNameShown, $('f-name').value)
       : { rosterPath: ROSTER_PATH, token: resetToken, newPassword: pw };
     try {
       const r = await fetch(AUTH_WORKER + endpoint, {
@@ -329,6 +391,13 @@ async function doReset(e){
       return false;
     }
     const code = res && res.code;
+    // The name is already used (or not usable): the player edits it and tries again.
+    if(isSchoolClaim && (code === 'name_taken' || code === 'bad_name')){
+      showClaimName();
+      setErr('name', (res && res.error) || (code === 'name_taken' ? NAME_TAKEN_MESSAGE : 'Check your name.'));
+      $('f-name').focus();
+      return false;
+    }
     if(code === 'invalid_token'){
       showInvalid('This reset link is invalid or has expired', "This reset link is invalid or has expired. Request a new one to set your password.");
       return false;

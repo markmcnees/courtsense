@@ -576,6 +576,18 @@ function setFieldErr(id, msg){
   if(el){ el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
   if(inp){ inp.style.borderColor = msg ? 'var(--garnet)' : ''; }
 }
+// A createPlayer refusal because the name was used before (an older worker said
+// "already taken" without the code).
+const NAME_TAKEN_MESSAGE = 'Someone has already used that name on CourtSense. Add a middle initial or nickname so your rating stays yours.';
+function nameTakenResult(res){
+  return !!res && (res.code === 'NAME_TAKEN' || /already taken/i.test(res.error || ''));
+}
+function showNameTaken(res){
+  const msg = (res && res.code === 'NAME_TAKEN' && res.error) || NAME_TAKEN_MESSAGE;
+  setFieldErr('first', msg);
+  const last = $('last'); if(last) last.style.borderColor = 'var(--garnet)';
+  const first = $('first'); if(first) first.focus();
+}
 function clearErrors(){
   ['email','pw','first','last','gender','cell','ecphone','adult'].forEach(f => setFieldErr(f, ''));
   const fe = $('form-err'); if(fe){ fe.textContent = ''; }
@@ -1093,8 +1105,10 @@ async function doJoin(){
           // takes the existing-account branch.
           lookedUpEmail = ''; await lookupAccount(email);
           if($('form-err')) $('form-err').textContent = 'It looks like you already have an account. Enter your existing password and submit again.';
-        } else if(/already taken/i.test((res && res.error) || '')){
-          if($('form-err')) $('form-err').textContent = 'It looks like someone with that name already has a CourtSense account. Please contact the FSU Grass exec team so we can get you set up without creating a duplicate.';
+        } else if(nameTakenResult(res)){
+          // The name was used before on CourtSense. Show the worker's message on the
+          // name fields; the member adds a middle initial or nickname and submits again.
+          showNameTaken(res);
         } else {
           const msg = (res && res.error) || 'Could not create your account. Try again.';
           if($('form-err')) $('form-err').textContent = msg;

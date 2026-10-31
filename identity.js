@@ -289,7 +289,17 @@
         };
         if(db){
           try {
-            await db.ref('tally_kotb_pickup/players/'+identity.key).update(updates);
+            // Save only onto an account that exists. An update() on a missing key would
+            // create a new record there (and could revive a deleted account's key), so a
+            // missing record is refused and logged, and nothing is written.
+            const ref = db.ref('tally_kotb_pickup/players/'+identity.key);
+            const cur = await ref.once('value');
+            if(!cur.exists()){
+              console.warn('Identity: no account record for this identity; profile not saved.');
+              alert("We couldn't find your account to save this. Sign in and try again.");
+              return;
+            }
+            await ref.update(updates);
           } catch(e){
             console.error(e);
             alert("Couldn't save profile, try again.");

@@ -719,6 +719,9 @@
     persistSession(res.playerId, o.keepSignedIn !== false, email, sessionFrom(res));
     const dn = (String(o.firstName || '').trim() + ' ' + String(o.lastName || '').trim()).trim();
     _currentPlayer = { id: res.playerId, displayName: dn, name: dn, profileIncomplete: true };
+    // The gameplay key (pickup RSVPs, ratings) the worker stored, so this first session
+    // keys by it and not by the display name. Older workers send none: nothing changes.
+    if(typeof res.nameKey === 'string' && res.nameKey) _currentPlayer.nameKey = res.nameKey;
     return { ok:true, playerId: res.playerId, sessionToken: res.sessionToken || '' };
   }
 
@@ -804,7 +807,9 @@
         return { ok:false, code:'EMAIL_EXISTS', error:'It looks like you already have an account. Head to the join page to claim it or log in.' };
       }
       if(code === 'name_taken'){
-        return { ok:false, error:'Display name already taken. Try a variation.' };
+        // The worker words it ("add a middle initial or nickname"); the page shows it and
+        // the person edits the name and tries again. Older workers send their own line.
+        return { ok:false, code:'NAME_TAKEN', error:(reg && reg.error) || 'Display name already taken. Try a variation.' };
       }
       // Validation, rate limit, and bad-name refusals carry a message meant for the
       // person; anything else gets the generic retry line.
@@ -828,6 +833,9 @@
       createdAt: now,
       updatedAt: now
     };
+    // The gameplay key (pickup RSVPs, ratings) the worker stored, so this first session
+    // keys by it and not by the display name. Older workers send none: nothing changes.
+    if(typeof reg.nameKey === 'string' && reg.nameKey) playerRecord.nameKey = reg.nameKey;
 
     // Set session so the new account is immediately logged in. keepSignedIn
     // defaults to false to preserve prior behavior for callers that omit it;
