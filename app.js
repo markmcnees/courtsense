@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.213';
+const APP_VERSION='1.1.214';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1692,10 +1692,10 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <div id="hs-parent-skills-status" style="font-size:13px;margin-top:6px;color:var(--gray);"></div>
     </div>`:''}
     <div class="card">
-      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:var(--gray);margin-bottom:8px;">Coming with parent accounts</div>
+      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:var(--gray);margin-bottom:8px;">Coming next</div>
       <div style="opacity:0.7;border:1px dashed var(--gray-lighter);border-radius:10px;padding:12px 14px;background:var(--off-white,#faf8f9);">
         <div style="font-size:13px;font-weight:700;color:var(--charcoal);margin-bottom:4px;">Two-way team chat with parent visibility</div>
-        <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:0;">A team message space that parents can see is on the way this fall, built on top of parent accounts so families are looped in from the start. We are getting the parent side right first.</p>
+        <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:0;">A team message space parents can see is on the way, built on the parent accounts that are now live.</p>
       </div>
     </div>
   </div>`}
