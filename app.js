@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.212';
+const APP_VERSION='1.1.213';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2913,6 +2913,10 @@ function listenData(){if(!db)return;
     if(currentRole==='player')renderPlayerBroadcasts();
     if(currentRole==='coach'){const t=document.querySelector('.tab.active');if(t&&t.dataset.tab==='communicate')renderHsBroadcastList();}
   });
+  // Club-only nodes (threads, tryouts, dues, practice schedule, travel, standing, pinned). A live
+  // high school has no screen that reads any of them, so it never subscribes. Every other app
+  // (club, FSU Grass, demo, pitch) attaches exactly the listeners it always did.
+  if(!HS_ACCOUNT_SIGNIN){
   // Exec/member two-way messaging threads (club only). Re-render whichever view is showing.
   db.ref(DB_ROOT+'/threads').on('value',s=>{
     D.threads=s.val()||{};
@@ -2991,6 +2995,7 @@ function listenData(){if(!db)return;
     if(currentRole==='player'){ if(typeof renderPlayerPinned==='function')renderPlayerPinned(); }
     if(currentRole==='coach'){ const t=document.querySelector('.tab.active'); if(t&&t.dataset.tab==='broadcast'&&typeof renderExecBroadcast==='function')renderExecBroadcast(); }
   });
+  } // end club-only listeners
   db.ref(SC.dbRoots.profiles).on('value',s=>{
     profilesData=s.val()||{};
     // Re-render player portal if active (to update rankings with skills/drills/verts)
