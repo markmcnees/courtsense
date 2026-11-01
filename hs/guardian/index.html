@@ -64,6 +64,8 @@ footer a{margin:0 6px;text-decoration:none;}
   <div id="refused" class="card hidden">
     <h2 id="refused-title">This link isn't working</h2>
     <p id="refused-text"></p>
+    <button type="button" class="btn hidden" id="refresh-btn">Email me a fresh link</button>
+    <p class="msg hidden" id="refresh-msg" role="status" aria-live="polite"></p>
     <a class="btn hidden" id="refused-team" href="https://courtsense.app/">Go to your team</a>
     <a class="btn hidden" id="refused-home" href="https://courtsense.app/">Home</a>
   </div>
@@ -143,7 +145,7 @@ footer a{margin:0 6px;text-decoration:none;}
     },
     REFUSED:{
       invalid:['This link isn\'t working','This link isn\'t valid. Ask your player\'s coach for a new sign-up link.'],
-      expired:['This link has expired','Confirm links last 7 days. Ask your player to sign up again and we\'ll send a new one.'],
+      expired:['This link has expired','Links last 7 days. We can email you a fresh one.'],
       used:['Already confirmed','This link was already used, so you are all set. Thank you.']
     },
     title:function(info){ return 'Confirm '+info.playerFirstName+' for '+(info.schoolName||'your school')+' beach volleyball'; },
@@ -183,6 +185,8 @@ footer a{margin:0 6px;text-decoration:none;}
     },
     // The school's app, or the homepage when the slug is not usable.
     teamUrl:function(slug){ return slug&&slug.length<=80&&SLUG_RE.test(slug)?'https://courtsense.app/'+slug+'/?signin=parent':'https://courtsense.app/'; },
+    // Shown after an Email me a fresh link tap, whatever the answer, so it reveals nothing.
+    REFRESH_SENT:'If this link is still waiting to be confirmed, a fresh one is on its way to the email we have on file. Check your inbox in a few minutes.',
     teamLabel:function(name){ var n=String(name||'').trim(); return n?'Go to '+n+' beach volleyball':'Go to your team'; }
   };
   window.HsGuardian=K;
@@ -210,14 +214,22 @@ footer a{margin:0 6px;text-decoration:none;}
   }
   function refused(code){
     var m=K.REFUSED[code]||K.REFUSED.invalid;
-    hide('loading'); hide('main'); hide('busy'); hide('refused-team'); hide('refused-home');
+    hide('loading'); hide('main'); hide('busy'); hide('refused-team'); hide('refused-home'); hide('refresh-btn'); hide('refresh-msg');
     $('refused-title').textContent=m[0]; $('refused-text').textContent=m[1]; show('refused');
+    if(code==='expired'&&link) show('refresh-btn');
     if(code==='used'&&link) teamFromRegistry(); else show('refused-home');
   }
   function couldNotLoad(){
     hide('loading'); hide('main'); hide('busy'); hide('refused-team');
     $('refused-title').textContent='Could not load'; $('refused-text').textContent='Could not reach CourtSense. Check your connection and reload the link from your email.';
     show('refused-home'); show('refused');
+  }
+  // Email me a fresh link: one tap, then the same message whatever comes back.
+  function askRefresh(){
+    var b=$('refresh-btn'); if(b.disabled) return;
+    b.disabled=true; hide('refresh-btn');
+    var said=function(){ $('refresh-msg').textContent=K.REFRESH_SENT; show('refresh-msg'); };
+    post('/hs/guardian/refresh',{ t:link.t, s:link.s }).then(said,said);
   }
   function busy(){ hide('loading'); hide('main'); hide('refused'); $('busy-retry').disabled=false; show('busy'); }
 
@@ -318,6 +330,7 @@ footer a{margin:0 6px;text-decoration:none;}
     }).catch(couldNotLoad);
   }
   $('busy-retry').addEventListener('click',function(){ $('busy-retry').disabled=true; lookup(); });
+  $('refresh-btn').addEventListener('click',askRefresh);
   lookup();
 })();
 </script>
