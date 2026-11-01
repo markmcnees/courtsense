@@ -9,8 +9,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 :root{
   --navy:#1a3a6b;--navy-deep:#0f2347;--gold:#d4a843;--gold-deep:#b8902f;
@@ -96,27 +94,10 @@ main{max-width:760px;margin:0 auto;padding:24px 16px 60px;}
 </main>
 
 <script>
-// READ-ONLY feedback viewer. Reads courtsense_leads once and filters to type === 'feedback'.
+// READ-ONLY feedback viewer. The worker (POST /admin/feedback) reads the feedback records
+// server side and returns them only for the admin key; this page never reads Firebase.
 // No writes anywhere. The admin key gate mirrors admin-ratings / admin-players.
-const FB_CFG = {
-  apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
-  authDomain: "leon-beach-volleyball.firebaseapp.com",
-  databaseURL: "https://leon-beach-volleyball-default-rtdb.firebaseio.com",
-  projectId: "leon-beach-volleyball",
-  storageBucket: "leon-beach-volleyball.firebasestorage.app",
-  messagingSenderId: "937804799976",
-  appId: "1:937804799976:web:02121e68655b4febeb8e5d"
-};
-
-let db = null;
 const $ = id => document.getElementById(id);
-
-function initFB(){
-  try{
-    if(!firebase.apps.length) firebase.initializeApp(FB_CFG);
-    db = firebase.database();
-  }catch(e){ console.error(e); }
-}
 
 function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
@@ -196,50 +177,66 @@ function akOpen(key){
   $('pin-err').textContent = '';
   $('gate').style.display = 'none';
   $('content').style.display = 'block';
-  loadFeedback();
+  loadFeedback(key);
 }
 
-function loadFeedback(){
-  if(!db){ $('list').innerHTML = '<div class="empty">Could not connect. Refresh and try again.</div>'; return; }
+function feedbackFailed(){
+  $('count').textContent = '';
+  $('list').innerHTML = '<div class="empty">Could not load feedback right now. Refresh and try again.</div>';
+}
+
+// READ-ONLY: one call to the worker, which answers only for the admin key. A 401 means
+// the key stopped working (rotated), so the key is cleared and the gate comes back.
+async function loadFeedback(key){
   $('count').textContent = 'Loading...';
-  // READ-ONLY: single read of courtsense_leads.
-  db.ref('courtsense_leads').once('value').then(function(snap){
-    const all = snap.val() || {};
-    const items = Object.keys(all)
-      .map(k => all[k])
-      .filter(x => x && x.type === 'feedback')
-      .sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
-
-    if(!items.length){
-      $('count').textContent = '';
-      $('list').innerHTML = '<div class="empty">No feedback yet.</div>';
-      return;
-    }
-
-    $('count').textContent = items.length + (items.length === 1 ? ' submission' : ' submissions');
-    $('list').innerHTML = items.map(function(it){
-      const t = (it.feedbackType === 'Issue' || it.feedbackType === 'Idea') ? it.feedbackType : 'Other';
-      const name = esc(it.name || 'Anonymous');
-      const email = esc(it.email || '');
-      const who = email ? (name + ' &lt;<a href="mailto:' + email + '">' + email + '</a>&gt;') : name;
-      return '<div class="fb">' +
-          '<div class="fb-top">' +
-            '<span class="fb-type ' + typeClass(t) + '">' + esc(t) + '</span>' +
-            '<span class="fb-date">' + esc(fmtDateTime(Number(it.createdAt))) + '</span>' +
-          '</div>' +
-          '<div class="fb-who">' + who + '</div>' +
-          '<div class="fb-msg">' + esc(it.message || '') + '</div>' +
-        '</div>';
-    }).join('');
-  }).catch(function(err){
-    console.warn('feedback read failed', err);
+  $('list').innerHTML = '';
+  let r, res;
+  try{
+    r = await fetch(AK_WORKER + '/admin/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminKey: key })
+    });
+  }catch(e){ feedbackFailed(); return; }
+  if(r.status === 401){
+    akForget();
     $('count').textContent = '';
-    $('list').innerHTML = '<div class="empty">Could not load feedback right now. Refresh and try again.</div>';
-  });
+    $('content').style.display = 'none';
+    $('gate').style.display = '';
+    $('pin-err').textContent = 'The saved admin key was rejected. Enter the current key.';
+    return;
+  }
+  if(r.status !== 200){ feedbackFailed(); return; }
+  try{ res = await r.json(); }catch(e){ feedbackFailed(); return; }
+  if(!res || res.ok !== true || !Array.isArray(res.items)){ feedbackFailed(); return; }
+  const items = res.items.filter(x => x && typeof x === 'object');
+
+  if(!items.length){
+    $('count').textContent = '';
+    $('list').innerHTML = '<div class="empty">No feedback yet.</div>';
+    return;
+  }
+
+  const total = Number(res.total) || items.length;
+  $('count').textContent = total > items.length
+    ? ('Newest ' + items.length + ' of ' + total + ' submissions')
+    : (items.length + (items.length === 1 ? ' submission' : ' submissions'));
+  $('list').innerHTML = items.map(function(it){
+    const t = (it.feedbackType === 'Issue' || it.feedbackType === 'Idea') ? it.feedbackType : 'Other';
+    const name = esc(it.name || 'Anonymous');
+    const email = esc(it.email || '');
+    const who = email ? (name + ' &lt;<a href="mailto:' + email + '">' + email + '</a>&gt;') : name;
+    return '<div class="fb">' +
+        '<div class="fb-top">' +
+          '<span class="fb-type ' + typeClass(t) + '">' + esc(t) + '</span>' +
+          '<span class="fb-date">' + esc(fmtDateTime(it.createdAt)) + '</span>' +
+        '</div>' +
+        '<div class="fb-who">' + who + '</div>' +
+        '<div class="fb-msg">' + esc(it.message || '') + '</div>' +
+      '</div>';
+  }).join('');
 }
 
 document.addEventListener('DOMContentLoaded', function(){
-  initFB();
   $('pin-input').focus();
   akAutoUnlock();
 });
