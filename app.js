@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.214';
+const APP_VERSION='1.1.215';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -1690,6 +1690,13 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <label style="display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-size:14px;color:var(--charcoal);font-weight:600;"><input type="checkbox" id="hs-parent-skills" onchange="hsSetParentSkills(this.checked)" style="width:20px;height:20px;"> Show skills check to parents</label>
       <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:4px 0 0;">Off unless you turn it on. When on, a parent sees only their own player's skills check, jump and drill numbers.</p>
       <div id="hs-parent-skills-status" style="font-size:13px;margin-top:6px;color:var(--gray);"></div>
+    </div>
+    <div class="card" id="hs-notice-card">
+      <div class="card-title"><span class="bar"></span> Coach email for CourtSense notices</div>
+      <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:0 0 10px;">Lineup reminders and reveal notices go here. Only coaches see this.</p>
+      <input type="email" class="form-input" id="hs-notice-email" placeholder="coach@school.org" maxlength="200" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" style="min-height:44px;margin-bottom:8px;width:100%;box-sizing:border-box;">
+      <button class="btn btn-small" id="hs-notice-save" style="min-height:44px;padding:10px 18px;background:#082A4F;color:#fff;border:none;" onclick="hsNoticeSave()">Save</button>
+      <div id="hs-notice-status" style="font-size:13px;margin-top:8px;"></div>
     </div>`:''}
     <div class="card">
       <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:var(--gray);margin-bottom:8px;">Coming next</div>
@@ -2269,183 +2276,258 @@ async function aiCheck(response){
 const FB_CONFIG=SC.fbConfig;
 const DB_ROOT=SC.dbRoots.matches;
 
-// ── SHARED LINEUP — school name → Firebase key map ─────────────────────────
+// ── SHARED LINEUP: school name to Firebase key map ─────────────────────────
 // Loaded from Firebase (school_key_map) at runtime by listenData and merged over the
-// entries below. Those entries are a static fallback so the existing schools keep
-// working if the Firebase read is slow, empty, or fails. New schools are added to the
-// Firebase node and need no code deploy.
+// entries below, a static fallback for the first two schools. The app only uses it to
+// decide whether an opponent may be on CourtSense; the worker does the real resolution.
 let SCHOOL_KEY_MAP={
   'Leon':'leon_queens_matches',
   'Leon Beach':'leon_queens_matches',
   'South Walton':'south_walton_matches',
   'SW Beach':'south_walton_matches'
 };
-const MY_SCHOOL_KEY=DB_ROOT; // e.g. 'leon_queens_matches'
 
-function getSharedLineupKey(date, oppScheduleName){
-  const oppKey=SCHOOL_KEY_MAP[oppScheduleName];
-  if(!oppKey)return null; // opponent not on platform
-  const keys=[MY_SCHOOL_KEY, oppKey].sort();
-  return 'shared_lineups/'+date.replace(/-/g,'')+'_'+keys[0].replace('_matches','')+'_'+keys[1].replace('_matches','');
-}
-
-function getMyLineupSubKey(){
-  return MY_SCHOOL_KEY.replace('_matches','');
-}
-
-function getOppLineupSubKey(oppScheduleName){
-  const oppKey=SCHOOL_KEY_MAP[oppScheduleName];
-  if(!oppKey)return null;
-  return oppKey.replace('_matches','');
-}
-
-// ── Shared lineup Firebase listeners (per loaded assignment) ─────────────────
-let _sharedLineupListener=null;
-let _sharedLineupRef=null;
-
-function listenSharedLineup(date, oppName){
-  // Detach previous listener
-  if(_sharedLineupRef&&_sharedLineupListener){
-    _sharedLineupRef.off('value',_sharedLineupListener);
-    _sharedLineupRef=null; _sharedLineupListener=null;
-  }
-  const sharedKey=getSharedLineupKey(date, oppName);
-  if(!sharedKey||!db)return;
-  _sharedLineupRef=db.ref(sharedKey);
-  _sharedLineupListener=_sharedLineupRef.on('value',snap=>{
-    const val=snap.val()||{};
-    const oppSubKey=getOppLineupSubKey(oppName);
-    const mySubKey=getMyLineupSubKey();
-    // Only reveal opponent lineup once BOTH schools have posted (released)
-    const bothReleased=oppSubKey&&val[oppSubKey]&&val[oppSubKey].released&&val[mySubKey]&&val[mySubKey].released;
-    if(bothReleased){
-      const oppCourts=val[oppSubKey].courts||{};
-      const a=window._loadedAssignment;
-      if(a){
-        // Build oppLineup array from their courts object
-        const oppLineup=Object.entries(oppCourts).map(([ct,c])=>({
-          court:parseInt(ct),
-          player1:c.p1||'',
-          player2:c.p2||'',
-          jersey1:c.j1||'',
-          jersey2:c.j2||''
-        }));
-        if(!a.oppLineup||JSON.stringify(a.oppLineup)!==JSON.stringify(oppLineup)){
-          a.oppLineup=oppLineup;
-          // Re-render live scoring to show opponent names
-          const container=document.getElementById('live-courts-container');
-          if(container&&a.date)renderLiveScoring(a.date,a);
-          toast('Both lineups posted - opponent lineup now visible ✓');
-        }
-      }
-    } else {
-      // Clear opponent lineup from UI if mutual reveal not met
-      const a=window._loadedAssignment;
-      if(a&&a.oppLineup){
-        a.oppLineup=null;
-        const container=document.getElementById('live-courts-container');
-        if(container&&a.date)renderLiveScoring(a.date,a);
-      }
-    }
-    // Store draft status for UI
-    window._myLineupDraft=val[mySubKey]||null;
-    renderSharedLineupPanel(date, oppName, val);
-    renderDualSheet(date, oppName, val);
+// ── HS shared lineups (live high schools, HS_ACCOUNT_SIGNIN) ─────────────────
+// A private simultaneous reveal through the worker (POST /lineup/get and /lineup/submit
+// with the coach session). The browser never reads or writes shared_lineups. Neither
+// coach sees the other's lineup until both have posted; then both are revealed and
+// locked. Live court opponent names and the dual sheet use the revealed courts only (or a
+// sheet scanned on this device this session, which is never saved to the team's data).
+// Club, FSU Grass, the demo and the pitch never reach any of this.
+let _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:''};
+let _lineupPrompt=null, _lineupPromptBusy=false;
+let _scannedOppLineup={};
+const LINEUP_POLL_MS=45000;
+const LINEUP_ERR={
+  locked:'Lineups are revealed and locked.',
+  not_on_roster:"A player in this lineup isn't on your roster.",
+  unknown_opponent:"That opponent isn't on CourtSense, so lineups can't be swapped.",
+  not_available:"Lineup swap isn't available for this team."
+};
+function lineupEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function lineupErrMsg(code){ return Object.prototype.hasOwnProperty.call(LINEUP_ERR,code)?LINEUP_ERR[code]:"Couldn't save right now. Try again."; }
+function lineupMaps(opp){ return !!(opp&&Object.prototype.hasOwnProperty.call(SCHOOL_KEY_MAP,opp)); }
+// The courts to send: court 1 to 8, one entry per court, pids only. The worker adds names.
+function lineupCourtsFrom(courts){
+  const out=[], seen={};
+  (courts||[]).forEach(c=>{
+    const n=parseInt(c&&c.court,10);
+    if(!(n>=1&&n<=8)||c.subCourt||seen[n]||(!c.p1&&!c.p2))return;
+    seen[n]=1; out.push({court:n,pid1:c.p1||'',pid2:c.p2||''});
   });
+  return out;
 }
-
-function renderSharedLineupPanel(date, oppName, sharedVal){
+// One worker call with the coach session. Resolves the answer only when it is a 200 with
+// ok:true; anything else is { ok:false, code }.
+async function lineupCall(path, body){
+  let s=null; try{s=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
+  if(!s||!s.token)return {ok:false,code:'forbidden'};
+  try{
+    const r=await fetch(AUTH_WORKER+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({token:s.token,dbRoot:DB_ROOT},body))});
+    const j=await r.json().catch(()=>null);
+    if(r.status===200&&j&&j.ok===true)return j;
+    return {ok:false,code:(j&&typeof j.code==='string')?j.code:'server_error'};
+  }catch(e){ return {ok:false,code:'network'}; }
+}
+function lineupStop(){ if(_lineup.timer)clearInterval(_lineup.timer); _lineup.timer=null; }
+function lineupViewOpen(){ const t=document.getElementById('tab-duals'); return !!(t&&t.classList.contains('active')); }
+// On Load of an assignment: check the lineup for a dual against a mapped opponent.
+function lineupStart(a){
+  lineupStop();
+  _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:''};
+  if(HS_ACCOUNT_SIGNIN&&a&&(!a.type||a.type==='gameday')&&String(a.opponent||'').trim()&&/^\d{4}-\d{2}-\d{2}$/.test(a.date||'')){
+    _lineup.aid=a.id; _lineup.date=a.date; _lineup.opp=a.opponent;
+  }
+  lineupRender();
+  if(_lineup.aid)lineupRefresh();
+}
+async function lineupRefresh(){
+  const aid=_lineup.aid; if(!aid)return;
+  const was=!!(_lineup.state&&_lineup.state.revealed);
+  const j=await lineupCall('/lineup/get',{opponent:_lineup.opp,date:_lineup.date});
+  if(_lineup.aid!==aid)return;
+  if(j.ok){ _lineup.state=j; _lineup.err=null; }
+  else{
+    _lineup.err=j.code;
+    // Not a CourtSense opponent (or no swap for this team): hide the panel quietly; scoring is unchanged.
+    if(j.code==='unknown_opponent'||j.code==='not_available'){ lineupStop(); _lineup.aid=null; lineupRender(); return; }
+    if(j.code==='forbidden'){ lineupStop(); lineupRender(); return; }
+  }
+  lineupRender();
+  if(_lineup.state&&_lineup.state.revealed){ lineupStop(); if(!was)lineupRevealed(); return; }
+  if(!_lineup.timer)_lineup.timer=setInterval(lineupTick,LINEUP_POLL_MS);
+}
+// Every 45 seconds while the Duals view is open and the lineups are not yet revealed.
+function lineupTick(){ if(!_lineup.aid||!lineupViewOpen()){ lineupStop(); return; } lineupRefresh(); }
+// Updates only the opponent name on each court card already on screen. Never re-renders the
+// cards, so a score being typed is left alone.
+function lineupRevealed(){
+  const a=window._loadedAssignment;
+  if(!a||a.id!==_lineup.aid)return;
+  (a.courts||[]).forEach((c,idx)=>{ const el=document.getElementById('lc-opp-'+idx); if(el&&c)el.innerHTML='vs '+liveOppLabel(a,c); });
+}
+async function lineupPost(release){
+  if(_lineup.busy||!_lineup.aid)return;
+  const a=Object.values((D&&D.assignments)||{}).find(x=>x&&x.id===_lineup.aid)||window._loadedAssignment;
+  const courts=lineupCourtsFrom(a&&a.courts);
+  if(!courts.length){ _lineup.msg='Add players to at least one court first.'; lineupRender(); return; }
+  _lineup.busy=true; _lineup.msg=''; lineupRender();
+  const aid=_lineup.aid, was=!!(_lineup.state&&_lineup.state.revealed);
+  const j=await lineupCall('/lineup/submit',{opponent:_lineup.opp,date:_lineup.date,courts,release:!!release});
+  _lineup.busy=false;
+  if(_lineup.aid!==aid)return;
+  if(j.ok){
+    _lineup.state=j; _lineup.err=null;
+    toast(release?'Lineup posted ✓':'Draft saved ✓');
+    lineupRender();
+    if(j.revealed){ lineupStop(); if(!was)lineupRevealed(); }
+    else if(!_lineup.timer)_lineup.timer=setInterval(lineupTick,LINEUP_POLL_MS);
+    return;
+  }
+  _lineup.msg=lineupErrMsg(j.code);
+  lineupRender();
+  if(j.code==='locked')lineupRefresh();
+}
+// The opponent's courts for a live court card: the revealed lineup for the loaded dual, or
+// a sheet scanned on this device this session. Never anything stored on the assignment.
+function lineupOppCourts(a){
+  if(!a)return [];
+  const st=_lineup.state;
+  if(_lineup.aid===a.id&&st&&st.revealed&&st.opponent)return (st.opponent.courts||[]).map(c=>({court:c.court,player1:c.name1||'',player2:c.name2||''}));
+  return _scannedOppLineup[a.date]||[];
+}
+// The "vs ..." label on a live court card, escaped.
+function liveOppLabel(a,c){
+  let opp=a.opponent?a.opponent+' CT'+c.court:'Opponent CT'+c.court;
+  const oc=lineupOppCourts(a).find(ol=>ol&&ol.court===c.court);
+  if(oc&&(oc.player1||oc.player2)){
+    const p1=(oc.player1||'')+(oc.jersey1?' #'+oc.jersey1:''), p2=(oc.player2||'')+(oc.jersey2?' #'+oc.jersey2:'');
+    opp=[p1,p2].filter(Boolean).join(' & ');
+  }
+  return lineupEsc(opp);
+}
+function lineupNames(courts){
+  const m={};
+  (courts||[]).forEach(c=>{ if(c&&c.court)m[c.court]=[c.name1,c.name2].filter(Boolean).join(' & '); });
+  return m;
+}
+function lineupBtn(fn,label,bg){
+  return `<button class="btn btn-small" style="min-height:44px;padding:10px 14px;background:${bg};color:#fff;border:none;max-width:100%;white-space:normal;" onclick="${fn}"${_lineup.busy?' disabled':''}>${label}</button>`;
+}
+function lineupRender(){
   const el=document.getElementById('shared-lineup-panel');
   if(!el)return;
-  const sharedKey=getSharedLineupKey(date, oppName);
-  if(!sharedKey){
-    el.style.display='none';return;
-  }
+  if(!HS_ACCOUNT_SIGNIN||!_lineup.aid){ el.style.display='none'; el.innerHTML=''; renderDualSheet(); return; }
   el.style.display='block';
-  const mySubKey=getMyLineupSubKey();
-  const oppSubKey=getOppLineupSubKey(oppName);
-  const myData=sharedVal[mySubKey]||null;
-  const oppData=oppSubKey?sharedVal[oppSubKey]:null;
-  const myReleased=myData&&myData.released;
-  const oppReleased=oppData&&oppData.released;
-  const bothReleased=myReleased&&oppReleased;
-
-  let h=`<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;color:var(--blue);margin-bottom:10px;">📋 SHARED LINEUP — vs ${oppName}</div>`;
-
-  // My status
-  h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">`;
-  if(!myData){
-    h+=`<span style="font-size:12px;color:var(--gray);">Your lineup: not posted</span>
-    <button class="btn btn-primary btn-small" onclick="saveLineupDraft('${date}','${oppName}')">💾 Save Draft</button>`;
-  } else if(!myReleased){
-    h+=`<span style="font-size:12px;color:var(--gold);font-weight:700;">✓ Draft saved</span>
-    <button class="btn btn-primary btn-small" onclick="saveLineupDraft('${date}','${oppName}')">↺ Update Draft</button>
-    <button class="btn btn-small" style="background:var(--green);color:#fff;border:none;" onclick="releaseLineup('${date}','${oppName}')">🚀 Release to ${oppName}</button>`;
-  } else {
-    h+=`<span style="font-size:12px;color:var(--green);font-weight:700;">✓ Lineup posted</span>
-    <button class="btn btn-secondary btn-small" onclick="saveLineupDraft('${date}','${oppName}')">↺ Update</button>`;
-  }
-  h+=`</div>`;
-
-  // Mutual reveal status indicator
-  if(oppSubKey){
-    if(bothReleased){
-      h+=`<div style="font-size:12px;color:var(--green);padding:6px 10px;margin-bottom:6px;background:#ecfdf5;border-radius:6px;font-weight:700;">✓ Both lineups posted - opponent lineup available</div>`;
-    } else if(myReleased&&!oppReleased){
-      h+=`<div style="font-size:12px;color:var(--gold);padding:6px 10px;margin-bottom:6px;background:#fffbeb;border-radius:6px;font-weight:700;">⏳ Lineup posted - waiting for ${oppName}</div>`;
-    } else if(!myReleased&&oppReleased){
-      h+=`<div style="font-size:12px;color:var(--gold);padding:6px 10px;margin-bottom:6px;background:#fffbeb;border-radius:6px;font-weight:700;">⏳ ${oppName} has posted - post yours to reveal both lineups</div>`;
-    } else if(oppData&&!oppReleased){
-      h+=`<div style="font-size:12px;color:var(--gray);padding:6px 0;">⏳ ${oppName} has a draft saved but hasn't released yet.</div>`;
-    } else {
-      h+=`<div style="font-size:12px;color:var(--gray);padding:6px 0;">⏳ Waiting for ${oppName} to post their lineup...</div>`;
+  const O=lineupEsc(_lineup.opp), st=_lineup.state, mine=st&&st.mine;
+  let h=`<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;color:var(--blue);margin-bottom:10px;word-break:break-word;">SHARED LINEUP vs ${O}</div>`;
+  if(!st){
+    h+=`<div style="font-size:13px;color:var(--gray);">${_lineup.err?"Couldn't load lineups right now.":'Checking lineups...'}</div>`;
+  }else if(st.revealed){
+    h+=`<div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:8px;">Revealed. Lineups are locked.</div>`+lineupTable(st);
+  }else{
+    if(mine&&mine.released){
+      h+=`<div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:8px;">Posted. Waiting for ${O}.</div>`;
+      h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">${lineupBtn('lineupPost(true)','Update Posted Lineup','var(--blue)')}</div>`;
+    }else{
+      if(mine)h+=`<div style="font-size:13px;color:var(--gold);font-weight:700;margin-bottom:8px;">Draft saved.</div>`;
+      h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">${lineupBtn('lineupPost(false)','Save Draft','var(--charcoal)')}${lineupBtn('lineupPost(true)','Post Lineup to '+O,'var(--green)')}</div>`;
     }
+    h+=`<div style="font-size:13px;color:var(--charcoal);margin-top:10px;word-break:break-word;">${O}: ${st.opponentStatus==='posted'?'posted':'not posted'}</div>`;
+    h+=`<div style="font-size:12px;color:var(--gray);margin-top:4px;">Hidden until both lineups are posted.</div>`;
   }
-
+  if(_lineup.msg)h+=`<div style="font-size:13px;color:var(--red);margin-top:8px;">${lineupEsc(_lineup.msg)}</div>`;
+  el.innerHTML=h;
+  renderDualSheet();
+}
+// Both lineups by court, full names, no buttons.
+function lineupTable(st){
+  const mine=lineupNames(st.mine&&st.mine.courts), opp=lineupNames(st.opponent&&st.opponent.courts);
+  const courts=Array.from(new Set(Object.keys(mine).concat(Object.keys(opp)).map(Number))).sort((a,b)=>a-b);
+  const cell='font-size:12px;font-weight:700;background:var(--off-white);border-radius:6px;padding:8px;min-width:0;word-break:break-word;';
+  let h=`<div style="display:grid;grid-template-columns:36px minmax(0,1fr) minmax(0,1fr);gap:4px;font-size:11px;color:var(--gray);margin-bottom:4px;"><div></div><div style="min-width:0;word-break:break-word;">${lineupEsc(SC.schoolName)}</div><div style="min-width:0;word-break:break-word;">${lineupEsc(_lineup.opp)}</div></div>`;
+  courts.forEach(n=>{
+    h+=`<div style="display:grid;grid-template-columns:36px minmax(0,1fr) minmax(0,1fr);gap:4px;margin-bottom:4px;align-items:center;"><div style="font-family:'Bebas Neue';font-size:14px;color:var(--blue);text-align:center;">P${n}</div><div style="${cell}">${lineupEsc(mine[n]||'Not set')}</div><div style="${cell}">${lineupEsc(opp[n]||'Not set')}</div></div>`;
+  });
+  return h;
+}
+// The FHSAA dual sheet: shown to the coach only once both lineups are revealed.
+function renderDualSheet(){
+  const card=document.getElementById('dual-sheet-card'), el=document.getElementById('dual-sheet-container');
+  if(!card||!el)return;
+  const st=_lineup.state;
+  if(!HS_ACCOUNT_SIGNIN||!_lineup.aid||!st||!st.revealed){ card.style.display='none'; el.innerHTML=''; return; }
+  card.style.display='block';
+  let h=`<div style="font-family:'Bebas Neue';font-size:16px;letter-spacing:2px;margin-bottom:12px;color:var(--charcoal);">FHSAA DUAL MATCH LINEUP</div>`;
+  h+=`<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--gray);margin-bottom:8px;"><span>${lineupEsc(fD(_lineup.date))}</span><span style="word-break:break-word;">${lineupEsc(SC.schoolName)} vs ${lineupEsc(_lineup.opp)}</span></div>`;
+  h+=lineupTable(st);
+  const myAssign=Object.values((D&&D.assignments)||{}).find(x=>x&&x.id===_lineup.aid);
+  if(myAssign&&myAssign.movementReason){
+    h+=`<div style="margin-top:8px;padding:8px;background:#fffbeb;border-radius:6px;font-size:11px;color:#92400e;">📝 Movement note: ${lineupEsc(moveReasonShown(myAssign.movementReason))}</div>`;
+  }
   el.innerHTML=h;
 }
-
-function saveLineupDraft(date, oppName){
-  const a=window._loadedAssignment;
-  if(!a||!db){toast('No assignment loaded');return;}
-  const sharedKey=getSharedLineupKey(date, oppName);
-  if(!sharedKey)return;
-  const mySubKey=getMyLineupSubKey();
-  // Build courts map from current assignment
-  const courts={};
-  (a.courts||[]).forEach(c=>{
-    if(!c.court)return;
-    const p1=gP(c.p1),p2=gP(c.p2);
-    courts[c.court]={
-      p1:p1?p1.firstName+' '+p1.lastName:'',
-      p2:p2?p2.firstName+' '+p2.lastName:'',
-      pid1:c.p1||'',pid2:c.p2||''
-    };
-  });
-  const existing=window._myLineupDraft;
-  db.ref(sharedKey+'/'+mySubKey).update({
-    courts,
-    released:existing?existing.released:false,
-    updatedAt:new Date().toISOString(),
-    school:MY_SCHOOL_KEY
-  });
-  toast('Lineup draft saved ✓');
+// After saving a dual assignment against a mapped opponent: offer to post it now.
+function promptLineupRelease(date, oppName, courts){
+  if(!HS_ACCOUNT_SIGNIN||!oppName||!date||!lineupMaps(oppName))return;
+  _lineupPrompt={date,opp:oppName,courts:courts||[]};
+  const old=document.getElementById('lineup-release-modal'); if(old)old.remove();
+  const modal=document.createElement('div');
+  modal.id='lineup-release-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML=`<div style="background:var(--white);border-radius:12px;padding:20px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);">
+    <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--blue);margin-bottom:8px;">📋 LINEUP READY</div>
+    <div style="font-size:13px;color:var(--charcoal);margin-bottom:12px;word-break:break-word;">Post your lineup to <strong>${lineupEsc(oppName)}</strong>? It's revealed to both coaches once they post too.</div>
+    <div id="lineup-release-msg" style="font-size:13px;color:var(--red);margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" style="flex:1;min-height:44px;background:var(--green);border-color:var(--green);" onclick="lineupPromptPost()">Post Lineup</button>
+      <button class="btn btn-secondary" style="min-height:44px;" onclick="lineupPromptClose()">Not Yet</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
 }
-
-function releaseLineup(date, oppName){
-  const sharedKey=getSharedLineupKey(date, oppName);
-  if(!sharedKey||!db)return;
-  const mySubKey=getMyLineupSubKey();
-  // Save draft first, then release
-  saveLineupDraft(date, oppName);
-  setTimeout(()=>{
-    db.ref(sharedKey+'/'+mySubKey+'/released').set(true);
-    toast('Lineup released to '+oppName+' ✓');
-    // Refresh dual sheet
-    const sharedKey2=getSharedLineupKey(date,oppName);
-    if(sharedKey2&&db)db.ref(sharedKey2).once('value',snap=>renderDualSheet(date,oppName,snap.val()||{}));
-  },400);
+function lineupPromptClose(){ const m=document.getElementById('lineup-release-modal'); if(m)m.remove(); _lineupPrompt=null; }
+async function lineupPromptPost(){
+  const p=_lineupPrompt; if(!p||_lineupPromptBusy)return;
+  const msg=document.getElementById('lineup-release-msg');
+  const courts=lineupCourtsFrom(p.courts);
+  if(!courts.length){ if(msg)msg.textContent='Add players to at least one court first.'; return; }
+  _lineupPromptBusy=true;
+  const j=await lineupCall('/lineup/submit',{opponent:p.opp,date:p.date,courts,release:true});
+  _lineupPromptBusy=false;
+  if(j.ok){
+    lineupPromptClose();
+    toast('Lineup posted ✓');
+    if(_lineup.aid&&_lineup.date===p.date&&_lineup.opp===p.opp){ _lineup.state=j; lineupRender(); }
+    return;
+  }
+  if(msg)msg.textContent=lineupErrMsg(j.code);
 }
+// Coach email for CourtSense notices (HS Communicate tab).
+let _hsNoticeBusy=false;
+async function hsNoticeLoad(){
+  if(!HS_ACCOUNT_SIGNIN)return;
+  const inp=document.getElementById('hs-notice-email'), st=document.getElementById('hs-notice-status');
+  if(!inp)return;
+  if(st)st.textContent='';
+  const j=await lineupCall('/coach/notice-email',{action:'get'});
+  if(j.ok){ inp.value=typeof j.email==='string'?j.email:''; return; }
+  if(st){ st.style.color='var(--red)'; st.textContent="Couldn't load the saved email right now."; }
+}
+async function hsNoticeSave(){
+  if(!HS_ACCOUNT_SIGNIN||_hsNoticeBusy)return;
+  const inp=document.getElementById('hs-notice-email'), st=document.getElementById('hs-notice-status');
+  if(!inp||!st)return;
+  const v=String(inp.value||'').trim();
+  if(v&&(v.length>200||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))){ st.style.color='var(--red)'; st.textContent="That email doesn't look right."; return; }
+  _hsNoticeBusy=true; st.style.color='var(--gray)'; st.textContent='Saving...';
+  const j=await lineupCall('/coach/notice-email',{action:'set',email:v});
+  _hsNoticeBusy=false;
+  if(j.ok){ inp.value=typeof j.email==='string'?j.email:''; st.style.color='var(--green)'; st.textContent='Saved'; return; }
+  st.style.color='var(--red)';
+  st.textContent=j.code==='bad_email'?"That email doesn't look right.":j.code==='forbidden'?'Your session ended. Log in again.':"Couldn't save right now. Try again.";
+}
+// ── end HS shared lineups
 
 // ── MOVEMENT RESTRICTION MODAL ─────────────────────────────
 // Move reasons never carry health information: the assignments node is readable by anyone
@@ -2501,104 +2583,8 @@ function saveWithMovementReason(){
   window._pendingViolations=null;
   if(modal)modal.remove();
   renderAssignments();
-  // Prompt lineup release
-  promptLineupRelease(date, opp);
-}
-
-// ── MAKE LINEUP PUBLIC PROMPT ──────────────────────────────
-function promptLineupRelease(date, oppName){
-  if(!oppName||!date)return;
-  const sharedKey=getSharedLineupKey(date,oppName);
-  if(!sharedKey)return;
-  const modal=document.createElement('div');
-  modal.id='lineup-release-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-  modal.innerHTML=`<div style="background:var(--white);border-radius:12px;padding:20px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);">
-    <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--blue);margin-bottom:8px;">📋 LINEUP READY</div>
-    <div style="font-size:13px;color:var(--charcoal);margin-bottom:16px;">Make your lineup public for <strong>${oppName}</strong> on <strong>${fD(date)}</strong>?<br><br><span style="font-size:11px;color:var(--gray);">This shares your lineup with ${oppName} and makes it visible on the dual sheet.</span></div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-primary" style="flex:1;background:var(--green);border-color:var(--green);" onclick="releaseLineup('${date}','${oppName}');document.getElementById('lineup-release-modal').remove();toast('Lineup made public ✓');">✓ Make Lineup Public</button>
-      <button class="btn btn-secondary" onclick="document.getElementById('lineup-release-modal').remove()">Not Yet</button>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);
-}
-
-// ── DUAL SHEET ─────────────────────────────────────────────
-function renderDualSheet(date, oppName, sharedVal){
-  const el=document.getElementById('dual-sheet-container');
-  if(!el)return;
-  const mySubKey=getMyLineupSubKey();
-  const oppSubKey=getOppLineupSubKey(oppName);
-  const myData=(sharedVal||{})[mySubKey]||null;
-  const oppData=oppSubKey?(sharedVal||{})[oppSubKey]:null;
-  const myReleased=myData&&myData.released;
-  const oppReleased=oppData&&oppData.released;
-  const bothReleased=myReleased&&oppReleased;
-  const myCourts=myData?myData.courts:{};
-  const oppCourts=oppData?oppData.courts:{};
-
-  let h=`<div style="font-family:'Bebas Neue';font-size:16px;letter-spacing:2px;margin-bottom:12px;color:var(--charcoal);">FHSAA DUAL MATCH LINEUP</div>`;
-  h+=`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray);margin-bottom:8px;">
-    <span>${fD(date)}</span><span>${SC.schoolName} vs ${oppName||'Opponent'}</span>
-  </div>`;
-
-  // Header row
-  const myStatusTag=myReleased?'<span style="color:var(--green);font-size:10px;"> ✓ POSTED</span>':'';
-  const oppStatusTag=bothReleased?'<span style="color:var(--green);font-size:10px;"> ✓ POSTED</span>':(oppReleased?'<span style="color:var(--gold);font-size:10px;"> 🔒 POSTED</span>':'');
-  h+=`<div style="display:grid;grid-template-columns:40px 1fr 1fr;gap:4px;margin-bottom:4px;">
-    <div></div>
-    <div style="text-align:center;font-family:'Bebas Neue';font-size:13px;color:var(--red);letter-spacing:1px;padding:6px;background:var(--red-bg);border-radius:6px;">
-      ${SC.schoolName}${myStatusTag}
-    </div>
-    <div style="text-align:center;font-family:'Bebas Neue';font-size:13px;color:var(--gray);letter-spacing:1px;padding:6px;background:var(--gray-lighter);border-radius:6px;">
-      ${oppName||'Opponent'}${oppStatusTag}
-    </div>
-  </div>`;
-
-  // Pair rows 1-5
-  [1,2,3,4,5].forEach(pair=>{
-    const myC=myCourts[pair]||null;
-    const oppC=oppCourts[pair]||null;
-    h+=`<div style="display:grid;grid-template-columns:40px 1fr 1fr;gap:4px;margin-bottom:4px;align-items:center;">
-      <div style="font-family:'Bebas Neue';font-size:14px;color:var(--blue);text-align:center;">P${pair}</div>
-      <div style="background:var(--off-white);border-radius:6px;padding:8px;min-height:44px;">`;
-    if(myC&&(myC.p1||myC.p2)){
-      h+=`<div style="font-size:12px;font-weight:700;">${myC.p1||'—'}</div>`;
-      h+=`<div style="font-size:12px;font-weight:700;">${myC.p2||'—'}</div>`;
-    } else {
-      h+=`<div style="font-size:11px;color:var(--gray);font-style:italic;">Not set</div>`;
-    }
-    h+=`</div><div style="background:var(--off-white);border-radius:6px;padding:8px;min-height:44px;">`;
-    if(bothReleased&&oppC&&(oppC.p1||oppC.p2)){
-      h+=`<div style="font-size:12px;font-weight:700;">${oppC.p1||'—'}</div>`;
-      h+=`<div style="font-size:12px;font-weight:700;">${oppC.p2||'—'}</div>`;
-    } else if(!oppSubKey){
-      h+=`<button class="btn btn-secondary btn-small" style="font-size:10px;" onclick="triggerOppLineupPhoto()">📸 Scan Form</button>`;
-    } else if(oppReleased&&!bothReleased){
-      h+=`<div style="font-size:11px;color:var(--gold);font-style:italic;">🔒 Hidden until you post</div>`;
-    } else {
-      h+=`<div style="font-size:11px;color:var(--gray);font-style:italic;">Waiting...</div>`;
-    }
-    h+=`</div></div>`;
-  });
-
-  // Movement reason note if present
-  const myAssign=Object.values(D.assignments||{}).find(a=>a.date===date&&a.type==='gameday');
-  if(myAssign&&myAssign.movementReason){
-    h+=`<div style="margin-top:8px;padding:8px;background:#fffbeb;border-radius:6px;font-size:11px;color:#92400e;">
-      📝 Movement note: ${moveReasonShown(myAssign.movementReason).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-    </div>`;
-  }
-
-  el.innerHTML=h;
-}
-
-function triggerOppLineupPhoto(){
-  // Reuse existing scan input
-  const input=document.getElementById('scan-file');
-  if(input)input.click();
-  else toast('Use the Scan Court Sheet button above to photograph the opponent form');
+  // Offer to post the lineup (live high schools)
+  promptLineupRelease(date, opp, slots);
 }
 
 // ── LINEUP HISTORY SEARCH ──────────────────────────────────
@@ -8930,7 +8916,7 @@ function confirmCAAssignment(){
   fbSet('assignments/'+id,assignData);
   notifyLineup(assignData);
   toast(`Assignment saved! ${slots.length} court(s) for ${date}`);
-  if(type==='gameday'&&opp)setTimeout(()=>promptLineupRelease(date,opp),600);
+  if(type==='gameday'&&opp)setTimeout(()=>promptLineupRelease(date,opp,slots),600);
   document.getElementById('ca-result').innerHTML='';
   document.getElementById('ca-preview').innerHTML='';
   document.getElementById('ca-opp').value='';
@@ -9056,6 +9042,11 @@ function confirmOppLineup(){
     }
   }
 
+  // Live high schools: the scanned opponent names stay on this device for this session (Live
+  // Score Entry shows them) and are never written to the team's assignments.
+  if(HS_ACCOUNT_SIGNIN){
+    _scannedOppLineup[date]=oppCourts;
+  }else{
   // Save oppLineup to assignment (for Live Score Entry display)
   const existingAssign=Object.values(D.assignments).find(a=>a.date===date);
   if(existingAssign){
@@ -9063,6 +9054,7 @@ function confirmOppLineup(){
   }else{
     const id=gi('asgn');
     fbSet('assignments/'+id,{id,date,type:'gameday',opponent:opp,courts:[],oppLineup:oppCourts,notes:null,createdAt:new Date().toISOString()});
+  }
   }
 
   toast('Saved '+oppCourts.length+' courts + '+(altC)+' alternates to Scouts!');
@@ -9316,8 +9308,8 @@ function saveAssignment(){
   const id=gi('asgn');
   fbSet('assignments/'+id,{id,date,type,opponent:opp||null,courts,scorers,notes:notes||null,createdAt:td()});
   toast('Assignment saved!');
-  // Prompt lineup release for duals with opponent
-  if(type==='gameday'&&opp)setTimeout(()=>promptLineupRelease(date,opp),600);
+  // Offer to post the lineup for duals with an opponent (live high schools)
+  if(type==='gameday'&&opp)setTimeout(()=>promptLineupRelease(date,opp,courts),600);
   // Clear form
   document.getElementById('assign-opp').value='';
   document.getElementById('assign-notes').value='';
@@ -10195,10 +10187,8 @@ function loadLiveCourts(id){
   if(!a){toast('Assignment not found');return;}
   window._loadedAssignment=a;
   renderLiveScoring(a.date,a);
-  // Start shared lineup listener if opponent is on platform
-  if(a.opponent&&SCHOOL_KEY_MAP[a.opponent]){
-    listenSharedLineup(a.date, a.opponent);
-  }
+  // Live high schools: check the shared lineup with the worker (dual against a mapped opponent).
+  if(HS_ACCOUNT_SIGNIN)lineupStart(a);
 }
 
 
@@ -10395,15 +10385,17 @@ function renderLiveScoring(dateOverride,assignOverride){
     const pairKey=[c.p1,c.p2].filter(Boolean).sort().join('_');
     const courtLabel='Court '+c.court+(c.subCourt?c.subCourt.toUpperCase():'');
     const partnerLabel=[p1,p2].filter(Boolean).map(p=>p.firstName+' '+p.lastName.charAt(0)+'.').join(' & ');
-    // Try to get actual opponent player names from oppLineup
+    // Opponent names: live high schools use the revealed shared lineup (liveOppLabel, escaped);
+    // other teams keep the names stored on the assignment.
     let opp=assignment.opponent?assignment.opponent+' CT'+c.court:'Opponent CT'+c.court;
-    const oppLineup=assignment.oppLineup||[];
+    const oppLineup=HS_ACCOUNT_SIGNIN?[]:(assignment.oppLineup||[]);
     const oppCourt=oppLineup.find(ol=>ol.court===c.court);
     if(oppCourt&&(oppCourt.player1||oppCourt.player2)){
       const p1name=oppCourt.player1+(oppCourt.jersey1?' #'+oppCourt.jersey1:'');
       const p2name=oppCourt.player2+(oppCourt.jersey2?' #'+oppCourt.jersey2:'');
       opp=[p1name,p2name].filter(Boolean).join(' & ');
     }
+    if(HS_ACCOUNT_SIGNIN)opp=liveOppLabel(assignment,c);
 
     // Find existing match for this pair/date
     const existingMatch=matchList.find(m=>resMatchesCourt(m,date,[c.p1,c.p2].filter(Boolean),assignment.id));
@@ -10423,7 +10415,7 @@ function renderLiveScoring(dateOverride,assignOverride){
         <div>
           <span class="court-badge court-${c.court}" style="font-size:12px;">${courtLabel}</span>
           <div class="live-pair-name" style="margin-top:4px;">${partnerLabel||'TBD'}</div>
-          <div class="live-opp-name">vs ${opp}</div>
+          <div class="live-opp-name" id="lc-opp-${idx}">vs ${opp}</div>
         </div>
         <div style="text-align:right;">
           ${sets.length?`<div style="font-family:'Bebas Neue';font-size:18px;color:${sw>sl?'var(--green)':'var(--loss-red)'};">${sw}-${sl}</div><div style="font-size:10px;color:var(--gray);">Match</div><div style="font-family:'Bebas Neue';font-size:15px;color:${diffColor};margin-top:2px;">${diffStr}</div><div style="font-size:10px;color:var(--gray);">Pts</div>`:'<div style="font-size:12px;color:var(--gray);">No sets yet</div>'}
@@ -10664,7 +10656,7 @@ function refreshSingleCourtCard(idx, date, fbNode){
   const pairKey=[c.p1,c.p2].filter(Boolean).sort().join('_');
   const courtLabel='Court '+c.court+(c.subCourt?c.subCourt.toUpperCase():'');
   const partnerLabel=[p1,p2].filter(Boolean).map(p=>p.firstName+' '+p.lastName.charAt(0)+'.').join(' & ');
-  const opp=assignment.opponent?assignment.opponent+' CT'+c.court:'Opponent CT'+c.court;
+  const opp=HS_ACCOUNT_SIGNIN?liveOppLabel(assignment,c):(assignment.opponent?assignment.opponent+' CT'+c.court:'Opponent CT'+c.court);
 
   const existingMatch=matchList.find(m=>resMatchesCourt(m,date,[c.p1,c.p2].filter(Boolean),assignment.id));
   const matchId=existingMatch?existingMatch.id:null;
@@ -10678,7 +10670,7 @@ function refreshSingleCourtCard(idx, date, fbNode){
     <div>
       <span class="court-badge court-${c.court}" style="font-size:12px;">${courtLabel}</span>
       <div class="live-pair-name" style="margin-top:4px;">${partnerLabel||'TBD'}</div>
-      <div class="live-opp-name">vs ${opp}</div>
+      <div class="live-opp-name" id="lc-opp-${idx}">vs ${opp}</div>
     </div>
     <div style="text-align:right;">
       ${sets.length?`<div style="font-family:'Bebas Neue';font-size:18px;color:${sw>sl?'var(--green)':'var(--loss-red)'};">${sw}-${sl}</div><div style="font-size:10px;color:var(--gray);">Match</div><div style="font-family:'Bebas Neue';font-size:15px;color:${diffColor};margin-top:2px;">${diffStr}</div><div style="font-size:10px;color:var(--gray);">Pts</div>`:'<div style="font-size:12px;color:var(--gray);">No sets yet</div>'}
@@ -11689,7 +11681,7 @@ function setHsBcAudience(a,btn){
   document.querySelectorAll('#hs-bc-audience .filter-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
 }
-function renderHsCommunicate(){ renderHsBroadcastList(); if(typeof hsParentSkillsSync==='function')hsParentSkillsSync(); }
+function renderHsCommunicate(){ renderHsBroadcastList(); if(typeof hsParentSkillsSync==='function')hsParentSkillsSync(); if(HS_ACCOUNT_SIGNIN)hsNoticeLoad(); }
 function renderHsBroadcastList(){
   const el=document.getElementById('hs-bc-list'); if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22601,6 +22593,11 @@ function dhScanOppSave(count,altCount){
       fbSet('opponents/'+schoolKey+'/players/'+pKey,{...ex,firstName:af||aName,lastName:al||'',fullName:aName,jersey:aj||ex.jersey||'',typicalCourt:ex.typicalCourt||null,isAlternate:true,firstSeen:ex.firstSeen||date,lastSeen:date});
     }
   }
+  // Live high schools: the scanned opponent names stay on this device for this session and
+  // are never written to the team's assignments.
+  if(HS_ACCOUNT_SIGNIN){
+    _scannedOppLineup[date]=oppCourts;
+  }else{
   // Also save oppLineup to the matching assignment so Live Scoring shows opponent names
   const existingAssign=Object.values(D.assignments||{}).find(a=>a.date===date);
   if(existingAssign){
@@ -22609,7 +22606,8 @@ function dhScanOppSave(count,altCount){
     const aid=gi('asgn');
     fbSet('assignments/'+aid,{id:aid,date,type:'gameday',opponent:opp,courts:[],oppLineup:oppCourts,notes:null,createdAt:new Date().toISOString()});
   }
-  toast('Opponent lineup saved to Scouts + Live Scoring!');
+  }
+  toast(HS_ACCOUNT_SIGNIN?'Opponent lineup saved to Scouts':'Opponent lineup saved to Scouts + Live Scoring!');
   // Show the modal save button again before closing
   const saveBtn=document.getElementById('edit-save');if(saveBtn)saveBtn.style.display='';
   closeEdit();
