@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.211';
+const APP_VERSION='1.1.212';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -908,6 +908,13 @@ body.demo .login-error{margin-top:4px;min-height:14px;}
 .login-toggle{display:flex;gap:2px;background:var(--gray-lighter);border-radius:8px;padding:2px;margin-bottom:20px;}
 .login-toggle-btn{flex:1;padding:10px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;border:none;background:transparent;color:var(--gray);cursor:pointer;border-radius:6px;transition:all 0.2s;}
 .login-toggle-btn.active{background:var(--red);color:var(--white);}
+/* Send link control (coach): a 44px button, a Teal Confirmed label, a muted no-email line. */
+.gl-box{margin:6px 0 10px;}
+.gl-btn{min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #082A4F;background:#082A4F;color:#fff;font-family:'Barlow',sans-serif;font-size:14px;font-weight:700;cursor:pointer;max-width:100%;}
+.gl-btn:disabled{background:#fff;color:#5C6B7A;border-color:#C9BFAC;cursor:default;}
+.gl-ok{display:inline-flex;align-items:center;min-height:44px;color:#217F7F;font-weight:700;font-size:14px;}
+.gl-muted{display:inline-flex;align-items:center;min-height:44px;color:#5C6B7A;font-size:13px;}
+.gl-msg{font-size:13px;color:#13243A;margin-top:4px;overflow-wrap:anywhere;}
 /* HS parent view: its own full screen, navy bar with the gold wordmark home, Paper background. */
 .pv{position:fixed;inset:0;z-index:900;overflow-y:auto;background:#FBF7F0;color:#13243A;font-family:'Barlow',sans-serif;-webkit-overflow-scrolling:touch;}
 .pv-bar{background:#082A4F;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;position:sticky;top:0;z-index:2;}
@@ -2033,12 +2040,14 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
           <input type="email" id="cpm-p1-email" placeholder="Parent or Guardian 1 Email" inputmode="email" autocapitalize="none" spellcheck="false" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg1e')}>
           <input type="tel" id="cpm-p1-phone" placeholder="Parent or Guardian 1 Phone" inputmode="tel" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg1p')}>
         </div>
+        <div id="cpm-g1-link" class="gl-box"></div>
         <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--gray);margin:4px 0 8px;">Parent or Guardian 2 (optional)</div>
         <input type="text" id="cpm-p2-name" placeholder="Parent or Guardian 2 Name (optional)" class="form-input" style="padding:8px;font-size:13px;margin-bottom:8px;" ${_noFill('cg2n')}>
         <div class="form-row" style="gap:8px;margin-bottom:8px;">
           <input type="email" id="cpm-p2-email" placeholder="Parent or Guardian 2 Email (optional)" inputmode="email" autocapitalize="none" spellcheck="false" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg2e')}>
           <input type="tel" id="cpm-p2-phone" placeholder="Parent or Guardian 2 Phone (optional)" inputmode="tel" class="form-input" style="flex:1;min-width:0;padding:8px;font-size:13px;" ${_noFill('cg2p')}>
         </div>
+        <div id="cpm-g2-link" class="gl-box"></div>
         <div id="cpm-contact-needed" class="cs-needed-hint" style="margin-bottom:8px;"></div>
         </form>`}
         <button class="btn btn-red btn-small" style="width:100%;" onclick="coachSaveIdentity()">Save Identity</button>
@@ -3302,7 +3311,10 @@ async function _hsContactsFetch(ids){
     const j=await r.json().catch(()=>null);
     if(!j||j.ok!==true||!j.contacts)return null;
     const out={};
-    Object.keys(j.contacts).forEach(pid=>{out[pid]=_hsFlatContacts(j.contacts[pid]);});
+    Object.keys(j.contacts).forEach(pid=>{
+      out[pid]=_hsFlatContacts(j.contacts[pid]);
+      if(typeof glSeedRoster==='function')glSeedRoster(pid,j.contacts[pid].guardian);
+    });
     return out;
   }catch(e){ return null; }
 }
@@ -3329,6 +3341,7 @@ async function _hsContactsSave(pid,flat){
     const j=await r.json().catch(()=>null);
     if(!j||j.ok!==true){ console.warn('player contacts save refused',j&&j.code,j&&j.field); return false; }
     if(_hsContacts&&j.contacts)_hsContacts[pid]=_hsFlatContacts(j.contacts);
+    if(typeof glRefreshRoster==='function')glRefreshRoster(pid);
     return true;
   }catch(e){ return false; }
 }
@@ -7308,8 +7321,10 @@ function _cpmContactsPrefill(pid){
   const st={pid:pid,loaded:!!cached,initial:Object.assign({},base)};
   _cpmContactState=st;
   _cpmMarkNeeded();
+  if(typeof glRenderModal==='function')glRenderModal(pid);
   _hsContactsFetch([pid]).then(function(m){
     if(_cpmContactState!==st)return;           // the card moved on to someone else
+    if(typeof glRenderModal==='function')glRenderModal(pid);
     if(!m||!m[pid]){ if(!st.loaded)toast('Could not load this player\'s contact details. Try reopening the card.'); return; }
     const fresh=m[pid];
     if(_hsContacts)_hsContacts[pid]=fresh;
@@ -12942,6 +12957,114 @@ function fanNotifySchedule(change,g){
 }
 // ===== FAN ALERTS END =====
 
+// ===== GUARDIAN LINK START =====
+// Send link (H5 part 3): a coach sends a fresh confirm link to a parent or guardian who has not
+// confirmed yet, on an open sign-up (Recruiting) or a roster player's card. Live high schools only.
+// The worker sends only to the email already on file and never returns it, so nothing here ever
+// holds or shows an address. Inline states only: no browser dialogs.
+//   send       pending, not sent in the last 24 hours: a Send link button
+//   sent       pending, sent within 24 hours: a disabled "Sent {Day} {time}", e.g. "Sent Sun 11:00 pm"
+//   confirmed  a Teal "Confirmed" label
+//   no_email   "Add an email above to send a link."
+var GL_DAY=86400000;
+var GL_MSG={
+  sent_today:'Already sent in the last 24 hours. You can send again after that.',
+  limit_reached:'This link has been sent 5 times. Double-check the email on file.',
+  school_limit:'The team has hit today\'s send limit. Try again tomorrow.',
+  no_email:'Add an email above to send a link.',
+  retry:'Couldn\'t send right now. Try again in a minute.',
+  other:'Something went wrong. Try again.'
+};
+var _glSlots={};   // key -> { status:'pending'|'confirmed'|'no_email', sentAt:number|null, busy?:bool, msg?:string }
+function glClear(prefix){ Object.keys(_glSlots).forEach(function(k){ if(k.indexOf(prefix)===0) delete _glSlots[k]; }); }
+function glView(rec,now){
+  if(!rec) return 'no_email';
+  if(rec.status==='confirmed') return 'confirmed';
+  if(rec.status==='no_email') return 'no_email';
+  if(typeof rec.sentAt==='number'&&now-rec.sentAt<GL_DAY) return 'sent';
+  return 'send';
+}
+function glTime(ms){
+  var d=new Date(ms), h=d.getHours(), m=d.getMinutes();
+  return ((h%12)||12)+':'+(m<10?'0':'')+m+' '+(h<12?'am':'pm');
+}
+// Short weekday for the sent label, from the device clock.
+function glDay(ms){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(ms).getDay()]; }
+// The line under the control for a worker answer. ok and sent_today also move the control on.
+function glMessage(code,slot){
+  if(code==='ok') return 'Sent to the Parent or Guardian '+(slot==='parent2'?'2':'1')+' email on file.';
+  if(code==='confirmed') return '';
+  if(Object.prototype.hasOwnProperty.call(GL_MSG,code)&&code!=='retry'&&code!=='other') return GL_MSG[code];
+  if(code==='send_failed'||code==='rate_limited'||code==='network') return GL_MSG.retry;
+  return GL_MSG.other;
+}
+// Draws one slot's control into box (text only, never innerHTML).
+function glRender(box,ctx){
+  if(!box) return;
+  box.textContent='';
+  if(!HS_ACCOUNT_SIGNIN) return;
+  var rec=_glSlots[ctx.key];
+  var view=glView(rec,Date.now());
+  var el;
+  if(view==='confirmed'){
+    el=document.createElement('span'); el.className='gl-ok'; el.textContent='Confirmed';
+  }else if(view==='no_email'){
+    el=document.createElement('span'); el.className='gl-muted'; el.textContent=GL_MSG.no_email;
+  }else{
+    el=document.createElement('button'); el.type='button'; el.className='gl-btn';
+    if(view==='sent'){ el.disabled=true; el.textContent='Sent '+glDay(rec.sentAt)+' '+glTime(rec.sentAt); }
+    else if(rec&&rec.busy){ el.disabled=true; el.textContent='Sending...'; }
+    else{ el.textContent='Send link'; el.onclick=function(){ glSend(ctx); }; }
+  }
+  box.appendChild(el);
+  if(rec&&rec.msg){ var m=document.createElement('div'); m.className='gl-msg'; m.textContent=rec.msg; box.appendChild(m); }
+}
+function glSend(ctx){
+  var rec=_glSlots[ctx.key];
+  if(!rec||rec.busy||!HS_ACCOUNT_SIGNIN) return;
+  var token=_hsCoachToken();
+  rec.busy=true; rec.msg='';
+  ctx.rerender();
+  var done=function(status,j){
+    rec.busy=false;
+    var code=(j&&j.ok===true)?'ok':(j&&typeof j.code==='string'?j.code:(status===0?'network':'other'));
+    if(code==='ok'){ rec.status='pending'; rec.sentAt=typeof j.sentAt==='number'?j.sentAt:Date.now(); }
+    else if(code==='sent_today'){ rec.sentAt=typeof j.sentAt==='number'?j.sentAt:Date.now(); }
+    else if(code==='confirmed'){ rec.status='confirmed'; }
+    else if(code==='no_email'){ rec.status='no_email'; }
+    rec.msg=glMessage(code,ctx.slot);
+    ctx.rerender();
+  };
+  if(!token){ done(403,{ok:false,code:'forbidden'}); return; }
+  fetch(AUTH_WORKER+'/hs/guardian/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,token:token,id:ctx.id,slot:ctx.slot})})
+    .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ done(r.status,j); }); })
+    .catch(function(){ done(0,null); });
+}
+// Roster players: the status comes with /hs/player-contacts/get. A slot mid-send keeps its state.
+function glSeedRoster(pid,g){
+  ['parent1','parent2'].forEach(function(slot){
+    var key='cpm:'+pid+':'+slot, cur=_glSlots[key], x=g&&g[slot];
+    if(cur&&cur.busy) return;
+    var status=x&&(x.status==='confirmed'||x.status==='pending')?x.status:'no_email';
+    _glSlots[key]={ status:status, sentAt:x&&typeof x.sentAt==='number'?x.sentAt:null, msg:cur&&cur.msg?cur.msg:'' };
+  });
+}
+function glRenderModal(pid){
+  ['parent1','parent2'].forEach(function(slot,i){
+    var box=document.getElementById('cpm-g'+(i+1)+'-link');
+    var ov=document.getElementById('coach-player-overlay');
+    if(!box||!ov||ov.dataset.pid!==pid) return;
+    var key='cpm:'+pid+':'+slot;
+    if(!_glSlots[key]){ box.textContent=''; return; }
+    glRender(box,{ key:key, id:pid, slot:slot, rerender:function(){ glRenderModal(pid); } });
+  });
+}
+function glRefreshRoster(pid){
+  if(!HS_ACCOUNT_SIGNIN) return;
+  _hsContactsFetch([pid]).then(function(){ glRenderModal(pid); });
+}
+// ===== GUARDIAN LINK END =====
+
 // ===== HS RECRUITING START =====
 // High schools only (SC.tiersEnabled off): Players > Recruiting lists the public sign-ups that
 // a parent or guardian has confirmed, through the worker's coach routes (/hs/prospects/list,
@@ -13096,6 +13219,7 @@ function hsRecRender(){
 // ---- One sign-up --------------------------------------------------------------
 function hsRecOpenDetail(id){
   var d={id:id,status:'loading',prospect:null,busy:false,confirm:'',msg:'',rosterPid:null};
+  if(typeof glClear==='function') glClear('rec:'+id+':');
   _hsRec.detail=d;
   var token=_hsCoachToken();
   if(!token){ d.status='signin'; hsRecRender(); return; }
@@ -13152,6 +13276,14 @@ function hsRecRenderDetail(card){
       _hrLine(card,'Email',_hrLink('mailto',x.email));
       _hrLine(card,'Phone',_hrLink('tel',x.phone));
       _hrLine(card,'Status',_hrEl('span',{style:'font-weight:700;color:'+(x.status==='confirmed'?'#059669':'var(--gray)')+';'},x.status==='confirmed'?'Confirmed':'Not confirmed yet'));
+      // Send link, for a guardian still waiting on a sign-up that has not made the team.
+      if(!d.rosterPid&&x.status!=='confirmed'&&typeof glRender==='function'){
+        var key='rec:'+d.id+':'+g[0];
+        if(!_glSlots[key]) _glSlots[key]={ status:x.email?'pending':'no_email', sentAt:typeof x.sentAt==='number'?x.sentAt:null };
+        var gbox=_hrEl('div',{'class':'gl-box'});
+        card.appendChild(gbox);
+        glRender(gbox,{ key:key, id:d.id, slot:g[0], rerender:hsRecRender });
+      }
     });
   }
 
