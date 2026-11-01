@@ -6,6 +6,19 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>Pickup poll &middot; CourtSense</title>
+<!-- One preview card for every poll link (GitHub Pages serves this file as is); the
+     shared message itself carries the poll's title, dates and minimum. -->
+<meta name="description" content="Pick the dates and times you can play. CourtSense">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Vote on a pickup time">
+<meta property="og:description" content="Pick the dates and times you can play. CourtSense">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/pickup/poll/">
+<meta property="og:site_name" content="CourtSense">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Vote on a pickup time">
+<meta name="twitter:description" content="Pick the dates and times you can play. CourtSense">
+<meta name="twitter:image" content="https://courtsense.app/og-image.png">
 <link rel="icon" type="image/png" href="/favicon_large.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap">
 <script src="/signup-source.js?v=a1f469b3"></script>
@@ -136,7 +149,7 @@
     <p class="meta">Share it anywhere: the link carries no personal token.</p>
     <button class="btn btn-navy" id="copy-btn" type="button">Copy link</button>
     <p class="msg ok" id="copy-msg" role="status"></p>
-    <p class="note" id="copy-url" style="word-break:break-all;"></p>
+    <p class="note" id="copy-url" style="word-break:break-all;white-space:pre-line;"></p>
     <div id="org-sugs"></div>
     <p class="msg" id="org-msg" role="status"></p>
   </div>
@@ -532,19 +545,52 @@ window.csPollKit=(function(){
   function decideReq(session, p, sugId, action){ return {path:'/pickup/poll/suggestion',body:{sessionToken:session,p:p,sugId:sugId,action:action}}; }
   // The share link: no personal token, so it is safe to post anywhere.
   function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
-  // The phone share sheet, else the clipboard, else 'manual' (the page shows the link).
-  function shareLink(nav, url, title){
+  // ── share message (identical in the poll page kit and the pickup page kit) ──
+  // Line 1 "{Title}: {dates}", line 2 the vote line with the minimum, line 3 the link.
+  // Built only from what is passed in: never names, voters, location or tokens.
+  var SHARE_DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var SHARE_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // 1 to 3 distinct days by name ("Sat, Oct 31" or "Sat Oct 31, Tue Nov 3"); 4 or more as
+  // a range ("Oct 31 to Nov 6", "Oct 25 to 28"). A year shows only when it is not this year.
+  function shareDates(dates, now){
+    var seen={}, list=[];
+    (dates||[]).forEach(function(d){ d=String(d||''); if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&!seen[d]){ seen[d]=true; list.push(d); } });
+    list.sort();
+    if(!list.length) return '';
+    var thisYear=new Date(now==null?Date.now():now).getFullYear();
+    function parts(d){
+      var y=+d.slice(0,4), m=+d.slice(5,7), day=+d.slice(8,10);
+      return { y:y, m:m, d:day, wd:SHARE_DAYS[new Date(Date.UTC(y,m-1,day)).getUTCDay()], mon:SHARE_MONTHS[m-1] };
+    }
+    function yr(p){ return p.y!==thisYear?', '+p.y:''; }
+    if(list.length===1){ var p=parts(list[0]); return p.wd+', '+p.mon+' '+p.d+yr(p); }
+    if(list.length<=3) return list.map(function(d){ var q=parts(d); return q.wd+' '+q.mon+' '+q.d+yr(q); }).join(', ');
+    var a=parts(list[0]), b=parts(list[list.length-1]);
+    if(a.y===b.y&&a.m===b.m) return a.mon+' '+a.d+' to '+b.d+yr(b);
+    return a.mon+' '+a.d+(a.y!==b.y?yr(a):'')+' to '+b.mon+' '+b.d+yr(b);
+  }
+  function shareMessage(title, dates, min, url){
+    var t=String(title||'').trim()||'Pickup', d=shareDates(dates);
+    var n=Math.max(0,Math.floor(Number(min)||0));
+    var line2='Vote for a date and time to play. If we get at least '+(n===1?'1 player':String(n))+", it's game on.";
+    return (d?t+': '+d:t)+'\n'+line2+'\n'+String(url||'');
+  }
+  // Share the message: the phone share sheet with the link inside the text (SMS and some
+  // apps drop a separate url field), else the clipboard copies the same text, else
+  // 'manual' (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
+  function shareLink(nav, text, title){
     if(nav&&typeof nav.share==='function'){
-      return nav.share({ title:title, url:url }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
     }
     return copy();
     function copy(){
       if(nav&&nav.clipboard&&typeof nav.clipboard.writeText==='function'){
-        return nav.clipboard.writeText(url).then(function(){ return 'copied'; }, function(){ return 'manual'; });
+        return nav.clipboard.writeText(text).then(function(){ return 'copied'; }, function(){ return 'manual'; });
       }
       return Promise.resolve('manual');
     }
   }
+  // ── end share message ──
   // Sign in on the pickup page, which sends the player back to this poll.
   function signInUrl(p){ return '/pickup/?return='+encodeURIComponent('/pickup/poll/?p='+p); }
   // '' when the quick-account form would pass the worker's checks; else the worker's words.
@@ -567,7 +613,7 @@ window.csPollKit=(function(){
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel, closedState:closedState, closesLine:closesLine, pollClosesLine:pollClosesLine, noneMsg:noneMsg,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
-    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, signInUrl:signInUrl, quickProblem:quickProblem };
+    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -847,10 +893,12 @@ window.csPollKit=(function(){
     });
   }
   $('copy-btn').addEventListener('click',function(){
+    // The share message: title and dates, the vote line with the minimum, then the link.
     var url=K.shareUrl(location.origin,view.pollId);
-    K.shareLink(navigator,url,view.title).then(function(how){
-      $('copy-msg').textContent=how==='copied'?K.MSG.copied:how==='manual'?'Copy this link:':'';
-      $('copy-url').textContent=how==='manual'?url:'';
+    var text=K.shareMessage(view.title,(view.options||[]).map(function(o){ return o.date; }),view.minPlayers,url);
+    K.shareLink(navigator,text,view.title).then(function(how){
+      $('copy-msg').textContent=how==='copied'?K.MSG.copied:how==='manual'?'Copy this message:':'';
+      $('copy-url').textContent=how==='manual'?text:'';
     });
   });
   // Suggest another time: date, start, end (+2h), and a place when voting on location.

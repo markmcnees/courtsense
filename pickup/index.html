@@ -347,6 +347,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          Tournaments is the directory plus the two things you do to it. -->
     <div id="needs-you"></div>
     <div id="invite-list"></div>
+    <div id="pp-sent"></div>
     <div id="my-polls"></div>
     <!-- Discovery only: one line pointing at the directory, which lives in its
          own view now. Below what needs the player, above what they could start. -->
@@ -10637,20 +10638,52 @@ window.csPollPlanKit=(function(){
   function suggestionReq(session, p, sugId, action){ return { path:'/pickup/poll/suggestion', body:{ sessionToken:session, p:p, sugId:sugId, action:action } }; }
   // The share link: no personal token, so it is safe to post anywhere.
   function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
-  // Share a poll link: the phone share sheet, else the clipboard, else ask the caller to
-  // show the link for copying by hand. Resolves 'shared', 'copied' or 'manual'.
-  function shareLink(nav, url, title){
+  // ── share message (identical in the poll page kit and the pickup page kit) ──
+  // Line 1 "{Title}: {dates}", line 2 the vote line with the minimum, line 3 the link.
+  // Built only from what is passed in: never names, voters, location or tokens.
+  var SHARE_DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var SHARE_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // 1 to 3 distinct days by name ("Sat, Oct 31" or "Sat Oct 31, Tue Nov 3"); 4 or more as
+  // a range ("Oct 31 to Nov 6", "Oct 25 to 28"). A year shows only when it is not this year.
+  function shareDates(dates, now){
+    var seen={}, list=[];
+    (dates||[]).forEach(function(d){ d=String(d||''); if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&!seen[d]){ seen[d]=true; list.push(d); } });
+    list.sort();
+    if(!list.length) return '';
+    var thisYear=new Date(now==null?Date.now():now).getFullYear();
+    function parts(d){
+      var y=+d.slice(0,4), m=+d.slice(5,7), day=+d.slice(8,10);
+      return { y:y, m:m, d:day, wd:SHARE_DAYS[new Date(Date.UTC(y,m-1,day)).getUTCDay()], mon:SHARE_MONTHS[m-1] };
+    }
+    function yr(p){ return p.y!==thisYear?', '+p.y:''; }
+    if(list.length===1){ var p=parts(list[0]); return p.wd+', '+p.mon+' '+p.d+yr(p); }
+    if(list.length<=3) return list.map(function(d){ var q=parts(d); return q.wd+' '+q.mon+' '+q.d+yr(q); }).join(', ');
+    var a=parts(list[0]), b=parts(list[list.length-1]);
+    if(a.y===b.y&&a.m===b.m) return a.mon+' '+a.d+' to '+b.d+yr(b);
+    return a.mon+' '+a.d+(a.y!==b.y?yr(a):'')+' to '+b.mon+' '+b.d+yr(b);
+  }
+  function shareMessage(title, dates, min, url){
+    var t=String(title||'').trim()||'Pickup', d=shareDates(dates);
+    var n=Math.max(0,Math.floor(Number(min)||0));
+    var line2='Vote for a date and time to play. If we get at least '+(n===1?'1 player':String(n))+", it's game on.";
+    return (d?t+': '+d:t)+'\n'+line2+'\n'+String(url||'');
+  }
+  // Share the message: the phone share sheet with the link inside the text (SMS and some
+  // apps drop a separate url field), else the clipboard copies the same text, else
+  // 'manual' (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
+  function shareLink(nav, text, title){
     if(nav&&typeof nav.share==='function'){
-      return nav.share({ title:title, url:url }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
     }
     return copy();
     function copy(){
       if(nav&&nav.clipboard&&typeof nav.clipboard.writeText==='function'){
-        return nav.clipboard.writeText(url).then(function(){ return 'copied'; }, function(){ return 'manual'; });
+        return nav.clipboard.writeText(text).then(function(){ return 'copied'; }, function(){ return 'manual'; });
       }
       return Promise.resolve('manual');
     }
   }
+  // ── end share message ──
   // Progress toward the minimum, 0 to 100.
   function progressPct(count, min){ return min>0?Math.max(0,Math.min(100,Math.round(count/min*100))):0; }
   function createReq(body){ return { path:'/pickup/poll/create', body:body }; }
@@ -10838,7 +10871,7 @@ window.csPollPlanKit=(function(){
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
     statusLine:statusLine, canConfirm:canConfirm, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
-    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, progressPct:progressPct,
+    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, progressPct:progressPct,
     NAMES_SHOWN:NAMES_SHOWN, optionVoters:optionVoters, voterChips:voterChips, chipText:chipText, noneLine:noneLine };
 })();
 </script>
@@ -11074,7 +11107,13 @@ async function ppSend(){
   if(!res.j || !res.j.ok){ $('pp-err').textContent = K.errorText(res); return; }
   _myPolls.at = 0;
   toast('Poll sent to ' + res.j.recipientCount + ' players');
+  // The success step: the same share message the poll's Copy link makes.
+  const url = K.shareUrl(location.origin, res.j.pollId);
+  _ppSent = { id: res.j.pollId, title: x.title,
+    line: 'Sent to ' + res.j.recipientCount + (res.j.recipientCount === 1 ? ' player.' : ' players.'),
+    text: K.shareMessage(x.title, (x.options || []).map(o => o.date), x.minPlayers, url) };
   backToList();
+  ppDrawSent();
 }
 
 // Your polls: the signed-in player's polls from /pickup/poll/mine (organized or sent to
@@ -11124,7 +11163,7 @@ function ppDrawMyPolls(){
     const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
       + dayGames.map(d => '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(d.inviteId)+'">Open '+escapeHTML(d.day || '')+' game</a>').join('')
       + (v.isRecipient && v.open && !v.full ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '')
-      + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;"></div>' : '');
+      + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;white-space:pre-line;"></div>' : '');
     return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
       + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')
       + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')
@@ -11146,15 +11185,37 @@ function ppNames(v, o){
     + '</ul>';
 }
 function ppMoreNames(pollId, optId){ _ppNamesOpen[pollId+'|'+optId] = true; ppDrawMyPolls(); }
-// Copy link: the phone share sheet, else the clipboard, else the link shown to copy.
+// Copy link: the share message (title and dates, the vote line, the link) through the
+// phone share sheet, else the clipboard, else shown to copy.
 async function ppCopyLink(pollId){
   const K = window.csPollPlanKit;
   const v = _myPolls.list.find(x => x.id === pollId) || {};
   const url = K.shareUrl(location.origin, pollId);
-  const how = await K.shareLink(navigator, url, v.title || 'Pickup poll');
+  const text = K.shareMessage(v.title, (v.options || []).map(o => o.date), v.minPlayers, url);
+  const how = await K.shareLink(navigator, text, v.title || 'Pickup poll');
   if(how === 'copied') toast('Link copied');
-  if(how === 'manual'){ const el = $('pp-link-'+pollId); if(el){ el.textContent = url; el.style.display = ''; } toast('Copy the link below'); }
+  if(how === 'manual'){ const el = $('pp-link-'+pollId); if(el){ el.textContent = text; el.style.display = ''; } toast('Copy the message below'); }
 }
+// Right after a poll is sent: a short success step with a Share button, using the same
+// message. It stays until shared or dismissed.
+let _ppSent = null;
+function ppDrawSent(){
+  const box = $('pp-sent'); if(!box) return;
+  if(!_ppSent){ box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="card pp-poll" id="pp-sent-card"><div class="evname">Poll sent</div>'
+    + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(_ppSent.line)+' Share it with anyone else who might play.</div>'
+    + '<button class="btn btn-p btn-w btn-sm" id="pp-sent-share" onclick="ppShareSent()">Share the poll</button>'
+    + '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppDismissSent()">Done</button>'
+    + '<div class="evmeta" id="pp-sent-text" style="display:none;word-break:break-all;white-space:pre-line;margin-top:8px;"></div></div>';
+}
+async function ppShareSent(){
+  if(!_ppSent) return;
+  const K = window.csPollPlanKit;
+  const how = await K.shareLink(navigator, _ppSent.text, _ppSent.title || 'Pickup poll');
+  if(how === 'copied') toast('Link copied');
+  if(how === 'manual'){ const el = $('pp-sent-text'); if(el){ el.textContent = _ppSent.text; el.style.display = ''; } toast('Copy the message below'); }
+}
+function ppDismissSent(){ _ppSent = null; ppDrawSent(); }
 // The organizer adds a suggested time to the poll, or dismisses it (nobody is told).
 async function ppDecide(pollId, sugId, action){
   const K = window.csPollPlanKit;
