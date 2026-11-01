@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.210';
+const APP_VERSION='1.1.211';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -908,6 +908,60 @@ body.demo .login-error{margin-top:4px;min-height:14px;}
 .login-toggle{display:flex;gap:2px;background:var(--gray-lighter);border-radius:8px;padding:2px;margin-bottom:20px;}
 .login-toggle-btn{flex:1;padding:10px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;border:none;background:transparent;color:var(--gray);cursor:pointer;border-radius:6px;transition:all 0.2s;}
 .login-toggle-btn.active{background:var(--red);color:var(--white);}
+/* HS parent view: its own full screen, navy bar with the gold wordmark home, Paper background. */
+.pv{position:fixed;inset:0;z-index:900;overflow-y:auto;background:#FBF7F0;color:#13243A;font-family:'Barlow',sans-serif;-webkit-overflow-scrolling:touch;}
+.pv-bar{background:#082A4F;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;position:sticky;top:0;z-index:2;}
+.pv-home{color:#F2B22E;font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;line-height:1;text-decoration:none;min-height:44px;display:flex;align-items:center;}
+.pv-out{background:transparent;border:1px solid rgba(255,255,255,0.5);color:#fff;font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;border-radius:8px;padding:0 14px;min-height:44px;cursor:pointer;}
+.pv-strip{background:#0081AB;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 16px;font-size:14px;font-weight:600;}
+.pv-switch{background:transparent;border:1px solid rgba(255,255,255,0.7);color:#fff;border-radius:8px;min-height:44px;padding:0 12px;font-family:'Barlow',sans-serif;font-weight:600;cursor:pointer;white-space:nowrap;}
+.pv-main{max-width:560px;margin:0 auto;padding:16px 16px 32px;}
+.pv-main.pv-has-nav{padding-bottom:96px;}
+.pv-h1{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:1px;color:#082A4F;margin:4px 0 12px;font-weight:400;}
+.pv-card{display:block;background:#fff;border:1px solid #E4DCCB;border-radius:12px;padding:14px 16px;margin-bottom:12px;color:inherit;text-decoration:none;text-align:left;width:100%;box-sizing:border-box;font-family:'Barlow',sans-serif;font-size:15px;line-height:1.45;overflow-wrap:anywhere;}
+.pv-card-btn{cursor:pointer;min-height:44px;}
+.pv-card-name{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:#082A4F;}
+.pv-card-sub,.pv-card-note,.pv-muted{color:#5C6B7A;font-size:14px;}
+.pv-card-note{margin-top:6px;}
+.pv-chip{display:inline-block;margin-top:8px;background:#082A4F;color:#fff;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;font-size:13px;border-radius:999px;padding:3px 10px;}
+.pv-chip-soft{background:#F2B22E;color:#082A4F;}
+.pv-label{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:#082A4F;margin-bottom:6px;}
+.pv-big{font-size:18px;font-weight:700;color:#082A4F;}
+.pv-msg{border-top:1px solid #EFE8DA;padding:10px 0;}
+.pv-msg:first-of-type{border-top:none;}
+.pv-msg-subj{font-weight:700;}
+.pv-msg-meta{font-size:12px;color:#5C6B7A;}
+.pv-msg-body{white-space:pre-wrap;margin-top:4px;}
+.pv-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #EFE8DA;}
+.pv-row:first-of-type{border-top:none;}
+.pv-row-date{min-width:52px;color:#5C6B7A;font-size:13px;font-weight:600;}
+.pv-row-main{flex:1;min-width:0;}
+.pv-row-end{text-align:right;font-weight:700;white-space:nowrap;}
+.pv-win{color:#217F7F;font-weight:700;}
+.pv-loss{color:#5C6B7A;font-weight:700;}
+.pv-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px;}
+.pv-table th,.pv-table td{text-align:left;padding:8px 6px;border-top:1px solid #EFE8DA;}
+.pv-table th{font-family:'Bebas Neue',sans-serif;letter-spacing:1px;font-weight:400;color:#5C6B7A;border-top:none;}
+.pv-table tr.pv-own td{background:#F7C880;font-weight:700;color:#082A4F;}
+.pv-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+.pv-tile{background:#fff;border:1px solid #E4DCCB;border-radius:12px;padding:12px;text-align:center;}
+.pv-tile-n{font-family:'Bebas Neue',sans-serif;font-size:26px;color:#082A4F;}
+.pv-tile-l{font-size:12px;color:#5C6B7A;text-transform:uppercase;letter-spacing:0.5px;}
+.pv-foot{font-size:13px;color:#5C6B7A;text-align:center;margin:16px 0;}
+.pv-btn{display:flex;align-items:center;justify-content:center;width:100%;box-sizing:border-box;min-height:48px;border-radius:10px;font-family:'Barlow',sans-serif;font-size:15px;font-weight:700;text-decoration:none;cursor:pointer;margin-top:10px;padding:0 14px;}
+.pv-btn-navy{background:#082A4F;color:#fff;border:none;}
+.pv-btn-ghost{background:#fff;color:#082A4F;border:1.5px solid #C9BFAC;}
+.pv-link{background:none;border:none;color:#082A4F;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;min-height:44px;}
+.pv-radio{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;}
+.pv-radio input{width:20px;height:20px;}
+.pv-saved{font-size:13px;color:#217F7F;margin-top:4px;}
+.pv-steps{margin:0;padding-left:20px;}
+.pv-steps li{margin:6px 0;}
+.pv-nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #E4DCCB;display:flex;z-index:3;padding-bottom:env(safe-area-inset-bottom);}
+.pv-nav-btn{flex:1;min-width:0;min-height:56px;background:none;border:none;font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1px;color:#5C6B7A;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pv-nav-btn.active{color:#082A4F;box-shadow:inset 0 3px 0 #F2B22E;}
+.pv-offer{background:#fff;border:1px solid #E4DCCB;border-radius:12px;padding:14px;margin-top:4px;font-family:'Barlow',sans-serif;font-size:14px;color:#13243A;line-height:1.5;}
+.pv-offer-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:#082A4F;}
 .login-section{display:none;}.login-section.active{display:block;}
 .login-pin-dots{display:flex;justify-content:center;gap:12px;margin:20px 0;}
 .login-pin-dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--gray-light);background:transparent;transition:all 0.15s;}
@@ -1014,6 +1068,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     <div class="login-toggle">
       <button class="login-toggle-btn active" onclick="switchLogin('coach')">${COACH_LABEL.toUpperCase()}</button>
       <button class="login-toggle-btn" onclick="switchLogin('player')">Player</button>
+      ${HS_ACCOUNT_SIGNIN?`<button class="login-toggle-btn" onclick="switchLogin('parent')">Parent</button>`:''}
     </div>
     ` : ''}
     <div class="login-section active" id="login-coach">
@@ -1069,6 +1124,20 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it</a></div>
         <div id="hs-device-note" style="font-family:'Barlow',sans-serif;font-size:12px;color:var(--gray);text-align:center;line-height:1.4;margin-top:8px;"></div>
       </div>
+      <div id="hs-parent-offer" style="display:none;"></div>
+    </div>
+    ` : ''}
+    ${HS_ACCOUNT_SIGNIN ? `
+    <!-- Parent side on a live high school: a parent or guardian's CourtSense account. -->
+    <div class="login-section" id="login-parent">
+      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Parents Sign In With Your Email</div>
+      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);line-height:1.5;margin:0 0 8px;">Use the account you confirmed your player's sign-up with.</div>
+      <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="parent-login-email" placeholder="Email" autocomplete="email" autocapitalize="none" spellcheck="false">
+      <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="parent-login-pw" placeholder="Password" autocomplete="current-password">
+      <label style="display:flex;align-items:center;gap:8px;font-family:'Barlow',sans-serif;font-size:13px;color:var(--charcoal);margin-top:10px;cursor:pointer;min-height:44px;"><input type="checkbox" id="parent-login-keep" checked style="width:18px;height:18px;"> Keep me signed in</label>
+      <div class="login-error" id="parent-pw-error"></div>
+      <button class="login-btn" id="parent-login-btn" onclick="parentLoginEmail()">Sign in</button>
+      <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it</a></div>
     </div>
     ` : ''}
     ${(PLAYER_LOGIN_ON&&!HS_ACCOUNT_SIGNIN) ? `
@@ -1609,6 +1678,12 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:16px 0 6px;">Recent announcements</div>
       <div id="hs-bc-list"></div>
     </div>
+    ${HS_ACCOUNT_SIGNIN?`<div class="card">
+      <div class="card-title"><span class="bar"></span> Parent view</div>
+      <label style="display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-size:14px;color:var(--charcoal);font-weight:600;"><input type="checkbox" id="hs-parent-skills" onchange="hsSetParentSkills(this.checked)" style="width:20px;height:20px;"> Show skills check to parents</label>
+      <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:4px 0 0;">Off unless you turn it on. When on, a parent sees only their own player's skills check, jump and drill numbers.</p>
+      <div id="hs-parent-skills-status" style="font-size:13px;margin-top:6px;color:var(--gray);"></div>
+    </div>`:''}
     <div class="card">
       <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:var(--gray);margin-bottom:8px;">Coming with parent accounts</div>
       <div style="opacity:0.7;border:1px dashed var(--gray-lighter);border-radius:10px;padding:12px 14px;background:var(--off-white,#faf8f9);">
@@ -2032,6 +2107,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
   </div>
 </div>
 </div><!-- end app-wrapper -->
+${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></div>':''}
 <div class="toast" id="toast"></div>
 
 
@@ -2796,6 +2872,8 @@ function listenData(){if(!db)return;
     D.duals=v.duals?Object.values(v.duals):[];
     D.opponents=v.opponents||{};
     D.tierRequests=v.tier_requests||{};
+    D.parentShowSkills=!!(v.config&&v.config.parentShowSkills===true);
+    if(typeof hsParentSkillsSync==='function')hsParentSkillsSync();
     D.chat=v.chat||{};
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
     D.practiceTournaments=(val&&val.practiceTournaments)||{};
@@ -4744,9 +4822,14 @@ function switchLogin(mode){
   document.querySelectorAll('.login-section').forEach(s=>s.classList.remove('active'));
   const _coachBtn=document.querySelector('.login-toggle-btn:nth-child(1)');
   const _playerBtn=document.querySelector('.login-toggle-btn:nth-child(2)');
+  const _parentSec=HS_ACCOUNT_SIGNIN?document.getElementById('login-parent'):null;
   if(mode==='coach'){
     if(_coachBtn)_coachBtn.classList.add('active');
     document.getElementById('login-coach').classList.add('active');
+  }else if(mode==='parent'&&_parentSec){
+    const _parentBtn=document.querySelector('.login-toggle-btn:nth-child(3)');
+    if(_parentBtn)_parentBtn.classList.add('active');
+    _parentSec.classList.add('active');
   }else{
     if(_playerBtn)_playerBtn.classList.add('active');
     document.getElementById('login-player').classList.add('active');
@@ -4990,6 +5073,8 @@ async function playerLoginEmail(){
   if(HS_ACCOUNT_SIGNIN){
     const _recs=accountId?D.players.filter(p=>p&&p.accountId===accountId&&p.active!==false):[];
     if(_recs.length!==1){
+      // No roster record: a parent or guardian of a player here is offered the parent view.
+      if(!_recs.length&&j.sessionToken&&typeof hsParentOffer==='function'){ done(); hsParentOffer(j.sessionToken,_hsKeep,errEl); return; }
       if(errEl)errEl.textContent=_recs.length?'This account is on the roster more than once. Ask your coach.':hsNotOnRosterText();
       done();return;
     }
@@ -5146,6 +5231,8 @@ async function autoLogin(){
   // account, and _leonAuthConfirmed accepts only a worker-verified session for the account
   // linked to that roster record, so a name-picker session from before is still refused.
   if(!PLAYER_LOGIN_ON&&!HS_ACCOUNT_SIGNIN){ sessionStorage.removeItem('leonAuth'); return; }
+  // Live high school parent: a stored parent session opens only after the worker confirms it.
+  try{ if(HS_ACCOUNT_SIGNIN&&typeof parentRestore==='function'&&(await parentRestore())) return; }catch(e){}
   try{
     let auth=JSON.parse(sessionStorage.getItem('leonAuth'));
     if(auth&&!(await _leonAuthConfirmed(auth))){ sessionStorage.removeItem('leonAuth'); auth=null; }
@@ -5298,7 +5385,11 @@ async function clubAccountSession(){
   // A live high school says so when the signed-in account has no roster record here. The
   // note sits quietly on the Player side of the toggle, since a coach, parent or fan signed
   // in to CourtSense lands on this same screen, Coach side first, with the fan page below.
-  if(HS_ACCOUNT_SIGNIN&&recs.length===0) hsDeviceNote(hsNotOnRosterText());
+  if(HS_ACCOUNT_SIGNIN&&recs.length===0){
+    hsDeviceNote(hsNotOnRosterText());
+    // A parent or guardian of a player here gets the parent view offer in place of the note.
+    if(typeof hsParentOffer==='function') hsParentOffer(tok,true,null);
+  }
   if(recs.length!==1)return null;
   const auth={role:'player',pid:recs[0].id};
   try{ sessionStorage.setItem('leonAuth',JSON.stringify(auth)); }catch(e){}
@@ -5316,12 +5407,14 @@ async function clubAccountSession(){
 // straight into their portal next time. ?signin=player on the school URL (the invite's
 // "Go to" button) opens this form directly; the parameter is dropped from the address bar.
 var _hsSigninParam=false;
+var _hsSigninParent=false;   // ?signin=parent (the guardian page's team button) opens the Parent side
 (function(){
   if(!HS_ACCOUNT_SIGNIN) return;
   try{
     var q=new URLSearchParams(location.search);
-    if(q.get('signin')!=='player') return;
-    _hsSigninParam=true;
+    var _mode=q.get('signin');
+    if(_mode!=='player'&&_mode!=='parent') return;
+    if(_mode==='parent') _hsSigninParent=true; else _hsSigninParam=true;
     q.delete('signin');
     var rest=q.toString();
     history.replaceState(history.state,'',location.pathname+(rest?'?'+rest:'')+location.hash);
@@ -5364,6 +5457,437 @@ function hsPersistDeviceSignin(accountId,email,j,keep){
 function hsClearDeviceSignin(){
   try{ localStorage.removeItem('courtsenseAuth'); }catch(e){}
   try{ sessionStorage.removeItem('courtsenseAuth'); }catch(e){}
+}
+// ── HS parent view (live high schools, HS_ACCOUNT_SIGNIN) ───────────────────
+// A confirmed parent or guardian signs in with their CourtSense account on the Parent side of
+// the toggle (or is offered the parent view from the Player side) and sees their own player's
+// team. Everything here is drawn from the worker's /hs/parent/* answers, which check the
+// guardian link on every call. Nothing here reads the public D snapshot, and the parent state
+// never touches currentPlayerId or the player's session keys. The stored session is only
+// {token, dbRoot}; a stored session is never trusted until /hs/parent/children confirms it.
+var PARENT_SESSION_KEY='csParentSession';
+var PV_TOKEN_RE=/^[a-f0-9]{64}$/;
+var parentState=null;      // { token, keep, children, here, others, active, view, team, child, prefs, prefMsg }
+var _hsParentOffer=null;   // { token, keep } while the Player side offers the parent view
+var _parentBusy=false;
+function pvEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
+function pvStr(v,max){ return typeof v==='string'?v.slice(0,max||200):''; }
+function pvNum(v){ return typeof v==='number'&&isFinite(v)?v:null; }
+function parentSessionRead(){
+  var raw=null, keep=false;
+  try{ raw=sessionStorage.getItem(PARENT_SESSION_KEY); if(!raw){ raw=localStorage.getItem(PARENT_SESSION_KEY); keep=!!raw; } }catch(e){ return null; }
+  var s=null; try{ s=JSON.parse(raw||'null'); }catch(e){ s=null; }
+  if(!s||typeof s.token!=='string'||!PV_TOKEN_RE.test(s.token)||s.dbRoot!==DB_ROOT) return null;
+  return { token:s.token, keep:keep };
+}
+function parentSessionSave(token,keep){
+  var rec=JSON.stringify({ token:token, dbRoot:DB_ROOT });
+  try{
+    if(keep){ localStorage.setItem(PARENT_SESSION_KEY,rec); sessionStorage.removeItem(PARENT_SESSION_KEY); }
+    else{ sessionStorage.setItem(PARENT_SESSION_KEY,rec); localStorage.removeItem(PARENT_SESSION_KEY); }
+  }catch(e){}
+}
+function parentSessionClear(){
+  try{ localStorage.removeItem(PARENT_SESSION_KEY); }catch(e){}
+  try{ sessionStorage.removeItem(PARENT_SESSION_KEY); }catch(e){}
+}
+// The device-wide CourtSense sign-in token (auth.js shape), read only.
+function pvDeviceToken(){
+  try{
+    var p=JSON.parse(localStorage.getItem('courtsenseAuth')||sessionStorage.getItem('courtsenseAuth')||'null');
+    var now=Date.now();
+    if(p&&typeof p.sessionToken==='string'&&PV_TOKEN_RE.test(p.sessionToken)&&(typeof p.exp!=='number'||p.exp>now)&&(typeof p.sessionExpiresAt!=='number'||p.sessionExpiresAt>now)) return p.sessionToken;
+  }catch(e){}
+  return '';
+}
+async function pvPost(path,body){
+  try{
+    var r=await fetch(AUTH_WORKER+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var j=await r.json().catch(function(){ return null; });
+    return { status:r.status, j:j };
+  }catch(e){ return { status:0, j:null }; }
+}
+// One child row from /hs/parent/children, allowlisted.
+function pvChildRow(c){
+  if(!c||typeof c!=='object') return null;
+  var row={ schoolName:pvStr(c.schoolName,120), slug:pvStr(c.slug,80), dbRoot:pvStr(c.dbRoot,80), childKey:pvStr(c.childKey,64),
+    firstName:pvStr(c.firstName,40), lastInitial:pvStr(c.lastInitial,2), classYear:pvStr(c.classYear,4), status:c.status==='prospect'?'prospect':'rostered' };
+  return row.childKey&&row.dbRoot?row:null;
+}
+async function pvChildren(token){
+  var r=await pvPost('/hs/parent/children',{sessionToken:token});
+  if(r.status===401) return { expired:true };
+  if(!r.j||r.j.ok!==true||!Array.isArray(r.j.children)) return { error:true };
+  return { children:r.j.children.map(pvChildRow).filter(Boolean) };
+}
+// Where a parent lands: one child here and none anywhere else opens Team; no child at all
+// is the No player linked yet screen; anything else is Your players.
+function parentRouteFor(children){
+  var here=children.filter(function(c){ return c.dbRoot===DB_ROOT; });
+  var others=children.filter(function(c){ return c.dbRoot!==DB_ROOT; });
+  if(!children.length) return { view:'nolink', active:null };
+  if(here.length===1&&others.length===0) return { view:'team', active:here[0].childKey };
+  return { view:'players', active:null };
+}
+// Opens the parent view for a token. opts.fromDevice: a quiet try with the device sign-in, so
+// any failure leaves the Parent sign-in as it was.
+async function parentEnter(token,keep,opts){
+  opts=opts||{};
+  if(!HS_ACCOUNT_SIGNIN||typeof token!=='string'||!PV_TOKEN_RE.test(token)) return false;
+  var res=await pvChildren(token);
+  if(res.expired){ parentSessionClear(); if(!opts.fromDevice) parentShowSignin('Your sign-in ended. Sign in again.'); return false; }
+  if(res.error){ if(!opts.fromDevice) parentShowSignin('Could not reach CourtSense. Check your connection and try again.'); return false; }
+  if(opts.fromDevice&&!res.children.length) return false;
+  parentSessionSave(token,keep);
+  var route=parentRouteFor(res.children);
+  parentState={ token:token, keep:!!keep, children:res.children,
+    here:res.children.filter(function(c){ return c.dbRoot===DB_ROOT; }), others:res.children.filter(function(c){ return c.dbRoot!==DB_ROOT; }),
+    active:route.active, view:route.view, team:null, child:{}, prefs:{}, prefMsg:{} };
+  currentRole='parent';
+  _hsParentOffer=null;
+  var ov=document.getElementById('login-overlay'); if(ov) ov.classList.add('hidden');
+  var aw=document.getElementById('app-wrapper'); if(aw) aw.style.display='none';
+  var pv=document.getElementById('parent-view'); if(pv) pv.style.display='block';
+  pvShow(route.view);
+  return true;
+}
+// A stored parent session on load. True when this took over the screen (the parent view, or
+// the Parent sign-in after a 401); false lets the player restore run.
+async function parentRestore(){
+  if(!HS_ACCOUNT_SIGNIN) return false;
+  var s=parentSessionRead();
+  if(s){ await parentEnter(s.token,s.keep,{}); return true; }
+  if(_hsSigninParent){
+    parentShowSignin('');
+    var dt=pvDeviceToken();
+    if(dt) await parentEnter(dt,true,{fromDevice:true});
+    return true;
+  }
+  return false;
+}
+function parentShowSignin(msg){
+  if(!HS_ACCOUNT_SIGNIN) return;
+  var pv=document.getElementById('parent-view'); if(pv){ pv.style.display='none'; pv.innerHTML=''; }
+  var ov=document.getElementById('login-overlay'); if(ov) ov.classList.remove('hidden');
+  switchLogin('parent');
+  var err=document.getElementById('parent-pw-error'); if(err) err.textContent=msg||'';
+}
+// Parent side of the toggle: the same account check as the Player side.
+async function parentLoginEmail(){
+  if(_parentBusy||!HS_ACCOUNT_SIGNIN) return;
+  var emailEl=document.getElementById('parent-login-email'), pwEl=document.getElementById('parent-login-pw');
+  var errEl=document.getElementById('parent-pw-error'), keepEl=document.getElementById('parent-login-keep');
+  var email=(emailEl?emailEl.value:'').trim().toLowerCase(), pw=pwEl?pwEl.value:'';
+  if(!email){ if(errEl) errEl.textContent='Enter your email'; return; }
+  if(!pw){ if(errEl) errEl.textContent='Enter your password'; return; }
+  var keep=!!(keepEl&&keepEl.checked);
+  _parentBusy=true;
+  var btn=document.getElementById('parent-login-btn'); if(btn) btn.disabled=true;
+  if(errEl) errEl.textContent='Checking...';
+  var body={rosterPath:'tally_kotb_pickup/players',email:email,password:pw}; if(keep) body.remember=true;
+  var r=await pvPost('/auth/verify',body);
+  var done=function(){ _parentBusy=false; if(btn) btn.disabled=false; };
+  if(r.status===0){ if(errEl) errEl.textContent='Could not reach the server. Try again.'; done(); return; }
+  var j=r.j;
+  if(!j||j.ok!==true){
+    if(errEl) errEl.textContent=(j&&j.code==='rate_limited')?'Too many attempts. Try again in a few minutes.'
+      :(j&&j.code==='server_error')?'Something is wrong on our end, not your password. Try again in a few minutes.'
+      :'Incorrect email or password';
+    done(); return;
+  }
+  if(typeof j.sessionToken!=='string'||!PV_TOKEN_RE.test(j.sessionToken)){ if(errEl) errEl.textContent='Something is wrong on our end, not your password. Try again in a few minutes.'; done(); return; }
+  if(pwEl) pwEl.value='';
+  if(errEl) errEl.textContent='';
+  done();
+  await parentEnter(j.sessionToken,keep,{});
+}
+async function parentSignOut(){
+  var s=parentState, tok=s?s.token:'';
+  parentState=null; parentSessionClear();
+  if(currentRole==='parent') currentRole=null;
+  // The device sign-in goes too, but only when it is this same session (a shared family phone
+  // keeps a player's own sign-in).
+  if(tok&&pvDeviceToken()===tok&&typeof hsClearDeviceSignin==='function') hsClearDeviceSignin();
+  if(tok) pvPost('/auth/player-logout',{token:tok});
+  parentShowSignin('');
+}
+// The Player side found no roster record for this account: if it is a parent or guardian of a
+// player on this team, offer the parent view with the same session.
+async function hsParentOffer(token,keep,errEl){
+  if(!HS_ACCOUNT_SIGNIN||typeof token!=='string'||!PV_TOKEN_RE.test(token)){ if(errEl) errEl.textContent=hsNotOnRosterText(); return false; }
+  var res=await pvChildren(token);
+  var here=(res.children||[]).filter(function(c){ return c.dbRoot===DB_ROOT; });
+  if(!here.length){ if(errEl) errEl.textContent=hsNotOnRosterText(); return false; }
+  _hsParentOffer={ token:token, keep:!!keep };
+  var box=document.getElementById('hs-parent-offer'), acct=document.getElementById('hs-acct-block');
+  if(errEl) errEl.textContent='';
+  hsDeviceNote('');
+  if(acct) acct.style.display='none';
+  if(box){
+    var names=here.map(function(c){ return pvEsc(c.firstName+(c.lastInitial?' '+c.lastInitial+'.':'')); }).join(', ');
+    box.innerHTML='<div class="pv-offer"><div class="pv-offer-title">You\'re a parent here</div>'
+      +'<p>This account is linked to '+names+' on the '+pvEsc(SC.shortName||SC.schoolName||'')+' team.</p>'
+      +'<button class="pv-btn pv-btn-navy" id="hs-parent-open" onclick="hsParentOfferOpen()">Open parent view</button>'
+      +'<button class="pv-btn pv-btn-ghost" id="hs-parent-other" onclick="hsParentOfferDismiss()">Use a different account</button></div>';
+    box.style.display='';
+  }
+  return true;
+}
+function hsParentOfferOpen(){ var o=_hsParentOffer; if(o) parentEnter(o.token,o.keep,{}); }
+function hsParentOfferDismiss(){
+  var o=_hsParentOffer; _hsParentOffer=null;
+  if(o&&pvDeviceToken()===o.token&&typeof hsClearDeviceSignin==='function') hsClearDeviceSignin();
+  var box=document.getElementById('hs-parent-offer'); if(box){ box.innerHTML=''; box.style.display='none'; }
+  var acct=document.getElementById('hs-acct-block'); if(acct) acct.style.display='';
+  hsDeviceNote('');
+  var em=document.getElementById('hs-login-email'); if(em){ em.value=''; try{ em.focus(); }catch(e){} }
+}
+
+// ── parent screens ──
+var PV_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function pvDate(s){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'')); return m?PV_MONTHS[+m[2]-1]+' '+(+m[3]):''; }
+function pvToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function pvActive(){ var s=parentState; if(!s||!s.active) return null; return s.here.find(function(c){ return c.childKey===s.active; })||null; }
+function pvName(c){ return c.firstName+(c.lastInitial?' '+c.lastInitial+'.':''); }
+function pvOpenChild(key){ var s=parentState; if(!s) return; if(!s.here.some(function(c){ return c.childKey===key; })) return; s.active=key; pvShow('child'); }
+function pvShow(view){
+  var s=parentState; if(!s) return;
+  if((view==='team'||view==='child')&&!pvActive()) view='players';
+  s.view=view;
+  pvRender();
+  try{ window.scrollTo(0,0); }catch(e){}
+  if(view==='team'&&!s.team) pvLoadTeam();
+  if(view==='child'){ var a=pvActive(); if(a&&!s.child[a.childKey]) pvLoadChild(a.childKey); }
+  if(view==='settings') pvLoadPrefs();
+}
+function pvExpired(){ parentSessionClear(); parentState=null; if(currentRole==='parent') currentRole=null; parentShowSignin('Your sign-in ended. Sign in again.'); }
+async function pvLoadTeam(){
+  var s=parentState; if(!s) return;
+  var r=await pvPost('/hs/parent/team',{sessionToken:s.token,dbRoot:DB_ROOT});
+  if(parentState!==s) return;
+  if(r.status===401) return pvExpired();
+  s.team=(r.j&&r.j.ok===true)?r.j:{ failed:true };
+  if(s.view==='team') pvRender();
+}
+async function pvLoadChild(key){
+  var s=parentState; if(!s) return;
+  var r=await pvPost('/hs/parent/child',{sessionToken:s.token,dbRoot:DB_ROOT,childKey:key});
+  if(parentState!==s) return;
+  if(r.status===401) return pvExpired();
+  s.child[key]=(r.j&&r.j.ok===true&&r.j.child&&typeof r.j.child==='object')?r.j.child:{ failed:true };
+  if(s.view==='child') pvRender();
+}
+async function pvLoadPrefs(){
+  var s=parentState; if(!s) return;
+  var todo=s.children.filter(function(c){ return !s.prefs[c.dbRoot+'/'+c.childKey]; });
+  await Promise.all(todo.map(async function(c){
+    var r=await pvPost('/hs/parent/prefs',{sessionToken:s.token,dbRoot:c.dbRoot,childKey:c.childKey,action:'get'});
+    if(r.status===401){ s.expired=true; return; }
+    s.prefs[c.dbRoot+'/'+c.childKey]=(r.j&&r.j.ok===true&&['all','team','none'].indexOf(r.j.textChoice)>=0)?r.j.textChoice:'?';
+  }));
+  if(parentState!==s) return;
+  if(s.expired) return pvExpired();
+  if(s.view==='settings') pvRender();
+}
+async function pvSetPref(i,choice){
+  var s=parentState; if(!s) return;
+  var c=s.children[i]; if(!c||['all','team','none'].indexOf(choice)<0) return;
+  var k=c.dbRoot+'/'+c.childKey;
+  s.prefMsg[k]='Saving...'; pvRender();
+  var r=await pvPost('/hs/parent/prefs',{sessionToken:s.token,dbRoot:c.dbRoot,childKey:c.childKey,action:'set',textChoice:choice});
+  if(parentState!==s) return;
+  if(r.status===401) return pvExpired();
+  if(r.j&&r.j.ok===true&&r.j.textChoice===choice){ s.prefs[k]=choice; s.prefMsg[k]='Saved.'; }
+  else s.prefMsg[k]='Could not save. Try again.';
+  if(s.view==='settings') pvRender();
+}
+function pvRender(){
+  var s=parentState, el=document.getElementById('parent-view'); if(!s||!el) return;
+  var a=pvActive(), inChild=!!a&&(s.view==='team'||s.view==='child'||s.view==='settings');
+  var h='<div class="pv-bar"><a class="pv-home" id="pv-home" href="https://courtsense.app/">COURTSENSE</a><button class="pv-out" id="pv-signout" onclick="parentSignOut()">Sign out</button></div>';
+  if(inChild&&s.children.length>=2){
+    h+='<div class="pv-strip"><span>'+pvEsc(pvName(a))+' · '+pvEsc(a.schoolName)+'</span><button class="pv-switch" id="pv-switch" onclick="pvShow(\'players\')">Switch player</button></div>';
+  }
+  h+='<div class="pv-main'+(inChild?' pv-has-nav':'')+'">';
+  if(s.view==='players') h+=pvPlayersHtml(s);
+  else if(s.view==='team') h+=pvTeamHtml(s);
+  else if(s.view==='child') h+=pvChildHtml(s,a);
+  else if(s.view==='settings') h+=pvSettingsHtml(s,inChild);
+  else h+=pvNoLinkHtml();
+  h+='</div>';
+  if(inChild){
+    var tab=function(v,label,id){ return '<button class="pv-nav-btn'+(s.view===v?' active':'')+'" id="'+id+'" onclick="pvShow(\''+v+'\')">'+label+'</button>'; };
+    h+='<nav class="pv-nav">'+tab('team','Team','pv-nav-team')+tab('child',pvEsc(a.firstName||'My player'),'pv-nav-child')+tab('settings','Settings','pv-nav-settings')+'</nav>';
+  }
+  el.innerHTML=h;
+}
+function pvPlayersHtml(s){
+  var h='<h1 class="pv-h1">Your players</h1>';
+  s.children.forEach(function(c){
+    // The list has no stage (only the child's own screen does), so a prospect reads SIGNED UP.
+    var chip=c.status==='prospect'?'SIGNED UP':'ON THE TEAM';
+    var inner='<div class="pv-card-name">'+pvEsc(pvName(c))+'</div><div class="pv-card-sub">'+pvEsc(c.schoolName)+(c.classYear?' · '+pvEsc(c.classYear):'')+'</div>'
+      +'<span class="pv-chip'+(c.status==='prospect'?' pv-chip-soft':'')+'">'+chip+'</span>';
+    if(c.dbRoot===DB_ROOT){
+      h+='<button class="pv-card pv-card-btn" onclick="pvOpenChild(\''+pvEsc(c.childKey)+'\')">'+inner+'</button>';
+    }else{
+      var slug=/^[a-z0-9_-]{1,80}$/.test(c.slug)?c.slug:'';
+      h+='<a class="pv-card pv-card-btn" href="'+(slug?'/'+slug+'/?signin=parent':'https://courtsense.app/')+'">'+inner
+        +'<div class="pv-card-note">Opens in '+pvEsc(c.schoolName||'that school')+'\'s app.</div></a>';
+    }
+  });
+  h+='<button class="pv-btn pv-btn-ghost" id="pv-to-settings" onclick="pvShow(\'settings\')">Text and email settings</button>';
+  return h;
+}
+function pvTeamHtml(s){
+  var t=s.team;
+  if(!t) return '<div class="pv-card pv-muted">Loading the team...</div>';
+  if(t.failed) return '<div class="pv-card pv-muted">Could not load the team. <button class="pv-link" onclick="parentState.team=null;pvShow(\'team\')">Try again</button></div>';
+  var today=pvToday();
+  var games=(Array.isArray(t.schedule)?t.schedule:[]).filter(function(g){ return g&&typeof g==='object'; });
+  var played=function(g){ return pvNum(g.scoreUs)!=null&&pvNum(g.scoreThem)!=null; };
+  var upcoming=games.filter(function(g){ return !played(g)&&String(g.date||'')>=today; });
+  var results=games.filter(played).slice().reverse();
+  var line=function(g){ return (g.location==='away'?'@ ':'vs ')+pvEsc(pvStr(g.opponent,80)||'TBD')+(g.type==='scrimmage'?' (scrimmage)':''); };
+  var h='<h1 class="pv-h1">'+pvEsc(pvStr(t.schoolName,120)||SC.displayName||'')+'</h1>';
+  var next=upcoming[0];
+  h+='<div class="pv-card"><div class="pv-label">Next match</div>'+(next
+    ?'<div class="pv-big">'+pvEsc(pvDate(next.date))+(next.time?' · '+pvEsc(pvStr(next.time,20)):'')+'</div><div>'+line(next)+'</div>'
+    :'<div class="pv-muted">No upcoming matches on the schedule yet.</div>')+'</div>';
+  var bcs=Array.isArray(t.broadcasts)?t.broadcasts:[];
+  h+='<div class="pv-card"><div class="pv-label">From the coaches</div>';
+  if(!bcs.length) h+='<div class="pv-muted">No announcements yet.</div>';
+  bcs.forEach(function(m){
+    if(!m||typeof m!=='object') return;
+    var when=pvNum(m.createdAt)?new Date(m.createdAt).toLocaleDateString([],{month:'short',day:'numeric'}):'';
+    h+='<div class="pv-msg"><div class="pv-msg-subj">'+pvEsc(pvStr(m.subject,200))+'</div><div class="pv-msg-meta">'+pvEsc(pvStr(m.coachName,80)||'Coach')+(when?' · '+pvEsc(when):'')+'</div>'
+      +'<div class="pv-msg-body">'+pvEsc(pvStr(m.body,5000))+'</div></div>';
+  });
+  h+='</div>';
+  h+='<div class="pv-card"><div class="pv-label">Schedule</div>';
+  if(!upcoming.length) h+='<div class="pv-muted">Nothing else on the schedule yet.</div>';
+  upcoming.forEach(function(g){ h+='<div class="pv-row"><span class="pv-row-date">'+pvEsc(pvDate(g.date))+'</span><span class="pv-row-main">'+line(g)+'</span><span class="pv-row-end">'+pvEsc(pvStr(g.time,20))+'</span></div>'; });
+  h+='</div>';
+  h+='<div class="pv-card"><div class="pv-label">Results and standings</div>';
+  if(!results.length) h+='<div class="pv-muted">No results yet this season.</div>';
+  results.forEach(function(g){
+    var win=g.scoreUs>g.scoreThem;
+    h+='<div class="pv-row"><span class="pv-row-date">'+pvEsc(pvDate(g.date))+'</span><span class="pv-row-main">'+line(g)+'</span><span class="pv-row-end '+(win?'pv-win':'pv-loss')+'">'+(win?'W ':'L ')+pvNum(g.scoreUs)+'-'+pvNum(g.scoreThem)+'</span></div>';
+  });
+  var teams={};
+  (Array.isArray(t.standings)?t.standings:[]).forEach(function(r){ if(r&&typeof r.team==='string'&&r.team) teams[r.team.slice(0,80)]={ w:pvNum(r.w)||0, l:pvNum(r.l)||0 }; });
+  var mine=SC.myStandingsKey||'';
+  var rec=(t.record&&typeof t.record==='object')?t.record:{};
+  if(mine) teams[mine]={ w:pvNum(rec.w)||0, l:pvNum(rec.l)||0 };
+  var rows=Object.keys(teams).map(function(n){ return [n,teams[n]]; }).sort(function(x,y){
+    var px=(x[1].w+x[1].l)?x[1].w/(x[1].w+x[1].l):0, py=(y[1].w+y[1].l)?y[1].w/(y[1].w+y[1].l):0; return py-px||y[1].w-x[1].w; });
+  if(rows.length){
+    h+='<table class="pv-table"><thead><tr><th>Team</th><th>W</th><th>L</th></tr></thead><tbody>';
+    rows.forEach(function(r){ var own=!!mine&&r[0].toLowerCase()===mine.toLowerCase();
+      h+='<tr'+(own?' class="pv-own"':'')+'><td>'+pvEsc(r[0])+'</td><td>'+r[1].w+'</td><td>'+r[1].l+'</td></tr>'; });
+    h+='</tbody></table>';
+  }
+  h+='</div>';
+  return h;
+}
+var PV_SKILLS=[['serving','Serving'],['passing','Passing'],['setting','Setting'],['hitting','Hitting'],['blocking','Blocking'],['defense','Defense'],['courtSense','Court sense'],['communication','Communication']];
+// A prospect's status, from the stage. Only new and tryout have their own words; every other
+// stage (not_this_year, or one added later) reads as tryouts complete, never the raw stage.
+// first is the child's first name, already escaped.
+function pvStageInfo(stage,first){
+  if(stage==='new') return { chip:'SIGNED UP · TRYOUTS AHEAD', text:'Signed up. Tryouts ahead.', ahead:true };
+  if(stage==='tryout') return { chip:'TRYING OUT', text:'Trying out now. The coaches will share what comes next.', ahead:true };
+  return { chip:'TRYOUTS COMPLETE', text:'Tryouts are complete. '+first+'\'s coaches will be in touch about next steps.', ahead:false };
+}
+function pvChildHtml(s,a){
+  var c=s.child[a.childKey], first=pvEsc(a.firstName||'Your player');
+  if(!c) return '<div class="pv-card pv-muted">Loading '+first+'\'s season...</div>';
+  if(c.failed) return '<div class="pv-card pv-muted">Could not load '+first+'\'s season. <button class="pv-link" onclick="delete parentState.child[parentState.active];pvShow(\'child\')">Try again</button></div>';
+  var h='<h1 class="pv-h1">'+pvEsc(pvName(a))+'</h1>';
+  if(c.status==='prospect'){
+    var info=pvStageInfo(typeof c.stage==='string'?c.stage:'',first);
+    h+='<div class="pv-card" id="pv-prospect"><span class="pv-chip pv-chip-soft">'+info.chip+'</span><div class="pv-big" style="margin-top:10px;">'+info.text+'</div>'
+      +(info.ahead?'<div class="pv-muted">'+first+'\'s season shows here once '+first+' is on the team.</div>':'')+'</div>';
+    return h;
+  }
+  var t=(c.totals&&typeof c.totals==='object')?c.totals:{};
+  var part=function(k){ return (t[k]&&typeof t[k]==='object')?t[k]:{}; };
+  var off=part('official'), ex=part('exhibition'), sc=part('scrimmage'), q=part('queens');
+  var played=(pvNum(off.matches)||0)+(pvNum(ex.matches)||0)+(pvNum(sc.matches)||0)+(pvNum(q.matches)||0);
+  var lines=Array.isArray(c.matches)?c.matches.filter(function(m){ return m&&typeof m==='object'; }):[];
+  var counts={}; lines.forEach(function(m){ if(m.kind==='gameday'&&pvNum(m.court)!=null) counts[m.court]=(counts[m.court]||0)+1; });
+  var usual=Object.keys(counts).sort(function(x,y){ return counts[y]-counts[x]; })[0];
+  var pg=pvNum(c.practiceGroup);
+  var tile=function(n,l){ return '<div class="pv-tile"><div class="pv-tile-n">'+n+'</div><div class="pv-tile-l">'+l+'</div></div>'; };
+  h+='<div class="pv-tiles">'+tile(played,'Matches played')+tile((pvNum(off.matchesWon)||0)+'-'+(pvNum(off.matchesLost)||0),'Court record')
+    +tile(usual?'Court '+pvEsc(usual):'-','Usual court')+tile(pg!=null?'PG '+pg:'-','Practice group')+'</div>';
+  var up=(Array.isArray(c.upcoming)?c.upcoming:[]).filter(function(u){ return u&&typeof u==='object'&&pvNum(u.court)!=null; })[0];
+  if(up){
+    h+='<div class="pv-card"><div class="pv-label">Next assignment</div><div class="pv-big">Court '+pvNum(up.court)+(pvStr(up.partnerFirstName,40)?' with '+pvEsc(pvStr(up.partnerFirstName,40)):'')+'</div>'
+      +'<div>'+pvEsc(pvDate(up.date))+(pvStr(up.opponent,80)?' · vs '+pvEsc(pvStr(up.opponent,80)):'')+'</div></div>';
+  }
+  h+='<div class="pv-card"><div class="pv-label">'+first+'\'s matches</div>';
+  if(!lines.length) h+='<div class="pv-muted">No matches yet this season.</div>';
+  lines.forEach(function(m){
+    var label=m.kind==='queens'?'Queens':m.kind==='scrimmage'?'Scrimmage':'Match';
+    var score=m.kind==='queens'?(pvNum(m.scoreFor)||0)+'-'+(pvNum(m.scoreAgainst)||0)
+      :(Array.isArray(m.sets)?m.sets:[]).map(function(x){ return (pvNum(x&&x.us)||0)+'-'+(pvNum(x&&x.them)||0); }).join(', ');
+    var res=m.won===true?'<span class="pv-win">W</span>':m.won===false?'<span class="pv-loss">L</span>':'';
+    h+='<div class="pv-row"><span class="pv-row-date">'+pvEsc(pvDate(m.date))+'</span><span class="pv-row-main">'+label
+      +(pvStr(m.opponent,80)?' vs '+pvEsc(pvStr(m.opponent,80)):'')+(pvNum(m.court)!=null?' · Court '+pvNum(m.court):'')+'<br><span class="pv-muted">'+pvEsc(score)+'</span></span><span class="pv-row-end">'+res+'</span></div>';
+  });
+  h+='</div>';
+  if(c.showSkills===true) h+=pvSkillsHtml(c,first);
+  h+='<p class="pv-foot">You see '+first+'\'s own numbers. Team rankings and coach notes stay with the coaches.</p>';
+  return h;
+}
+function pvSkillsHtml(c,first){
+  var sk=(c.skills&&typeof c.skills==='object')?c.skills:{};
+  var h='<div class="pv-card" id="pv-skills"><div class="pv-label">Skills check</div>';
+  var any=false;
+  PV_SKILLS.forEach(function(p){ var n=pvNum(sk[p[0]]); if(n==null) return; any=true; h+='<div class="pv-row"><span class="pv-row-main">'+p[1]+'</span><span class="pv-row-end">'+n+'/10</span></div>'; });
+  var jt=(Array.isArray(c.jumpTests)?c.jumpTests:[])[0];
+  if(jt&&typeof jt==='object'){ any=true; h+='<div class="pv-row"><span class="pv-row-main">Approach jump</span><span class="pv-row-end">'+pvEsc(pvStr(jt.approachJump,12)||'-')+'</span></div><div class="pv-row"><span class="pv-row-main">Block jump</span><span class="pv-row-end">'+pvEsc(pvStr(jt.blockJump,12)||'-')+'</span></div>'; }
+  var times=(Array.isArray(c.starDrills)?c.starDrills:[]).map(function(d){ return d&&pvNum(d.time); }).filter(function(x){ return x!=null; });
+  if(times.length){ any=true; h+='<div class="pv-row"><span class="pv-row-main">Star drill best</span><span class="pv-row-end">'+Math.min.apply(null,times).toFixed(1)+'s</span></div>'; }
+  if(!any) h+='<div class="pv-muted">'+first+'\'s skills check has not been recorded yet.</div>';
+  return h+'</div>';
+}
+function pvSettingsHtml(s,inChild){
+  var h='<h1 class="pv-h1">Text and email settings</h1>';
+  h+='<div class="pv-card"><p>Coach announcements always come to your email.</p><p class="pv-muted">Texting turns on later this season. Your choice is saved now, so it\'s ready when it does.</p></div>';
+  var opts=[['all','All CourtSense texts'],['team','Team texts only'],['none','No texts']];
+  s.children.forEach(function(c,i){
+    var k=c.dbRoot+'/'+c.childKey, cur=s.prefs[k];
+    h+='<div class="pv-card"><div class="pv-label">'+pvEsc(pvName(c))+' · '+pvEsc(c.schoolName)+'</div>';
+    if(!cur) h+='<div class="pv-muted">Loading...</div>';
+    else opts.forEach(function(o){
+      h+='<label class="pv-radio"><input type="radio" name="pv-tc-'+i+'" value="'+o[0]+'"'+(cur===o[0]?' checked':'')+' onchange="pvSetPref('+i+',\''+o[0]+'\')"> '+o[1]+'</label>';
+    });
+    if(cur==='?') h+='<div class="pv-muted">Could not load this choice. Pick one to save it.</div>';
+    if(s.prefMsg[k]) h+='<div class="pv-saved" id="pv-tc-msg-'+i+'">'+pvEsc(s.prefMsg[k])+'</div>';
+    h+='</div>';
+  });
+  if(!inChild) h+='<button class="pv-btn pv-btn-ghost" id="pv-back-players" onclick="pvShow(\''+(s.children.length?'players':'nolink')+'\')">Back to your players</button>';
+  return h;
+}
+function pvNoLinkHtml(){
+  return '<h1 class="pv-h1">No player linked yet</h1><div class="pv-card"><ol class="pv-steps">'
+    +'<li>Find the email from CourtSense asking you to confirm your player\'s sign-up.</li>'
+    +'<li>Open it and sign in with this same account to confirm.</li>'
+    +'<li>Can\'t find it? Ask your player\'s coach to resend it.</li></ol></div>'
+    +'<a class="pv-btn pv-btn-navy" id="pv-nolink-home" href="https://courtsense.app/">Back to CourtSense home</a>'
+    +'<button class="pv-btn pv-btn-ghost" id="pv-nolink-other" onclick="parentSignOut()">Try a different account</button>';
+}
+// Coach side: the skills switch for parents (config/parentShowSkills, true or nothing).
+function hsParentSkillsSync(){ var el=document.getElementById('hs-parent-skills'); if(el) el.checked=D.parentShowSkills===true; }
+function hsSetParentSkills(on){
+  if(!HS_ACCOUNT_SIGNIN||currentRole!=='coach') return;
+  var st=document.getElementById('hs-parent-skills-status'); if(st) st.textContent='Saving...';
+  Promise.resolve(fbSet('config/parentShowSkills',on?true:null)).then(function(ok){
+    if(st) st.textContent=ok?(on?'On. Parents see their own player\'s skills check.':'Off. Parents do not see the skills check.'):'Could not save. Try again.';
+    if(!ok) hsParentSkillsSync();
+  });
 }
 // Fan page colors. White text must read on the school's main color: at a contrast ratio below
 // 4.5 (WCAG AA), the deepest shade stands in behind white text and as the accent on white.
@@ -11145,7 +11669,7 @@ function setHsBcAudience(a,btn){
   document.querySelectorAll('#hs-bc-audience .filter-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
 }
-function renderHsCommunicate(){ renderHsBroadcastList(); }
+function renderHsCommunicate(){ renderHsBroadcastList(); if(typeof hsParentSkillsSync==='function')hsParentSkillsSync(); }
 function renderHsBroadcastList(){
   const el=document.getElementById('hs-bc-list'); if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
