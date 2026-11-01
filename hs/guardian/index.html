@@ -108,7 +108,7 @@ footer a{margin:0 6px;text-decoration:none;}
 
   <div id="done" class="card hidden">
     <h2 id="done-title"></h2>
-    <p>A parent view is coming soon, with the team schedule and your coaches' announcements in one place.</p>
+    <p>Your parent view is ready, with the team schedule, your player's season and your coaches' announcements in one place.</p>
     <p class="hidden" id="done-created">Your account is ready. Sign in any time with this email address and the password you just set.</p>
     <p>We sent you a short confirmation email.</p>
     <a class="btn hidden" id="done-team" href="https://courtsense.app/">Go to your team</a>
@@ -182,7 +182,7 @@ footer a{margin:0 6px;text-decoration:none;}
       return status===429||status>=500||code==='rate_limited'||code==='server_error'||code==='unavailable';
     },
     // The school's app, or the homepage when the slug is not usable.
-    teamUrl:function(slug){ return slug&&slug.length<=80&&SLUG_RE.test(slug)?'https://courtsense.app/'+slug+'/':'https://courtsense.app/'; },
+    teamUrl:function(slug){ return slug&&slug.length<=80&&SLUG_RE.test(slug)?'https://courtsense.app/'+slug+'/?signin=parent':'https://courtsense.app/'; },
     teamLabel:function(name){ var n=String(name||'').trim(); return n?'Go to '+n+' beach volleyball':'Go to your team'; }
   };
   window.HsGuardian=K;
