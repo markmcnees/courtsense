@@ -54,7 +54,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.209';
+const APP_VERSION='1.1.210';
 
 // ============================================================
 // DEMO FIXTURE — only consumed when SC.demoMode === true
@@ -2363,6 +2363,13 @@ function releaseLineup(date, oppName){
 }
 
 // ── MOVEMENT RESTRICTION MODAL ─────────────────────────────
+// Move reasons never carry health information: the assignments node is readable by anyone
+// with the school link. Coach discretion is the neutral default.
+const MOVE_REASONS=['Performance-based move','Strategic adjustment','Player request','Coach discretion'];
+const MOVE_REASON_DEFAULT='Coach discretion';
+const MOVE_REASON_HEALTH_RE=/injur|sick|\bill(ness)?\b|concuss|medic|health|clearance|doctor|\bpain|\bhurt|physical/i;
+// A stored reason as it may be shown: an older health-like value reads as Other.
+function moveReasonShown(r){ return MOVE_REASON_HEALTH_RE.test(String(r||''))?'Other':String(r||''); }
 function showMovementModal(violations){
   const names=violations.map(v=>`${v.name} (Pair ${v.from} → Pair ${v.to})`).join(', ');
   const modal=document.getElementById('movement-reason-modal');
@@ -2376,7 +2383,7 @@ function showMovementModal(violations){
       <div style="font-size:13px;color:var(--charcoal);margin-bottom:12px;" id="mvr-names"></div>
       <div style="font-size:12px;font-weight:700;color:var(--gray);margin-bottom:8px;">REASON FOR MOVEMENT</div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;" id="mvr-choices">
-        ${['Injury','Performance-based move','Strategic adjustment','Player request','Coach discretion'].map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;"><input type="radio" name="mvr" value="${r}" ${i===0?'checked':''}> ${r}</label>`).join('')}
+        ${MOVE_REASONS.map(r=>`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;"><input type="radio" name="mvr" value="${r}" ${r===MOVE_REASON_DEFAULT?'checked':''}> ${r}</label>`).join('')}
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-primary" style="flex:1;" onclick="saveWithMovementReason()">Save with Reason</button>
@@ -2394,7 +2401,7 @@ function showMovementModal(violations){
 function saveWithMovementReason(){
   const modal=document.getElementById('movement-reason-modal');
   const selected=document.querySelector('input[name="mvr"]:checked');
-  const reason=selected?selected.value:'Coach discretion';
+  const reason=(selected&&MOVE_REASONS.indexOf(selected.value)>=0)?selected.value:MOVE_REASON_DEFAULT;
   const{existingAssign,id,date,type,opp,slots}=window._pendingAssignment||{};
   if(!slots){if(modal)modal.remove();return;}
   if(existingAssign){fbRemove('assignments/'+existingAssign.id);}
@@ -2404,7 +2411,7 @@ function saveWithMovementReason(){
     notes:null,createdAt:new Date().toISOString()};
   fbSet('assignments/'+id,assignData);
   notifyLineup(assignData);
-  toast('Assignment saved — movement reason logged ✓');
+  toast('Assignment saved; movement reason logged ✓');
   window._pendingAssignment=null;
   window._pendingViolations=null;
   if(modal)modal.remove();
@@ -2495,7 +2502,7 @@ function renderDualSheet(date, oppName, sharedVal){
   const myAssign=Object.values(D.assignments||{}).find(a=>a.date===date&&a.type==='gameday');
   if(myAssign&&myAssign.movementReason){
     h+=`<div style="margin-top:8px;padding:8px;background:#fffbeb;border-radius:6px;font-size:11px;color:#92400e;">
-      📝 Movement note: ${myAssign.movementReason}
+      📝 Movement note: ${moveReasonShown(myAssign.movementReason).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
     </div>`;
   }
 
