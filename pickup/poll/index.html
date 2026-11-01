@@ -234,7 +234,7 @@ window.csPollKit=(function(){
     full:'This poll is full. The organizer is picking the game.',
     pending:'Check your email to make your vote count.',
     sent:'Sent to the organizer.',
-    copied:'Link copied'
+    copied:'Copied. Paste it into a text or group chat.'
   };
 
   // The worker emails /pickup/poll/?p=ID&a=ACCOUNT&m=TOKEN (vote) and &c=TOKEN (can't
@@ -575,12 +575,26 @@ window.csPollKit=(function(){
     var line2='Vote for a date and time to play. If we get at least '+(n===1?'1 player':String(n))+", it's game on.";
     return (d?t+': '+d:t)+'\n'+line2+'\n'+String(url||'');
   }
-  // Share the message: the phone share sheet with the link inside the text (SMS and some
-  // apps drop a separate url field), else the clipboard copies the same text, else
-  // 'manual' (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
-  function shareLink(nav, text, title){
-    if(nav&&typeof nav.share==='function'){
-      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+  // A phone or tablet: the browser says so (userAgentData.mobile), else a coarse pointer
+  // plus a mobile user agent (an iPad reports a Mac, so a Mac with touch counts too).
+  // Desktops, Windows Chrome included, never get the share sheet.
+  function isPhone(nav, win){
+    if(!nav) return false;
+    if(nav.userAgentData&&typeof nav.userAgentData.mobile==='boolean') return nav.userAgentData.mobile;
+    var coarse=false;
+    try{ coarse=!!(win&&typeof win.matchMedia==='function'&&win.matchMedia('(pointer: coarse)').matches); }catch(e){}
+    var ua=String(nav.userAgent||'');
+    var hint=/Android|iPhone|iPad|iPod|Mobile/i.test(ua)||(/Macintosh/.test(ua)&&(nav.maxTouchPoints||0)>1);
+    return coarse&&hint;
+  }
+  // Share the message. A phone or tablet gets the share sheet with the link inside the text
+  // (SMS and some apps drop a separate url field); a cancelled or failed share falls back to
+  // the copy. Everywhere else the clipboard copies the identical text. 'manual' when that
+  // fails too (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
+  function shareLink(nav, text, title, win){
+    var w=win||(typeof window!=='undefined'?window:null);
+    if(nav&&typeof nav.share==='function'&&isPhone(nav, w)){
+      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(){ return copy(); });
     }
     return copy();
     function copy(){
@@ -589,6 +603,19 @@ window.csPollKit=(function(){
       }
       return Promise.resolve('manual');
     }
+  }
+  // What the copy toast says.
+  var COPIED_MSG='Copied. Paste it into a text or group chat.';
+  // A poll's times by date, then start time; entry order breaks a tie, and a list without
+  // dates and start times keeps its order. Display only.
+  function byStart(options){
+    var list=(options||[]).slice(), idx=list.map(function(o,i){ return i; });
+    var key=function(o){ return o&&o.date&&o.startTime?String(o.date)+' '+String(o.startTime):null; };
+    return idx.sort(function(a,b){
+      var ka=key(list[a]), kb=key(list[b]);
+      if(ka==null||kb==null||ka===kb) return a-b;
+      return ka<kb?-1:1;
+    }).map(function(i){ return list[i]; });
   }
   // ── end share message ──
   // Sign in on the pickup page, which sends the player back to this poll.
@@ -613,7 +640,7 @@ window.csPollKit=(function(){
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel, closedState:closedState, closesLine:closesLine, pollClosesLine:pollClosesLine, noneMsg:noneMsg,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
-    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, signInUrl:signInUrl, quickProblem:quickProblem };
+    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -737,6 +764,8 @@ window.csPollKit=(function(){
     if(s==='not_on_poll'){ plain('Invited players only',K.MSG.notOnPoll,true); return; }
     if(s==='error'){ plain('Something went wrong',(res.j&&res.j.error)||'Try again in a moment.',true); return; }
     view=res.j;
+    // Times by date, then start time, whatever order they were entered in.
+    if(Array.isArray(view.options)) view.options=K.byStart(view.options);
     $('poll-title').textContent=view.title;
     $('poll-org').textContent='From '+view.organizerName;
     $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';

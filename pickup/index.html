@@ -141,6 +141,9 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pp-tag.shut{background:#8a8a8a;color:#fff;}
 .pp-orow.shut{opacity:.55;}
 .pp-close{display:block;font-size:11px;color:var(--gray);margin-top:2px;}
+.pp-tflag:empty{display:none;}
+.pp-tflag{margin-top:8px;padding:8px 10px;border-radius:8px;background:#fff6e0;border:1px solid #f0d48a;font-size:13px;}
+.pp-tflag .pp-row2{margin-top:6px;}
 .pp-day{font-size:13px;color:var(--ink);padding:3px 0;}
 .pp-day b{font-weight:700;}
 .pp-sug{border:1.5px dashed var(--sand-border);border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13px;}
@@ -10668,12 +10671,26 @@ window.csPollPlanKit=(function(){
     var line2='Vote for a date and time to play. If we get at least '+(n===1?'1 player':String(n))+", it's game on.";
     return (d?t+': '+d:t)+'\n'+line2+'\n'+String(url||'');
   }
-  // Share the message: the phone share sheet with the link inside the text (SMS and some
-  // apps drop a separate url field), else the clipboard copies the same text, else
-  // 'manual' (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
-  function shareLink(nav, text, title){
-    if(nav&&typeof nav.share==='function'){
-      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(e){ return e&&e.name==='AbortError'?'shared':copy(); });
+  // A phone or tablet: the browser says so (userAgentData.mobile), else a coarse pointer
+  // plus a mobile user agent (an iPad reports a Mac, so a Mac with touch counts too).
+  // Desktops, Windows Chrome included, never get the share sheet.
+  function isPhone(nav, win){
+    if(!nav) return false;
+    if(nav.userAgentData&&typeof nav.userAgentData.mobile==='boolean') return nav.userAgentData.mobile;
+    var coarse=false;
+    try{ coarse=!!(win&&typeof win.matchMedia==='function'&&win.matchMedia('(pointer: coarse)').matches); }catch(e){}
+    var ua=String(nav.userAgent||'');
+    var hint=/Android|iPhone|iPad|iPod|Mobile/i.test(ua)||(/Macintosh/.test(ua)&&(nav.maxTouchPoints||0)>1);
+    return coarse&&hint;
+  }
+  // Share the message. A phone or tablet gets the share sheet with the link inside the text
+  // (SMS and some apps drop a separate url field); a cancelled or failed share falls back to
+  // the copy. Everywhere else the clipboard copies the identical text. 'manual' when that
+  // fails too (the caller shows the text to copy). Resolves 'shared', 'copied' or 'manual'.
+  function shareLink(nav, text, title, win){
+    var w=win||(typeof window!=='undefined'?window:null);
+    if(nav&&typeof nav.share==='function'&&isPhone(nav, w)){
+      return nav.share({ title:title, text:text }).then(function(){ return 'shared'; }, function(){ return copy(); });
     }
     return copy();
     function copy(){
@@ -10682,6 +10699,19 @@ window.csPollPlanKit=(function(){
       }
       return Promise.resolve('manual');
     }
+  }
+  // What the copy toast says.
+  var COPIED_MSG='Copied. Paste it into a text or group chat.';
+  // A poll's times by date, then start time; entry order breaks a tie, and a list without
+  // dates and start times keeps its order. Display only.
+  function byStart(options){
+    var list=(options||[]).slice(), idx=list.map(function(o,i){ return i; });
+    var key=function(o){ return o&&o.date&&o.startTime?String(o.date)+' '+String(o.startTime):null; };
+    return idx.sort(function(a,b){
+      var ka=key(list[a]), kb=key(list[b]);
+      if(ka==null||kb==null||ka===kb) return a-b;
+      return ka<kb?-1:1;
+    }).map(function(i){ return list[i]; });
   }
   // ── end share message ──
   // Progress toward the minimum, 0 to 100.
@@ -10764,6 +10794,47 @@ window.csPollPlanKit=(function(){
     var a=v&&v.votedCount, n=v&&v.noneCount, w=v&&v.notAnsweredCount;
     if(typeof a!=='number'||typeof n!=='number'||typeof w!=='number') return '';
     return a+' can make it, '+n+" can't, "+w+' not answered';
+  }
+  // ── wrong-time check (create form, before send) ──
+  function clockMin(t){ var m=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(t||''); return m?(+m[1])*60+(+m[2]):null; }
+  function minClock(n){ return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0'); }
+  function clock12(t){ var n=clockMin(t); if(n==null) return ''; var h=Math.floor(n/60), ap=h<12?'AM':'PM'; h=h%12||12; return h+':'+String(n%60).padStart(2,'0')+' '+ap; }
+  // A start from 10:00 PM through 5:59 AM is late for pickup.
+  function lateStart(n){ return n!=null&&(n>=22*60||n<6*60); }
+  // One flag per time, or null. A late start is flagged; so is the odd one out: with 3 or
+  // more times that are not late, exactly one on the other side of noon from the rest, and
+  // only when moving it 12 hours puts it closer to the others (so 10 AM, 12 PM, 1 PM is
+  // left alone). Switching moves start and end 12 hours on the same date (an end past
+  // midnight is held at 11:59 PM). kept: the organizer's Keep, by date|start|end, so a kept
+  // time is not asked about again until it changes.
+  function timeFlags(options, kept){
+    var k=kept||{};
+    var rows=(options||[]).map(function(o){ return { o:o||{}, n:clockMin(o&&o.startTime) }; });
+    var out=rows.map(function(){ return null; });
+    var sig=function(o){ return [o.date||'',o.startTime||'',o.endTime||''].join('|'); };
+    function flag(i, kind){
+      var o=rows[i].o, n=rows[i].n, shift=n<720?720:-720, e=clockMin(o.endTime);
+      var toS=minClock(n+shift), toE=e==null?'':minClock(Math.max(0,Math.min(1439,e+shift)));
+      var span=function(a,b){ return clock12(a)+(b?' to '+clock12(b):''); };
+      var orig=span(o.startTime,o.endTime), to=span(toS,toE), ap=shift>0?'PM':'AM';
+      out[i]={ kind:kind, toStart:toS, toEnd:toE, sig:sig(o),
+        text:orig+(kind==='late'?' is late for pickup.':' stands out from your other times.')+' Did you mean '+to+'?',
+        switchLabel:'Switch to '+ap, keepLabel:'Keep '+clock12(o.startTime) };
+    }
+    rows.forEach(function(r,i){ if(lateStart(r.n)&&!k[sig(r.o)]) flag(i,'late'); });
+    var calm=[]; rows.forEach(function(r,i){ if(r.n!=null&&!lateStart(r.n)) calm.push(i); });
+    if(calm.length>=3){
+      var am=calm.filter(function(i){ return rows[i].n<720; }), pm=calm.filter(function(i){ return rows[i].n>=720; });
+      var odd=am.length===1?am[0]:pm.length===1?pm[0]:null;
+      if(odd!=null&&!k[sig(rows[odd].o)]){
+        var others=calm.filter(function(i){ return i!==odd; }).map(function(i){ return rows[i].n; });
+        var lo=Math.min.apply(null,others), hi=Math.max.apply(null,others);
+        var dist=function(x){ return x<lo?lo-x:x>hi?x-hi:0; };
+        var x=rows[odd].n, fx=x<720?x+720:x-720;
+        if(dist(fx)<dist(x)) flag(odd,'odd');
+      }
+    }
+    return out;
   }
   // End time auto-fill: start + 2 hours as HH:MM, held at 23:59 when that would pass
   // midnight; '' for a start that is not a time.
@@ -10869,9 +10940,9 @@ window.csPollPlanKit=(function(){
     rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
     mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
-    statusLine:statusLine, canConfirm:canConfirm, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
+    statusLine:statusLine, canConfirm:canConfirm, timeFlags:timeFlags, clock12:clock12, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
-    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, progressPct:progressPct,
+    suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, progressPct:progressPct,
     NAMES_SHOWN:NAMES_SHOWN, optionVoters:optionVoters, voterChips:voterChips, chipText:chipText, noneLine:noneLine };
 })();
 </script>
@@ -10973,7 +11044,7 @@ async function startPollPlan(){
   if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
   const K = window.csPollPlanKit;
   ppOptions = [K.newRow({ startTime:'09:00' }, ''), K.newRow({ startTime:'17:00' }, '')];
-  ppSelected = [];
+  ppSelected = []; _ppKeptTimes = {};
   $('pp-title').value = ''; $('pp-min').value = '4'; $('pp-cap').value = '6';
   $('pp-rmin').value = ''; $('pp-rmax').value = ''; $('pp-search').value = ''; $('pp-err').textContent = '';
   document.querySelector('input[name="pp-locmode"][value="fixed"]').checked = true;
@@ -11004,9 +11075,37 @@ function ppDrawOptions(){
     + '</div><div class="fg"><label class="lbl">Date</label><input class="inp" type="date" id="pp-d-'+i+'" value="'+escapeHTML(o.date)+'" onchange="ppReadOptions(true)"></div>'
     + '<div class="row2"><div><label class="lbl">Start</label><input class="inp" type="time" id="pp-s-'+i+'" value="'+escapeHTML(o.startTime)+'" onchange="ppStartChanged('+i+')"></div>'
     + '<div><label class="lbl">End</label><input class="inp" type="time" id="pp-e-'+i+'" value="'+escapeHTML(o.endTime)+'" oninput="ppEndInput('+i+')"></div></div>'
+    + '<div class="pp-tflag" id="pp-tf-'+i+'" role="alert"></div>'
     + (voted ? '<div class="fg"><label class="lbl">Location</label>'+ppLocSelectHTML('pp-l-'+i, o.location)+'</div>' : '')
     + '</div>').join('');
   $('pp-add-opt').style.display = ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX ? 'none' : '';
+  ppDrawTimeFlags();
+}
+// Wrong-time check: a late start, or the one time on the other side of noon, asks to
+// switch it 12 hours or keep it. Each flagged time needs a choice before Send; Keep is
+// remembered for that exact date and time.
+let _ppKeptTimes = {};
+function ppDrawTimeFlags(){
+  const flags = window.csPollPlanKit.timeFlags(ppOptions, _ppKeptTimes);
+  flags.forEach((f, i) => {
+    const el = $('pp-tf-'+i); if(!el) return;
+    el.innerHTML = f ? escapeHTML(f.text)
+      + '<div class="pp-row2"><button class="btn btn-p btn-sm" onclick="ppSwitchTime('+i+')">'+escapeHTML(f.switchLabel)+'</button>'
+      + '<button class="btn btn-g btn-sm" onclick="ppKeepTime('+i+')">'+escapeHTML(f.keepLabel)+'</button></div>' : '';
+  });
+}
+function ppSwitchTime(i){
+  ppReadOptions();
+  const f = window.csPollPlanKit.timeFlags(ppOptions, _ppKeptTimes)[i];
+  if(!f) return;
+  ppOptions[i] = { ...ppOptions[i], startTime: f.toStart, endTime: f.toEnd || ppOptions[i].endTime };
+  ppDrawOptions();
+}
+function ppKeepTime(i){
+  ppReadOptions();
+  const f = window.csPollPlanKit.timeFlags(ppOptions, _ppKeptTimes)[i];
+  if(f) _ppKeptTimes[f.sig] = true;
+  ppDrawTimeFlags();
 }
 // Reads the option fields back into ppOptions. There is no poll-wide close to move: each
 // time closes 90 minutes before it starts.
@@ -11019,6 +11118,7 @@ function ppReadOptions(timesChanged){
     endEdited: !!o.endEdited,
     location: voted && $('pp-l-'+i) ? ppLocValue('pp-l-'+i) : o.location,
   }));
+  if(timesChanged) ppDrawTimeFlags();
 }
 function ppAddOption(){
   ppReadOptions();
@@ -11035,6 +11135,7 @@ function ppStartChanged(i){
 }
 function ppEndInput(i){
   ppOptions[i] = window.csPollPlanKit.rowAfterEnd(ppOptions[i], $('pp-e-'+i) ? $('pp-e-'+i).value : '');
+  ppDrawTimeFlags();
 }
 function ppRemoveOption(i){
   ppReadOptions();
@@ -11100,6 +11201,12 @@ async function ppSend(){
   const x = ppReadForm();
   const problem = K.validate(x, Date.now());
   if(problem){ $('pp-err').textContent = problem; return; }
+  // A flagged time (late, or the odd one out) needs Switch or Keep first.
+  if(K.timeFlags(x.options, _ppKeptTimes).some(Boolean)){
+    $('pp-err').textContent = 'Check the flagged times above: switch each one or keep it.';
+    ppDrawTimeFlags();
+    return;
+  }
   $('pp-err').textContent = '';
   $('pp-send').disabled = true;
   const res = await K.post(fetch, K.createReq(K.createBody(x, session)));
@@ -11141,7 +11248,8 @@ function ppDrawMyPolls(){
     // per-time poll an open time shows its own close, and a closed one is grayed out with
     // the poll page's tag instead.
     const now = Date.now();
-    const rows = v.options.map(o => {
+    // Times by date, then start time (the row carries both from the worker).
+    const rows = K.byStart(v.options).map(o => {
       const shut = K.closedTag(v, o, now), cl = K.closeLine(v, o, now);
       return '<div class="pp-orow'+(shut ? ' shut' : '')+'" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
       + (shut ? '<span class="pp-tag shut">'+escapeHTML(shut)+'</span>'
@@ -11193,7 +11301,7 @@ async function ppCopyLink(pollId){
   const url = K.shareUrl(location.origin, pollId);
   const text = K.shareMessage(v.title, (v.options || []).map(o => o.date), v.minPlayers, url);
   const how = await K.shareLink(navigator, text, v.title || 'Pickup poll');
-  if(how === 'copied') toast('Link copied');
+  if(how === 'copied') toast(K.COPIED_MSG);
   if(how === 'manual'){ const el = $('pp-link-'+pollId); if(el){ el.textContent = text; el.style.display = ''; } toast('Copy the message below'); }
 }
 // Right after a poll is sent: a short success step with a Share button, using the same
@@ -11212,7 +11320,7 @@ async function ppShareSent(){
   if(!_ppSent) return;
   const K = window.csPollPlanKit;
   const how = await K.shareLink(navigator, _ppSent.text, _ppSent.title || 'Pickup poll');
-  if(how === 'copied') toast('Link copied');
+  if(how === 'copied') toast(K.COPIED_MSG);
   if(how === 'manual'){ const el = $('pp-sent-text'); if(el){ el.textContent = _ppSent.text; el.style.display = ''; } toast('Copy the message below'); }
 }
 function ppDismissSent(){ _ppSent = null; ppDrawSent(); }
