@@ -10743,6 +10743,7 @@ window.csPollPlanKit=(function(){
   }
   // One line of status for a poll card.
   function statusLine(v){
+    if(v.outcome==='canceled') return 'Canceled';
     if(v.outcome==='game') return 'Game made';
     if(v.full&&v.status==='open') return 'Full. The organizer is picking the game.';
     if(v.status==='closed'||v.open===false) return v.outcome==='ready_unconfirmed'?'Closed, no time confirmed':'Closed, no time reached '+v.minPlayers;
@@ -10795,7 +10796,7 @@ window.csPollPlanKit=(function(){
     if(typeof a!=='number'||typeof n!=='number'||typeof w!=='number') return '';
     return a+' can make it, '+n+" can't, "+w+' not answered';
   }
-  // ── wrong-time check (create form, before send) ──
+  // ── wrong-time check (identical in the pickup page kit and the poll page kit) ──
   function clockMin(t){ var m=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(t||''); return m?(+m[1])*60+(+m[2]):null; }
   function minClock(n){ return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0'); }
   function clock12(t){ var n=clockMin(t); if(n==null) return ''; var h=Math.floor(n/60), ap=h<12?'AM':'PM'; h=h%12||12; return h+':'+String(n%60).padStart(2,'0')+' '+ap; }
@@ -10836,6 +10837,7 @@ window.csPollPlanKit=(function(){
     }
     return out;
   }
+  // ── end wrong-time check ──
   // End time auto-fill: start + 2 hours as HH:MM, held at 23:59 when that would pass
   // midnight; '' for a start that is not a time.
   function autoEnd(start){
@@ -11271,6 +11273,7 @@ function ppDrawMyPolls(){
     const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
       + dayGames.map(d => '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(d.inviteId)+'">Open '+escapeHTML(d.day || '')+' game</a>').join('')
       + (v.isRecipient && v.open && !v.full ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '')
+      + (v.role === 'organizer' && v.open && v.closeRule === 'perOption' ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">Edit times</a>' : '')
       + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;white-space:pre-line;"></div>' : '');
     return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
       + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')

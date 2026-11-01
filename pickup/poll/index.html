@@ -91,6 +91,10 @@
   .yn label{display:inline-flex;align-items:center;gap:8px;margin-right:20px;min-height:44px;}
   .sub{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:20px;letter-spacing:1px;color:var(--navy);margin:4px 0 0;}
   .sug{border:1.5px dashed var(--line);border-radius:10px;padding:10px;margin:10px 0;}
+  .otime{border-top:1px solid var(--line);padding:10px 0;}
+  .otime .when{font-weight:700;display:block;margin-bottom:6px;}
+  .otime .row2 .btn{margin-top:0;}
+  .tflag{margin:8px 0;padding:8px 10px;border-radius:8px;background:#fff6e0;border:1px solid #f0d48a;font-size:14px;}
   .sug p{margin:0 0 8px;}
   #ts-box{margin:6px 0 12px;min-height:65px;}
   footer{text-align:center;color:var(--slate);font-size:13px;padding:0 16px 28px;}
@@ -151,6 +155,8 @@
     <p class="msg ok" id="copy-msg" role="status"></p>
     <p class="note" id="copy-url" style="word-break:break-all;white-space:pre-line;"></p>
     <div id="org-sugs"></div>
+    <div id="org-times"></div>
+    <div id="org-cancel"></div>
     <p class="msg" id="org-msg" role="status"></p>
   </div>
 
@@ -227,6 +233,7 @@ window.csPollKit=(function(){
     nonePer:'Got it. You can still pick times until each one closes.',
     perTime:'Each time closes 90 minutes before it starts.',
     expired:'Voting has closed and no time reached the minimum, so no game was made.',
+    canceled:'The organizer canceled this poll. No game was made.',
     ended:'Voting is closed and every time on this poll has passed. Nothing here can change now.',
     offline:'Could not reach CourtSense. Check your connection and try again.',
     signin:'Sign in on the pickup page, then open this poll again.',
@@ -392,6 +399,7 @@ window.csPollKit=(function(){
     if(j.code==='unauthorized') return 'signin';
     if(j.code==='not_on_poll'||j.code==='not_found') return 'not_on_poll';
     if(!j.options) return 'error';
+    if(j.outcome==='canceled') return 'canceled';
     if(j.outcome==='game'&&j.inviteId) return 'game';
     // One game per day: closed with at least one day's game.
     if(j.games==='perDay'&&j.status==='closed'&&Array.isArray(j.days)&&j.days.some(function(d){ return d.status==='game'&&d.inviteId; })) return 'days_done';
@@ -542,9 +550,72 @@ window.csPollKit=(function(){
     var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.places)?res.j.places:[];
     return a.filter(function(p){ return p&&typeof p.label==='string'&&p.label&&p.label.length<=150; }).map(function(p){ return {label:p.label}; });
   }
+  // Organizer changes: edit or remove a time, or cancel the poll.
+  function optionReq(session, p, optId, action, fields){
+    var b={sessionToken:session,p:p,optId:optId,action:action};
+    if(action==='edit'&&fields){ b.date=fields.date; b.startTime=fields.startTime; if(fields.endTime) b.endTime=fields.endTime; if(fields.location!=null) b.location=fields.location; }
+    return {path:'/pickup/poll/option',body:b};
+  }
+  function cancelReq(session, p){ return {path:'/pickup/poll/cancel',body:{sessionToken:session,p:p}}; }
+  // A time the organizer may still change: a per-time poll, open, and the time itself open.
+  function canChange(view, o){
+    return !!view&&view.isOrganizer===true&&view.closeRule==='perOption'&&view.status==='open'&&view.open!==false&&!!o&&!o.closed&&optionState(view,o)==='open';
+  }
+  // The voters other than the organizer who picked a time (they are told about a change).
+  function othersOn(view, o){
+    return (o&&Array.isArray(o.voters)?o.voters:[]).filter(function(i){ var p=view&&view.people&&view.people[i]; return !!p&&!p.isOrganizer; }).length;
+  }
+  function removeLine(view, o){
+    var n=othersOn(view,o);
+    var tail=n===0?'No one else picked it.':n===1?'1 player who picked it will be told.':n+' players who picked it will be told.';
+    return 'Remove '+(o.label||'this time')+'? '+tail;
+  }
+  function cancelLine(view){ return 'Cancel '+(view&&view.title||'this poll')+'? Everyone who picked a time will be told.'; }
   function decideReq(session, p, sugId, action){ return {path:'/pickup/poll/suggestion',body:{sessionToken:session,p:p,sugId:sugId,action:action}}; }
   // The share link: no personal token, so it is safe to post anywhere.
   function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
+  // ── wrong-time check (identical in the pickup page kit and the poll page kit) ──
+  function clockMin(t){ var m=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(t||''); return m?(+m[1])*60+(+m[2]):null; }
+  function minClock(n){ return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0'); }
+  function clock12(t){ var n=clockMin(t); if(n==null) return ''; var h=Math.floor(n/60), ap=h<12?'AM':'PM'; h=h%12||12; return h+':'+String(n%60).padStart(2,'0')+' '+ap; }
+  // A start from 10:00 PM through 5:59 AM is late for pickup.
+  function lateStart(n){ return n!=null&&(n>=22*60||n<6*60); }
+  // One flag per time, or null. A late start is flagged; so is the odd one out: with 3 or
+  // more times that are not late, exactly one on the other side of noon from the rest, and
+  // only when moving it 12 hours puts it closer to the others (so 10 AM, 12 PM, 1 PM is
+  // left alone). Switching moves start and end 12 hours on the same date (an end past
+  // midnight is held at 11:59 PM). kept: the organizer's Keep, by date|start|end, so a kept
+  // time is not asked about again until it changes.
+  function timeFlags(options, kept){
+    var k=kept||{};
+    var rows=(options||[]).map(function(o){ return { o:o||{}, n:clockMin(o&&o.startTime) }; });
+    var out=rows.map(function(){ return null; });
+    var sig=function(o){ return [o.date||'',o.startTime||'',o.endTime||''].join('|'); };
+    function flag(i, kind){
+      var o=rows[i].o, n=rows[i].n, shift=n<720?720:-720, e=clockMin(o.endTime);
+      var toS=minClock(n+shift), toE=e==null?'':minClock(Math.max(0,Math.min(1439,e+shift)));
+      var span=function(a,b){ return clock12(a)+(b?' to '+clock12(b):''); };
+      var orig=span(o.startTime,o.endTime), to=span(toS,toE), ap=shift>0?'PM':'AM';
+      out[i]={ kind:kind, toStart:toS, toEnd:toE, sig:sig(o),
+        text:orig+(kind==='late'?' is late for pickup.':' stands out from your other times.')+' Did you mean '+to+'?',
+        switchLabel:'Switch to '+ap, keepLabel:'Keep '+clock12(o.startTime) };
+    }
+    rows.forEach(function(r,i){ if(lateStart(r.n)&&!k[sig(r.o)]) flag(i,'late'); });
+    var calm=[]; rows.forEach(function(r,i){ if(r.n!=null&&!lateStart(r.n)) calm.push(i); });
+    if(calm.length>=3){
+      var am=calm.filter(function(i){ return rows[i].n<720; }), pm=calm.filter(function(i){ return rows[i].n>=720; });
+      var odd=am.length===1?am[0]:pm.length===1?pm[0]:null;
+      if(odd!=null&&!k[sig(rows[odd].o)]){
+        var others=calm.filter(function(i){ return i!==odd; }).map(function(i){ return rows[i].n; });
+        var lo=Math.min.apply(null,others), hi=Math.max.apply(null,others);
+        var dist=function(x){ return x<lo?lo-x:x>hi?x-hi:0; };
+        var x=rows[odd].n, fx=x<720?x+720:x-720;
+        if(dist(fx)<dist(x)) flag(odd,'odd');
+      }
+    }
+    return out;
+  }
+  // ── end wrong-time check ──
   // ── share message (identical in the poll page kit and the pickup page kit) ──
   // Line 1 "{Title}: {dates}", line 2 the vote line with the minimum, line 3 the link.
   // Built only from what is passed in: never names, voters, location or tokens.
@@ -640,7 +711,7 @@ window.csPollKit=(function(){
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel, closedState:closedState, closesLine:closesLine, pollClosesLine:pollClosesLine, noneMsg:noneMsg,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
-    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, signInUrl:signInUrl, quickProblem:quickProblem };
+    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, timeFlags:timeFlags, clock12:clock12, optionReq:optionReq, cancelReq:cancelReq, canChange:canChange, othersOn:othersOn, removeLine:removeLine, cancelLine:cancelLine, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -795,6 +866,12 @@ window.csPollKit=(function(){
       plainKeepPoll('Voting closed',K.MSG.expired);
       return;
     }
+    if(s==='canceled'){
+      hide('vote-card'); hide('org-card');
+      $('hero-sub').textContent='This poll was canceled.';
+      plainKeepPoll('Poll canceled',K.MSG.canceled);
+      return;
+    }
     picks={}; (view.myPicks||[]).forEach(function(id){ picks[id]=true; });
     drawOptions();
     drawNone();
@@ -910,6 +987,110 @@ window.csPollKit=(function(){
       });
       d.appendChild(row); box.appendChild(d);
     });
+    drawTimes();
+  }
+  // Organizer changes on a per-time poll: Edit and Remove under each open time, Cancel poll
+  // at the bottom. Inline forms and confirms only, never a browser dialog.
+  var orgEdit=null, orgKept={};
+  function el(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+  function btn(text, cls, fn){ var b=el('button',cls,text); b.type='button'; b.addEventListener('click',fn); return b; }
+  function changeSession(){
+    var ses=K.storedSession([localStorage,sessionStorage],Date.now());
+    if(!ses){ $('org-msg').className='msg err'; $('org-msg').textContent='Sign in on the pickup page to change this poll.'; }
+    return ses;
+  }
+  function drawTimes(){
+    var box=$('org-times'), cbox=$('org-cancel'); box.textContent=''; cbox.textContent='';
+    if(!view||view.closeRule!=='perOption'||view.status!=='open'||view.open===false) return;
+    var open=(view.options||[]).filter(function(o){ return K.canChange(view,o); });
+    if(open.length){ box.appendChild(el('h3','sub','Change a time')); }
+    open.forEach(function(o){
+      var row=el('div','otime'); row.id='otime-'+o.id;
+      row.appendChild(el('span','when',o.label));
+      if(orgEdit&&orgEdit.id===o.id&&orgEdit.mode==='edit') row.appendChild(editForm(o));
+      else if(orgEdit&&orgEdit.id===o.id&&orgEdit.mode==='remove'){
+        var last=open.length===1;
+        row.appendChild(el('p','note',last?'This is the last open time. Cancel the poll instead?':K.removeLine(view,o)));
+        var r2=el('div','row2');
+        if(last) r2.appendChild(btn('Cancel poll','btn btn-navy',function(){ orgEdit={mode:'cancel'}; drawTimes(); }));
+        else r2.appendChild(btn('Remove','btn btn-navy',function(){ sendChange(o.id,'remove',null); }));
+        r2.appendChild(btn('Back','btn btn-ghost',function(){ orgEdit=null; drawTimes(); }));
+        row.appendChild(r2);
+      } else {
+        var r=el('div','row2');
+        r.appendChild(btn('Edit','btn btn-ghost',function(){ orgEdit={id:o.id,mode:'edit'}; drawTimes(); }));
+        r.appendChild(btn('Remove','btn btn-ghost',function(){ orgEdit={id:o.id,mode:'remove'}; drawTimes(); }));
+        row.appendChild(r);
+      }
+      box.appendChild(row);
+    });
+    if(orgEdit&&orgEdit.mode==='cancel'){
+      cbox.appendChild(el('p','note',K.cancelLine(view)));
+      var c2=el('div','row2');
+      c2.appendChild(btn('Cancel the poll','btn btn-navy',sendCancel));
+      c2.appendChild(btn('Keep the poll','btn btn-ghost',function(){ orgEdit=null; drawTimes(); }));
+      cbox.appendChild(c2);
+    } else {
+      cbox.appendChild(btn('Cancel poll','btn btn-ghost',function(){ orgEdit={mode:'cancel'}; drawTimes(); }));
+    }
+  }
+  function editForm(o){
+    var f=el('div','');
+    var mk=function(label,type,id,val){ var w=el('div',''); var l=el('label','lbl',label); l.setAttribute('for',id); var i=el('input','inp'); i.type=type; i.id=id; i.value=val||''; w.appendChild(l); w.appendChild(i); return w; };
+    f.appendChild(mk('Date','date','oe-date',o.date));
+    var r=el('div','row2'); r.appendChild(mk('Start','time','oe-start',o.startTime)); r.appendChild(mk('End','time','oe-end',o.endTime)); f.appendChild(r);
+    if(view.locationMode==='voted') f.appendChild(mk('Location','text','oe-loc',o.location));
+    var flag=el('div','tflag'); flag.id='oe-flag'; flag.style.display='none'; f.appendChild(flag);
+    var r2=el('div','row2');
+    r2.appendChild(btn('Save','btn btn-teal',function(){ saveEdit(o); }));
+    r2.appendChild(btn('Back','btn btn-ghost',function(){ orgEdit=null; drawTimes(); }));
+    f.appendChild(r2);
+    return f;
+  }
+  // The edited time read back from its form.
+  function editFields(){
+    var v=function(id){ var e=$(id); return e?String(e.value||'').trim():''; };
+    var x={date:v('oe-date'),startTime:v('oe-start'),endTime:v('oe-end')};
+    if(view.locationMode==='voted') x.location=v('oe-loc');
+    return x;
+  }
+  function saveEdit(o){
+    var x=editFields();
+    if(!x.date||!x.startTime){ $('org-msg').className='msg err'; $('org-msg').textContent='Pick a date and a start time.'; return; }
+    // The create form's wrong-time check, against the poll's other times.
+    var others=(view.options||[]).filter(function(p){ return p.id!==o.id; }).map(function(p){ return {date:p.date,startTime:p.startTime,endTime:p.endTime}; });
+    var f=K.timeFlags(others.concat([x]),orgKept)[others.length];
+    var box=$('oe-flag');
+    if(f){
+      box.textContent=f.text; box.style.display='';
+      var r=el('div','row2');
+      r.appendChild(btn(f.switchLabel,'btn btn-teal',function(){ $('oe-start').value=f.toStart; if(f.toEnd) $('oe-end').value=f.toEnd; box.style.display='none'; }));
+      r.appendChild(btn(f.keepLabel,'btn btn-ghost',function(){ orgKept[f.sig]=true; box.style.display='none'; }));
+      box.appendChild(r);
+      return;
+    }
+    sendChange(o.id,'edit',x);
+  }
+  function sendChange(optId, action, fields){
+    var ses=changeSession(); if(!ses) return;
+    $('org-msg').className='msg'; $('org-msg').textContent='Saving...';
+    K.post(fetch,K.optionReq(ses,view.pollId,optId,action,fields)).then(function(res){
+      if(!res.j||res.j.ok===false){ $('org-msg').className='msg err'; $('org-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
+      var told=res.j.told||0;
+      orgEdit=null;
+      render(res);
+      $('org-msg').className='msg ok';
+      $('org-msg').textContent=(action==='edit'?'Time changed.':'Time removed.')+(told?' '+(told===1?'1 player who picked it was told.':told+' players who picked it were told.'):'');
+    });
+  }
+  function sendCancel(){
+    var ses=changeSession(); if(!ses) return;
+    $('org-msg').className='msg'; $('org-msg').textContent='Canceling...';
+    K.post(fetch,K.cancelReq(ses,view.pollId)).then(function(res){
+      if(!res.j||res.j.ok===false){ $('org-msg').className='msg err'; $('org-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
+      orgEdit=null;
+      render(res);
+    });
   }
   function decide(sugId, action){
     var ses=K.storedSession([localStorage,sessionStorage],Date.now());
@@ -993,7 +1174,7 @@ window.csPollKit=(function(){
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=view.myVotePending?K.MSG.pending:K.MSG.saved;
         return;
       }
-      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'||s==='canceled'){ render(res); return; }
       if(res.j&&res.j.options&&(res.j.code==='full'||res.j.code==='closed')) render(res);
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
@@ -1010,7 +1191,7 @@ window.csPollKit=(function(){
         $('vote-msg').className='msg ok'; $('vote-msg').textContent=K.noneMsg(view);
         return;
       }
-      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'){ render(res); return; }
+      if(s==='game'||s==='expired'||s==='days_done'||s==='ended'||s==='canceled'){ render(res); return; }
       $('vote-msg').className='msg err';
       $('vote-msg').textContent=s==='offline'?K.MSG.offline:(res.j&&res.j.error)||'Could not save. Try again.';
     });
