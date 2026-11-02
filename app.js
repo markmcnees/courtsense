@@ -1,4 +1,114 @@
 const SC=window.SCHOOL_CONFIG;
+// ===== DEMO SANDBOX START =====
+// Demo shells only (SC.demoMode). Nothing in this block runs for a live school or the live club.
+// A demo is a sales page on the same origin as every real CourtSense app, so it must never reach
+// the network or the browser state those apps share. Three choke points, installed before any other
+// app code runs:
+//   1. fetch, XMLHttpRequest, sendBeacon and window.open answer locally. Every worker and AI call
+//      gets a canned "not in the demo" reply and nothing leaves the page, whatever the URL (fail
+//      closed: an unknown URL is treated exactly like a known one).
+//   2. localStorage and sessionStorage are swapped for in-memory stores, so a demo can never read,
+//      write or remove a real sign-in (courtsenseAuth, leonAuth, csCoachSession, csPlayerSession) or
+//      the home screen door (cs_last_door). A refresh starts the demo clean, as the banner says.
+//   3. The club demo (demo plus tiers) rewrites display text and colors on the way into the page:
+//      the live club's squad name and colors become the demo's Blue squad and CourtSense colors.
+//      Stored values ('garnet' tier keys, ids, onclick arguments) are untouched.
+const DEMO_CLUB=!!(SC&&SC.demoMode&&SC.tiersEnabled);
+const DEMO_LIVE_NOTE='Active in the live version.';
+var _demoNet={blocked:[], sealed:false, storageSealed:false};
+if(SC&&SC.demoMode){(function(){
+  var cannedBody=JSON.stringify({ok:false, code:'demo_mode', error:DEMO_LIVE_NOTE});
+  var demoFetch=function(input){
+    var url=''; try{ url=String((input&&input.url)||input||''); }catch(e){}
+    _demoNet.blocked.push(url);
+    var res={ok:true, status:200, statusText:'OK', url:url, redirected:false, type:'basic',
+      headers:{get:function(){ return 'application/json'; }, has:function(){ return true; }},
+      json:function(){ return Promise.resolve(JSON.parse(cannedBody)); },
+      text:function(){ return Promise.resolve(cannedBody); },
+      blob:function(){ return Promise.resolve(null); },
+      clone:function(){ return res; }};
+    return Promise.resolve(res);
+  };
+  var DemoXHR=function(){ this.readyState=0; this.status=0; this.responseText=''; };
+  DemoXHR.prototype.open=function(m,u){ _demoNet.blocked.push(String(u||'')); };
+  DemoXHR.prototype.send=function(){ var x=this; setTimeout(function(){ if(typeof x.onerror==='function') x.onerror(new Error('demo')); },0); };
+  DemoXHR.prototype.setRequestHeader=function(){}; DemoXHR.prototype.abort=function(){};
+  DemoXHR.prototype.addEventListener=function(){}; DemoXHR.prototype.removeEventListener=function(){};
+  var put=function(name,val){
+    try{ Object.defineProperty(window,name,{value:val, writable:true, configurable:true}); }
+    catch(e){ try{ window[name]=val; }catch(e2){} }
+    try{ return window[name]===val; }catch(e3){ return false; }
+  };
+  var okFetch=put('fetch',demoFetch);
+  put('XMLHttpRequest',DemoXHR);
+  put('open',function(u){ _demoNet.blocked.push(String(u||'')); return null; });
+  try{ if(window.navigator&&typeof window.navigator.sendBeacon==='function'){
+    Object.defineProperty(window.navigator,'sendBeacon',{value:function(u){ _demoNet.blocked.push(String(u||'')); return false; }, configurable:true});
+  } }catch(e){}
+  var memStore=function(){
+    var m=Object.create(null);
+    return {
+      getItem:function(k){ k=String(k); return (k in m)?m[k]:null; },
+      setItem:function(k,v){ m[String(k)]=String(v); },
+      removeItem:function(k){ delete m[String(k)]; },
+      clear:function(){ m=Object.create(null); },
+      key:function(i){ return Object.keys(m)[i]||null; },
+      get length(){ return Object.keys(m).length; }
+    };
+  };
+  var okLocal=put('localStorage',memStore()), okSession=put('sessionStorage',memStore());
+  _demoNet.sealed=okFetch;
+  _demoNet.storageSealed=okLocal&&okSession;
+  if(!DEMO_CLUB) return;
+  // Club demo display layer. Exact words and exact hex colors only, never lowercase keys.
+  var swaps=[
+    [/FSU Main Campus Fields/g,'Shoreline Park Fields'],[/Year at FSU/g,'Year in school'],
+    [/FSU Grass Club/g,'Sand Sharks Grass Club'],[/FSU Grass/g,'Sand Sharks Grass Club'],
+    [/Florida State University/g,'the university'],[/Florida State/g,'the university'],[/\bFSU\b/g,'the club'],
+    [/\bGarnet\b/g,'Blue'],[/\bGARNET\b/g,'BLUE'],
+    [/#782F40/gi,'#0081AB'],[/#5e2432/gi,'#006A8C'],[/#471a26/gi,'#082A4F'],[/#9a4a5d/gi,'#33A3C4'],
+    [/#f3e9eb/gi,'#E6F4F8'],[/#CEB888/gi,'#F2B22E'],[/#8a6d2b/gi,'#8A6400']
+  ];
+  // A stored key can reach the screen as plain text (a toast naming the channel), so lowercase
+  // 'garnet' is swapped too, but only in visible text: never inside a tag (class names, onclick
+  // arguments, option values) and never in a style or script element.
+  var lowerText=function(s){ return s.replace(/\bgarnet\b/g,'blue'); };
+  var brand=function(v,mode){
+    if(typeof v!=='string'||!v) return v;
+    for(var i=0;i<swaps.length;i++) v=v.replace(swaps[i][0],swaps[i][1]);
+    if(mode==='html') v=v.split(/(<[^>]*>)/).map(function(part,i){ return (i%2)?part:lowerText(part); }).join('');
+    else if(mode==='text') v=lowerText(v);
+    return v;
+  };
+  window._demoBrand=brand;
+  var codeTag=function(el){ var t=el&&el.tagName?String(el.tagName).toUpperCase():''; return t==='STYLE'||t==='SCRIPT'; };
+  var wrapSetter=function(proto,prop,mode){
+    try{
+      var d=proto&&Object.getOwnPropertyDescriptor(proto,prop);
+      if(!d||typeof d.set!=='function') return;
+      Object.defineProperty(proto,prop,{configurable:true, enumerable:d.enumerable, get:d.get,
+        set:function(v){ d.set.call(this,brand(v,codeTag(this)?'code':mode)); }});
+    }catch(e){}
+  };
+  try{ if(typeof Element!=='undefined'){
+    wrapSetter(Element.prototype,'innerHTML','html');
+    wrapSetter(Element.prototype,'outerHTML','html');
+    var iah=Element.prototype.insertAdjacentHTML;
+    if(typeof iah==='function') Element.prototype.insertAdjacentHTML=function(pos,html){ return iah.call(this,pos,brand(html,'html')); };
+  } }catch(e){}
+  try{ if(typeof Node!=='undefined') wrapSetter(Node.prototype,'textContent','text'); }catch(e){}
+  try{ if(typeof HTMLElement!=='undefined') wrapSetter(HTMLElement.prototype,'innerText','text'); }catch(e){}
+  try{ if(typeof document!=='undefined'&&typeof Document!=='undefined'){
+    var _t=Object.getOwnPropertyDescriptor(Document.prototype,'title');
+    if(_t&&_t.set) Object.defineProperty(document,'title',{configurable:true, get:function(){ return _t.get.call(document); }, set:function(v){ _t.set.call(document,brand(v,'text')); }});
+  } }catch(e){}
+})();}
+// One card for anything the demo leaves to the live version.
+function demoLiveCard(title){
+  return '<div class="card"><div class="card-title"><span class="bar"></span> '+(title||'Coming in the live version')+'</div>'
+    +'<div class="demo-live-note" style="font-size:13px;color:var(--charcoal);line-height:1.5;">'+DEMO_LIVE_NOTE+'</div></div>';
+}
+// ===== DEMO SANDBOX END =====
 // Name-and-team-password player login. Absent or true means ON, so every shell that
 // never sets it behaves exactly as before. A shell sets playerLoginEnabled:false to
 // close that door, which is the high school position until personal logins ship in
@@ -54,7 +164,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.216';
+const APP_VERSION='1.1.217';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -552,6 +662,256 @@ const _DEMO = {
     dr16b:{id:'dr16b', playerId:'sd16', player:'sd16', date:'2026-04-24', time:18.6}
   }
 };
+
+// ============================================================
+// CLUB DEMO FIXTURE (only consumed when DEMO_CLUB: demoMode plus tiersEnabled)
+// ============================================================
+// Sand Sharks Grass Club, a made-up college club. Every person is invented and an adult. No contact
+// details at all, so nothing here can be mailed or texted. Squads keep the club's stored tier keys
+// ('gold', and 'garnet', which the demo shows as Blue). Shapes follow the readers in this file:
+// tryoutSessions, tryoutAttendance, practiceSchedule, dues, threads, chat, pinned, standing and
+// practiceTournaments match listenData and the code that renders each one. Kings Night rounds are
+// built at load by the app's own engine (ptBuildRounds) and scored from a fixed seed, so every
+// screen reads exactly the shape the live club writes.
+const _DEMO_CLUB = {
+  players: [
+    {id:'gc01', firstName:'Avery',   lastName:'Lane',      classYear:'SO', court:1, active:true, tier:'gold',   gender:'F', leadership:'exec', csRank:1512},
+    {id:'gc02', firstName:'Jordan',  lastName:'Pike',      classYear:'JR', court:1, active:true, tier:'gold',   gender:'M', csRank:1488},
+    {id:'gc03', firstName:'Riley',   lastName:'Shore',     classYear:'FR', court:1, active:true, tier:'gold',   gender:'F', csRank:1430},
+    {id:'gc04', firstName:'Casey',   lastName:'Dunn',      classYear:'SO', court:1, active:true, tier:'gold',   gender:'M', csRank:1465},
+    {id:'gc05', firstName:'Morgan',  lastName:'Reed',      classYear:'JR', court:1, active:true, tier:'gold',   gender:'F', csRank:1476},
+    {id:'gc06', firstName:'Taylor',  lastName:'Brooks',    classYear:'FR', court:1, active:true, tier:'gold',   gender:'M', csRank:1402},
+    {id:'gc07', firstName:'Quinn',   lastName:'Harbor',    classYear:'SO', court:1, active:true, tier:'gold',   gender:'F', csRank:1451},
+    {id:'gc08', firstName:'Drew',    lastName:'Marsh',     classYear:'JR', court:1, active:true, tier:'gold',   gender:'M', csRank:1495},
+    {id:'gc09', firstName:'Skyler',  lastName:'Bay',       classYear:'FR', court:1, active:true, tier:'gold',   gender:'F', csRank:1418},
+    {id:'gc10', firstName:'Harper',  lastName:'Cole',      classYear:'SR', court:2, active:true, tier:'garnet', gender:'F', leadership:'exec', csRank:1648},
+    {id:'gc11', firstName:'Rowan',   lastName:'Fisk',      classYear:'SR', court:2, active:true, tier:'garnet', gender:'M', csRank:1702},
+    {id:'gc12', firstName:'Emerson', lastName:'Hale',      classYear:'JR', court:2, active:true, tier:'garnet', gender:'F', csRank:1611},
+    {id:'gc13', firstName:'Parker',  lastName:'Vance',     classYear:'JR', court:2, active:true, tier:'garnet', gender:'M', csRank:1634},
+    {id:'gc14', firstName:'Sage',    lastName:'Holloway',  classYear:'SR', court:2, active:true, tier:'garnet', gender:'F', csRank:1677},
+    {id:'gc15', firstName:'Finley',  lastName:'Cross',     classYear:'SO', court:2, active:true, tier:'garnet', gender:'M', csRank:1589},
+    {id:'gc16', firstName:'Remy',    lastName:'Calder',    classYear:'JR', court:2, active:true, tier:'garnet', gender:'F', csRank:1596},
+    {id:'gc17', firstName:'Blake',   lastName:'Sutton',    classYear:'SR', court:2, active:true, tier:'garnet', gender:'M', csRank:1659},
+    {id:'gc18', firstName:'Kendall', lastName:'Price',     classYear:'SO', court:2, active:true, tier:'garnet', gender:'F', csRank:1573},
+    {id:'gc19', firstName:'Logan',   lastName:'Wilder',    classYear:'JR', court:2, active:true, tier:'garnet', gender:'M', csRank:1620},
+    {id:'gc20', firstName:'Dana',    lastName:'Whitfield', classYear:'SR', court:3, active:true, leadership:'faculty', gender:'F'},
+    {id:'gc21', firstName:'Jamie',   lastName:'Ortiz',     classYear:'FR', court:3, active:true, status:'prospect', tierRequest:'gold',   gender:'F'},
+    {id:'gc22', firstName:'Alex',    lastName:'Moreno',    classYear:'FR', court:3, active:true, status:'prospect', tierRequest:'garnet', gender:'M'},
+    {id:'gc23', firstName:'Sam',     lastName:'Whitaker',  classYear:'SO', court:3, active:false, status:'prospect', gender:'F'}
+  ],
+  // Rating records keyed the way ratings.js keys them (Ratings.nameKey of the full name). Under 5
+  // games reads Unrated, the same rule pickup uses. The prospects have no record yet.
+  ratings: {
+    avery_lane:{name:'Avery Lane', rating:1512, rd:96, volatility:0.06, gamesPlayed:14},
+    jordan_pike:{name:'Jordan Pike', rating:1488, rd:102, volatility:0.06, gamesPlayed:12},
+    riley_shore:{name:'Riley Shore', rating:1430, rd:160, volatility:0.06, gamesPlayed:3},
+    casey_dunn:{name:'Casey Dunn', rating:1465, rd:110, volatility:0.06, gamesPlayed:9},
+    morgan_reed:{name:'Morgan Reed', rating:1476, rd:99, volatility:0.06, gamesPlayed:13},
+    taylor_brooks:{name:'Taylor Brooks', rating:1402, rd:170, volatility:0.06, gamesPlayed:2},
+    quinn_harbor:{name:'Quinn Harbor', rating:1451, rd:118, volatility:0.06, gamesPlayed:8},
+    drew_marsh:{name:'Drew Marsh', rating:1495, rd:94, volatility:0.06, gamesPlayed:16},
+    skyler_bay:{name:'Skyler Bay', rating:1418, rd:130, volatility:0.06, gamesPlayed:6},
+    harper_cole:{name:'Harper Cole', rating:1648, rd:72, volatility:0.06, gamesPlayed:31},
+    rowan_fisk:{name:'Rowan Fisk', rating:1702, rd:68, volatility:0.06, gamesPlayed:34},
+    emerson_hale:{name:'Emerson Hale', rating:1611, rd:80, volatility:0.06, gamesPlayed:22},
+    parker_vance:{name:'Parker Vance', rating:1634, rd:77, volatility:0.06, gamesPlayed:25},
+    sage_holloway:{name:'Sage Holloway', rating:1677, rd:70, volatility:0.06, gamesPlayed:29},
+    finley_cross:{name:'Finley Cross', rating:1589, rd:88, volatility:0.06, gamesPlayed:17},
+    remy_calder:{name:'Remy Calder', rating:1596, rd:86, volatility:0.06, gamesPlayed:19},
+    blake_sutton:{name:'Blake Sutton', rating:1659, rd:71, volatility:0.06, gamesPlayed:28},
+    kendall_price:{name:'Kendall Price', rating:1573, rd:91, volatility:0.06, gamesPlayed:15},
+    logan_wilder:{name:'Logan Wilder', rating:1620, rd:79, volatility:0.06, gamesPlayed:23}
+  },
+  practiceSchedule: {
+    gold:  {days:['Mon','Wed'], time:'6:00 PM', location:'Shoreline Park Fields'},
+    garnet:{days:['Tue','Thu'], time:'6:30 PM', location:'Shoreline Park Fields'}
+  },
+  dues: { amount:60, paid:['gc01','gc02','gc04','gc05','gc08','gc10','gc11','gc12','gc13','gc14','gc17','gc19'] },
+  standing: { gc06:{good:false, note:'Finish the club waiver before the next travel weekend.'} },
+  pinned: {text:'Fall Kings Nights run every practice through the end of the semester. Check in at the field so your games count.'},
+  // Chat seed: [channel, authorId or 'exec', text, hours ago, via]
+  chat: [
+    ['allclub','exec','Welcome to the Sand Sharks Grass Club app. Schedules, check-in and Kings Night results all live here.',72],
+    ['allclub','gc10','Field lights are confirmed for both practices this week.',30],
+    ['allclub','exec','Practice moved 30 minutes later tonight\nThe early field is booked, so we start at 7:00. Same field.',3,'alert'],
+    ['gold','gc01','Gold, great energy Monday. Bring a water bottle tonight, it is warm out.',20],
+    ['gold','gc05','Who wants to stay after to work on serve receive?',6],
+    ['garnet','gc10','Blue squad, Kings Night tonight. Partners rotate every game.',8],
+    ['garnet','gc11','Last week was close. Running it back tonight.',5]
+  ],
+  // Goals, the same shape as the team demo's goals: one with an approved plan, one with a draft
+  // plan waiting for an exec, and two with no plan yet (Generate uses the demo's canned plan).
+  goals: {
+    gc02:{ goal_gc02_a:{goalType:'skill_serving', label:'Improve my serving', selectedAt:-20,
+      aiFeedback:{text:'Jordan, your passing gives your partner easy swings, and that is a real strength. To round out your game, aim your float serve deep to the corners and keep the toss in front of you. Two short serving blocks each practice will make it steady.', generatedAt:-18, status:'approved', editedBy:'Exec', approvedAt:-17}} },
+    gc12:{ goal_gc12_a:{goalType:'skill_hitting', label:'Improve my hitting', selectedAt:-9,
+      aiFeedback:{text:'Emerson, you read the defense well and your shot selection is smart. Your next step is a quicker last two steps on the approach so you reach the ball at its peak. Ten minutes of approach timing before Kings Night will show up fast.', generatedAt:-6, status:'draft', editedBy:null, approvedAt:null}} },
+    gc03:{ goal_gc03_a:{goalType:'skill_passing', label:'Improve my passing', selectedAt:-4, aiFeedback:null} },
+    gc15:{ goal_gc15_a:{goalType:'skill_defense', label:'Improve my defense', selectedAt:-3, aiFeedback:null} }
+  },
+  // Member threads: [memberId, side, text, hours ago]
+  threads: [
+    ['gc06','exec','Hi Taylor, quick reminder to finish the club waiver before travel.',50],
+    ['gc06','member','Will do, finishing it tonight. Thanks!',46],
+    ['gc03','member','Is it OK if I come to the Blue practice to watch this week?',9],
+    ['gc21','exec','Thanks for coming to tryouts. We will post squads by Friday.',30]
+  ]
+};
+// Builds the live in-memory club for the demo, dated around today so the screens look current.
+function _demoClubHydrate(){
+  var C=JSON.parse(JSON.stringify(_DEMO_CLUB));
+  var now=Date.now(), H=3600000;
+  var day=function(off){ var d=new Date(); d.setDate(d.getDate()+off); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  var seed=20261102, rnd=function(){ seed=(seed*1103515245+12345)%2147483648; return seed/2147483648; };
+  D.players=C.players;
+  D.tierRequests={};
+  C.players.forEach(function(p){ if(p.tierRequest) D.tierRequests[p.id]={tier:p.tierRequest, ts:now-26*H}; });
+  D.practiceSchedule={};
+  Object.keys(C.practiceSchedule).forEach(function(t){ D.practiceSchedule[t]=Object.assign({updatedAt:now-200*H},C.practiceSchedule[t]); });
+  D.dues={amount:C.dues.amount, members:{}, lastReminderAt:now-96*H};
+  C.dues.paid.forEach(function(pid,i){ D.dues.members[pid]={paid:true, at:now-(120-i*5)*H}; });
+  D.standing={}; Object.keys(C.standing).forEach(function(pid){ D.standing[pid]=Object.assign({at:now-60*H},C.standing[pid]); });
+  D.pinned=Object.assign({at:now-48*H},C.pinned);
+  D.broadcasts={};
+  D.chat={allclub:{},gold:{},garnet:{}};
+  C.chat.forEach(function(c,i){
+    var m={text:c[2], createdAt:now-c[3]*H};
+    if(c[1]==='exec') m.authorRole='exec'; else m.authorId=c[1];
+    if(c[4]) m.via=c[4];
+    D.chat[c[0]]['seed'+i]=m;
+  });
+  // Goals: day offsets in the fixture become real dates around today.
+  D.goals={};
+  Object.keys(C.goals).forEach(function(pid){
+    D.goals[pid]={};
+    Object.keys(C.goals[pid]).forEach(function(gid){
+      var g=C.goals[pid][gid], f=g.aiFeedback;
+      g.selectedAt=day(g.selectedAt);
+      if(f){ f.generatedAt=day(f.generatedAt); if(typeof f.approvedAt==='number') f.approvedAt=day(f.approvedAt); }
+      D.goals[pid][gid]=g;
+    });
+  });
+  D.threads={};
+  C.threads.forEach(function(t,i){
+    var th=D.threads[t[0]]||(D.threads[t[0]]={messages:{}, updatedAt:0, lastReadExec:0});
+    var at=now-t[3]*H;
+    th.messages['tm-seed'+i]={side:t[1], text:t[2], createdAt:at};
+    if(at>th.updatedAt) th.updatedAt=at;
+    if(t[1]==='exec') th.lastReadExec=at;
+  });
+  // Sessions: two tryouts (one past, one coming up) and the practices behind each Kings Night.
+  var S={}, A={}, T={};
+  S['ts-demo-fall1']={name:'Fall Tryouts Night 1', date:day(-10), time:'6:00 PM', location:'Shoreline Park Fields', createdAt:now-300*H};
+  S['ts-demo-fall2']={name:'Fall Tryouts Night 2', date:day(3), time:'6:00 PM', location:'Shoreline Park Fields', createdAt:now-200*H, invited:{gc21:now-30*H, gc22:now-30*H}};
+  A['ts-demo-fall1']={gc21:{present:true, at:now-240*H, method:'qr'}, gc22:{present:true, at:now-240*H, method:'manual'}};
+  var squadIds=function(sq){ return C.players.filter(function(p){ return p.tier===sq&&p.active!==false; }).map(function(p){ return p.id; }); };
+  var practice=function(sq,date){
+    var sid='pr-'+sq+'-'+date;
+    var sch=C.practiceSchedule[sq];
+    S[sid]={type:'practice', squad:sq, name:(sq==='gold'?'Gold':'Garnet')+' Practice', date:date, time:sch.time, location:sch.location, createdAt:now-1*H};
+    return sid;
+  };
+  var checkIn=function(sid,ids,baseAt){ A[sid]={}; ids.forEach(function(id,i){ A[sid][id]={present:true, at:baseAt+i*60000, method:(i%3===0?'manual':'qr')}; }); };
+  // One Kings Night: rounds from the real engine, then scores for the first `scored` rounds.
+  var night=function(sid,sq,date,format,ids,status,scoredRounds){
+    var players={}, counts={};
+    ids.forEach(function(id){
+      var p=gP(id)||C.players.filter(function(x){ return x.id===id; })[0];
+      var pool=format==='kq'?(p.gender==='M'?'kings':'queens'):'mixed';
+      players[id]={name:p.firstName+' '+p.lastName, pool:pool, addedAt:now, gameTarget:4, gender:p.gender};
+      counts[pool]=(counts[pool]||0)+1;
+    });
+    var poolCourts=ptAllocCourts(format,format==='kq'?2:2,counts,2), rounds={}, results={};
+    Object.keys(poolCourts).forEach(function(pool){
+      var pids=Object.keys(players).filter(function(id){ return players[id].pool===pool; });
+      var targets={}; pids.forEach(function(id){ targets[id]=4; });
+      rounds[pool]=ptBuildRounds(pids,targets,poolCourts[pool],{},{},0,pool==='mixed'?ptGenderMap(players,pids):null,2);
+    });
+    var t0=new Date(date+'T18:30:00').getTime()||now;
+    Object.keys(rounds).forEach(function(pool){
+      rounds[pool].forEach(function(rd,ri){
+        if(ri>=scoredRounds) return;
+        rd.games.forEach(function(g,gi2){
+          var w=15, l=6+Math.floor(rnd()*8);
+          var t1Wins=rnd()<0.5;
+          results[g.gid]={pool:pool, t1:g.t1, t2:g.t2, s1:t1Wins?w:l, s2:t1Wins?l:w, at:t0+(ri*4+gi2)*60000, by:COACH_LABEL, rated:status==='final'?true:false};
+          if(status==='final') results[g.gid].ratedAt=t0+3*H;
+        });
+      });
+    });
+    var meta={sessionId:sid, squad:sq, date:date, format:format, courts:2, poolCourts:poolCourts, gamesPerPlayer:4, scoreTo:15, status:status, createdAt:t0, updatedAt:t0+2*H};
+    if(status==='final') meta.endedAt=t0+3*H;
+    T['pt-'+sid]={meta:meta, players:players, rounds:rounds, results:results};
+  };
+  var gold=squadIds('gold'), blue=squadIds('garnet');
+  var p1=practice('gold',day(-21)); checkIn(p1,gold.slice(0,8),now-21*24*H); night(p1,'gold',day(-21),'mixed',gold.slice(0,8),'final',99);
+  var p2=practice('garnet',day(-14)); checkIn(p2,blue,now-14*24*H); night(p2,'garnet',day(-14),'kq',blue,'final',99);
+  var p3=practice('gold',day(-7)); checkIn(p3,gold,now-7*24*H); night(p3,'gold',day(-7),'mixed',gold.slice(1,9),'final',99);
+  var p4=practice('garnet',day(-7)); checkIn(p4,blue,now-7*24*H); night(p4,'garnet',day(-7),'mixed',blue.slice(0,8),'final',99);
+  // Tonight: Blue is mid Kings Night (members see their live card); Gold is checked in and ready
+  // for an exec to run the whole night from setup to End Night.
+  var p5=practice('garnet',day(0)); checkIn(p5,blue.slice(0,8),now-2*H); night(p5,'garnet',day(0),'mixed',blue.slice(0,8),'active',1);
+  var p6=practice('gold',day(0)); checkIn(p6,gold.slice(0,8),now-1*H);
+  D.tryoutSessions=S; D.tryoutAttendance=A; D.practiceTournaments=T;
+  D.travel={};
+  // Ratings move with the finished nights, computed in memory by ratings.js (no db). Kept apart from
+  // any real rating node; resolveClubRating and the member rating line read this copy.
+  _demoClubRatings=C.ratings;
+  if(window.Ratings&&typeof Ratings.applyToMemory==='function'){
+    Object.keys(T).filter(function(tid){ return T[tid].meta.status==='final'; })
+      .sort(function(a,b){ return String(T[a].meta.date).localeCompare(String(T[b].meta.date)); })
+      .forEach(function(tid){ _demoRateResults(T[tid]); });
+  }
+  profilesData={skills:{}, jumpTests:{}, starDrills:{}, players:{}};
+}
+var _demoClubRatings=null;
+// Club demo tabs that show the live-version note instead of a working screen.
+var DEMO_CLUB_LIVE_TABS={travel:'Travel', info:'Export'};
+// Tournaments in the club demo: a static picture of one finished pool day and its bracket, built
+// from the demo roster. No registration, court PINs, scoring, links or copied URLs.
+function demoRenderTournamentPreview(){
+  var pane=document.getElementById('tab-tournaments'); if(!pane) return;
+  var nm=function(id){ var p=gP(id); return p?p.lastName:id; };
+  var team=function(a,b){ return nm(a)+' / '+nm(b); };
+  var pools=[
+    {name:'Pool A', rows:[[['gc11','gc14'],3,0,'+22'],[['gc13','gc12'],2,1,'+6'],[['gc08','gc05'],1,2,'-9'],[['gc06','gc09'],0,3,'-19']]},
+    {name:'Pool B', rows:[[['gc17','gc10'],3,0,'+18'],[['gc19','gc16'],2,1,'+4'],[['gc02','gc01'],1,2,'-5'],[['gc04','gc07'],0,3,'-17']]}
+  ];
+  var cell='padding:6px 4px;border-top:1px solid var(--gray-lighter);font-size:13px;color:var(--charcoal);';
+  var poolHtml=pools.map(function(pl){
+    return '<div style="flex:1;min-width:240px;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:15px;letter-spacing:1px;color:var(--charcoal);margin-bottom:4px;">'+pl.name+'</div>'
+      +'<table style="width:100%;border-collapse:collapse;"><thead><tr style="color:var(--gray);font-size:11px;text-align:left;"><th style="padding:4px;">TEAM</th><th style="padding:4px;text-align:center;">W</th><th style="padding:4px;text-align:center;">L</th><th style="padding:4px;text-align:center;">+/-</th></tr></thead><tbody>'
+      +pl.rows.map(function(r){ return '<tr><td style="'+cell+'">'+team(r[0][0],r[0][1])+'</td><td style="'+cell+'text-align:center;">'+r[1]+'</td><td style="'+cell+'text-align:center;">'+r[2]+'</td><td style="'+cell+'text-align:center;">'+r[3]+'</td></tr>'; }).join('')
+      +'</tbody></table></div>';
+  }).join('');
+  var match=function(label,a,b,sa,sb){
+    var win=sa>sb;
+    var line=function(t,s,w){ return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:13px;color:var(--charcoal);'+(w?'font-weight:700;':'')+'"><span>'+t+'</span><span>'+s+'</span></div>'; };
+    return '<div style="border:1px solid var(--gray-lighter);border-radius:8px;padding:6px 10px;margin-bottom:8px;"><div style="font-size:10px;color:var(--gray);letter-spacing:1px;">'+label+'</div>'
+      +line(a,sa,win)+line(b,sb,!win)+'</div>';
+  };
+  pane.innerHTML='<div class="card"><div class="card-title"><span class="bar"></span> 🏆 Tournaments</div>'
+    +'<div class="demo-live-note" style="background:var(--primary-bg,#E6F4F8);border-radius:8px;padding:8px 10px;font-size:13px;color:var(--charcoal);margin-bottom:12px;">Tournaments are active in the live version. This is a preview.</div>'
+    +'<div style="font-size:13px;color:var(--gray);margin-bottom:10px;">Sand Sharks Fall Classic · Coed 2s · 8 teams · Pool play to a 4-team bracket</div>'
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">'+poolHtml+'</div>'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:15px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">BRACKET</div>'
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;">'
+    +'<div style="flex:1;min-width:220px;">'+match('SEMIFINAL 1',team('gc11','gc14'),team('gc19','gc16'),21,17)+match('SEMIFINAL 2',team('gc17','gc10'),team('gc13','gc12'),19,21)+'</div>'
+    +'<div style="flex:1;min-width:220px;">'+match('FINAL',team('gc11','gc14'),team('gc13','gc12'),21,18)+'</div>'
+    +'</div></div>';
+}
+// Rates every rated result of one night into the demo ratings, in score order. Memory only.
+function _demoRateResults(data){
+  if(!_demoClubRatings||!window.Ratings||typeof Ratings.applyToMemory!=='function') return 0;
+  var res=(data&&data.results)||{}, n=0;
+  var name=function(id){ var p=(data.players||{})[id]; if(p&&p.name) return p.name; var r=gP(id); return r?(r.firstName+' '+r.lastName):id; };
+  Object.keys(res).sort(function(a,b){ return (res[a].at||0)-(res[b].at||0); }).forEach(function(gid){
+    var r=res[gid]; if(!r) return;
+    Ratings.applyToMemory(_demoClubRatings,{team1Names:ptArr(r.t1).map(name), team2Names:ptArr(r.t2).map(name), s1:+r.s1, s2:+r.s2, ts:r.at, source:'club_practice', gameId:gid});
+    n++;
+  });
+  return n;
+}
 
 // ============================================================
 // THIN SHELL INJECTION. Builds CSS and HTML from SCHOOL_CONFIG
@@ -1061,7 +1421,7 @@ body.demo .login-error{margin-top:4px;min-height:14px;}
   document.body.innerHTML=`
 </head>
 <body>
-${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Nothing saves · Refresh to reset</div>' : ''}
+${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Demo club. All data is made up. Nothing saves.</div>' : '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Nothing saves · Refresh to reset</div>') : ''}
 <!-- LOGIN SCREEN -->
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -1166,7 +1526,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <div class="login-error" id="pw-error"></div>
         <button class="login-btn" id="player-login-btn" onclick="playerLogin()">Log in</button>
       </div>
-      <div id="hs-acct-block" style="display:none;">
+      ${SC.demoMode?'':`<div id="hs-acct-block" style="display:none;">
         <div id="hs-acct-note" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);line-height:1.5;margin:8px 0;"></div>
         <input type="email" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;" id="hs-login-email" placeholder="Email you claimed with" autocomplete="email" autocapitalize="none" spellcheck="false">
         <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="hs-login-pw" placeholder="Password" autocomplete="current-password">
@@ -1174,12 +1534,12 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <button class="login-btn" id="hs-player-login-btn" onclick="playerLoginEmail()">Log in</button>
         <div style="text-align:center;font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);padding:12px 8px 0;">Forgot password? <a href="/community/reset/" style="color:var(--gray);font-weight:600;text-decoration:underline;">Reset it.</a></div>
       </div>
-      <div style="text-align:center;padding:12px 8px 0;"><a href="javascript:void(0)" id="hs-login-toggle" onclick="hsToggleLoginMode()" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);font-weight:600;text-decoration:underline;">I have a CourtSense account</a></div>
+      <div style="text-align:center;padding:12px 8px 0;"><a href="javascript:void(0)" id="hs-login-toggle" onclick="hsToggleLoginMode()" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--gray);font-weight:600;text-decoration:underline;">I have a CourtSense account</a></div>`}
       `}
     </div>
     ` : ''}
     <div class="login-fans" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-lighter);text-align:center;">
-      ${SC.applyUrl ? `
+      ${DEMO_CLUB ? `<div style="font-size:12px;color:var(--gray);line-height:1.5;">Sign in as an ${COACH_LABEL} to run the club, or pick any member to see their side. Tap Demo Guide for ideas.</div>` : SC.applyUrl ? `
       <!-- Apply path: shells that set applyUrl (e.g. FSU Grass, which has no fans or press) point this
            button at their application instead of the fan overlay. Label and subline come from config. -->
       <button onclick="openApplyPage()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--white);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
@@ -1225,6 +1585,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <button class="tab" data-tab="travel">Travel</button>
       <button class="tab" data-tab="info">Export</button>
       ${SC.dbRoots.matches==='grass_club_matches'?'<button class="tab" data-tab="tournaments">Tournaments</button>':''}
+      ${DEMO_CLUB?'<button class="tab" data-tab="tournaments">Tournaments</button>':''}
       `:`
       <button class="tab active" data-tab="dashboard">Dashboard</button>
       <button class="tab" data-tab="gameday">Planner</button>
@@ -1715,7 +2076,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
   ${SC.tiersEnabled?`<div class="tab-content" id="tab-accounting"></div>
   <div class="tab-content" id="tab-travel"></div>
   <div class="tab-content" id="tab-info"></div>
-  ${SC.dbRoots.matches==='grass_club_matches'?'<div class="tab-content" id="tab-tournaments"></div>':''}`:`<div class="tab-content" id="tab-logistics">
+  ${SC.dbRoots.matches==='grass_club_matches'?'<div class="tab-content" id="tab-tournaments"></div>':''}${DEMO_CLUB?'<div class="tab-content" id="tab-tournaments"></div>':''}`:`<div class="tab-content" id="tab-logistics">
     <div id="tab-accounting"></div>
     <div id="tab-travel"></div>
   </div>`}
@@ -1971,8 +2332,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
     ${SC.chatEnabled?'<div id="pp-panel-chat"></div>':''}
-    <div id="pp-panel-travel"></div>
-    <div id="pp-partner"></div>
+    ${DEMO_CLUB?'':'<div id="pp-panel-travel"></div>'}
+    ${DEMO_CLUB?'':'<div id="pp-partner"></div>'}
   </div>`:''}
   ${SC.tiersEnabled?'<div class="pp-panel" id="pp-panel-kings"></div>':''}
   ${SC.tiersEnabled?'<div class="pp-panel" id="pp-panel-messages"></div>':''}
@@ -2205,7 +2566,26 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
     <div id="ac-share"></div>
   </div>
 </div>
-${SC.demoMode ? `
+${DEMO_CLUB ? `
+<button class="demo-guide-btn" id="demo-guide-btn" onclick="document.getElementById('demo-guide-overlay').classList.add('show')"><span class="icon">📖</span>Demo Guide</button>
+<div class="demo-guide-overlay" id="demo-guide-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="demo-guide-modal">
+    <div class="demo-guide-header">
+      <h2>Try These Things</h2>
+      <button class="demo-guide-close" onclick="document.getElementById('demo-guide-overlay').classList.remove('show')">×</button>
+    </div>
+    <p class="demo-guide-intro">Sand Sharks Grass Club is a made-up college club with sample members. Click around. Nothing saves, and a refresh starts it over. Here is what is worth looking at:</p>
+    <ol class="demo-guide-list">
+      <li><span class="demo-guide-num">1</span><div class="demo-guide-content"><h3>Run a Kings Night</h3><p>Sign in as ${COACH_LABEL} with PIN 1234. Manage, then Practice. Reopen today's Gold practice, start Kings Night, enter a few scores, then End Night to see ratings move.</p></div></li>
+      <li><span class="demo-guide-num">2</span><div class="demo-guide-content"><h3>Check members in</h3><p>The open practice shows its check-in code. Mark anyone present or absent by hand and watch the count change.</p></div></li>
+      <li><span class="demo-guide-num">3</span><div class="demo-guide-content"><h3>See the leaderboard</h3><p>Manage, then Stats. Season totals from every finished Kings Night, by squad and pool.</p></div></li>
+      <li><span class="demo-guide-num">4</span><div class="demo-guide-content"><h3>Run tryouts</h3><p>Logistics, then Recruiting. Open the door code for a tryout night, see who came, and invite prospects.</p></div></li>
+      <li><span class="demo-guide-num">5</span><div class="demo-guide-content"><h3>Track dues</h3><p>Logistics, then Accounting. Tap a member to mark them paid.</p></div></li>
+      <li><span class="demo-guide-num">6</span><div class="demo-guide-content"><h3>Be a member</h3><p>Log out, pick any member, and use password ${SC.defaultPw}. Club Life holds the squad chat and practice schedule, and Blue members see tonight's live Kings Night card.</p></div></li>
+    </ol>
+  </div>
+</div>
+` : SC.demoMode ? `
 <button class="demo-guide-btn" id="demo-guide-btn" onclick="document.getElementById('demo-guide-overlay').classList.add('show')"><span class="icon">📖</span>Demo Guide</button>
 <div class="demo-guide-overlay" id="demo-guide-overlay" onclick="if(event.target===this)this.classList.remove('show')">
   <div class="demo-guide-modal">
@@ -2784,7 +3164,7 @@ function initFB(){
   // Admin cross-school entry: ?csadmin=<token> stores the worker-issued session and enters
   // coach mode directly, then strips the param. Skips the normal login/autoLogin path.
   try{
-    const _adminTok=new URLSearchParams(location.search).get('csadmin');
+    const _adminTok=SC.demoMode?null:new URLSearchParams(location.search).get('csadmin');
     if(_adminTok){
       history.replaceState(null,'',location.pathname+location.hash);
       adminEnterSchool(_adminTok);
@@ -2835,6 +3215,8 @@ function initFB(){
     if(D.assignments && D.assignments.asg01) D.assignments.asg01.date = _t;
     if(D.assignments && D.assignments.asg02) D.assignments.asg02.date = _t;
     if(D.assignments && D.assignments.asg03) D.assignments.asg03.date = _t;
+    // Club demo: the club fixture replaces the team fixture above.
+    if(DEMO_CLUB) _demoClubHydrate();
     setSS(true);
     updateSeasonLabel();
     refreshCurrent();
@@ -3072,7 +3454,13 @@ const _DEMO_NODES={
   duals:{key:'duals',arr:true},
   standings:{key:'standings',arr:false}, goals:{key:'goals',arr:false},
   assignments:{key:'assignments',arr:false}, opponents:{key:'opponents',arr:false},
-  chat:{key:'chat',arr:false}, tier_requests:{key:'tierRequests',arr:false}
+  chat:{key:'chat',arr:false}, tier_requests:{key:'tierRequests',arr:false},
+  // Club nodes, so club demo edits land in memory the way the club listeners would map them.
+  tryoutSessions:{key:'tryoutSessions',arr:false}, tryoutAttendance:{key:'tryoutAttendance',arr:false},
+  practiceSchedule:{key:'practiceSchedule',arr:false}, dues:{key:'dues',arr:false},
+  travel:{key:'travel',arr:false}, broadcasts:{key:'broadcasts',arr:false}, threads:{key:'threads',arr:false},
+  pinned:{key:'pinned',arr:false,whole:true}, standing:{key:'standing',arr:false},
+  practiceTournaments:{key:'practiceTournaments',arr:false}
 };
 // Set val at a nested key path inside obj, creating intermediate objects as needed.
 function _setDeep(obj,keys,val){
@@ -3109,6 +3497,9 @@ function _demoWrite(path,val){
       if(!rec){rec={id:id};arr.push(rec);}
       _setDeep(rec,seg.slice(2),val);
     }
+  }else if(seg.length===1){
+    // A write to the whole node (pinned, or a node replaced in one set).
+    D[node.key]=(val&&typeof val==='object')?val:(node.whole?val:{});
   }else{
     if(!D[node.key]||typeof D[node.key]!=='object')D[node.key]={};
     _setDeep(D[node.key],seg.slice(1),val);
@@ -3132,6 +3523,8 @@ function _demoRemove(path){
       const rec=D[node.key].find(x=>x&&x.id===id);
       if(rec)_delDeep(rec,seg.slice(2));
     }
+  }else if(seg.length===1){
+    D[node.key]=node.whole?null:{};
   }else{
     if(!D[node.key]||typeof D[node.key]!=='object')return;
     _delDeep(D[node.key],seg.slice(1));
@@ -4495,6 +4888,12 @@ function refreshCurrent(){
   if(!currentRole)populatePlayerLogin();
 }
 function refreshTab(id){
+  // Club demo: the tournaments preview, and a plain note for anything this demo leaves to the
+  // live version, so a prospect never meets a dead button or an error.
+  if(DEMO_CLUB){
+    if(id==='tournaments'){ demoRenderTournamentPreview(); return; }
+    if(DEMO_CLUB_LIVE_TABS[id]){ var dpane=document.getElementById('tab-'+id); if(dpane) dpane.innerHTML=demoLiveCard(DEMO_CLUB_LIVE_TABS[id]); return; }
+  }
   switch(id){
     case'dashboard':renderDash();break;
     case'players':renderPlayers();break;
@@ -4905,6 +5304,17 @@ async function pinPress(n){
     const errEl=document.getElementById('pin-error');
     if(errEl)errEl.textContent='Checking...';
     let j=null, netErr=false;
+    if(SC.demoMode){
+      // Demo: the PIN is the one printed on the login screen, checked here. No worker call and
+      // no stored session, so nothing about a real sign-in on this browser is read or touched.
+      if(pinEntry===String(SC.coachPin||'1234')){
+        if(errEl)errEl.textContent='';
+        _pinChecking=false;
+        loginAsCoach();
+        return;
+      }
+      j={ok:false, code:'bad_pin'};
+    } else
     try{
       const r=await fetch(AUTH_WORKER+'/auth/coach-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,pin:pinEntry})});
       j=await r.json().catch(()=>null);
@@ -5018,7 +5428,7 @@ function playerLogin(){
   if(pw!==DEFAULT_PW){document.getElementById('pw-error').textContent='Incorrect password';return;}
   document.getElementById('pw-error').textContent='';
   currentRole='player';currentPlayerId=pid;
-  sessionStorage.setItem('leonAuth',JSON.stringify({role:'player',pid}));
+  if(!SC.demoMode) sessionStorage.setItem('leonAuth',JSON.stringify({role:'player',pid}));
   document.getElementById('login-overlay').classList.add('hidden');
   document.getElementById('app-wrapper').style.display='block';
   document.getElementById('coach-content').style.display='none';
@@ -5181,10 +5591,13 @@ function logout(){
   if(typeof ptpDetachAll==='function'){ ptpDetachAll(); var _ppk=document.getElementById('pp-kings'); if(_ppk)_ppk.innerHTML=''; }
   if(typeof ptDetach==='function')ptDetach();
   if(typeof tnDetach==='function')tnDetach(); // the exec tournament card's listener
+  // Demo: no stored sign-in exists, so nothing is removed (a real one on this tab stays put).
+  if(!SC.demoMode){
   sessionStorage.removeItem('leonAuth');
   sessionStorage.removeItem('csCoachSession');
+  }
   if(typeof hsRecClear==='function')hsRecClear(); // drop any sign-up list or open contacts
-  tnPlayerSessionClear();
+  if(!SC.demoMode) tnPlayerSessionClear();
   updatePinDots();
   document.getElementById('login-overlay').classList.remove('hidden');
   document.getElementById('app-wrapper').style.display='none';
@@ -5217,6 +5630,8 @@ async function _leonAuthConfirmed(auth){
   }catch(e){ return false; }
 }
 async function autoLogin(){
+  // Demo: nothing to restore. A demo never reads a stored sign-in, its own or a real one.
+  if(SC.demoMode) return;
   // Coach: validate the stored session token server-side before entering coach mode.
   // Never trust a bare flag; a forged sessionStorage entry fails the worker check.
   try{
@@ -5349,6 +5764,12 @@ function ppRenderRating(){
   var pid=currentPlayerId;
   if(_ppRating&&_ppRating.pid===pid){ el.textContent=_ppRating.text; return; }
   el.textContent='';
+  if(!db&&DEMO_CLUB){
+    var dp=gP(pid);
+    _ppRating={pid:pid, text:dp?ppRatingText(dp,_demoClubRatings||{}):''};
+    el.textContent=_ppRating.text;
+    return;
+  }
   if(!db||_ppRatingLoading===pid) return;
   _ppRatingLoading=pid;
   db.ref('tally_kotb_pickup/ratings').once('value').then(function(s){
@@ -5370,6 +5791,7 @@ function ppRenderRating(){
 // written. Anything unexpected returns null and the normal login screen shows.
 async function clubAccountSession(){
   if(!((SC.tiersEnabled&&SC.emailLogin)||HS_ACCOUNT_SIGNIN))return null;
+  if(SC.demoMode) return null; // a demo never picks up a real CourtSense sign-in, whatever its flags
   let tok='';
   try{
     const p=JSON.parse(localStorage.getItem('courtsenseAuth')||'null');
@@ -9758,6 +10180,7 @@ function notifyCoaches(subject,body){
 // Never throws and never blocks the caller: the old .catch only fired on a network
 // fault, so a worker 500 logged nothing at all and the caller toasted success.
 async function notifyPlayer(pid,notifType,subject,body){
+  if(SC.demoMode) return null; // the in-app message stands; the demo never sends email
   let session=null; try{session=JSON.parse(sessionStorage.getItem('csCoachSession'));}catch(e){}
   if(!session||!session.token||session.dbRoot!==DB_ROOT)return null; // a player cannot send these
   try{
@@ -11031,6 +11454,13 @@ function autoSavePairNote(key){
 function switchPPTab(tab,btn){
   document.querySelectorAll('.pp-tab-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.pp-panel').forEach(p=>p.classList.remove('active'));
+  // Club demo: member live scoring is shown in the live version only.
+  if(DEMO_CLUB&&tab==='live'){
+    if(btn)btn.classList.add('active');
+    var dpp=document.getElementById('pp-panel-'+tab);
+    if(dpp){ dpp.classList.add('active'); dpp.innerHTML=demoLiveCard('Live Scoring'); }
+    return;
+  }
   if(tab==='scouts'){if(btn)btn.classList.add('active');document.getElementById('pp-panel-scouts').classList.add('active');renderPlayerScouts();return;}
   if(tab==='learn'){if(btn)btn.classList.add('active');document.getElementById('pp-panel-learn').classList.add('active');renderPPQuizHistory();return;}
   if(tab==='chat'){if(btn)btn.classList.add('active');document.getElementById('pp-panel-chat').classList.add('active');renderClubChat();return;}
@@ -18424,6 +18854,12 @@ function pcRatingsReady(){
 }
 // Resolves true when this call's snapshot is the one in memory, false when unavailable or failed.
 function pcLoadRatings(){
+  // Club demo: the demo's own in-memory ratings, never a rating node.
+  if(!db&&DEMO_CLUB){
+    if(!_demoClubRatings||!window.Ratings||typeof Ratings.nameKey!=='function') return Promise.resolve(false);
+    _pcRatings=_demoClubRatings; _pcRatingsIndex=null;
+    return Promise.resolve(true);
+  }
   if(!db||!window.Ratings||typeof Ratings.nameKey!=='function') return Promise.resolve(false);
   var ticket=++_pcRatingsTicket;
   // Account ratings ride along so a 'new' member's seed matches the number the club already shows.
@@ -19782,6 +20218,8 @@ function ptAttach(sid){
   ptDetach();
   if(!tid) return;
   _ptTid=tid;
+  // Club demo: the night lives in the in-memory club, shared with the member card.
+  if(!db&&DEMO_CLUB){ _ptData=(D.practiceTournaments||{})[tid]||null; return; }
   if(!db){ _ptData=null; return; }
   _ptData=undefined;
   _ptRef=db.ref(DB_ROOT+'/practiceTournaments/'+tid);
@@ -19857,8 +20295,16 @@ function ptScoreVal(v){
 function ptUpdate(updates){
   if(!_ptTid) return Promise.resolve(false);
   var clean=JSON.parse(JSON.stringify(updates));
-  if(!db){ ptMirror(clean); renderPracticeCheckin(); return Promise.resolve(true); }
+  if(!db){ ptMirror(clean); if(DEMO_CLUB) _demoKeepNight(_ptTid); renderPracticeCheckin(); return Promise.resolve(true); }
   return fbUpdateAt(DB_ROOT+'/practiceTournaments/'+_ptTid, clean);
+}
+// Club demo: keep the open night in the in-memory club so the leaderboard and the member card see
+// the same night the exec is running. Demo only (called from the !db branches).
+function _demoKeepNight(tid){
+  if(!tid||!_ptData) return;
+  if(!D.practiceTournaments) D.practiceTournaments={};
+  D.practiceTournaments[tid]=_ptData;
+  if(typeof ptpRender==='function') ptpRender();
 }
 function ptMirror(updates){
   if(!_ptData) _ptData={};
@@ -20302,7 +20748,7 @@ function ptReadTid(tid){
 // Multi-path write under one night's node, any night (the open one or one from the banner).
 function ptWriteTid(tid,updates){
   var clean=JSON.parse(JSON.stringify(updates));
-  if(!db){ if(tid===_ptTid){ ptMirror(clean); renderPracticeCheckin(); } return Promise.resolve(true); }
+  if(!db){ if(tid===_ptTid){ ptMirror(clean); if(DEMO_CLUB) _demoKeepNight(tid); renderPracticeCheckin(); } return Promise.resolve(true); }
   return fbUpdateAt(ptNodePath(tid),clean);
 }
 // Rating weight for a team size. A page still holding an older ratings.js has no weights and
@@ -20463,6 +20909,19 @@ async function ptRateNight(tid){
       var now=Date.now();
       if(!(await ptWriteTid(tid,{'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now}))) return false;
       data.meta.status='final';
+    }
+    if(!db&&DEMO_CLUB){
+      // Club demo: rate tonight's games in memory with ratings.js. No db, no rating node.
+      var dq=ptRateQueue(data.results||{});
+      if(!dq.length) return true;
+      var only={results:{}, players:data.players};
+      dq.forEach(function(gid){ only.results[gid]=data.results[gid]; });
+      _demoRateResults(only);
+      var dupd={}, dnow=Date.now();
+      dq.forEach(function(gid){ dupd['results/'+gid+'/rated']=true; dupd['results/'+gid+'/ratedAt']=dnow; });
+      await ptWriteTid(tid,dupd);
+      _pcRatingsIndex=null; _ppRating=null;
+      return true;
     }
     if(!db||!window.Ratings||typeof Ratings.applyGame!=='function'){ toast('Night ended. Ratings are unavailable right now, so use Retry later.'); return false; }
     if(!ptRateWeightReady(ptTeamSizeOf(data.meta))){ toast('Night ended. Reload the page, then tap Retry to rate this '+ptTeamSizeOf(data.meta)+'s night.'); return false; }
@@ -20873,7 +21332,7 @@ var _ptpEditGid=null;   // the result this player is editing
 var _ptpNotice=null;    // { tid, gid, text } a refused first entry, with an Edit option
 var _ptpBusy=false;
 function ptpActive(){
-  return tsFeatureOn()&&!!db&&currentRole==='player'&&!!currentPlayerId&&practiceEligibleId(currentPlayerId)&&!!document.getElementById('pp-kings');
+  return tsFeatureOn()&&(!!db||DEMO_CLUB)&&currentRole==='player'&&!!currentPlayerId&&practiceEligibleId(currentPlayerId)&&!!document.getElementById('pp-kings');
 }
 function ptpTodayTids(){
   var today=td();
@@ -20883,6 +21342,14 @@ function ptpTodayTids(){
 // Attach to today's tournaments and drop anything else. Safe to call on every render.
 function ptpSync(){
   var want=ptpActive()?ptpTodayTids():[];
+  if(!db&&DEMO_CLUB){
+    // Club demo: read tonight's nights straight from the in-memory club. No listener.
+    _ptpRefs={}; _ptpData={};
+    want.forEach(function(tid){ _ptpRefs[tid]={ref:{off:function(){}}, handler:null}; _ptpData[tid]=(D.practiceTournaments||{})[tid]||null; });
+    if(!want.length){ _ptpDraft={}; _ptpEditGid=null; _ptpNotice=null; }
+    ptpRender();
+    return;
+  }
   Object.keys(_ptpRefs).forEach(function(tid){
     if(want.indexOf(tid)>=0) return;
     _ptpRefs[tid].ref.off('value',_ptpRefs[tid].handler);
@@ -20941,6 +21408,7 @@ function ptpFindGame(data,gid){
 }
 function ptpMyName(){ var p=gP(currentPlayerId); return p?(((p.firstName||'')+' '+(p.lastName||'')).trim()||currentPlayerId):currentPlayerId; }
 function ptpStatusIsActive(tid){
+  if(!db&&DEMO_CLUB){ var dm=(((D.practiceTournaments||{})[tid])||{}).meta; return Promise.resolve(!!dm&&dm.status==='active'); }
   return db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/meta/status').once('value')
     .then(function(s){ return s.val()==='active'; }).catch(function(){ return false; });
 }
@@ -20954,6 +21422,21 @@ async function ptpSave(tid,gid){
   if(s1==null||s2==null){ toast('Enter both scores as whole numbers'); return; }
   if(s1===s2){ toast('Scores cannot be tied. Someone has to win.'); return; }
   var editing=(_ptpEditGid===gid), by=ptpMyName(), now=Date.now(), g=hit.g;
+  if(!db&&DEMO_CLUB){
+    // Club demo: the same first-entry and edit rules, applied to the in-memory night.
+    var dn=(D.practiceTournaments||{})[tid];
+    if(!dn||!dn.meta||dn.meta.status!=='active'){ toast('This Kings Night has ended, so scores are locked'); return; }
+    if(!dn.results) dn.results={};
+    var dcur=dn.results[gid]||null;
+    if(!editing&&dcur){ _ptpNotice={tid:tid, gid:gid, text:'Score already entered: '+dcur.s1+' to '+dcur.s2}; delete _ptpDraft[gid]; ptpRender(); return; }
+    dn.results[gid]=editing&&dcur?Object.assign({},dcur,{s1:s1, s2:s2, editedAt:now, by:by, byRole:'player'})
+      :{pool:hit.pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:by, byRole:'player', rated:false};
+    dn.meta.updatedAt=now;
+    delete _ptpDraft[gid]; _ptpEditGid=null; _ptpNotice=null;
+    toast(editing?'Score updated':'Score saved');
+    ptpRender();
+    return;
+  }
   _ptpBusy=true;
   try{
     if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
@@ -20994,6 +21477,13 @@ async function ptpClear(tid,gid){
   if(!ptpActive()||_ptpBusy) return;
   if(!window.confirm('Clear this score? The game goes back to unplayed.')) return;
   var pid=currentPlayerId;
+  if(!db&&DEMO_CLUB){
+    var dn=(D.practiceTournaments||{})[tid], dr=dn&&dn.results?dn.results[gid]:null;
+    if(!dn||!dn.meta||dn.meta.status!=='active'){ toast('This Kings Night has ended, so scores are locked'); return; }
+    if(dr&&ptArr(dr.t1).concat(ptArr(dr.t2)).indexOf(pid)>=0){ delete dn.results[gid]; if(_ptpEditGid===gid) _ptpEditGid=null; delete _ptpDraft[gid]; toast('Score cleared'); }
+    ptpRender();
+    return;
+  }
   _ptpBusy=true;
   try{
     if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
