@@ -62,8 +62,9 @@ if(SC&&SC.demoMode){(function(){
   if(!DEMO_CLUB) return;
   // Club demo display layer. Exact words and exact hex colors only, never lowercase keys.
   var swaps=[
-    [/FSU Main Campus Fields/g,'Shoreline Park Fields'],[/Year at FSU/g,'Year in school'],
-    [/FSU Grass Club/g,'Sand Sharks Grass Club'],[/FSU Grass/g,'Sand Sharks Grass Club'],
+    [/FSU Main Campus Fields/g,'Shoreline Park'],[/Year at FSU/g,'Year in school'],
+    [/Beach Volleyball Season/g,'Volleyball Season'],
+    [/FSU Grass Club/g,'Sand Sharks Beach/Grass Volleyball Club'],[/FSU Grass/g,'Sand Sharks Beach/Grass Volleyball Club'],
     [/Florida State University/g,'the university'],[/Florida State/g,'the university'],[/\bFSU\b/g,'the club'],
     [/\bGarnet\b/g,'Blue'],[/\bGARNET\b/g,'BLUE'],
     [/#782F40/gi,'#0081AB'],[/#5e2432/gi,'#006A8C'],[/#471a26/gi,'#082A4F'],[/#9a4a5d/gi,'#33A3C4'],
@@ -164,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.217';
+const APP_VERSION='1.1.218';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -666,7 +667,7 @@ const _DEMO = {
 // ============================================================
 // CLUB DEMO FIXTURE (only consumed when DEMO_CLUB: demoMode plus tiersEnabled)
 // ============================================================
-// Sand Sharks Grass Club, a made-up college club. Every person is invented and an adult. No contact
+// Sand Sharks Beach/Grass Volleyball Club, a made-up college club that plays on sand and grass. Every person is invented and an adult. No contact
 // details at all, so nothing here can be mailed or texted. Squads keep the club's stored tier keys
 // ('gold', and 'garnet', which the demo shows as Blue). Shapes follow the readers in this file:
 // tryoutSessions, tryoutAttendance, practiceSchedule, dues, threads, chat, pinned, standing and
@@ -723,17 +724,17 @@ const _DEMO_CLUB = {
     logan_wilder:{name:'Logan Wilder', rating:1620, rd:79, volatility:0.06, gamesPlayed:23}
   },
   practiceSchedule: {
-    gold:  {days:['Mon','Wed'], time:'6:00 PM', location:'Shoreline Park Fields'},
-    garnet:{days:['Tue','Thu'], time:'6:30 PM', location:'Shoreline Park Fields'}
+    gold:  {days:['Mon','Wed'], time:'6:00 PM', location:'Shoreline Park'},
+    garnet:{days:['Tue','Thu'], time:'6:30 PM', location:'Shoreline Park'}
   },
   dues: { amount:60, paid:['gc01','gc02','gc04','gc05','gc08','gc10','gc11','gc12','gc13','gc14','gc17','gc19'] },
   standing: { gc06:{good:false, note:'Finish the club waiver before the next travel weekend.'} },
-  pinned: {text:'Fall Kings Nights run every practice through the end of the semester. Check in at the field so your games count.'},
+  pinned: {text:'Fall Kings Nights run every practice through the end of the semester. Check in when you get to the courts so your games count.'},
   // Chat seed: [channel, authorId or 'exec', text, hours ago, via]
   chat: [
-    ['allclub','exec','Welcome to the Sand Sharks Grass Club app. Schedules, check-in and Kings Night results all live here.',72],
-    ['allclub','gc10','Field lights are confirmed for both practices this week.',30],
-    ['allclub','exec','Practice moved 30 minutes later tonight\nThe early field is booked, so we start at 7:00. Same field.',3,'alert'],
+    ['allclub','exec','Welcome to the Sand Sharks Beach/Grass Volleyball Club app. Schedules, check-in and Kings Night results all live here.',72],
+    ['allclub','gc10','Court lights are confirmed for both practices this week.',30],
+    ['allclub','exec','Practice moved 30 minutes later tonight\nThe early courts are booked, so we start at 7:00. Same spot.',3,'alert'],
     ['gold','gc01','Gold, great energy Monday. Bring a water bottle tonight, it is warm out.',20],
     ['gold','gc05','Who wants to stay after to work on serve receive?',6],
     ['garnet','gc10','Blue squad, Kings Night tonight. Partners rotate every game.',8],
@@ -801,8 +802,8 @@ function _demoClubHydrate(){
   });
   // Sessions: two tryouts (one past, one coming up) and the practices behind each Kings Night.
   var S={}, A={}, T={};
-  S['ts-demo-fall1']={name:'Fall Tryouts Night 1', date:day(-10), time:'6:00 PM', location:'Shoreline Park Fields', createdAt:now-300*H};
-  S['ts-demo-fall2']={name:'Fall Tryouts Night 2', date:day(3), time:'6:00 PM', location:'Shoreline Park Fields', createdAt:now-200*H, invited:{gc21:now-30*H, gc22:now-30*H}};
+  S['ts-demo-fall1']={name:'Fall Tryouts Night 1', date:day(-10), time:'6:00 PM', location:'Shoreline Park', createdAt:now-300*H};
+  S['ts-demo-fall2']={name:'Fall Tryouts Night 2', date:day(3), time:'6:00 PM', location:'Shoreline Park', createdAt:now-200*H, invited:{gc21:now-30*H, gc22:now-30*H}};
   A['ts-demo-fall1']={gc21:{present:true, at:now-240*H, method:'qr'}, gc22:{present:true, at:now-240*H, method:'manual'}};
   var squadIds=function(sq){ return C.players.filter(function(p){ return p.tier===sq&&p.active!==false; }).map(function(p){ return p.id; }); };
   var practice=function(sq,date){
@@ -2574,7 +2575,7 @@ ${DEMO_CLUB ? `
       <h2>Try These Things</h2>
       <button class="demo-guide-close" onclick="document.getElementById('demo-guide-overlay').classList.remove('show')">×</button>
     </div>
-    <p class="demo-guide-intro">Sand Sharks Grass Club is a made-up college club with sample members. Click around. Nothing saves, and a refresh starts it over. Here is what is worth looking at:</p>
+    <p class="demo-guide-intro">Sand Sharks Beach/Grass Volleyball Club is a made-up college club that plays on sand and grass, with sample members. Click around. Nothing saves, and a refresh starts it over. Here is what is worth looking at:</p>
     <ol class="demo-guide-list">
       <li><span class="demo-guide-num">1</span><div class="demo-guide-content"><h3>Run a Kings Night</h3><p>Sign in as ${COACH_LABEL} with PIN 1234. Manage, then Practice. Reopen today's Gold practice, start Kings Night, enter a few scores, then End Night to see ratings move.</p></div></li>
       <li><span class="demo-guide-num">2</span><div class="demo-guide-content"><h3>Check members in</h3><p>The open practice shows its check-in code. Mark anyone present or absent by hand and watch the count change.</p></div></li>
@@ -2607,6 +2608,19 @@ ${DEMO_CLUB ? `
 </div>
 ` : ''}`;
 if(SC.demoMode) document.body.classList.add('demo');
+// Club demo only: the long club name wraps cleanly on a phone instead of crowding Logout.
+if(DEMO_CLUB){
+  document.body.classList.add('demo-club');
+  var dcStyle=document.createElement('style');
+  dcStyle.textContent='@media(max-width:480px){'
+    +'body.demo-club .header-top{align-items:center;gap:10px;}'
+    +'body.demo-club .header h1{font-size:16px;letter-spacing:1px;line-height:1.15;flex:1 1 auto;min-width:0;}'
+    +'body.demo-club .header-user{flex:0 0 auto;}'
+    +'body.demo-club .login-logo > span:not([style]){font-size:24px;letter-spacing:2px;line-height:1.1;text-align:center;}'
+    +'body.demo-club .login-overlay{padding-bottom:84px;}'
+    +'}';
+  document.head.appendChild(dcStyle);
+}
 })();
 
 
