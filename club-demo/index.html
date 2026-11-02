@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Sand Sharks Grass Club Demo · CourtSense</title>
+<meta name="description" content="A click-through demo of the CourtSense club app with a made-up club. All data is made up. Nothing saves.">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+<body>
+<script>
+// Club demo shell. demoMode keeps everything in memory: no Firebase, no worker, no stored sign-in.
+// The roots below are demo-only names that match no real node. No Firebase SDK is loaded here.
+window.SCHOOL_CONFIG = {
+  schoolName:      'Sand Sharks Grass Club',
+  shortName:       'Sand Sharks',
+  abbrev:          'SSG',
+  displayName:     'Sand Sharks Grass Club',
+  title:           'Sand Sharks Grass Club Demo',
+  coachPin:        '1234',
+  defaultPw:       'Demo2026',
+  coachLabel:      'Exec',
+  coachSignoff:    'The Exec Team',
+  dbRoots:{matches:'demo_club_sandbox_matches',profiles:'demo_club_sandbox_profiles',passwords:'demo_club_sandbox_passwords'},
+  logo:            null,
+  logoAlt:         'Sand Sharks',
+  colors:{primary:'#0081AB',primaryDark:'#006A8C',primaryDeeper:'#082A4F',primaryLight:'#33A3C4',primaryBg:'#E6F4F8',accent:'#F2B22E'},
+  aiProxyUrl:      'https://demo.invalid/ai',
+  maxPrepsUrl:     '',
+  courtsenseUrl:   '',
+  myStandingsKey:  'Sand Sharks',
+  homeVenue:       'Shoreline Park',
+  teamEmoji:       '🦈',
+  exportPrefix:    'demo_club_',
+  legacyMigration: false,
+  demoMode:        true,
+  tiersEnabled:    true,
+  chatEnabled:     true,
+  anonCommentsEnabled: true,
+  clubPortalLite:  true
+};
+</script>
+<script src="/ratings.js?v=58a1af90"></script>
+<script src="/app.js?v=1.1.216"></script>
+</body>
+</html>
