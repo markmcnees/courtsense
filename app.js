@@ -54,10 +54,10 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.215';
+const APP_VERSION='1.1.216';
 
 // ============================================================
-// DEMO FIXTURE — only consumed when SC.demoMode === true
+// DEMO FIXTURE (only consumed when SC.demoMode === true)
 // ============================================================
 const _DEMO = {
   players: [
@@ -554,7 +554,7 @@ const _DEMO = {
 };
 
 // ============================================================
-// THIN SHELL INJECTION — builds CSS and HTML from SCHOOL_CONFIG
+// THIN SHELL INJECTION. Builds CSS and HTML from SCHOOL_CONFIG
 // ============================================================
 (function injectApp(){
   var c=SC.colors;
@@ -1159,7 +1159,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       `:`
       <div id="hs-pick-block">
         <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--charcoal);margin-bottom:8px;">Select Your Name</div>
-        <div class="login-player-select"><select id="login-player-select" onchange="onPickPlayer()"><option value="">— Choose Player —</option></select></div>
+        <div class="login-player-select"><select id="login-player-select" onchange="onPickPlayer()"><option value="">Choose Player</option></select></div>
       </div>
       <div id="hs-legacy-block">
         <input type="password" style="width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;margin-top:8px;" id="login-pw" placeholder="Enter Password">
@@ -1282,8 +1282,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Time</label><input type="text" class="form-input" id="sched-time" placeholder="3:00pm" style="padding:8px;font-size:13px;"></div>
         </div>
         <div class="form-row" style="margin-bottom:8px;">
-          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">SW Score</label><input type="number" class="form-input" id="sched-us" placeholder="—" min="0" max="5" style="padding:8px;font-size:13px;"></div>
-          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opp Score</label><input type="number" class="form-input" id="sched-them" placeholder="—" min="0" max="5" style="padding:8px;font-size:13px;"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">SW Score</label><input type="number" class="form-input" id="sched-us" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opp Score</label><input type="number" class="form-input" id="sched-them" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
         </div>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--charcoal);margin:0 0 8px;cursor:pointer;"><input type="checkbox" id="sched-scrimmage" style="width:16px;height:16px;"> Scrimmage</label>
         <button class="btn btn-primary btn-small" onclick="addScheduleGame()">Add Game</button>
@@ -1330,7 +1330,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <div class="form-row" style="margin-bottom:14px;">
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date</label><input type="date" class="form-input" id="q-date"></div>
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Court</label>
-          <select class="form-select" id="q-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 — Exhib</option><option value="7">Court 7 — Exhib</option><option value="8">Court 8 — Exhib</option></select></div></div>
+          <select class="form-select" id="q-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 (Exhib)</option><option value="7">Court 7 (Exhib)</option><option value="8">Court 8 (Exhib)</option></select></div></div>
       <div id="q-split-pairs" style="display:none;"></div>
       <div class="team-section team-a"><div class="team-label">Team A</div>
         <div class="form-row"><select class="form-select" id="q-a1"><option value="">Player 1</option></select><select class="form-select" id="q-a2"><option value="">Player 2</option></select></div></div>
@@ -1340,20 +1340,20 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
       <div id="q-split-toggle" style="display:none;margin-top:10px;">
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--purple);cursor:pointer;">
           <input type="checkbox" id="q-is-split" style="width:16px;height:16px;accent-color:var(--purple);" onchange="toggleSplitQ()">
-          🔀 Split Match — different pairs for Set 2
+          🔀 Split Match (different pairs for Set 2)
         </label>
       </div>
       <div id="q-split-extra" style="display:none;margin-top:10px;padding:10px;background:#f5f3ff;border-radius:8px;border:1px solid #c4b5fd;">
-        <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--purple);margin-bottom:8px;">SET 2 — DIFFERENT PAIRS</div>
-        <div class="team-section team-a" style="margin-bottom:6px;"><div class="team-label">Set 2 — Team A</div>
+        <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--purple);margin-bottom:8px;">SET 2 · DIFFERENT PAIRS</div>
+        <div class="team-section team-a" style="margin-bottom:6px;"><div class="team-label">Set 2 · Team A</div>
           <div class="form-row"><select class="form-select" id="q-s2a1"><option value="">Player 1</option></select><select class="form-select" id="q-s2a2"><option value="">Player 2</option></select></div></div>
         <div class="vs-divider" style="margin:4px 0;">VS</div>
-        <div class="team-section team-b"><div class="team-label">Set 2 — Team B</div>
+        <div class="team-section team-b"><div class="team-label">Set 2 · Team B</div>
           <div class="form-row"><select class="form-select" id="q-s2b1"><option value="">Player 1</option></select><select class="form-select" id="q-s2b2"><option value="">Player 2</option></select></div></div>
       </div>
       <div class="score-row">
         <div class="score-col"><div class="score-col-label label-a">Team A</div><input type="number" class="score-input" id="q-sa" placeholder="0" min="0" max="99"></div>
-        <span class="score-dash">—</span>
+        <span class="score-dash">-</span>
         <div class="score-col"><div class="score-col-label label-b">Team B</div><input type="number" class="score-input" id="q-sb" placeholder="0" min="0" max="99"></div></div>
       <div style="margin-top:16px;"><button class="btn btn-primary" id="save-queens">Save Match</button></div>
     </div>
@@ -1379,7 +1379,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     </div>
   </div>
 
-  <!-- ====== GAME DAY (SW vs External — Season) ====== -->
+  <!-- ====== GAME DAY (SW vs External, Season) ====== -->
     <div class="tab-content" id="tab-gameday">
 <div class="card"><div class="card-title blue"><span class="bar"></span> 📋 Planner</div>
       <p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Set lineups for duals and practice. Players see their assignment in their portal.</p>
@@ -1402,7 +1402,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <div id="assign-court-slots"></div>
         <div id="assign-notes-section" style="margin-top:8px;"></div>
         <button class="btn btn-blue btn-small" style="width:100%;margin-top:10px;" onclick="saveAssignment()">Save Assignment</button>
-      <div style="text-align:center;margin:10px 0 4px;font-size:11px;color:var(--gray);letter-spacing:0.5px;">— OR —</div>
+      <div style="text-align:center;margin:10px 0 4px;font-size:11px;color:var(--gray);letter-spacing:0.5px;">OR</div>
       <div style="margin-bottom:6px;">
         <div style="font-size:11px;font-weight:700;color:var(--gray);letter-spacing:1px;margin-bottom:6px;">SCAN ASSIGNMENT SHEET</div>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
@@ -1446,8 +1446,8 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
           <label class="form-label">Rounds / Games</label>
           <select class="form-select" id="ai-pair-rounds" style="padding:8px;font-size:13px;">
             <option value="1">1 round</option>
-            <option value="2">2 rounds — different partners each</option>
-            <option value="3">3 rounds — full rotation</option>
+            <option value="2">2 rounds (different partners each)</option>
+            <option value="3">3 rounds (full rotation)</option>
             <option value="4">4 rounds</option>
           </select>
           <div style="font-size:11px;color:var(--gray);margin-top:4px;">Each round re-mixes all partners so players get new matchups</div>
@@ -1473,7 +1473,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     </div>
 <div class="card" style="border:2px solid var(--charcoal);">
       <div class="card-title" style="color:var(--charcoal);"><span class="bar" style="background:var(--charcoal);"></span> 🔒 ${COACH_LABEL} Notes
-        <span style="font-size:11px;font-weight:400;letter-spacing:0;font-family:'Barlow',sans-serif;color:var(--gray);margin-left:6px;">Private — coaches only</span>
+        <span style="font-size:11px;font-weight:400;letter-spacing:0;font-family:'Barlow',sans-serif;color:var(--gray);margin-left:6px;">Private (coaches only)</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <input type="date" class="form-input" id="cnote-date" style="max-width:180px;padding:8px 12px;">
@@ -1499,7 +1499,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     </div>
 <div class="card" style="border:2px solid var(--gold);">
       <div class="card-title gold"><span class="bar" style="background:var(--gold);"></span> Upload Dual Scoresheet</div>
-      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Photograph the handwritten scoresheet after a dual. AI reads the opponent, pairings, and all set scores — then automatically creates the dual record and individual match entries for player stats.</p>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Photograph the handwritten scoresheet after a dual. AI reads the opponent, pairings, and all set scores, then automatically creates the dual record and individual match entries for player stats.</p>
       <div class="form-group">
         <label class="form-label" style="font-size:11px;">Match Date</label>
         <input type="date" class="form-input" id="dual-scan-date" style="padding:8px;font-size:13px;">
@@ -1528,13 +1528,13 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
     </div>
   </div>
 
-<!-- ====== SCRIMMAGE (SW vs External — Non-Season) ====== -->
+<!-- ====== SCRIMMAGE (SW vs External, Non-Season) ====== -->
   <div class="tab-content" id="tab-scrimmage">
     <div class="card"><div class="card-title purple"><span class="bar"></span> New Scrimmage Match</div>
       <div class="form-row" style="margin-bottom:10px;">
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date</label><input type="date" class="form-input" id="sc-date"></div>
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Court</label>
-          <select class="form-select" id="sc-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 — Exhib</option><option value="7">Court 7 — Exhib</option><option value="8">Court 8 — Exhib</option></select></div></div>
+          <select class="form-select" id="sc-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 (Exhib)</option><option value="7">Court 7 (Exhib)</option><option value="8">Court 8 (Exhib)</option></select></div></div>
       <div class="form-row" style="margin-bottom:10px;">
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Player 1</label><select class="form-select" id="sc-p1"><option value="">Select</option></select></div>
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Player 2</label><select class="form-select" id="sc-p2"><option value="">Select</option></select></div></div>
@@ -1603,7 +1603,7 @@ ${SC.demoMode ? '<div class="demo-banner">DEMO DATA · '+SC.schoolName+' · Noth
         <input type="number" class="form-input" id="new-jersey" placeholder="Jersey #" min="0" max="99" style="max-width:110px;">
         <input type="number" class="form-input" id="new-truvolley" placeholder="TruVolley Rating" step="0.01" min="0" style="max-width:150px;">
         <select class="form-select" id="new-class"><option value="FR">Freshman</option><option value="SO">Sophomore</option><option value="JR">Junior</option><option value="SR">Senior</option></select>
-        <select class="form-select" id="new-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 — Exhib</option><option value="7">Court 7 — Exhib</option><option value="8">Court 8 — Exhib</option></select></div>
+        <select class="form-select" id="new-court"><option value="1">Court 1</option><option value="2">Court 2</option><option value="3">Court 3</option><option value="4">Court 4</option><option value="5">Court 5</option><option value="6">Court 6 (Exhib)</option><option value="7">Court 7 (Exhib)</option><option value="8">Court 8 (Exhib)</option></select></div>
       <div class="form-row" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <input type="number" class="form-input" id="new-gradyear" placeholder="Grad Year" min="2025" max="2035" style="max-width:130px;">
         <input type="text" class="form-input" id="new-height" placeholder="Height e.g. 5'11&quot;" style="max-width:150px;">
@@ -2213,11 +2213,11 @@ ${SC.demoMode ? `
       <h2>Try These Things</h2>
       <button class="demo-guide-close" onclick="document.getElementById('demo-guide-overlay').classList.remove('show')">×</button>
     </div>
-    <p class="demo-guide-intro">Sand Sharks is a fictional team with sample data. Click around — nothing saves, refresh resets everything. Here is what is worth looking at:</p>
+    <p class="demo-guide-intro">Sand Sharks is a fictional team with sample data. Click around. Nothing saves, refresh resets everything. Here is what is worth looking at:</p>
     <ol class="demo-guide-list">
       <li><span class="demo-guide-num">1</span><div class="demo-guide-content"><h3>See the team standings</h3><p>Click the Standings tab. Sand Sharks are 3-1 in district. Tap any opponent for head-to-head.</p></div></li>
       <li><span class="demo-guide-num">2</span><div class="demo-guide-content"><h3>Look at a player's profile</h3><p>Tap any player name. Stats, partner history, and season trajectory.</p></div></li>
-      <li><span class="demo-guide-num">3</span><div class="demo-guide-content"><h3>Check partner chemistry</h3><p>Standings → tap a player → Partners. Shows W/L by partner across the season — which pairings are working, which aren't.</p></div></li>
+      <li><span class="demo-guide-num">3</span><div class="demo-guide-content"><h3>Check partner chemistry</h3><p>Standings → tap a player → Partners. Shows W/L by partner across the season, so you can see which pairings are working and which aren't.</p></div></li>
       <li><span class="demo-guide-num">4</span><div class="demo-guide-content"><h3>View a played dual</h3><p>Schedule tab → tap a past dual. Court-by-court set scores, who played who.</p></div></li>
       <li><span class="demo-guide-num">5</span><div class="demo-guide-content"><h3>Open the planner</h3><p>Planner tab → enter ${COACH_LABEL} PIN 1234. Set lineups for upcoming matches. Try the auto-pair feature.</p></div></li>
       <li><span class="demo-guide-num">6</span><div class="demo-guide-content"><h3>Try the Excel export</h3><p>Manage, then Import/Export. Roster, results, schedule all in one workbook.</p></div></li>
@@ -2232,7 +2232,7 @@ if(SC.demoMode) document.body.classList.add('demo');
 
 var _dualCloseInProgress=false;
 
-// Proxy helper — auto-injects schoolId into every AI request
+// Proxy helper. Auto-injects schoolId into every AI request
 async function aiProxy(payload){
   return fetch(SC.aiProxyUrl,{
     method:'POST',
@@ -3042,7 +3042,7 @@ function listenData(){if(!db)return;
           }
         }
       }
-      // Player view — mirror coach view: update counters + show who's scoring
+      // Player view (mirrors coach view): update counters + show who's scoring
       if(currentRole==='player'){
         const usEl=document.getElementById('pp-us-'+idx);
         const themEl=document.getElementById('pp-them-'+idx);
@@ -3393,7 +3393,7 @@ function arrEq(a,b){if(!a||!b||a.length!==b.length)return false;const sa=[...a].
 function pmClass(v){return v>0?'pm-positive':v<0?'pm-negative':'pm-zero';}
 function pmStr(v){return(v>0?'+':'')+v;}
 
-// Queens stats (Leon vs Leon — each side gets their own score)
+// Queens stats (Leon vs Leon; each side gets their own score)
 function queensStats(pid,matches,opts){
   if(!opts||!opts.allSeasons) matches=(matches||[]).filter(inSeason);
   let w=0,l=0,pf=0,pa=0;
@@ -3406,7 +3406,7 @@ function queensStats(pid,matches,opts){
   return{wins:w,losses:l,diff:pf-pa,pf,pa,pct:(w+l)>0?(w/(w+l)*100):0,gp:w+l};
 }
 
-// External match stats (game day or scrimmage — both partners share score)
+// External match stats (game day or scrimmage; both partners share score)
 function extStats(pid,matchList,opts){
   if(!opts||!opts.allSeasons) matchList=(matchList||[]).filter(inSeason);
   let setsW=0,setsL=0,pf=0,pa=0,k=0,b=0,a=0,se=0,re=0,he=0,de=0,totalSets=0,matchesPlayed=0,matchesWon=0,matchesLost=0;
@@ -3492,7 +3492,7 @@ function renderDash(){
   _sGamedays.forEach(m=>allDates.add(m.date));
   _sScrimmages.forEach(m=>allDates.add(m.date));
 
-  // (gd-overview/table/top-performers removed — elements not in HTML)
+  // (gd-overview/table/top-performers removed; elements not in HTML)
     // Season Schedule
   renderSchedule();
   // Standings
@@ -3531,7 +3531,7 @@ function renderSchedule(){
     }else if(upcoming){
       h+='<span style="font-size:12px;color:var(--gray);font-style:italic;">Upcoming</span>';
     }else{
-      h+='<span style="font-size:12px;color:var(--gray);">—</span>';
+      h+='<span style="font-size:12px;color:var(--gray);">–</span>';
     }
     h+=`</div>`;
     if(currentRole==='coach'){
@@ -3614,7 +3614,7 @@ function renderStandings(){
 
   let h='<div style="overflow-x:auto;"><table class="player-table" style="min-width:280px;"><thead><tr><th style="width:30px;">#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th><th></th></tr></thead><tbody>';
   sorted.forEach(([name,s],i)=>{
-    const pct=(s.w+s.l)>0?((s.w/(s.w+s.l))*100).toFixed(0)+'%':'—';
+    const pct=(s.w+s.l)>0?((s.w/(s.w+s.l))*100).toFixed(0)+'%':'–';
     const isMine=_isOwnStanding(name);
     h+=`<tr style="${isMine?'background:var(--red-bg);font-weight:700;':''}">
       <td style="font-family:'Bebas Neue';font-size:14px;color:var(--gray);">${i+1}</td>
@@ -3627,7 +3627,7 @@ function renderStandings(){
   h+='</tbody></table></div>';
   if(Object.keys(oppFromSchedule).length)h+='<div style="font-size:10px;color:var(--gray);margin-top:6px;font-style:italic;">Records marked "vs '+(SC.myStandingsKey||'us')+'" are auto-calculated from schedule. Update with full season records using the form below.</div>';
   document.getElementById('dash-standings').innerHTML=h;
-  fetchMaxPrepsStandings(); // async — overlays with live MaxPreps data
+  fetchMaxPrepsStandings(); // async, overlays with live MaxPreps data
 
   // Populate team dropdown for coaches
   const sel=document.getElementById('stand-team');
@@ -3764,7 +3764,7 @@ async function fetchMaxPrepsStandings(){
 
   let h='<div style="overflow-x:auto;"><table class="player-table" style="min-width:280px;"><thead><tr><th style="width:30px;">#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th></tr></thead><tbody>';
   teams.forEach(({name,w,l},i)=>{
-    const pct=(w+l)>0?((w/(w+l))*100).toFixed(0)+'%':'—';
+    const pct=(w+l)>0?((w/(w+l))*100).toFixed(0)+'%':'–';
     const isMine=_isOwnStanding(name, true);
     h+=`<tr style="${isMine?'background:var(--red-bg);font-weight:700;':''}">
       <td style="font-family:'Bebas Neue';font-size:14px;color:var(--gray);">${i+1}</td>
@@ -3877,14 +3877,14 @@ function renderPlayers(){
     tbody.innerHTML=rows.map(r=>{const p=r.p,s=r.s;
       return`<tr><td>${pNameCell(p)}</td>
         <td>${courtBadge(p.court)}</td>
-        <td>${s.wins}</td><td>${s.losses}</td><td>${s.gp>0?Math.round(s.pct)+'%':'—'}</td>
-        <td class="plus-minus ${pmClass(s.diff)}">${s.gp>0?pmStr(s.diff):'—'}</td></tr>`;}).join('');
+        <td>${s.wins}</td><td>${s.losses}</td><td>${s.gp>0?Math.round(s.pct)+'%':'–'}</td>
+        <td class="plus-minus ${pmClass(s.diff)}">${s.gp>0?pmStr(s.diff):'–'}</td></tr>`;}).join('');
   }else if(pType==='gameday'||pType==='scrimmage'||pType==='exhibition'){
     tbody.innerHTML=rows.map(r=>{const p=r.p,s=r.s;
       return`<tr><td>${pNameCell(p)}</td>
         <td>${courtBadge(p.court)}</td>
         <td>${s.sets}</td>
-        <td class="plus-minus ${pmClass(s.diff)}">${s.sets>0?pmStr(s.diff):'—'}</td>
+        <td class="plus-minus ${pmClass(s.diff)}">${s.sets>0?pmStr(s.diff):'–'}</td>
         <td>${s.k}</td><td>${s.b}</td><td>${s.a}</td><td>${s.se}</td><td>${s.re}</td><td>${s.he}</td><td>${s.de}</td></tr>`;}).join('');
   }else{
     tbody.innerHTML=rows.map(r=>{const p=r.p,c=r.c;
@@ -3927,7 +3927,7 @@ function renderQueens(){
           <button class="match-action-btn" onclick="delQueens('${m.id}')" title="Delete">✕</button></div>
         <div class="match-header"><span class="court-badge court-${m.court}">Court ${m.court}</span></div>
         <div class="match-body"><div class="match-team left ${w?'winner':'loser'}">${t1}</div>
-          <div class="match-score">${m.score1||0} — ${m.score2||0}</div>
+          <div class="match-score">${m.score1||0}-${m.score2||0}</div>
           <div class="match-team right ${!w?'winner':'loser'}">${t2}</div></div></div>`;
     });
   });
@@ -3959,7 +3959,7 @@ function openQueensEdit(id){
     <div class="form-row" style="margin-bottom:14px;">
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date</label><input type="date" class="form-input" id="eq-date" value="${m.date||''}"></div>
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Court</label>
-        <select class="form-select" id="eq-court">${COURTS.map(c=>`<option value="${c}" ${m.court===c?'selected':''}>${c<=5?'Court '+c:'Court '+c+' — Exhib'}</option>`).join('')}</select></div></div>
+        <select class="form-select" id="eq-court">${COURTS.map(c=>`<option value="${c}" ${m.court===c?'selected':''}>${c<=5?'Court '+c:'Court '+c+' (Exhib)'}</option>`).join('')}</select></div></div>
     <div class="team-section team-a"><div class="team-label">Team A</div><div class="form-row">
       <select class="form-select" id="eq-a1"></select><select class="form-select" id="eq-a2"></select></div></div>
     <div class="vs-divider">VS</div>
@@ -3967,7 +3967,7 @@ function openQueensEdit(id){
       <select class="form-select" id="eq-b1"></select><select class="form-select" id="eq-b2"></select></div></div>
     <div class="score-row" style="margin-top:14px;">
       <div class="score-col"><div class="score-col-label label-a">Team A</div><input type="number" class="score-input" id="eq-sa" value="${m.score1||0}" min="0" max="99"></div>
-      <span class="score-dash">—</span>
+      <span class="score-dash">-</span>
       <div class="score-col"><div class="score-col-label label-b">Team B</div><input type="number" class="score-input" id="eq-sb" value="${m.score2||0}" min="0" max="99"></div></div>`;
   fillSel(['eq-a1','eq-a2','eq-b1','eq-b2'],m.court);
   document.getElementById('eq-a1').value=m.team1[0]||'';document.getElementById('eq-a2').value=m.team1[1]||'';
@@ -4153,7 +4153,7 @@ function openExtEdit(id,type){
     <div class="form-row" style="margin-bottom:10px;">
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date</label><input type="date" class="form-input" id="ee-date" value="${m.date||''}"></div>
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Court</label>
-        <select class="form-select" id="ee-court">${COURTS.map(c=>`<option value="${c}" ${(m.court||1)===c?'selected':''}>${c<=5?'Court '+c:'Court '+c+' — Exhib'}</option>`).join('')}</select></div></div>
+        <select class="form-select" id="ee-court">${COURTS.map(c=>`<option value="${c}" ${(m.court||1)===c?'selected':''}>${c<=5?'Court '+c:'Court '+c+' (Exhib)'}</option>`).join('')}</select></div></div>
     <div class="form-row" style="margin-bottom:10px;">
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Player 1</label><select class="form-select" id="ee-p1"></select></div>
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Player 2</label><select class="form-select" id="ee-p2"></select></div></div>
@@ -4887,7 +4887,7 @@ function populatePlayerLogin(){
   const sel=document.getElementById('login-player-select');
   if(!sel)return; // email-login mode (SC.emailLogin) has no name dropdown
   const cur=sel.value;
-  sel.innerHTML='<option value="">— Choose Player —</option>';
+  sel.innerHTML='<option value="">Choose Player</option>';
   const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
   sorted.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.firstName+' '+p.lastName;sel.appendChild(o);});
   if(cur)sel.value=cur;
@@ -6398,7 +6398,7 @@ function renderPlayerPortal(){
   }
   const _ppPr=document.getElementById('pp-practice'); if(_ppPr) _ppPr.innerHTML=memberPracticeHtml(p);
 
-  // Summary stats — filtered by ppStatView
+  // Summary stats, filtered by ppStatView
   const qs=queensStats(pid,D.matches);
   const _gdFiltered=ppStatView==='exhibition'?(D.gamedays||[]).filter(m=>(m.court||0)>5):(D.gamedays||[]).filter(m=>(m.court||0)<=5||!(m.court));
   const gs=extStats(pid,_gdFiltered);
@@ -6476,7 +6476,7 @@ function renderPlayerPortal(){
 
   rHTML+='<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin:16px 0 8px;">Athleticism</div>';
 
-  // Star Drill ranking (lower is better — reverse sort)
+  // Star Drill ranking (lower is better, so reverse sort)
   const drillData2=profilesData?.starDrills||{};
   const drillBests={};
   Object.values(drillData2).forEach(d=>{
@@ -6590,7 +6590,7 @@ function renderPlayerPortal(){
     }
   }
 
-  // Skill rankings — average and individual
+  // Skill rankings, average and individual
   rHTML+='<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin:16px 0 8px;">Skills</div>';
   const skillNames=['serving','passing','setting','hitting','blocking','defense','courtSense','communication'];
   const skillLabels={serving:'Serving',passing:'Passing',setting:'Setting',hitting:'Hitting',blocking:'Blocking',defense:'Defense',courtSense:'Court Sense',communication:'Communication'};
@@ -6704,7 +6704,7 @@ function renderPlayerStandings(){
   if(!sorted.length){const _pst=document.getElementById('pp-standings');if(_pst)_pst.innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No standings data yet.</div>';return;}
   let h='<table class="player-table"><thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Pct</th></tr></thead><tbody>';
   sorted.forEach(([name,s],i)=>{
-    const pct=(s.w+s.l)>0?((s.w/(s.w+s.l))*100).toFixed(0)+'%':'—';
+    const pct=(s.w+s.l)>0?((s.w/(s.w+s.l))*100).toFixed(0)+'%':'–';
     const isMine=_isOwnStanding(name);
     h+=`<tr style="${isMine?'background:var(--red-bg);font-weight:700;':''}">
       <td style="font-family:'Bebas Neue';font-size:14px;color:var(--gray);">${i+1}</td>
@@ -6859,7 +6859,7 @@ async function generateAIPlan(pid,gid){
     }
     if(D.goals[pid]&&D.goals[pid][gid]) D.goals[pid][gid].aiFeedback={text:plan,generatedAt:td(),status:'draft',editedBy:null,approvedAt:null};
     renderCoachGoals();
-    toast('AI plan generated — review and approve');
+    toast('AI plan generated. Review and approve.');
     return;
   }
   const dataSummary=getPlayerDataSummary(pid);
@@ -6914,7 +6914,7 @@ Speak directly to the player using "you" language. Be motivating but realistic. 
       return;
     }
     fbSet('goals/'+pid+'/'+gid+'/aiFeedback',{text,generatedAt:td(),status:'draft',editedBy:null,approvedAt:null});
-    toast('AI plan generated — review and approve');
+    toast('AI plan generated. Review and approve.');
   }catch(err){
     console.error('AI error:',err);
     document.getElementById(loadingId).innerHTML='<div style="color:var(--loss-red);font-size:13px;">'+(aiReached?'Could not build the plan. Try again.':'AI service unavailable. Try again in a moment.')+'</div>';
@@ -6943,7 +6943,7 @@ function openEditFeedback(pid,gid){
 function approveGoal(pid,gid){
   fbSet('goals/'+pid+'/'+gid+'/aiFeedback/status','approved');
   fbSet('goals/'+pid+'/'+gid+'/aiFeedback/approvedAt',td());
-  toast('Goal feedback approved — player can now see it');
+  toast('Goal feedback approved. The player can now see it.');
   const _ap=gP(pid);
   const _ag=D.goals?.[pid]?.[gid];
   reportNotifyMisses([notifyPlayer(pid,'plan',
@@ -7061,7 +7061,7 @@ function coachOpenPlayer(pid){
   // Photo avatar (club only, null-safe): the cpm-photo mount exists only in the club header, so HS is
   // untouched. Promoted prospects may carry a photo; existing players have none and fall back to initials.
   const _cpmPhoto=document.getElementById('cpm-photo'); if(SC.tiersEnabled&&_cpmPhoto)_cpmPhoto.innerHTML=avatarHtml(p,56);
-  document.getElementById('cpm-meta').innerHTML=`<span class="class-badge class-${p.classYear}">${p.classYear}</span> <span class="court-badge court-${p.court}">PG ${p.court} — ${CL_LABELS[p.court]||''}</span>`;
+  document.getElementById('cpm-meta').innerHTML=`<span class="class-badge class-${p.classYear}">${p.classYear}</span> <span class="court-badge court-${p.court}">PG ${p.court} · ${CL_LABELS[p.court]||''}</span>`;
   // Tier control (Grass Club only, gated on SC.tiersEnabled so Leon, South Walton, and the demo never see it).
   // Badge shows the current tier; the coach role additionally gets a setter that writes onto the player record.
   if(SC.tiersEnabled){
@@ -7121,7 +7121,7 @@ function coachOpenPlayer(pid){
     skillsHtml+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;">
       <span style="font-size:12px;font-weight:600;min-width:105px;">${SKILL_LABELS[k]}</span>
       <input type="range" id="cpm-skill-${k}" min="0" max="10" step="1" value="${v}" style="flex:1;" oninput="document.getElementById('cpm-sv-${k}').textContent=this.value">
-      <span id="cpm-sv-${k}" style="font-family:'Bebas Neue';font-size:16px;min-width:20px;text-align:right;">${v||'—'}</span>
+      <span id="cpm-sv-${k}" style="font-family:'Bebas Neue';font-size:16px;min-width:20px;text-align:right;">${v||'–'}</span>
     </div>`;
   });
   document.getElementById('cpm-skills').innerHTML=skillsHtml;
@@ -7589,7 +7589,7 @@ function combineGoals(pid){
 }
 function archiveCoachGoal(pid,gid){
   fbSet('goals/'+pid+'/'+gid+'/archivedCoach',true);
-  toast('Goal archived from your view — player can still see it');
+  toast('Goal archived from your view. The player can still see it.');
 }
 function unarchiveCoachGoal(pid,gid){
   fbSet('goals/'+pid+'/'+gid+'/archivedCoach',false);
@@ -7649,7 +7649,7 @@ function renderCoachGoals(){
           </div>
           ${isArchived?'<span class="goal-status pending">Archived</span>':
             approved?'<span class="goal-status approved">\u2713 Approved</span>':
-            hasDraft?'<span class="goal-status ai-ready">Draft \u2014 Review</span>':
+            hasDraft?'<span class="goal-status ai-ready">Draft · Review</span>':
             '<span class="goal-status pending">No Plan Yet</span>'}
         </div>
         ${g.combinedFrom?`<div style="font-size:11px;color:var(--gray);margin-bottom:4px;">Combined from: ${g.combinedFrom.map(x=>x.label).join(' \u00b7 ')}</div>`:''}
@@ -7733,7 +7733,7 @@ function buildTeamDataForPairings(){
     data+='\n';
   });
   // Add pair history from Queens
-  data+='\nPAIR HISTORY (Queens matches — who paired together and their combined record):\n';
+  data+='\nPAIR HISTORY (Queens matches, showing who paired together and their combined record):\n';
   const pairHist={};
   D.matches.filter(inSeason).forEach(m=>{
     const t1=(m.team1||[]).sort().join('+'),t2=(m.team2||[]).sort().join('+');
@@ -7822,7 +7822,7 @@ ${contextDesc[context]}
 ${teamData}
 
 ${isQueens?`QUEENS RULES:
-- Assign ALL 16 players — 4 per court (2 vs 2), no subs
+- Assign ALL 16 players, 4 per court (2 vs 2), no subs
 - Balance each matchup: mix strong with developing players on each side
 - Each player appears exactly once
 - Consider Queens match history to avoid repeated lopsided matchups`:`PAIRING RULES:
@@ -7942,7 +7942,7 @@ function exportExcel(){
   const _xS = _xAllSeasons ? D.scrimmages : D.scrimmages.filter(inSeason);
   const _xOpts = {allSeasons:_xAllSeasons};
 
-  // Sheet 1: Roster (comprehensive — all available data per player)
+  // Sheet 1: Roster (comprehensive; all available data per player)
   const allDrillsX=Object.values(profilesData?.starDrills||{});
   const allVertsX=Object.values(profilesData?.jumpTests||profilesData?.verticals||{});
   const rosterData=D.players.map(p=>{
@@ -8728,7 +8728,7 @@ Return the JSON object only. Start your response with { and end with }`;
 Extract the court assignments. Each court has two players (a pair) assigned to it.
 Courts 6, 7, 8 may optionally have a second pair listed (for split/exhibition courts).
 
-PLAYER ROSTER (use these exact IDs — match names to IDs even if spelling varies):
+PLAYER ROSTER (use these exact IDs; match names to IDs even if spelling varies):
 ${playerList}
 
 Return ONLY a JSON array like this:
@@ -8754,7 +8754,7 @@ Rules:
       const data=await aiCheck(response);
       aiReached=true;
       const text=data.content?.map(c=>c.text||'').join('')||'';
-      // Robust JSON extraction — strip fences, then find outermost { } or [ ]
+      // Robust JSON extraction. Strip fences, then find outermost { } or [ ]
       let parsed;
       (function(){
         let clean=text.replace(/```json|```/gi,'').trim();
@@ -8770,7 +8770,7 @@ Rules:
         if(arrStart>=0&&arrEnd>arrStart){
           try{parsed=JSON.parse(clean.slice(arrStart,arrEnd+1));return;}catch(e){}
         }
-        // All parsing failed — show manual entry fallback
+        // All parsing failed. Show manual entry fallback
         result.innerHTML=`<div style="background:#fef3c7;border:1px solid var(--gold);border-radius:10px;padding:14px;">
           <div style="font-family:'Bebas Neue';font-size:14px;color:var(--gold);margin-bottom:8px;">⚠ AI couldn't read the image automatically</div>
           <div style="font-size:12px;color:var(--gray);margin-bottom:10px;">The image may be angled or low-contrast. Enter the lineup manually below:</div>
@@ -8784,7 +8784,7 @@ Rules:
         const starters=parsed.starters||parsed; // fallback if old format
         const alternates=parsed.alternates||[];
         const schoolName=parsed.school||document.getElementById('ca-opp').value.trim()||'Opponent';
-        let h=`<div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found ${starters.length} court(s) + ${alternates.length} alternate(s) — edit if needed</div>`;
+        let h=`<div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found ${starters.length} court(s) + ${alternates.length} alternate(s). Edit if needed</div>`;
         h+=`<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Confirm names and jersey numbers, then save to Scouting database.</div>`;
         starters.forEach((m,i)=>{
           const p1=m.p1||{first:m.player1||'',last:'',jersey:''};
@@ -8828,7 +8828,7 @@ Rules:
         // Check if assignment already exists for this date
         const caDate=document.getElementById('ca-date').value||td();
         const existingAssign=Object.values(D.assignments).find(a=>a.date===caDate);
-        let h=`<div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.length} court(s) — edit if needed</div>`;
+        let h=`<div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.length} court(s). Edit if needed</div>`;
         parsed.forEach((m,i)=>{
           const isExhib=EXHIBITION_COURTS.has(m.court);
           h+=`<div style="padding:10px;background:var(--off-white);border-radius:6px;margin-bottom:8px;">
@@ -8842,7 +8842,7 @@ Rules:
               <select class="form-select" id="ca-${i}-p2" style="padding:6px;font-size:12px;">${caPlayerOpts((m.pair||[])[1])}</select>
             </div>`;
           if(isExhib||m.splitPair){
-            h+=`<div style="font-size:11px;color:var(--purple);margin-bottom:4px;">Set 2 Pair (Split — optional)</div>
+            h+=`<div style="font-size:11px;color:var(--purple);margin-bottom:4px;">Set 2 Pair (Split, optional)</div>
             <div class="form-row">
               <select class="form-select" id="ca-${i}-sp1" style="padding:6px;font-size:12px;">${caPlayerOpts((m.splitPair||[])[0])}</select>
               <select class="form-select" id="ca-${i}-sp2" style="padding:6px;font-size:12px;">${caPlayerOpts((m.splitPair||[])[1])}</select>
@@ -9136,11 +9136,11 @@ IMPORTANT: Respond with ONLY the JSON array, no other text. If you can't read so
         return;
       }
 
-      // Show parsed results for review — EDITABLE
+      // Show parsed results for review (EDITABLE)
       const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
       function playerOpts(selId){return sorted.map(pl=>`<option value="${pl.id}" ${pl.id===selId?'selected':''}>${pl.firstName} ${pl.lastName.charAt(0)}. (CT${pl.court})</option>`).join('');}
 
-      let h='<div style="font-family:\'Bebas Neue\';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found '+parsed.length+' match(es) — edit if needed</div>';
+      let h='<div style="font-family:\'Bebas Neue\';font-size:14px;letter-spacing:1px;margin-bottom:8px;color:var(--green);">✓ Found '+parsed.length+' match(es). Edit if needed</div>';
       parsed.forEach((m,i)=>{
         if(matchType==='queens'){
           h+=`<div style="padding:10px;background:var(--off-white);border-radius:6px;margin-bottom:8px;">
@@ -9325,10 +9325,10 @@ function openEditAssignment(id){
   document.getElementById('assign-courts').value=n;
   buildAssignSlots();
   setTimeout(()=>{(a.courts||[]).forEach((c,i)=>{const e1=document.getElementById('assign-c'+(i+1)+'-p1');const e2=document.getElementById('assign-c'+(i+1)+'-p2');if(e1)e1.value=c.p1||'';if(e2)e2.value=c.p2||'';});},150);
-  fbRemove('assignments/'+id);toast('Loaded for editing — update and re-save');
+  fbRemove('assignments/'+id);toast('Loaded for editing. Update and re-save.');
 }
 function deleteAssignment(id){
-  // No confirm() — blocked in iframes. Use inline confirmation instead.
+  // No confirm(); it is blocked in iframes. Use inline confirmation instead.
   const btn=document.querySelector('[data-del-assign="'+id+'"]');
   if(!btn)return;
   if(btn.dataset.confirmed==='1'){
@@ -9354,11 +9354,11 @@ function openAssignEditModal(id){
   const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Queens'};
   const tC={gameday:'var(--blue)',scrimmage:'var(--purple)',queens:'var(--red)'};
   const titleEl=document.getElementById('assign-edit-title');
-  titleEl.innerHTML=`Edit ${tL[a.type||'gameday']||'Assignment'} \u2014 ${fD(a.date)} <button class="modal-close" onclick="closeAssignEditModal()">&#x2715;</button>`;
+  titleEl.innerHTML=`Edit ${tL[a.type||'gameday']||'Assignment'} · ${fD(a.date)} <button class="modal-close" onclick="closeAssignEditModal()">&#x2715;</button>`;
   titleEl.style.color=tC[a.type||'gameday']||'var(--red)';
   const sortedP=[...D.players].sort((x,y)=>x.court-y.court||x.lastName.localeCompare(y.lastName));
   function pOpts(val){
-    return'<option value="">\u2014</option>'+sortedP.map(p=>`<option value="${p.id}" ${p.id===val?'selected':''}>${p.firstName} ${p.lastName.charAt(0)}.</option>`).join('');
+    return'<option value="">\u2013</option>'+sortedP.map(p=>`<option value="${p.id}" ${p.id===val?'selected':''}>${p.firstName} ${p.lastName.charAt(0)}.</option>`).join('');
   }
   let h=`<div class="form-row" style="margin-bottom:10px;">
     <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Date</label>
@@ -9451,7 +9451,7 @@ function lseToggleStats(idx){
 }
 
 // ============================================================
-// SCOUTS — COACH PORTAL
+// SCOUTS (COACH PORTAL)
 // ============================================================
 const SCOUT_TAGS=['Strong Server','Ace Threat','Weak Passer','Hits Line','Hits Cross','Strong Blocker','Weak Blocker','Good Defense','Tall/Height Advantage','Left-Handed','Right Side Dominant','Left Side Dominant','Physical/Athletic','Smart/Strategic','Consistent','Inconsistent Under Pressure','Communicates Well'];
 
@@ -9517,7 +9517,7 @@ function openScoutSchool(key){
           <div>
             <span class="court-badge court-${pair.court}" style="font-size:11px;">CT ${pair.court}</span>
             <span style="font-weight:700;font-size:13px;margin-left:8px;">${(()=>{const j=players.find(p=>(p.fullName||'')===(pair.player1||''));return (pair.player1||'')+( j&&j.jersey?' #'+j.jersey:'');})()} & ${(()=>{const j=players.find(p=>(p.fullName||'')===(pair.player2||''));return (pair.player2||'')+( j&&j.jersey?' #'+j.jersey:'');})()}</span>
-            <div style="font-size:11px;color:var(--gray);margin-top:2px;">Last seen: ${pair.lastSeen||'—'}</div>
+            <div style="font-size:11px;color:var(--gray);margin-top:2px;">Last seen: ${pair.lastSeen||'–'}</div>
           </div>
           <button class="btn btn-small" style="background:#0369a1;color:white;border:none;" onclick="openAddScoutNote('${key}','pair','${pairKey}','${pair.player1} & ${pair.player2}')">+ Note</button>
         </div>
@@ -9556,7 +9556,7 @@ function scoutPlayerCard(schoolK,p,pKey,playerNotes,isAlt){
         ${p.jersey?`<span style="font-family:'Bebas Neue';font-size:12px;color:var(--gray);margin-left:6px;">#${p.jersey}</span>`:''}
         ${p.typicalCourt&&!isAlt?`<span class="court-badge court-${p.typicalCourt}" style="font-size:10px;margin-left:6px;">CT ${p.typicalCourt}</span>`:''}
         ${isAlt?`<span style="font-size:10px;background:var(--purple-bg);color:var(--purple);padding:1px 6px;border-radius:4px;margin-left:6px;">ALT</span>`:''}
-        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Last seen: ${p.lastSeen||'—'}</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Last seen: ${p.lastSeen||'–'}</div>
       </div>
       <button class="btn btn-small" style="background:#0369a1;color:white;border:none;" onclick="openAddScoutNote('${schoolK}','player','${pKey}','${p.fullName||''}')">+ Note</button>
     </div>
@@ -9597,7 +9597,7 @@ function openAddScoutNote(schoolK,targetType,targetId,targetLabel){
   </div>`;
 
   document.getElementById('edit-modal-body').innerHTML=h;
-  document.querySelector('#edit-modal .modal-title').innerHTML=`Scout Note — ${targetType==='pair'?'Pair':'Player'} <button class="modal-close" onclick="closeEdit()">✕</button>`;
+  document.querySelector('#edit-modal .modal-title').innerHTML=`Scout Note · ${targetType==='pair'?'Pair':'Player'} <button class="modal-close" onclick="closeEdit()">✕</button>`;
   document.querySelector('#edit-modal .modal-title').style.color='#0369a1';
   document.getElementById('edit-save').textContent='Save Scout Note';
   document.getElementById('edit-save').onclick=saveScoutNote;
@@ -9639,7 +9639,7 @@ function saveScoutNote(){
 }
 
 // ============================================================
-// SCOUTS — PLAYER PORTAL
+// SCOUTS (PLAYER PORTAL)
 // ============================================================
 function renderPlayerScouts(){
   const listEl=document.getElementById('pp-scouts-list');
@@ -9875,7 +9875,7 @@ function addAssignEditCourt(){
   const nextCt=i+1;
   const sortedP=[...D.players].sort((x,y)=>x.court-y.court||x.lastName.localeCompare(y.lastName));
   function pOpts(){
-    return'<option value="">\u2014</option>'+sortedP.map(p=>`<option value="${p.id}">${p.firstName} ${p.lastName.charAt(0)}. (CT${p.court})</option>`).join('');
+    return'<option value="">\u2013</option>'+sortedP.map(p=>`<option value="${p.id}">${p.firstName} ${p.lastName.charAt(0)}. (CT${p.court})</option>`).join('');
   }
   const div=document.createElement('div');
   div.style.cssText='background:var(--off-white);border-radius:8px;padding:10px;margin-bottom:8px;';
@@ -9961,7 +9961,7 @@ function renderAssignments(){
           ${a.opponent?'<span style="font-size:12px;margin-left:4px;color:var(--gray);">vs '+a.opponent+'</span>':''}</div>
         <div style="display:flex;align-items:center;gap:8px;">
           <button style="background:none;border:none;color:var(--gray);cursor:pointer;font-size:14px;padding:4px;" onclick="openAssignEditModal('${a.id}')" title="Edit">✎</button>
-          <button data-del-assign="${a.id}" style="background:none;border:none;color:var(--gray-light);cursor:pointer;font-size:14px;padding:4px;" onclick="deleteAssignment('${a.id}')" title="Delete — tap once to arm, again to confirm">✕</button>
+          <button data-del-assign="${a.id}" style="background:none;border:none;color:var(--gray-light);cursor:pointer;font-size:14px;padding:4px;" onclick="deleteAssignment('${a.id}')" title="Delete. Tap once to arm, again to confirm.">✕</button>
         </div>
       </div>`;
     (a.courts||[]).sort((a,b)=>(a.court||0)-(b.court||0)).forEach(c=>{
@@ -10171,7 +10171,7 @@ function renderLiveAssignmentList(){
     const notesStr=a.notes&&!a.totalRounds?' · <em>'+a.notes+'</em>':'';
     return`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;border-radius:8px;border:1px solid ${isToday?'var(--blue)':'var(--gray-lighter)'};background:${isToday?'var(--blue-bg)':'var(--white)'};">
       <div style="flex:1;">
-        <div style="font-weight:700;font-size:13px;">${fD(a.date)} — ${a.opponent||'Practice'}${locStr}${timeStr}</div>
+        <div style="font-weight:700;font-size:13px;">${fD(a.date)} · ${a.opponent||'Practice'}${locStr}${timeStr}</div>
         <div style="font-size:11px;color:var(--gray);margin-top:2px;"><span style="font-weight:700;color:${tC[a.type||'gameday']}">${tL[a.type||'gameday']||'Dual'}</span> · ${(a.courts||[]).length} courts${notesStr}${roundBadge}${todayBadge}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
@@ -10452,7 +10452,7 @@ function renderLiveScoring(dateOverride,assignOverride){
             <button class="ls-btn ls-btn-minus" onclick="lsAdj('ls-us-${idx}',-1)">−</button>
           </div>
         </div>
-        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
         <div class="live-score-col">
           <div class="live-score-label">OPP</div>
           <div class="ls-counter">
@@ -10603,7 +10603,7 @@ function saveLiveSet(idx,p1,p2,date,court,subCourt,existingId,opponent,fbNode){
     const _aid=(window._loadedAssignment||{}).id||null;
     fbSetResult(node,id,{id,date,court:parseInt(court),pair,opponent:opp,sets:[newSet],...(_aid?{assignmentId:_aid}:{})});
   }
-  toast((us>them?'\u2713 Win':'\u2717 Loss')+' — '+us+'-'+them+' saved');
+  toast((us>them?'\u2713 Win':'\u2717 Loss')+', '+us+'-'+them+' saved');
   // Immediately zero scores so user sees 0-0 right away (no need to hit minus)
   {const usR=document.getElementById('ls-us-'+idx);const themR=document.getElementById('ls-them-'+idx);
   if(usR)usR.value='0';if(themR)themR.value='0';}
@@ -10619,7 +10619,7 @@ function delLiveSet(matchId,setIdx,fbNode){
   const sets=(m.sets||[]).filter((_,i)=>i!==setIdx);
   fbSet(node+'/'+matchId+'/sets',sets.length?sets:null);
   toast('Set deleted');
-  // Only refresh the specific court card — leave other courts alone
+  // Only refresh the specific court card; leave other courts alone
   const delNode=fbNode||'gamedays';
   const delDate=(function(){const m=(delNode==='scrimmages'?D.scrimmages:D.gamedays).find(x=>x.id===matchId);return m?m.date:td();})();
   // find the court idx by matchId so we know which card to refresh
@@ -10638,7 +10638,7 @@ function delLiveSet(matchId,setIdx,fbNode){
 // QUEENS LIVE SCORING (Leon vs Leon from assignment)
 // ============================================================
 function refreshSingleCourtCard(idx, date, fbNode){
-  // Re-render only the one court card that just saved — never touches other courts
+  // Re-render only the one court card that just saved; never touches other courts
   const container=document.getElementById('live-courts-container');
   if(!container)return;
   const cardEl=document.getElementById('lc-card-'+idx);
@@ -10705,7 +10705,7 @@ function refreshSingleCourtCard(idx, date, fbNode){
           <button class="ls-btn ls-btn-minus" onclick="lsAdj('ls-us-${idx}',-1)">−</button>
         </div>
       </div>
-      <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+      <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
       <div class="live-score-col">
         <div class="live-score-label">OPP</div>
         <div class="ls-counter">
@@ -10761,8 +10761,8 @@ function renderLiveScoringQueens(assignment, date, container){
         ${c.b1&&c.b2
           ?`<div id="qls-opp-${idx}" data-val="${c.b1}|${c.b2}" style="padding:8px;background:var(--off-white);border-radius:6px;font-size:13px;font-weight:600;margin-bottom:8px;">`
             +[gP(c.b1),gP(c.b2)].filter(Boolean).map(p=>p.firstName+' '+p.lastName.charAt(0)+'.').join(' & ')
-            +` (CT${pairs.find(op=>op.p1===c.b1||op.p2===c.b2)?.court||'—'})</div>`
-          :`<select class="form-select" id="qls-opp-${idx}" style="font-size:13px;padding:8px;margin-bottom:8px;"><option value="">— Pick opponent pair —</option>${oppOptions}</select>`
+            +` (CT${pairs.find(op=>op.p1===c.b1||op.p2===c.b2)?.court||'–'})</div>`
+          :`<select class="form-select" id="qls-opp-${idx}" style="font-size:13px;padding:8px;margin-bottom:8px;"><option value="">Pick opponent pair</option>${oppOptions}</select>`
         }
         <div class="live-score-row">
           <div class="live-score-col">
@@ -10773,7 +10773,7 @@ function renderLiveScoringQueens(assignment, date, container){
               <button class="ls-btn ls-btn-minus" onclick="lsAdj('qls-a-${idx}',-1)">−</button>
             </div>
           </div>
-          <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+          <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
           <div class="live-score-col">
             <div class="live-score-label">OPP</div>
             <div class="ls-counter">
@@ -10839,8 +10839,8 @@ function refreshSingleQueensCard(idx, date){
     const oppLabel=c.b1&&c.b2
       ? `<div id="qls-opp-${idx}" data-val="${c.b1}|${c.b2}" style="padding:8px;background:var(--off-white);border-radius:6px;font-size:13px;font-weight:600;margin-bottom:8px;">`
           +[gP(c.b1),gP(c.b2)].filter(Boolean).map(p=>p.firstName+' '+p.lastName.charAt(0)+'.').join(' & ')
-          +` (CT${pairs.find(op=>op.p1===c.b1||op.p2===c.b2)?.court||'—'})</div>`
-      : `<select class="form-select" id="qls-opp-${idx}" style="font-size:13px;padding:8px;margin-bottom:8px;"><option value="">— Pick opponent pair —</option>${oppOptions}</select>`;
+          +` (CT${pairs.find(op=>op.p1===c.b1||op.p2===c.b2)?.court||'–'})</div>`
+      : `<select class="form-select" id="qls-opp-${idx}" style="font-size:13px;padding:8px;margin-bottom:8px;"><option value="">Pick opponent pair</option>${oppOptions}</select>`;
 
     inner+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:6px;">
       <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:6px;">VS (opponent pair)</div>
@@ -10854,7 +10854,7 @@ function refreshSingleQueensCard(idx, date){
             <button class="ls-btn ls-btn-minus" onclick="lsAdj('qls-a-${idx}',-1)">−</button>
           </div>
         </div>
-        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
         <div class="live-score-col">
           <div class="live-score-label">OPP</div>
           <div class="ls-counter">
@@ -10895,7 +10895,7 @@ function saveQueensLiveSet(idx,p1,p2,date,court){
   pair.forEach(pid=>{stats[pid]=statsOpen&&window._lseStats&&window._lseStats[idx]&&window._lseStats[idx][pid]?{...window._lseStats[idx][pid]}:{k:0,b:0,a:0,se:0,re:0,he:0,de:0};});
   const id=gi('qm');
   fbSetResult('matches',id,{id,date,court:parseInt(court),team1:[p1,p2].filter(Boolean),team2:[op1,op2].filter(Boolean),score1:sa,score2:sb,stats});
-  toast((sa>sb?'✓ Win':'✗ Loss')+' saved — '+sa+'–'+sb);
+  toast((sa>sb?'✓ Win':'✗ Loss')+' saved, '+sa+'–'+sb);
   if(db){const _aid=(window._loadedAssignment||{}).id;db.ref(DB_ROOT+'/live_scoring/'+((_aid?_aid+'/':'')+idx)).remove();}
   setTimeout(()=>refreshSingleQueensCard(idx,date),600);
 }
@@ -13110,11 +13110,24 @@ function _hrBtn(label,style,fn,disabled){
   return b;
 }
 function _hrEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
+// Display only. A US number (+1 and ten digits, ten digits, or eleven with a leading 1)
+// reads as (XXX) XXX-XXXX. Anything else, including any value with letters or other
+// text in it, shows exactly as stored, so no digit is ever dropped or added.
+function _hrPhoneText(val){
+  var s=String(val==null?'':val).trim();
+  if(!/^[\d\s().+-]+$/.test(s)) return s;
+  var d=s.replace(/\D/g,''), us=null;
+  if(s.charAt(0)==='+'){ if(/^\+\s*1/.test(s)&&d.length===11) us=d.slice(1); }
+  else if(d.length===10) us=d;
+  else if(d.length===11&&d.charAt(0)==='1') us=d.slice(1);
+  return us?'('+us.slice(0,3)+') '+us.slice(3,6)+'-'+us.slice(6):s;
+}
 // A tap-to-call or tap-to-email link, or null when there is nothing on file.
+// The href is always built from the stored value; only the tel link text is formatted.
 function _hrLink(kind,val){
   var v=String(val==null?'':val).trim(); if(!v) return null;
   var href=kind==='tel'?'tel:'+v.replace(/[^\d+]/g,''):'mailto:'+v;
-  return _hrEl('a',{href:href,style:'color:#0081AB;font-weight:600;word-break:break-all;'},v);
+  return _hrEl('a',{href:href,style:'color:#0081AB;font-weight:600;word-break:break-all;'},kind==='tel'?_hrPhoneText(v):v);
 }
 var _HR_PRIMARY='background:#082A4F;color:#fff;border:1px solid #082A4F;';
 var _HR_GHOST='background:#fff;color:#082A4F;border:1px solid #082A4F;';
@@ -21450,7 +21463,7 @@ function pgdEditSetFormHTML(matchId,setIdx,s,pair,viewerPid,prefix){
         <div style="font-size:10px;font-weight:700;color:var(--gray);margin-bottom:4px;">${SC.abbrev}</div>
         <input class="pgd-edit-input" type="number" id="${prefix}-eu-${setIdx}" value="${s.scoreUs||0}" min="0">
       </div>
-      <div style="font-family:'Bebas Neue';font-size:16px;color:var(--gray-light);">—</div>
+      <div style="font-family:'Bebas Neue';font-size:16px;color:var(--gray-light);">-</div>
       <div style="text-align:center;">
         <div style="font-size:10px;font-weight:700;color:var(--gray);margin-bottom:4px;">OPP</div>
         <input class="pgd-edit-input" type="number" id="${prefix}-et-${setIdx}" value="${s.scoreThem||0}" min="0">
@@ -21598,7 +21611,7 @@ function pgdSubmitSet(prefix,pairStr){
     fbSet('gamedays/'+existingMatch.id+'/sets',sets);
     if(prefix==='own')pgdCurrentMatchId=existingMatch.id;
   }else{
-    // Need opponent info — look up from assignment
+    // Need opponent info, so look it up from the assignment
     const assignment=Object.values(D.assignments).find(a=>a.date===matchDate);
     const courtEntry=(assignment?.courts||[]).find(c=>arrEq([c.p1,c.p2].filter(Boolean),pair));
     const courtNum=courtEntry?courtEntry.court:(gP(pair[0])?.court||1);
@@ -21609,7 +21622,7 @@ function pgdSubmitSet(prefix,pairStr){
   }
 
   const win=scoreUs>scoreThem;
-  toast((win?'✓ Win':'✗ Loss')+' saved — '+scoreUs+'-'+scoreThem);
+  toast((win?'✓ Win':'✗ Loss')+' saved, '+scoreUs+'-'+scoreThem);
   pgdPrefixScores[prefix]={us:0,them:0};
   if(pgdStats[pair[0]])pgdStats[pair[0]]={k:0,a:0,b:0,se:0,re:0,he:0,de:0};
   if(pgdStats[pair[1]])pgdStats[pair[1]]={k:0,a:0,b:0,se:0,re:0,he:0,de:0};
@@ -21662,7 +21675,7 @@ function renderPlayerGameDay(){
 
     // Assignment banner
     h+=`<div class="pgd-assignment">
-      <div class="pgd-label">${isToday?'TODAY — ':'UPCOMING — '}${typeLabel.toUpperCase()}</div>
+      <div class="pgd-label">${isToday?'TODAY · ':'UPCOMING · '}${typeLabel.toUpperCase()}</div>
       <div class="pgd-title">${fD(nextAssign.date)}${nextAssign.opponent?' vs '+nextAssign.opponent:''}</div>
       <div class="pgd-court-badge">${courtLabel} · w/ ${partner?partner.firstName+' '+partner.lastName:'TBD'}</div>
     </div>`;
@@ -21688,7 +21701,7 @@ function renderPlayerGameDay(){
       <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;color:var(--charcoal);margin-bottom:10px;">📝 MATCH NOTES</div>
       <div style="margin-bottom:10px;">
         <label style="font-size:12px;font-weight:700;color:var(--gray);display:block;margin-bottom:6px;">How did I play?</label>
-        <textarea class="pgd-notes-area" id="pgd-note-perf" placeholder="Serving, passing, hitting — what worked, what didn't...">${savedNotes.performance||''}</textarea>
+        <textarea class="pgd-notes-area" id="pgd-note-perf" placeholder="Serving, passing, hitting. What worked, what didn't...">${savedNotes.performance||''}</textarea>
       </div>
       <div style="margin-bottom:10px;">
         <label style="font-size:12px;font-weight:700;color:var(--gray);display:block;margin-bottom:6px;">Opponent notes</label>
@@ -21698,7 +21711,7 @@ function renderPlayerGameDay(){
       ${savedNotes.savedAt?'<div style="font-size:11px;color:var(--green);text-align:center;margin-top:6px;">Last saved '+fD(savedNotes.savedAt)+'</div>':''}
     </div>`;
 
-    // Spectator — other courts for same game day
+    // Spectator (other courts for same game day)
     const otherCourts=(nextAssign.courts||[]).filter(c=>
       !arrEq([c.p1,c.p2].filter(Boolean),pgdCurrentPair)&&c.p1&&c.p2
     );
@@ -21885,12 +21898,12 @@ function buildDualsFromGamedays(){
   Object.entries(byDate).forEach(([date,dayGroups])=>{
     const sched=schedByDate[date];
     if(dayGroups.length===1){
-      // Single group for this date — use schedule opponent/location if available
+      // Single group for this date; use schedule opponent/location if available
       const g=dayGroups[0];
       if(sched&&isGenericName(g.opponent)){g.opponent=sched.opponent||g.opponent;g.location=sched.location||g.location;}
       finalGroups.push(g);
     }else{
-      // Multiple groups (e.g. Mar 12 had Destin + South Walton) — keep separate
+      // Multiple groups (e.g. Mar 12 had Destin + South Walton), so keep separate
       dayGroups.forEach(g=>finalGroups.push(g));
     }
   });
@@ -21971,8 +21984,8 @@ function renderDuals(){
           <div style="font-weight:700;font-size:17px;margin-top:2px;">${locLabel}${d.opponent||'TBD'}</div>
         </div>
         <div style="text-align:right;">
-          <div class="dual-result-badge ${win?'win':loss?'loss':''}">${win?'W':loss?'L':'&#8212;'} ${d.leonCourts||0}-${d.oppCourts||0}</div>
-          <div style="font-size:10px;color:var(--gray);margin-top:2px;">${win?'Dual Win':loss?'Dual Loss':'Tied'}</div>
+          <div class="dual-result-badge ${win?'win':loss?'loss':''}">${win?'W':loss?'L':((+d.leonCourts||0)+(+d.oppCourts||0)>0?'TIED':'NO RESULT')}${(win||loss||(+d.leonCourts||0)+(+d.oppCourts||0)>0)?' '+(d.leonCourts||0)+'-'+(d.oppCourts||0):''}</div>
+          <div style="font-size:10px;color:var(--gray);margin-top:2px;">${win?'Dual Win':loss?'Dual Loss':((+d.leonCourts||0)+(+d.oppCourts||0)>0?'Tied':'No result')}</div>
         </div>
       </div>`;
     if(scored.length){
@@ -22015,7 +22028,7 @@ function renderDuals(){
       h+='<div style="font-size:10px;font-weight:800;color:var(--gray);letter-spacing:1px;margin:6px 0 2px;padding-top:4px;border-top:1px dashed var(--gray-lighter);">EXHIBITION</div>';
       exhib.forEach(c=>{
         const pair=(c.pair||c.team1||[]).map(id=>pN(id)).join(' & ')||'TBD';
-        const sets=c.sets||[];const setsStr=sets.length?sets.map(s=>s.scoreUs+'-'+s.scoreThem).join(', '):'—';
+        const sets=c.sets||[];const setsStr=sets.length?sets.map(s=>s.scoreUs+'-'+s.scoreThem).join(', '):'–';
         h+=`<div class="dual-court-row" style="opacity:0.65;">
           <span class="court-badge court-${c.court}" style="min-width:28px;text-align:center;">${c.court}</span>
           <span style="flex:1;font-size:12px;">${pair}</span>
@@ -22063,7 +22076,7 @@ function copyDualLineup(idx){
       lines.push('Court '+c.court+' (Exhibition): '+fmt(ids[0])+' / '+fmt(ids[1]));
     });
   }
-  navigator.clipboard.writeText(lines.join('\n')).then(()=>toast('Lineup copied ✓')).catch(()=>toast('Copy failed — try again'));
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>toast('Lineup copied ✓')).catch(()=>toast('Copy failed. Try again'));
 }
 function openDualEditModal(id,opp,date,location){
   if(!id)return;
@@ -22104,7 +22117,7 @@ function saveDualEdit(id){
     toast('Dual updated!');
     closeEdit();
   }else{
-    // Gameday-derived dual — update all gameday records for this date/opponent
+    // Gameday-derived dual. Update all gameday records for this date/opponent
     toast('This dual is built from individual match records. Edit opponent name on each match in the Match Log tab.');
     closeEdit();
   }
@@ -22202,12 +22215,12 @@ RULES: court 1-5 isExhibition:false, court 6+ isExhibition:true. Include ALL cou
 function showDualReviewUI(duals,date,container){
   const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
   function playerOpts(selId){return'<option value="">Select Player</option>'+sorted.map(pl=>`<option value="${pl.id}" ${pl.id===selId?'selected':''}>${pl.firstName} ${pl.lastName.charAt(0)}. (CT${pl.court})</option>`).join('');}
-  let h=`<div style="font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;margin-bottom:10px;color:var(--green);">Found ${duals.length} dual(s) — review and save</div>`;
+  let h=`<div style="font-family:'Bebas Neue';font-size:15px;letter-spacing:1px;margin-bottom:10px;color:var(--green);">Found ${duals.length} dual(s). Review and save</div>`;
   h+=`<div style="font-size:12px;color:var(--gray);margin-bottom:14px;padding:8px 12px;background:#fffbeb;border-radius:6px;border-left:3px solid var(--gold);">Saving creates the dual record AND individual Game Day match entries so player stats update automatically.</div>`;
   duals.forEach((d,di)=>{
     const win=(d.leonCourts||0)>(d.oppCourts||0),loss=(d.oppCourts||0)>(d.leonCourts||0);
     h+=`<div class="dual-review-block" style="border-left:4px solid ${win?'var(--green)':loss?'var(--loss-red)':'var(--gray-lighter)'};">
-      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:10px;color:${win?'var(--green)':loss?'var(--loss-red)':'var(--charcoal)'};">DUAL ${di+1} ${win?'— WIN':loss?'— LOSS':''}</div>
+      <div style="font-family:'Bebas Neue';font-size:14px;letter-spacing:1px;margin-bottom:10px;color:${win?'var(--green)':loss?'var(--loss-red)':'var(--charcoal)'};">DUAL ${di+1} ${win?'· WIN':loss?'· LOSS':''}</div>
       <div class="form-row" style="margin-bottom:8px;">
         <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opponent</label>
           <input type="text" class="form-input" id="dr-${di}-opp" value="${d.opponent||''}" placeholder="Opponent name" style="padding:8px;font-size:13px;"></div>
@@ -22239,7 +22252,7 @@ function showDualReviewUI(duals,date,container){
         h+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
           <span style="font-size:11px;color:var(--gray);min-width:36px;font-weight:700;">Set ${si+1}</span>
           <input type="number" id="dr-${di}-${ci}-s${si}-us" value="${s.scoreUs||0}" min="0" style="width:54px;padding:6px;border:1px solid var(--gray-lighter);border-radius:4px;font-size:14px;text-align:center;">
-          <span style="color:var(--gray);">&#8212;</span>
+          <span style="color:var(--gray);">-</span>
           <input type="number" id="dr-${di}-${ci}-s${si}-them" value="${s.scoreThem||0}" min="0" style="width:54px;padding:6px;border:1px solid var(--gray-lighter);border-radius:4px;font-size:14px;text-align:center;">
           <span style="font-size:11px;font-weight:700;color:${setWin?'var(--green)':'var(--loss-red)'};">${setWin?'W':'L'}</span>
         </div>`;
@@ -22461,7 +22474,7 @@ function dhScanOppModal(date,opp){
     <div id="dhso-result"></div>`;
   document.querySelector('#edit-modal .modal-title').innerHTML='📷 Scan Opponent Lineup <button class="modal-close" onclick="closeEdit()">&#x2715;</button>';
   document.querySelector('#edit-modal .modal-title').style.color='var(--charcoal)';
-  // Hide the generic Save button — we'll inject our own inside dhso-result
+  // Hide the generic Save button; we'll inject our own inside dhso-result
   const saveBtn=document.getElementById('edit-save');
   if(saveBtn)saveBtn.style.display='none';
   document.getElementById('edit-modal').classList.add('active');
@@ -22504,7 +22517,7 @@ function dhScanOppModal(date,opp){
           if(!parsed){result.innerHTML=`<div style="color:var(--loss-red);font-size:13px;padding:10px;background:var(--off-white);border-radius:8px;">Couldn't parse the image. Try a flatter, better-lit photo.<br><small style="color:var(--gray);">${text.slice(0,200)}</small></div>`;return;}
           const starters=parsed.starters||[];
           const alternates=parsed.alternates||[];
-          let h=`<div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--green);margin-bottom:8px;">✓ Found ${starters.length} court(s) — edit if needed</div>`;
+          let h=`<div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--green);margin-bottom:8px;">✓ Found ${starters.length} court(s). Edit if needed</div>`;
           starters.forEach((m,i)=>{
             const p1=m.p1||{first:'',last:'',jersey:''};
             const p2=m.p2||{first:'',last:'',jersey:''};
@@ -22633,7 +22646,7 @@ function renderPlayerLiveScoring(){
     container.innerHTML='<div>'+allA.map(a=>{
       const isToday=a.date===today;
       return`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;border-radius:8px;border:1px solid ${isToday?'var(--blue)':'var(--gray-lighter)'};background:${isToday?'var(--blue-bg)':'var(--white)'};">
-        <div style="flex:1;"><div style="font-weight:700;font-size:13px;">${fD(a.date)} — ${a.opponent||'Practice'}${a.location?' · '+a.location:''}${a.time?' · '+a.time:''}</div>
+        <div style="flex:1;"><div style="font-weight:700;font-size:13px;">${fD(a.date)} · ${a.opponent||'Practice'}${a.location?' · '+a.location:''}${a.time?' · '+a.time:''}</div>
         <div style="font-size:11px;color:var(--gray);">${tL[a.type||'gameday']||'Dual'} · ${(a.courts||[]).length} courts${isToday?' <strong style="color:var(--blue)">TODAY</strong>':''}</div></div>
         <button class="btn btn-blue btn-small" onclick="ppLoadCourts('${a.id}')" style="white-space:nowrap;padding:6px 12px;">Load Courts</button>
       </div>`;
@@ -22701,7 +22714,7 @@ function renderPlayerLiveScoring(){
             <button class="ls-btn ls-btn-minus" onclick="lsAdj('pp-us-${idx}',-1)">−</button>
           </div>
         </div>
-        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
         <div class="live-score-col">
           <div class="live-score-label">OPP</div>
           <div class="ls-counter">
@@ -22716,7 +22729,7 @@ function renderPlayerLiveScoring(){
         <div style="font-size:11px;color:var(--gray);text-align:center;margin:8px 0 4px;">Tap +/− to count as you play</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const pObj=gP(pid2);return pgdStatBlockHTML(pid2,pObj?pObj.firstName:'Player','pp-st-${idx}');}).join('')}
       </div>
-      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${today}',${c.court},'${matchId||''}','${assignment.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set — Court ${c.court}</button>
+      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${today}',${c.court},'${matchId||''}','${assignment.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set (Court ${c.court})</button>
     </div></div>`;
     }else{
       h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
@@ -22739,7 +22752,7 @@ function ppLoadCourts(assignmentId){
   const courts=(a.courts||[]).sort((c1,c2)=>(c1.court||0)-(c2.court||0));
   let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--blue-bg);border-radius:8px;">
     <span style="font-size:18px;">🏐</span>
-    <div style="flex:1;"><div style="font-weight:700;font-size:14px;">${a.opponent||'Practice'} — ${fD(a.date)}</div>
+    <div style="flex:1;"><div style="font-weight:700;font-size:14px;">${a.opponent||'Practice'} · ${fD(a.date)}</div>
     <div style="font-size:11px;color:var(--gray);">${a.location||''}${a.time?' · '+a.time:''}</div></div>
     <button onclick="renderPlayerLiveScoring()" style="font-size:11px;padding:4px 8px;border:1px solid var(--gray-lighter);border-radius:5px;background:var(--white);cursor:pointer;">← Back</button>
   </div>`;
@@ -22776,7 +22789,7 @@ function ppLoadCourts(assignmentId){
             <input type="number" class="ls-inp" id="pp-us-${idx}" value="0" min="0" inputmode="numeric" pattern="[0-9]*" onchange="lsAdj('pp-us-${idx}',0)">
             <button class="ls-btn ls-btn-minus" onclick="lsAdj('pp-us-${idx}',-1)">−</button>
           </div></div>
-        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">—</div>
+        <div style="font-family:'Bebas Neue';font-size:24px;color:var(--gray-light);">-</div>
         <div class="live-score-col"><div class="live-score-label">OPP</div>
           <div class="ls-counter">
             <button class="ls-btn ls-btn-plus" onclick="lsAdj('pp-them-${idx}',1)">+</button>
@@ -22789,7 +22802,7 @@ function ppLoadCourts(assignmentId){
         <div style="font-size:11px;color:var(--gray);text-align:center;margin:8px 0 4px;">Tap +/− to count as you play</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const pObj=gP(pid2);return pgdStatBlockHTML(pid2,pObj?pObj.firstName:'Player','pp-st-${idx}');}).join('')}
       </div>
-      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${a.date}',${c.court},'${matchId||''}','${a.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set — Court ${c.court}</button>
+      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${a.date}',${c.court},'${matchId||''}','${a.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set (Court ${c.court})</button>
     </div></div>`;
     }else{
       h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
@@ -22833,7 +22846,7 @@ function ppSaveLiveSet(idx,p1,p2,date,court,existingId,opponent,fbNode,statsPref
     const _aid=_pa?_pa.id:null;
     fbSetResult(node,id,{id,date,court:parseInt(court),pair,opponent:opp,sets:[newSet],...(_aid?{assignmentId:_aid}:{})});
   }
-  toast((us>them?'✓ Win':'✗ Loss')+' — '+us+'-'+them+' saved · Court '+court);
+  toast((us>them?'✓ Win':'✗ Loss')+', '+us+'-'+them+' saved · Court '+court);
   pair.forEach(pid=>{delete pgdStats[pid];});
   // Reset just this court's counters
   if(usEl)usEl.textContent='0';
@@ -22908,7 +22921,7 @@ function editAIPairings(){
     const nClean=n.replace(/\./g,'').replace(/\s+/g,' ').trim();
     p=sortedPlayers.find(x=>(x.firstName+' '+x.lastName).toLowerCase().replace(/\./g,'')===nClean);
     if(p)return p.firstName+' '+p.lastName;
-    // 3. "First L." or "First L" — first name + last initial
+    // 3. "First L." or "First L" (first name + last initial)
     const parts=nClean.split(' ');
     if(parts.length>=2){
       const fname=parts[0],linitial=parts[parts.length-1].replace(/\./g,'')[0];
@@ -23125,7 +23138,7 @@ function saveAIAssignment(btnEl){
     }
   }
 
-  if(!totalSaved){toast('Nothing to save — check player selections');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='💾 Save to Live Score Entry';}return;}
+  if(!totalSaved){toast('Nothing to save. Check player selections');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='💾 Save to Live Score Entry';}return;}
 
   // Show confirmation in the result container
   const container=document.getElementById('ai-pairings-result');
@@ -23162,14 +23175,14 @@ function nameToId(fullName){
 function seedMissingDuals(){return;//disabled
   if(!db){toast('Not connected');return;}
   const MISSING=[
-    // Community Christian 2/24 — W 4-1
+    // Community Christian 2/24 (W 4-1)
     {date:'2026-02-24',court:1,pair:['p01','p10'],opponent:'Community Christian CT1',sets:[{scoreUs:21,scoreThem:19},{scoreUs:16,scoreThem:21},{scoreUs:15,scoreThem:7}]},
     {date:'2026-02-24',court:2,pair:['p16','p08'],opponent:'Community Christian CT2',sets:[{scoreUs:21,scoreThem:15},{scoreUs:21,scoreThem:19}]},
     {date:'2026-02-24',court:3,pair:['p13','p06'],opponent:'Community Christian CT3',sets:[{scoreUs:21,scoreThem:9},{scoreUs:21,scoreThem:7}]},
     {date:'2026-02-24',court:4,pair:['p02','p09'],opponent:'Community Christian CT4',sets:[{scoreUs:16,scoreThem:21},{scoreUs:22,scoreThem:20},{scoreUs:13,scoreThem:15}]},
     {date:'2026-02-24',court:5,pair:['p11','p15'],opponent:'Community Christian CT5',sets:[{scoreUs:21,scoreThem:0},{scoreUs:21,scoreThem:7}]},
     {date:'2026-02-24',court:6,pair:['p05','p03'],opponent:'Community Christian Exhibition',sets:[{scoreUs:21,scoreThem:10},{scoreUs:21,scoreThem:9}],isExhibition:true},
-    // Florida State University HS 3/3 — L 2-3
+    // Florida State University HS 3/3 (L 2-3)
     {date:'2026-03-03',court:1,pair:['p01','p10'],opponent:'Florida State University HS CT1',sets:[{scoreUs:16,scoreThem:21},{scoreUs:23,scoreThem:21},{scoreUs:17,scoreThem:19}]},
     {date:'2026-03-03',court:2,pair:['p16','p08'],opponent:'Florida State University HS CT2',sets:[{scoreUs:17,scoreThem:21},{scoreUs:18,scoreThem:21}]},
     {date:'2026-03-03',court:3,pair:['p13','p06'],opponent:'Florida State University HS CT3',sets:[{scoreUs:21,scoreThem:10},{scoreUs:18,scoreThem:21},{scoreUs:15,scoreThem:11}]},
@@ -23178,11 +23191,11 @@ function seedMissingDuals(){return;//disabled
     {date:'2026-03-03',court:6,pair:['p05','p09'],opponent:'Florida State University HS Exhibition',sets:[{scoreUs:23,scoreThem:21},{scoreUs:16,scoreThem:21},{scoreUs:15,scoreThem:7}],isExhibition:true},
     {date:'2026-03-03',court:7,pair:['p07','p12'],opponent:'Florida State University HS Exhibition',sets:[{scoreUs:11,scoreThem:21}],isExhibition:true},
     {date:'2026-03-03',court:8,pair:['p12','p14'],opponent:'Florida State University HS Exhibition',sets:[{scoreUs:16,scoreThem:21}],isExhibition:true},
-    // Mosley 3/5 — W 3-2
+    // Mosley 3/5 (W 3-2)
     {date:'2026-03-05',court:1,pair:['p01','p16'],opponent:'Mosley CT1',sets:[{scoreUs:21,scoreThem:14},{scoreUs:21,scoreThem:15}]},
     {date:'2026-03-05',court:2,pair:['p10','p08'],opponent:'Mosley CT2',sets:[{scoreUs:21,scoreThem:18},{scoreUs:21,scoreThem:17}]},
     {date:'2026-03-05',court:3,pair:['p13','p06'],opponent:'Mosley CT3',sets:[{scoreUs:21,scoreThem:6},{scoreUs:21,scoreThem:11}]},
-    {date:'2026-03-05',court:4,pair:['p11','p15'],opponent:'Mosley CT4',sets:[{scoreUs:20,scoreThem:22},{scoreUs:14,scoreThem:21}]},// ⚠️ Set 2 score unclear on sheet — verify & correct if needed
+    {date:'2026-03-05',court:4,pair:['p11','p15'],opponent:'Mosley CT4',sets:[{scoreUs:20,scoreThem:22},{scoreUs:14,scoreThem:21}]},// ⚠️ Set 2 score unclear on sheet; verify & correct if needed
     {date:'2026-03-05',court:5,pair:['p02','p03'],opponent:'Mosley CT5',sets:[{scoreUs:16,scoreThem:21},{scoreUs:22,scoreThem:20},{scoreUs:9,scoreThem:15}]},
     {date:'2026-03-05',court:6,pair:['p05','p07'],opponent:'Mosley Exhibition',sets:[{scoreUs:21,scoreThem:12},{scoreUs:16,scoreThem:21},{scoreUs:15,scoreThem:6}],isExhibition:true},
     {date:'2026-03-05',court:7,pair:['p09','p04'],opponent:'Mosley Exhibition',sets:[{scoreUs:21,scoreThem:8},{scoreUs:17,scoreThem:15}],isExhibition:true},
@@ -23900,7 +23913,7 @@ Return ONLY valid JSON: {"courts":[{"court":1,"team1":["p01","p02"],"team2":["p0
         if(!parsed||!parsed.courts){result.innerHTML='<div style="color:var(--loss-red);font-size:13px;">Couldn\'t read scoresheet.</div><pre style="font-size:10px;background:var(--off-white);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;">'+text.slice(0,600)+'</pre>';return;}
         const sorted=[...D.players].sort((a,b)=>a.court-b.court||a.lastName.localeCompare(b.lastName));
         function pOpts(selId){return'<option value="">Select</option>'+sorted.map(pl=>`<option value="${pl.id}" ${pl.id===selId?'selected':''}>${pl.firstName} ${pl.lastName.charAt(0)}. (CT${pl.court})</option>`).join('');}
-        let h=`<div style="font-family:'Bebas Neue';font-size:14px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.courts.length} court(s) — review & save</div>`;
+        let h=`<div style="font-family:'Bebas Neue';font-size:14px;margin-bottom:8px;color:var(--green);">✓ Found ${parsed.courts.length} court(s). Review & save</div>`;
         parsed.courts.forEach((c,i)=>{
           h+=`<div style="padding:10px;background:var(--off-white);border-radius:8px;margin-bottom:8px;">
             <div style="font-family:'Bebas Neue';font-size:12px;margin-bottom:6px;">COURT ${c.court||i+1}</div>
