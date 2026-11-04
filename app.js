@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.219';
+const APP_VERSION='1.1.220';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -14327,6 +14327,7 @@ function tnDetach(){
   _tnUi=tnUiDefaults();
   _tnGd=tnGdDefaults();
   if(typeof tnCpReset==='function') tnCpReset('');
+  _tnDel=tnDelDefaults(); _tnTrash=tnTrashDefaults(); _tnDelNote=''; _tnWant={tid:'', at:0}; _tnSeen={tid:'', name:''};
 }
 
 // ===== CLUB WORKER SAVES START =====
@@ -14589,6 +14590,301 @@ function tnWrite(tid,updates){
   }).then(function(res){ return !!res.ok; });
 }
 
+// ===== CLUB TOURNAMENT DELETE START =====
+// Recoverable delete (worker routes /club/tournament-delete, -trash, -restore). The worker decides
+// everything: blockers, counts, the name match, the backup, the 30 days. This only asks and shows.
+// Live club only: a demo (no db) never shows any of it, so nothing here can reach the network.
+// A named exec account is required; a shared-PIN session sees the sign-in note and sends nothing.
+// Delete, Finish, Cancel and Restore go through csSave (Not saved bar, one-tap Retry, nothing shown
+// as done until the worker says ok). Previews and the Recently deleted list are reads.
+var TN_DEL_RATED=['rating_run','rated','was_rated','rating_history'];
+var TN_DEL_MSG={
+  named:'Sign in with your own exec account to delete or restore a tournament.',
+  scores:'Scores are saved for this tournament. Clear every score before deleting it.',
+  rated:'This tournament was rated, so it is kept as a record and cannot be deleted.',
+  final:'Ended tournaments are kept as a record and cannot be deleted.'
+};
+// step: '' (link only), named, loading, error, blocked, confirm, interrupted
+function tnDelDefaults(){ return {tid:'', step:'', preview:null, typed:'', err:'', busy:false}; }
+function tnTrashDefaults(){ return {open:false, loading:false, loaded:false, items:[], err:'', ask:'', busy:false}; }
+var _tnDel=tnDelDefaults();
+var _tnTrash=tnTrashDefaults();
+var _tnDelNote='';                 // the last delete or restore outcome, shown on the card
+var _tnWant={tid:'', at:0};        // a restored tournament to open once the listener brings it back
+var _tnSeen={tid:'', name:''};     // the tournament last drawn open, to name it if it vanishes
+function tnDelAvailable(){ return !!db&&!(SC&&SC.demoMode); }
+function tnDelNamed(){
+  try { var s=JSON.parse(sessionStorage.getItem('csCoachSession')||'null'); return !!(s&&s.dbRoot===DB_ROOT&&s.token&&s.accountId); } catch(e){ return false; }
+}
+// The worker's rule: case matters, spaces at the ends are ignored.
+function tnDelNameOk(typed,name){ var a=String(typed==null?'':typed).trim(); return !!a&&a===String(name==null?'':name).trim(); }
+function tnDelBlockMsg(blockers){
+  var codes=(blockers||[]).map(function(b){ return b&&b.code; });
+  if(codes.some(function(c){ return TN_DEL_RATED.indexOf(c)>=0; })) return TN_DEL_MSG.rated;
+  if(codes.indexOf('final')>=0) return TN_DEL_MSG.final;
+  if(codes.indexOf('scores')>=0) return TN_DEL_MSG.scores;
+  return (blockers&&blockers[0]&&blockers[0].message)||TN_DEL_MSG.scores;
+}
+function tnDelPlural(n,one,many){ return n+' '+(n===1?one:many); }
+function tnDelDay(v){
+  var d=null, m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||''));
+  if(m) d=new Date(+m[1],+m[2]-1,+m[3]); else if(typeof v==='number'&&v>0) d=new Date(v);
+  return d?d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
+}
+function tnTrashStale(){ _tnTrash.loaded=false; if(_tnTrash.open&&!_tnTrash.loading) tnTrashLoad(); }
+// The open tournament is gone (deleted here or elsewhere): back to the list, nothing left pointing at it.
+function tnLeave(tid){
+  if(_tnUi.tid!==tid) return;
+  _tnUi.tid=''; _tnUi.div=null; _tnUi.move=null; _tnUi.swap=null; _tnUi.locOpen=false;
+  _tnGd=tnGdDefaults();
+  if(_tnSc&&_tnSc.mid&&!_tnSc.ctx) tnScClose(); // the exec scorer works on the open tournament
+}
+// Called by the card before it draws: the open tournament vanished from the listener.
+function tnGoneCheck(){
+  if(_tnWant.tid&&((tnCur()&&_tnUi.tid===_tnWant.tid)||Date.now()-_tnWant.at>15000)) _tnWant={tid:'', at:0};
+  if(!_tnUi.tid||tnCur()) return;
+  if(_tnWant.tid===_tnUi.tid) return; // a restore the listener has not brought back yet
+  var gone=_tnUi.tid;
+  if(_tnDel.tid===gone&&_tnDel.busy){ tnLeave(gone); return; } // our own delete; its answer says the rest
+  if(_tnDel.tid===gone) _tnDel=tnDelDefaults();
+  if(_tnSeen.tid===gone){
+    _tnDelNote=(_tnSeen.name||'This tournament')+' was deleted on another phone. You can restore it from Recently deleted for 30 days.';
+    _tnSeen={tid:'', name:''};
+    tnTrashStale();
+  }
+  tnLeave(gone);
+}
+function tnDelOpen(){
+  if(!tnDelAvailable()||_tnDel.busy||!_tnUi.tid) return;
+  _tnDelNote='';
+  _tnDel=tnDelDefaults(); _tnDel.tid=_tnUi.tid;
+  if(!tnDelNamed()){ _tnDel.step='named'; tnCardRender(); return; }
+  tnDelPreview(_tnUi.tid,'');
+}
+function tnDelClose(){ if(_tnDel.busy) return; _tnDel=tnDelDefaults(); tnCardRender(); }
+async function tnDelPreview(tid,keepErr){
+  var tok=csExecToken();
+  if(!tok){ _tnDel=tnDelDefaults(); csExecResignin(); return; }
+  var d=_tnDel; d.step='loading'; d.err=keepErr||''; tnCardRender();
+  var res=await csWorkerPost('/club/tournament-delete',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'preview'});
+  if(_tnDel!==d||d.tid!==tid) return; // closed or signed out meanwhile
+  var j=res.j||{};
+  if(res.ok){
+    d.preview={name:String(j.name||''), deleting:!!j.deleting, blockers:Array.isArray(j.blockers)?j.blockers:[], counts:j.counts||{}};
+    d.step=d.preview.deleting?'interrupted':d.preview.blockers.length?'blocked':'confirm';
+  } else if(res.kind==='expired'||res.kind==='signin'){ _tnDel=tnDelDefaults(); csExecResignin(); return; }
+  else if(j.code==='named_exec_required'){ d.step='named'; d.err=''; }
+  else if(j.code==='not_found'){ _tnDel=tnDelDefaults(); _tnDelNote='That tournament was already deleted.'; tnLeave(tid); }
+  else {
+    d.step='error';
+    d.err=res.kind==='offline'?'Could not check this tournament: no signal. Try again when you have signal.'
+      :res.kind==='busy'?'Too many tries in a few minutes. Wait a moment, then try again.'
+      :(j.error||'Could not check this tournament. Try again.');
+  }
+  tnCardRender();
+}
+// Typing the name: the Delete button follows without a redraw, so the keyboard stays up.
+function tnDelType(v){
+  _tnDel.typed=String(v==null?'':v);
+  var b=document.getElementById('tn-del-go'), ok=!!(_tnDel.preview&&tnDelNameOk(_tnDel.typed,_tnDel.preview.name))&&!_tnDel.busy;
+  if(b){ b.disabled=!ok; b.style.opacity=ok?'1':'.5'; }
+}
+function tnDelGo(){
+  var d=_tnDel, p=d.preview;
+  if(!p||d.busy||d.step!=='confirm'||!tnDelNameOk(d.typed,p.name)) return;
+  tnDelSend('delete',d.typed.trim());
+}
+// An interrupted delete. Finish sends the delete again (the worker resumes where it stopped).
+function tnDelFinish(){
+  var d=_tnDel; if(d.busy) return;
+  if(!d.preview){ var t=(_tnList||{})[_tnUi.tid]; d=_tnDel=tnDelDefaults(); d.tid=_tnUi.tid; d.preview={name:String((t&&t.meta&&t.meta.name)||''), deleting:true, blockers:[], counts:{}}; d.step='interrupted'; }
+  if(!tnDelNamed()){ d.step='named'; tnCardRender(); return; }
+  tnDelSend('delete',d.preview.name.trim());
+}
+function tnDelCancel(){
+  var d=_tnDel; if(d.busy) return;
+  if(!d.preview){ var t=(_tnList||{})[_tnUi.tid]; d=_tnDel=tnDelDefaults(); d.tid=_tnUi.tid; d.preview={name:String((t&&t.meta&&t.meta.name)||''), deleting:true, blockers:[], counts:{}}; d.step='interrupted'; }
+  if(!tnDelNamed()){ d.step='named'; tnCardRender(); return; }
+  tnDelSend('cancel','');
+}
+function tnDelSend(action,name){
+  var d=_tnDel, tid=d.tid, nm=(d.preview&&d.preview.name)||'This tournament';
+  d.busy=true; d.err=''; tnCardRender();
+  return csSave(function(){
+    var tok=csExecToken();
+    if(!tok) return {ok:false, kind:'expired'};
+    var body={slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:action};
+    if(action==='delete') body.name=name;
+    return csWorkerPost('/club/tournament-delete',body);
+  },{quiet:true, onSignin:function(){ _tnDel=tnDelDefaults(); csExecResignin(); }}).then(function(res){
+    if(_tnDel!==d) return res; // signed out meanwhile
+    d.busy=false;
+    var j=res.j||{};
+    if(res.ok&&action==='cancel'){
+      _tnDel=tnDelDefaults();
+      _tnDelNote=j.cancelled?'Delete canceled. '+nm+' is back as it was.':nm+' was not being deleted, so nothing changed.';
+      toast(_tnDelNote); tnCardRender(); return res;
+    }
+    if(res.ok){
+      _tnDel=tnDelDefaults(); tnLeave(tid); _tnSeen={tid:'', name:''};
+      _tnDelNote=nm+' deleted. You can restore it from Recently deleted for 30 days.';
+      toast(_tnDelNote); tnTrashStale(); tnCardRender(); return res;
+    }
+    if(res.kind==='dismissed'){ tnDelPreview(tid,''); return res; } // show where it really stands
+    if(j.code==='named_exec_required'){ d.step='named'; d.err=''; tnCardRender(); return res; }
+    if(j.code==='not_found'||j.code==='already_deleted'){
+      _tnDel=tnDelDefaults(); tnLeave(tid);
+      _tnDelNote=j.code==='already_deleted'?(j.error||'This tournament was already deleted.'):'That tournament was already deleted.';
+      tnTrashStale(); tnCardRender(); return res;
+    }
+    var msg=(action==='cancel'?'Not canceled: ':'Not deleted: ')+(j.error||'that was refused.');
+    if(j.code==='name_mismatch'){ d.err=msg; tnCardRender(); return res; }
+    tnDelPreview(tid,msg); // blocked, busy, in progress: read it again and keep the reason on screen
+    return res;
+  });
+}
+// ---- Recently deleted -----------------------------------------------------------
+function tnTrashToggle(){
+  if(!tnDelAvailable()) return;
+  _tnTrash.open=!_tnTrash.open; _tnTrash.ask=''; _tnTrash.err='';
+  if(_tnTrash.open&&!_tnTrash.loaded&&tnDelNamed()) tnTrashLoad(); else tnCardRender();
+}
+async function tnTrashLoad(keepErr){
+  var tr=_tnTrash;
+  if(!tnDelNamed()){ tnCardRender(); return; }
+  var tok=csExecToken();
+  if(!tok){ csExecResignin(); return; }
+  tr.loading=true; tr.err=keepErr||''; tnCardRender();
+  var res=await csWorkerPost('/club/tournament-trash',{slug:TN_SLUG, exec:tok});
+  if(_tnTrash!==tr) return;
+  tr.loading=false;
+  var j=res.j||{};
+  if(res.ok){ tr.items=Array.isArray(j.items)?j.items:[]; tr.loaded=true; if(tr.ask&&!tr.items.some(function(x){ return x.backupId===tr.ask; })) tr.ask=''; }
+  else if(res.kind==='expired'||res.kind==='signin'){ csExecResignin(); return; }
+  else if(j.code==='named_exec_required') tr.err=TN_DEL_MSG.named;
+  else tr.err=res.kind==='offline'?'Could not load Recently deleted: no signal. Try again when you have signal.'
+    :res.kind==='busy'?'Too many tries in a few minutes. Wait a moment, then try again.'
+    :(j.error||'Could not load Recently deleted. Try again.');
+  tnCardRender();
+}
+function tnTrashAsk(i){
+  var tr=_tnTrash, it=tr.items[i]; if(tr.busy||!it) return;
+  _tnDelNote=''; tr.ask=it.backupId; tr.err=''; tnCardRender();
+}
+function tnTrashAskCancel(){ if(_tnTrash.busy) return; _tnTrash.ask=''; _tnTrash.err=''; tnCardRender(); }
+function tnTrashRestoreGo(){
+  var tr=_tnTrash, id=tr.ask; if(!id||tr.busy) return;
+  var it=tr.items.filter(function(x){ return x.backupId===id; })[0]; if(!it) return;
+  if(!tnDelNamed()){ tr.err=TN_DEL_MSG.named; tnCardRender(); return; }
+  var nm=String(it.name||'This tournament');
+  tr.busy=true; tr.err=''; tnCardRender();
+  csSave(function(){
+    var tok=csExecToken();
+    if(!tok) return {ok:false, kind:'expired'};
+    return csWorkerPost('/club/tournament-restore',{slug:TN_SLUG, exec:tok, by:ptBy(), backupId:id});
+  },{quiet:true, onSignin:function(){ _tnTrash=tnTrashDefaults(); csExecResignin(); }}).then(function(res){
+    if(_tnTrash!==tr) return;
+    tr.busy=false;
+    var j=res.j||{};
+    if(res.ok){
+      tr.ask='';
+      _tnDelNote=nm+' restored. Set a new court PIN before play.';
+      toast(_tnDelNote);
+      if(j.tid&&/^[A-Za-z0-9_-]{1,64}$/.test(String(j.tid))){
+        _tnWant={tid:String(j.tid), at:Date.now()};
+        _tnUi.tid=String(j.tid); _tnUi.newOpen=false; _tnUi.div=null; _tnUi.move=null; _tnUi.swap=null;
+        _tnGd=tnGdDefaults(); _tnDel=tnDelDefaults();
+      }
+      tr.loaded=false; tnTrashLoad();
+      return;
+    }
+    if(res.kind==='dismissed'){ tnCardRender(); return; }
+    tr.err=j.code==='named_exec_required'?TN_DEL_MSG.named:'Not restored: '+(j.error||'that was refused.');
+    if(j.code==='expired'||j.code==='not_found'){ tr.ask=''; tr.loaded=false; tnTrashLoad(tr.err); return; }
+    tnCardRender();
+  });
+}
+// ---- Card pieces ------------------------------------------------------------------
+var TN_DEL_RED='#b02a37';
+function tnDelBtn(label,onclick,opts){
+  opts=opts||{};
+  var dis=!!opts.disabled;
+  return '<button class="btn btn-small"'+(opts.id?' id="'+opts.id+'"':'')+(dis?' disabled':'')+' onclick="'+onclick+'" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;font-weight:700;'
+    +(opts.danger?'background:'+TN_DEL_RED+';color:#fff;border:2px solid '+TN_DEL_RED+';':'background:#fff;color:var(--charcoal);border:1px solid var(--border,#ccc);')
+    +(dis?'opacity:.5;':'')+'">'+label+'</button>';
+}
+function tnDelNoteHtml(esc){
+  return _tnDelNote?'<div role="status" style="background:#e7f1e8;color:#1e5c2a;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px;font-weight:600;line-height:1.5;">'+esc(_tnDelNote)+'</div>':'';
+}
+// At the bottom of the open tournament's details.
+function tnDelHtml(t,esc){
+  if(!tnDelAvailable()||!t||!t.meta) return '';
+  var tid=_tnUi.tid, d=_tnDel.tid===tid?_tnDel:null, m=t.meta;
+  var wrap='<div style="border-top:1px solid var(--border,#eee);margin-top:18px;padding-top:6px;">';
+  var box='<div style="border:1px solid '+TN_DEL_RED+';border-radius:10px;padding:12px;margin-top:8px;">';
+  var err=(d&&d.err)?'<div role="alert" style="font-size:13px;color:#b3261e;margin-top:8px;line-height:1.5;">'+esc(d.err)+'</div>':'';
+  var note=function(s){ return '<div style="font-size:14px;line-height:1.5;">'+esc(s)+'</div>'; };
+  var row=function(h){ return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'+h+'</div>'; };
+  var close=tnDelBtn('Close','tnDelClose()',{disabled:d&&d.busy});
+  var interrupted=function(){
+    var busy=d&&d.busy;
+    return box+note('Deleting '+(m.name||'this tournament')+' did not finish. Finish delete removes it now, and you can still restore it from Recently deleted for 30 days. Cancel stops the delete and puts the tournament back as it was.')
+      +err+row(tnDelBtn(busy?'Working...':'Finish delete','tnDelFinish()',{danger:true, disabled:busy})+tnDelBtn('Cancel delete','tnDelCancel()',{disabled:busy}))+'</div>';
+  };
+  // Frozen for a delete: Finish or Cancel, unless it is this phone's own delete still running.
+  if(m.status==='deleting'&&!(d&&((d.busy&&d.step==='confirm')||d.step==='named'))) return wrap+interrupted()+'</div>';
+  if(!d||!d.step) return wrap+'<a href="javascript:void(0)" onclick="tnDelOpen()" style="display:inline-block;padding:12px 0;color:'+TN_DEL_RED+';font-size:13px;font-weight:600;">Delete tournament</a></div>';
+  if(d.step==='named') return wrap+box+note(TN_DEL_MSG.named)+row(close)+'</div></div>';
+  if(d.step==='loading') return wrap+box+note('Checking this tournament...')+err+'</div></div>';
+  if(d.step==='error') return wrap+box+'<div role="alert" style="font-size:14px;line-height:1.5;">'+esc(d.err)+'</div>'+row(tnDelBtn('Try again',"tnDelPreview('"+esc(tid)+"','')")+close)+'</div></div>';
+  if(d.step==='blocked') return wrap+box+'<div role="note" style="font-size:14px;line-height:1.5;">'+esc(tnDelBlockMsg(d.preview.blockers))+'</div>'+err+row(close)+'</div></div>';
+  if(d.step==='interrupted') return wrap+interrupted()+'</div>';
+  // confirm
+  var p=d.preview, c=p.counts||{}, teams=+c.teams||0, players=+c.players||0, nm=p.name||'this tournament';
+  var who=teams
+    ?tnDelPlural(teams,'team','teams')+' ('+tnDelPlural(players,'player','players')+') '+(teams===1?'is':'are')+' registered. Their links stop working, and they are not told. Let your teams know if the tournament is really canceled.'
+    :'No teams are registered.';
+  var ok=tnDelNameOk(d.typed,p.name)&&!d.busy;
+  return wrap+box+'<div style="font-size:14px;line-height:1.6;">Delete <strong>'+esc(nm)+'</strong>? It disappears from the club app, the live page, and the partner page. '
+    +esc(who)+' You can restore it from Recently deleted for 30 days. Type the tournament name to confirm.</div>'
+    +'<label for="tn-del-name" style="display:block;font-size:12px;font-weight:700;color:var(--charcoal);margin:10px 0 4px;">Tournament name</label>'
+    +'<input class="form-input" id="tn-del-name" value="'+esc(d.typed)+'" oninput="tnDelType(this.value)" autocomplete="off" autocapitalize="off" spellcheck="false"'+(d.busy?' disabled':'')
+    +' style="padding:10px;font-size:16px;border:1px solid var(--border,#ddd);border-radius:8px;width:100%;box-sizing:border-box;">'
+    +err+row(tnDelBtn(d.busy?'Deleting...':'Delete','tnDelGo()',{id:'tn-del-go', danger:true, disabled:!ok})+close)+'</div></div>';
+}
+// Collapsed, below the tournament list. Summaries only.
+function tnTrashHtml(esc){
+  if(!tnDelAvailable()) return '';
+  var tr=_tnTrash;
+  var h='<div style="margin-top:10px;"><button type="button" aria-expanded="'+(tr.open?'true':'false')+'" onclick="tnTrashToggle()" style="background:none;border:none;padding:0;min-height:44px;font-size:13px;font-weight:700;color:var(--charcoal);cursor:pointer;">'
+    +(tr.open?'▾':'▸')+' Recently deleted</button>';
+  if(!tr.open) return h+'</div>';
+  var body='';
+  if(!tnDelNamed()) body='<div style="font-size:13px;line-height:1.5;">'+esc(TN_DEL_MSG.named)+'</div>';
+  else if(tr.loading&&!tr.loaded) body='<div style="font-size:13px;color:var(--gray);">Loading...</div>';
+  else if(!tr.loaded) body='<div role="alert" style="font-size:13px;color:#b3261e;line-height:1.5;">'+esc(tr.err||'Could not load Recently deleted.')+'</div>'
+    +'<div style="margin-top:8px;">'+tnDelBtn('Try again','tnTrashLoad()')+'</div>';
+  else if(!tr.items.length) body='<div style="font-size:13px;color:var(--gray);">Nothing deleted in the last 30 days.</div>';
+  else body=tr.items.map(function(it,i){
+    var n=Math.max(1,+it.daysLeft||1), when=tnDelDay(it.date), del=tnDelDay(+it.deletedAt);
+    var line=esc(it.name||'Tournament')+(when?', '+esc(when):'')+'. Deleted'+(del?' '+esc(del):'')+(it.deletedByName?' by '+esc(it.deletedByName):'')+'. '+n+' day'+(n===1?'':'s')+' left.';
+    var ask=tr.ask===it.backupId;
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--border,#f0f0f0);">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div style="font-size:13px;line-height:1.5;">'+line+'</div>'
+      +(ask?'':tnDelBtn('Restore','tnTrashAsk('+i+')',{disabled:tr.busy}))+'</div>'
+      +(ask?'<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px 12px;margin-top:8px;">'
+        +'<div style="font-size:14px;line-height:1.5;">Restore <strong>'+esc(it.name||'this tournament')+'</strong>? It comes back as it was when deleted. Set a new court PIN before play.</div>'
+        +(tr.err?'<div role="alert" style="font-size:13px;color:#b3261e;margin-top:8px;line-height:1.5;">'+esc(tr.err)+'</div>':'')
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'
+        +'<button class="btn btn-small" onclick="tnTrashRestoreGo()"'+(tr.busy?' disabled':'')+' style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;font-weight:700;background:#fff;color:var(--red);border:2px solid var(--red);'+(tr.busy?'opacity:.5;':'')+'">'+(tr.busy?'Restoring...':'Restore')+'</button>'
+        +tnDelBtn('Cancel','tnTrashAskCancel()',{disabled:tr.busy})+'</div></div>':'')
+      +'</div>';
+  }).join('');
+  if(tr.loaded&&tr.err&&!tr.ask) body='<div role="alert" style="font-size:13px;color:#b3261e;line-height:1.5;margin-bottom:6px;">'+esc(tr.err)+'</div>'+body;
+  return h+'<div style="border:1px solid var(--border,#eee);border-radius:10px;padding:4px 12px 8px;">'+body+'</div></div>';
+}
+// ===== CLUB TOURNAMENT DELETE END =====
+
 // ---- Reads ----------------------------------------------------------------
 function tnSorted(){
   var L=_tnList||{};
@@ -14600,7 +14896,7 @@ function tnDivs(t){ return (t&&t.divisions)||{}; }
 function tnTeams(t){ return (t&&t.teams)||{}; }
 function tnStatusLabel(s){
   return s==='registration'?'Registration open':s==='setup'?'Setup, registration closed'
-    :s==='pools'?'Pool play':s==='playoffs'?'Playoffs':s==='final'?'Final':String(s||'Unknown');
+    :s==='pools'?'Pool play':s==='playoffs'?'Playoffs':s==='final'?'Final':s==='deleting'?'Delete did not finish':String(s||'Unknown');
 }
 function tnDateLabel(d){
   var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));
@@ -14695,7 +14991,7 @@ function tnSeededRows(t){
 // ---- UI state -------------------------------------------------------------
 function tnSet(key,val){ _tnUi[key]=val; }
 function tnDivSet(key,val){ if(_tnUi.div) _tnUi.div[key]=val; }
-function tnPick(tid){ _tnUi.tid=tid; _tnUi.div=null; _tnUi.move=null; _tnUi.swap=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
+function tnPick(tid){ if(_tnDel.busy) return; _tnDel=tnDelDefaults(); _tnDelNote=''; _tnUi.tid=tid; _tnUi.div=null; _tnUi.move=null; _tnUi.swap=null; _tnUi.newOpen=false; _tnGd=tnGdDefaults(); tnCardRender(); }
 function tnToggleNew(open){ _tnUi.newOpen=!!open; tnCardRender(); }
 // Checks a schedule (meta-shaped). forOpen adds what opening registration needs: a deadline
 // in the future plus check-in and play start times. Returns a message, or '' when fine.
@@ -17268,7 +17564,8 @@ function tnCardRender(){
     return;
   }
   var list=tnSorted();
-  if(_tnUi.tid&&!tnCur()) _tnUi.tid='';
+  tnGoneCheck(); // the open tournament deleted (here or on another phone): back to the list
+  if(_tnUi.tid&&!tnCur()&&_tnWant.tid!==_tnUi.tid) _tnUi.tid='';
   if(!_tnUi.tid&&list.length&&!_tnUi.newOpen) _tnUi.tid=list[0].tid;
   // A tournament still open after its deadline gets the Close path, once.
   tnAutoCloseDue();
@@ -17284,6 +17581,7 @@ function tnCardRender(){
   } else if(!_tnUi.newOpen){
     html+='<p style="font-size:13px;color:var(--gray);line-height:1.6;">No tournaments yet. Create one to set up divisions and open registration.</p>';
   }
+  html+=tnDelNoteHtml(esc)+tnTrashHtml(esc);
   if(_tnUi.newOpen){
     html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:12px;margin-top:12px;">'
       +'<div style="font-weight:700;font-size:14px;">New tournament</div>'
@@ -17554,6 +17852,8 @@ function tnCardRender(){
     html+='<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:10px 0 0;">Teams register on the public page and manage themselves with their own links. Seeds sort each division by team rating, the average of its rated players. Ratings are for execs only. Email and phone are never shown here.</p></div>';
     // Game day (seeds, pools, scoring, standings) once registration is over.
     if(TN_GAME_STATUSES.indexOf(m.status)>=0) html+=tnGdHtml(t,{esc:esc, btn:btn, inp:inp, lbl:lbl});
+    html+=tnDelHtml(t,esc);
+    _tnSeen={tid:_tnUi.tid, name:String(m.name||'')};
   }
   // A half-typed court PIN lives only in its own input, so that input is carried across the redraw.
   var pinBox=document.getElementById('tn-cpin');
