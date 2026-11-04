@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.218';
+const APP_VERSION='1.1.219';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -5375,6 +5375,8 @@ function updatePinDots(){document.querySelectorAll('.login-pin-dot').forEach((d,
 
 function loginAsCoach(){
   currentRole='coach';currentPlayerId=null;
+  // Club tournament card: drafts kept when a save found the exec session ended (no-op otherwise).
+  csRestoreExecDrafts();
   // An exec who scanned the door code lands here; say so rather than dropping it silently.
   if(typeof processPendingTryout==='function')processPendingTryout();
   // Door mode is a full-screen display, so a refresh on the door phone has to come back to it.
@@ -14327,6 +14329,170 @@ function tnDetach(){
   if(typeof tnCpReset==='function') tnCpReset('');
 }
 
+// ===== CLUB WORKER SAVES START =====
+// Club tournament and Kings Night saves go through the worker (security gap 2), never straight
+// to Firebase. Only club code calls these, and only on the live branch (db set): a demo has no db,
+// so every demo save keeps its in-memory branch and nothing here runs.
+// A save shows nothing as saved until the worker answers ok. No signal, a worker error or a busy
+// answer shows the Not saved bar with one-tap Retry; the caller's promise stays open until the
+// retry lands (true) or the person taps Dismiss (false), so busy states and success messages
+// follow the real outcome. Nothing is queued on the phone and nothing retries by itself.
+var CS_SAVE_MSG={
+  offline:'Not saved: no signal. What you entered is still here. Tap Retry when you have signal.',
+  server:'Not saved: CourtSense had a problem. What you entered is still here. Tap Retry.',
+  busy:'Not saved: too many saves in a few minutes. Wait a moment, then tap Retry.'
+};
+async function csWorkerPost(path,body){
+  var r=null, j=null;
+  try { r=await fetch(AUTH_WORKER+path,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }
+  catch(e){ return {ok:false, kind:'offline', j:null}; }
+  try { j=await r.json(); } catch(e){ j=null; }
+  if(j&&j.ok===true) return {ok:true, kind:'ok', j:j};
+  var code=(j&&j.code)||'';
+  var kind=(r.status===429||code==='rate_limited')?'busy'
+    :code==='forbidden'?'expired'
+    :code==='signed_out'?'signin'
+    :(code==='locked'||code==='not_holder')?'lock'
+    :code==='already_entered'?'taken'
+    :(!j||r.status>=500)?'server':'refused';
+  return {ok:false, kind:kind, j:j, status:r.status};
+}
+function csSaveRetryable(kind){ return kind==='offline'||kind==='server'||kind==='busy'; }
+function csEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
+var _csBar=null;   // { resolve, attempt, busy } while a Not saved bar offers Retry
+function csBarEl(){
+  var el=document.getElementById('cs-unsaved');
+  if(!el){ el=document.createElement('div'); el.id='cs-unsaved'; document.body.appendChild(el); }
+  return el;
+}
+// retry false: an information bar with OK only (a refusal that Retry cannot fix).
+function csBarShow(msg,retry){
+  var el=csBarEl();
+  el.setAttribute&&el.setAttribute('role','alert');
+  el.style.cssText='position:fixed;left:8px;right:8px;bottom:12px;z-index:9600;background:#7a1f1f;color:#fff;border-radius:10px;padding:12px 14px;'
+    +'box-shadow:0 4px 16px rgba(0,0,0,.35);font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;';
+  var b='min-height:44px;padding:8px 16px;border-radius:8px;font-size:15px;font-weight:700;border:2px solid #fff;';
+  el.innerHTML='<div style="flex:1;min-width:180px;font-weight:600;">'+csEsc(msg)+'</div>'
+    +(retry?'<button style="'+b+'background:#fff;color:#7a1f1f;" onclick="csBarRetry()">Retry</button>'
+      +'<button style="'+b+'background:transparent;color:#fff;" onclick="csBarDismiss()">Dismiss</button>'
+      :'<button style="'+b+'background:#fff;color:#7a1f1f;" onclick="csBarDismiss()">OK</button>');
+  el.hidden=false;
+  el._csMsg=msg; el._csRetry=!!retry;
+}
+function csBarHide(){ var el=document.getElementById('cs-unsaved'); if(el){ el.hidden=true; el.innerHTML=''; el.style.cssText='display:none;'; el._csMsg=''; el._csRetry=false; } }
+function csBarRetry(){
+  var b=_csBar; if(!b||b.busy) return;
+  b.busy=true; csBarShow('Saving...',false);
+  var el=csBarEl(); el.innerHTML='<div style="flex:1;font-weight:600;">Saving...</div>'; el._csRetry=false;
+  b.attempt();
+}
+function csBarDismiss(){
+  var b=_csBar;
+  if(b&&b.busy) return;
+  _csBar=null; csBarHide();
+  if(b) b.resolve({ok:false, kind:'dismissed'});
+}
+// Run send() (resolves to a csWorkerPost answer, or { ok:false, kind:'stale', msg }) until it
+// lands, the person dismisses, or it fails in a way Retry cannot fix. Resolves to the last answer.
+// opts.onSignin(res) handles an expired exec or member sign-in; opts.quiet skips the refusal bar.
+function csSave(send,opts){
+  opts=opts||{};
+  return new Promise(function(resolve){
+    var attempt=function(){
+      return Promise.resolve().then(send).catch(function(){ return {ok:false, kind:'server', j:null}; }).then(function(res){
+        if(res.ok||!csSaveRetryable(res.kind)){
+          if(_csBar&&_csBar.resolve===resolve){ _csBar=null; csBarHide(); }
+          if(!res.ok) csSaveRefused(res,opts);
+          resolve(res); return;
+        }
+        if(_csBar&&_csBar.resolve!==resolve){ var old=_csBar; _csBar=null; old.resolve({ok:false, kind:'dismissed'}); }
+        _csBar={resolve:resolve, attempt:attempt, busy:false};
+        csBarShow(CS_SAVE_MSG[res.kind]||CS_SAVE_MSG.server,true);
+      });
+    };
+    attempt();
+  });
+}
+// The plain message for a save Retry cannot fix.
+function csSaveRefused(res,opts){
+  if(res.kind==='expired'||res.kind==='signin'){ if(opts.onSignin) opts.onSignin(res); else csExecResignin(); return; }
+  if(opts.quiet) return;
+  var msg=res.kind==='stale'?res.msg
+    :res.kind==='lock'?'Not saved: another exec is running ratings for this right now. Try again in a few minutes.'
+    :res.kind==='taken'?'Not saved: someone else already saved this score.'
+    :'Not saved: '+((res.j&&res.j.error)||'that change was refused.');
+  csBarShow(msg,false);
+}
+// The exec token for worker saves; '' sends the exec to sign in again.
+function csExecToken(){ return tnScToken(); }
+
+// ---- Expired sign-in: keep what was entered, sign in again ---------------------
+// Drafts live in memory only (never storage) and come back once, after the next sign-in on this
+// page: the tournament card's state at the coach sign-in, a Kings Night's when that night's
+// listener attaches again, a member's Kings Night entries when their nights attach again.
+var _csKept=null;
+function csCopy(v){ try { return v==null?v:JSON.parse(JSON.stringify(v)); } catch(e){ return null; } }
+function csExecResignin(){
+  _csKept={kind:'exec', at:Date.now(),
+    tn:{ui:csCopy(_tnUi), gd:csCopy(_tnGd), wiz:csCopy(typeof _tnWiz==='undefined'?null:_tnWiz)},
+    pt:_ptTid?{tid:_ptTid, draft:csCopy(_ptDraft), base:csCopy(_ptDraftBase), editGid:_ptEditGid, ui:csCopy(_ptUi), setup:csCopy(_ptSetup), view:csCopy(_ptView), pool:_ptPoolTab}:null};
+  if(typeof tnScClose==='function') tnScClose();
+  logout();
+  csBarShow('Your exec session ended. Sign in again. What you entered is kept: check it, then save again.',false);
+}
+function csMemberResignin(){
+  _csKept={kind:'member', at:Date.now(), pid:currentPlayerId, draft:csCopy(_ptpDraft), editGid:_ptpEditGid};
+  logout();
+  csBarShow('Sign in again to save your Kings Night score. What you entered is kept.',false);
+}
+function csKeptFresh(kind){
+  if(!_csKept||_csKept.kind!==kind) return null;
+  if(Date.now()-_csKept.at>12*60*60*1000){ _csKept=null; return null; }
+  return _csKept;
+}
+// Called at the coach sign-in: the tournament card's drafts, busy cleared.
+function csRestoreExecDrafts(){
+  var k=csKeptFresh('exec'); if(!k||!k.tn) return;
+  if(k.tn.ui) _tnUi=Object.assign(tnUiDefaults(),k.tn.ui,{busy:false});
+  if(k.tn.gd) _tnGd=Object.assign(tnGdDefaults(),k.tn.gd);
+  if(k.tn.wiz&&typeof _tnWiz!=='undefined') _tnWiz=k.tn.wiz;
+  k.tn=null;
+  if(!k.pt) _csKept=null;
+}
+// Called when a Kings Night listener attaches (ptAttach): that night's exec drafts.
+function csRestoreNightDrafts(tid){
+  var k=csKeptFresh('exec'); if(!k||!k.pt||k.pt.tid!==tid) return;
+  _ptDraft=k.pt.draft||{}; _ptDraftBase=k.pt.base||{}; _ptEditGid=k.pt.editGid||null; _ptUi=Object.assign({add:'',addPool:'',drop:''},k.pt.ui||{});
+  _ptSetup=k.pt.setup||null; _ptView=k.pt.view||{}; _ptPoolTab=k.pt.pool||'kings';
+  k.pt=null;
+  if(!k.tn) _csKept=null;
+}
+// Called when a member's Kings Night nights attach (ptpSync): their entries, same member only.
+function csRestoreMemberDrafts(){
+  var k=csKeptFresh('member'); if(!k) return;
+  _csKept=null;
+  if(k.pid!==currentPlayerId) return;
+  _ptpDraft=Object.assign({},k.draft||{},_ptpDraft); _ptpEditGid=k.editGid||_ptpEditGid;
+}
+// The value at a slash path inside obj (undefined when absent), for the retry re-check.
+function csAt(obj,rel){
+  var n=obj; var ks=String(rel).split('/');
+  for(var i=0;i<ks.length;i++){ if(!n||typeof n!=='object') return undefined; n=n[ks[i]]; }
+  return n;
+}
+function csSame(a,b){ return JSON.stringify(a==null?null:a)===JSON.stringify(b==null?null:b); }
+// A retry resends only when every path it writes still holds what it held before the first try,
+// or already holds the new value (the first try landed and only its answer was lost).
+function csUnchanged(now,before,set){
+  return Object.keys(set).every(function(rel){
+    if(/(^|\/)updatedAt$/.test(rel)) return true; // a timestamp any save moves, not a change to the thing
+    var cur=csAt(now,rel);
+    return csSame(cur,set[rel])||csSame(cur,before[rel]);
+  });
+}
+var CS_STALE_MSG='Not saved: this changed on another phone since you tried. Check it and save again.';
+// ===== CLUB WORKER SAVES END =====
+
 // ---- Write guard ----------------------------------------------------------
 // Approves an update map only when every key is one of:
 //   DB_ROOT/tournaments/{tid}/meta, meta/status, meta/updatedAt, meta/location,
@@ -14392,11 +14558,35 @@ function tnWritePaths(tid,paths){
     return false;
   });
 }
+// Saves through /club/tournament-exec-write (the worker applies its own copy of the guard above).
+// Paths go as tournament-relative (meta/status) or listing/{divId}/{field} for the partner page.
+// Resolves true only once the worker confirms; see CLUB WORKER SAVES for failures and Retry.
+function tnWriteRel(tid,updates){
+  var base=DB_ROOT+'/tournaments/'+tid+'/', lbase=TN_PICKUP_ROOT+'/club-'+tid+'-', set={};
+  Object.keys(updates).forEach(function(p){
+    if(p.indexOf(base)===0) set[p.slice(base.length)]=updates[p];
+    else if(p.indexOf(lbase)===0) set['listing/'+p.slice(lbase.length)]=updates[p];
+  });
+  return set;
+}
 function tnWrite(tid,updates){
   if(!tnWritePaths(tid,updates)){ console.error('tournament write refused', Object.keys(updates||{})); toast('That change was blocked. Nothing was saved.'); return Promise.resolve(false); }
   if(!db){ toast('Not connected. Nothing was saved.'); return Promise.resolve(false); }
-  return db.ref().update(JSON.parse(JSON.stringify(updates))).then(function(){ return true; })
-    .catch(function(err){ _fbWriteFailed('save','tournaments/'+tid,err); return false; });
+  var set=tnWriteRel(tid,JSON.parse(JSON.stringify(updates)));
+  // What the tournament held at each path before the first try, for the retry re-check.
+  var before={}, tour=(_tnList||{})[tid]||{};
+  Object.keys(set).forEach(function(rel){ if(rel.indexOf('listing/')!==0) before[rel]=csCopy(csAt(tour,rel)); });
+  var tries=0;
+  return csSave(function(){
+    var tok=csExecToken();
+    if(!tok) return {ok:false, kind:'expired'};
+    if(tries++>0){
+      var now=(_tnList||{})[tid]||{}, mine={};
+      Object.keys(before).forEach(function(rel){ mine[rel]=set[rel]; });
+      if(!csUnchanged(now,before,mine)) return {ok:false, kind:'stale', msg:CS_STALE_MSG};
+    }
+    return csWorkerPost('/club/tournament-exec-write',{slug:TN_SLUG, tid:tid, exec:tok, set:set});
+  }).then(function(res){ return !!res.ok; });
 }
 
 // ---- Reads ----------------------------------------------------------------
@@ -15337,7 +15527,8 @@ function tnGdEdit(mid){
   var hit=tnGdMatch(t,mid); if(!hit||!hit.m.t1||!hit.m.t2) return;
   var fmt=tnGdFmt(t,hit.divId,hit.phase), n=(+fmt.bestOf===3)?3:1, r=tnGdResults(t)[mid], sets=[];
   for(var i=0;i<n;i++){ var s=r&&tnArr(r.sets)[i]; sets.push({a:s?String(s.a):'', b:s?String(s.b):''}); }
-  _tnGd.edit={mid:mid, sets:sets};
+  // base: the score this edit started from, so a save never replaces one saved meanwhile.
+  _tnGd.edit={mid:mid, sets:sets, base:tnScoreKey(r)};
   tnCardRender();
 }
 function tnGdCancel(){ _tnGd.edit=null; tnCardRender(); }
@@ -15378,30 +15569,55 @@ function tnGdRefresh(){
   if(msg){ msg.textContent=c.msg; msg.style.color=c.ok?'#1e7e34':'var(--red)'; }
   if(save){ save.disabled=!c.ok||_tnUi.busy; save.style.opacity=c.ok?'1':'.5'; }
 }
+// A stored result's score as text ('' for none), to tell whether it changed under an edit.
+function tnScoreKey(r){ return r?JSON.stringify({s:tnArr(r.sets).map(function(x){ return [+x.a,+x.b]; }), w:r.winner||'', by:r.by||'', at:r.at||0}):''; }
+// Before each try: the match's score is still the one this edit started from. A score saved
+// meanwhile (a ref, a court, another exec) is never replaced or cleared unseen.
+function tnGdScoreMoved(tid,mid,base){
+  var r=tnGdResults((_tnList||{})[tid])[mid];
+  if(tnScoreKey(r)===base) return null;
+  var T=tnTeams((_tnList||{})[tid]);
+  var txt=r?tnArr(r.sets).map(function(x){ return x.a+'-'+x.b; }).join(', '):'';
+  return {ok:false, kind:'stale', msg:r?'Not saved: '+String(r.by||'Someone')+' saved a score for this match meanwhile ('+txt+(r.winner&&T[r.winner]?', '+String(T[r.winner].name||'Team')+' won':'')+'). Open it again to check.'
+    :'Not saved: this match\'s score was cleared meanwhile. Open it again to check.'};
+}
+// Saves through /club/tournament-exec-score: the worker finds the match, checks the score for
+// its format, keeps a roster stamp and clears a live record.
 function tnGdSaveScore(){
   var t=tnCur(); if(!t||_tnUi.busy) return;
   if(t.meta.status!=='pools'&&t.meta.status!=='playoffs'){ toast('Start pool play to enter scores'); return; }
   var c=tnGdCheck(t); if(!c.ok){ toast(c.msg); return; }
-  var tid=_tnUi.tid, u={}, mid=_tnGd.edit.mid;
+  var tid=_tnUi.tid, mid=_tnGd.edit.mid, base=_tnGd.edit.base;
   // A match being scored live from a ref's phone: the exec score replaces it.
   var live=t.live&&t.live[mid];
   if(live&&!window.confirm('This match is being scored live right now. Save your score instead? It replaces the live score.')) return;
-  u[DB_ROOT+'/tournaments/'+tid+'/results/'+mid]={t1:c.hit.m.t1, t2:c.hit.m.t2,
-    sets:c.sets.map(function(s){ return {a:+s.a, b:+s.b}; }), winner:c.winner, at:Date.now(), by:ptBy(), byRole:'exec'};
-  // A roster stamped by Replace player stays with the match when the exec edits its score.
-  var stamp=(tnGdResults(t)[mid]||{}).roster;
-  if(stamp&&typeof stamp==='object') u[DB_ROOT+'/tournaments/'+tid+'/results/'+mid].roster=stamp;
-  if(live) u[DB_ROOT+'/tournaments/'+tid+'/live/'+mid]=null;
-  _tnUi.busy=true;
-  tnWrite(tid,u).then(function(ok){ _tnUi.busy=false; if(ok){ _tnGd.edit=null; toast('Score saved'); } tnCardRender(); });
+  if(!db){ toast('Not connected. Nothing was saved.'); return; }
+  var sets=c.sets.map(function(s){ return {a:+s.a, b:+s.b}; });
+  _tnUi.busy=true; tnCardRender();
+  var tries=0, by=ptBy();
+  csSave(function(){
+    var tok=csExecToken(); if(!tok) return {ok:false, kind:'expired'};
+    if(tries++>0){
+      // A retry after a lost answer: our score is already there, so it saved.
+      var r=tnGdResults((_tnList||{})[tid])[mid];
+      if(r&&r.byRole==='exec'&&r.by===by&&JSON.stringify(tnArr(r.sets).map(function(x){ return [+x.a,+x.b]; }))===JSON.stringify(sets.map(function(x){ return [x.a,x.b]; }))) return {ok:true, kind:'ok', j:{ok:true}};
+    }
+    return tnGdScoreMoved(tid,mid,base)||csWorkerPost('/club/tournament-exec-score',{slug:TN_SLUG, tid:tid, exec:tok, by:by, mid:mid, action:'set', sets:sets});
+  }).then(function(res){ _tnUi.busy=false; if(res.ok){ _tnGd.edit=null; toast('Score saved'); } tnCardRender(); });
 }
 function tnGdClearScore(){
   var t=tnCur(), e=_tnGd.edit; if(!t||!e||_tnUi.busy) return;
   if(!tnGdResults(t)[e.mid]) return;
   if(!window.confirm('Clear this score? The match goes back to not played.')) return;
-  var tid=_tnUi.tid, u={}; u[DB_ROOT+'/tournaments/'+tid+'/results/'+e.mid]=null;
-  _tnUi.busy=true;
-  tnWrite(tid,u).then(function(ok){ _tnUi.busy=false; if(ok){ _tnGd.edit=null; toast('Score cleared'); } tnCardRender(); });
+  if(!db){ toast('Not connected. Nothing was saved.'); return; }
+  var tid=_tnUi.tid, mid=e.mid, base=e.base;
+  _tnUi.busy=true; tnCardRender();
+  csSave(function(){
+    var tok=csExecToken(); if(!tok) return {ok:false, kind:'expired'};
+    var r=tnGdResults((_tnList||{})[tid])[mid];
+    if(!r) return {ok:true, kind:'ok', j:{ok:true}}; // already gone: the first try landed
+    return tnGdScoreMoved(tid,mid,base)||csWorkerPost('/club/tournament-exec-score',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), mid:mid, action:'clear'});
+  }).then(function(res){ _tnUi.busy=false; if(res.ok){ _tnGd.edit=null; toast('Score cleared'); } tnCardRender(); });
 }
 
 // ---- Render ------------------------------------------------------------------
@@ -15918,17 +16134,33 @@ function tnRateResolveAll(ck,accounts){
   }
   return out;
 }
+// The End tournament lock, held through /club/tournament-rating-run (the worker makes each change a
+// conditional write, so two execs can never both hold it). Resolves to a csWorkerPost answer:
+// ok, or kind 'lock' (held by another run, or no longer ours), 'expired', 'offline', ...
 function tnRateLock(tid,token,mode){
-  if(!db) return Promise.resolve(true);
-  var now=Date.now();
-  return db.ref(tnNodePath(tid)+'/meta/ratingRun').transaction(function(cur){
-    if(mode==='claim'){
-      if(cur&&cur.token!==token&&typeof cur.at==='number'&&now-cur.at<PT_RATE_LOCK_MS) return;
-      return {token:token, by:ptBy(), at:now};
-    }
-    if(!cur||cur.token!==token) return;
-    return mode==='beat'?{token:token, by:cur.by||'', at:now}:null;
-  }).then(function(r){ return !!(r&&r.committed); }).catch(function(){ return false; });
+  if(!db) return Promise.resolve({ok:true, kind:'ok'});
+  var tok=csExecToken(); if(!tok) return Promise.resolve({ok:false, kind:'expired'});
+  return csWorkerPost('/club/tournament-rating-run',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:mode, token:token});
+}
+// Rating marks on one result (rated, ratedAt, ratedNote, ratedGameIds, ratedTs), from an update map
+// on results/{mid}/... paths, under the run's lock. Resolves to a csWorkerPost answer.
+function tnRateMark(tid,token,upd){
+  var marks={}, mid='', pre=tnNodePath(tid)+'/results/';
+  Object.keys(upd).forEach(function(p){
+    if(p.indexOf(pre)!==0) return;
+    var rest=p.slice(pre.length), i=rest.lastIndexOf('/');
+    mid=rest.slice(0,i); marks[rest.slice(i+1)]=upd[p];
+  });
+  if(!db) return tnWrite(tid,upd).then(function(ok){ return {ok:ok, kind:ok?'ok':'server'}; });
+  var tok=csExecToken(); if(!tok) return Promise.resolve({ok:false, kind:'expired'});
+  return csWorkerPost('/club/tournament-rating-run',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'mark', token:token, mid:mid, marks:JSON.parse(JSON.stringify(marks))});
+}
+// What a rating run tells the exec when a lock or mark call fails.
+function tnRateFailMsg(res,where){
+  if(res.kind==='lock') return 'Ratings stopped'+where+': another exec took over this rating run. Tap Retry ratings to finish.';
+  if(res.kind==='expired') return 'Ratings stopped'+where+': your exec session ended. Sign in again, then tap Retry ratings.';
+  if(res.kind==='offline') return 'Ratings stopped'+where+': no signal. Tap Retry ratings when you have signal.';
+  return 'Ratings stopped'+where+'. Tap Retry ratings to finish.';
 }
 function tnMatchLabel(t,mid){
   var r=tnGdResults(t)[mid]||{}, T=tnTeams(t);
@@ -15936,20 +16168,20 @@ function tnMatchLabel(t,mid){
   return n(r.t1)+' vs '+n(r.t2);
 }
 // Rate one result. 'next' moves on, 'stop' ends the run so a retry picks up from here.
-async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
+async function tnRateOne(tid,t,mid,accounts,tsMap,sum,token){
   var r=tnGdResults(t)[mid], path=tnNodePath(tid)+'/results/'+mid+'/', upd={};
   var ck=tnRateCheck(t,mid);
   if(ck.kind!=='rate'){
     upd[path+'rated']=ck.kind==='defer'?'deferred':'skipped'; upd[path+'ratedNote']=ck.note;
     if(ck.kind==='defer'){ sum.deferred++; sum.deferredList.push({label:tnMatchLabel(t,mid), note:ck.note}); } else sum.skipped.push({label:tnMatchLabel(t,mid), note:ck.note});
-    return (await tnWrite(tid,upd))?'next':'stop';
+    return (await tnRateMarkOk(tid,token,upd,sum))?'next':'stop';
   }
   var rv=tnRateResolveAll(ck,accounts);
   if(!rv) return 'stop';
   if(rv.blocker){
     upd[path+'rated']='skipped'; upd[path+'ratedNote']=rv.blocker+' '+rv.reason;
     sum.skipped.push({label:tnMatchLabel(t,mid), note:rv.blocker+' '+rv.reason});
-    return (await tnWrite(tid,upd))?'next':'stop';
+    return (await tnRateMarkOk(tid,token,upd,sum))?'next':'stop';
   }
   var players=ck.t1.concat(ck.t2);
   var keys=players.map(function(p){ return rv.byAcct[p.accountId].key; }).filter(function(k,i,a){ return a.indexOf(k)===i; });
@@ -15962,7 +16194,7 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
   if(before.every(function(n){ return n===keys.length; })){
     upd[path+'rated']=true; upd[path+'ratedAt']=Date.now(); upd[path+'ratedGameIds']=gids; upd[path+'ratedNote']=null;
     sum.rated++;
-    return (await tnWrite(tid,upd))?'next':'stop';
+    return (await tnRateMarkOk(tid,token,upd,sum))?'next':'stop';
   }
   for(var j=0;j<players.length;j++){
     var p=players[j], res=rv.byAcct[p.accountId];
@@ -15972,11 +16204,11 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
     if(made==='taken'){
       upd[path+'rated']='skipped'; upd[path+'ratedNote']=String(p.name||'A player')+' needs a rating link';
       sum.skipped.push({label:tnMatchLabel(t,mid), note:String(p.name||'A player')+' needs a rating link'});
-      return (await tnWrite(tid,upd))?'next':'stop';
+      return (await tnRateMarkOk(tid,token,upd,sum))?'next':'stop';
     }
   }
   upd[path+'rated']='pending'; upd[path+'ratedGameIds']=gids; upd[path+'ratedTs']=ts; upd[path+'ratedNote']=null;
-  if(!(await tnWrite(tid,upd))) return 'stop';
+  if(!(await tnRateMarkOk(tid,token,upd,sum))) return 'stop';
   var names=function(side){ return side.map(function(p){ return rv.byAcct[p.accountId].name; }); };
   var partial=false;
   for(var k=0;k<gids.length;k++){
@@ -15994,19 +16226,37 @@ async function tnRateOne(tid,t,mid,accounts,tsMap,sum){
   done[path+'ratedAt']=Date.now();
   done[path+'ratedNote']=partial?'Rated for some players only. An exec should check this match.':null;
   if(partial) sum.partial++; else sum.rated++;
-  return (await tnWrite(tid,done))?'next':'stop';
+  return (await tnRateMarkOk(tid,token,done,sum))?'next':'stop';
+}
+// One set of rating marks under the run's lock: true when saved; on failure the reason is kept on
+// sum.fail so the run stops with a specific message (lock lost, signed out, no signal).
+async function tnRateMarkOk(tid,token,upd,sum){
+  var res=await tnRateMark(tid,token,upd);
+  if(res.ok) return true;
+  sum.fail=res; return false;
 }
 // Lock, set final, then rate what is left. Safe to run again at any point.
 async function tnRateTournament(tid){
   var sum={rated:0, partial:0, games:0, deferred:0, deferredList:[], skipped:[], errors:[]};
   var token=gi('run');
-  if(!(await tnRateLock(tid,token,'claim'))){ sum.errors.push('Another exec is ending this tournament right now. Try again in a few minutes.'); return sum; }
+  var claim=await tnRateLock(tid,token,'claim');
+  if(!claim.ok){
+    sum.errors.push(claim.kind==='lock'?'Another exec is ending this tournament right now. Try again in a few minutes.':tnRateFailMsg(claim,' before it started').replace('Ratings stopped before it started','Ratings did not start'));
+    if(claim.kind==='expired') csExecResignin();
+    return sum;
+  }
+  var lost=false;
   try{
     var t=db?await db.ref(tnNodePath(tid)).once('value').then(function(s){ return s.val(); }).catch(function(){ return null; }):tnCur();
     if(!t||!t.meta){ sum.errors.push('The tournament could not be loaded.'); return sum; }
     if(t.meta.status!=='final'){
       var u={}; u[tnNodePath(tid)+'/meta/status']='final'; u[tnNodePath(tid)+'/meta/updatedAt']=Date.now();
-      if(!(await tnWrite(tid,u))){ sum.errors.push('The tournament could not be set to final.'); return sum; }
+      if(!db){ if(!(await tnWrite(tid,u))){ sum.errors.push('The tournament could not be set to final.'); return sum; } }
+      else {
+        var tok=csExecToken();
+        var fin=tok?await csWorkerPost('/club/tournament-rating-run',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'final', token:token}):{ok:false, kind:'expired'};
+        if(!fin.ok){ lost=fin.kind==='lock'; sum.errors.push(fin.kind==='lock'||fin.kind==='expired'||fin.kind==='offline'?tnRateFailMsg(fin,' before the tournament was set to final'):'The tournament could not be set to final.'); return sum; }
+      }
       t.meta.status='final';
     }
     if(!db||!window.Ratings||typeof Ratings.applyGame!=='function'){ sum.errors.push('Tournament ended. Ratings are unavailable right now, so use Retry ratings later.'); return sum; }
@@ -16015,12 +16265,19 @@ async function tnRateTournament(tid){
     var accounts=communityPlayersNow()||{};
     var queue=tnRateQueue(t), tsMap=tnRateTimes(t);
     for(var i=0;i<queue.length;i++){
-      if((await tnRateOne(tid,t,queue[i],accounts,tsMap,sum))==='stop'){ sum.errors.push('Ratings stopped partway at '+tnMatchLabel(t,queue[i])+'. Tap Retry ratings to finish.'); return sum; }
-      await tnRateLock(tid,token,'beat');
+      if((await tnRateOne(tid,t,queue[i],accounts,tsMap,sum,token))==='stop'){
+        var f=sum.fail; delete sum.fail;
+        if(f&&f.kind==='lock') lost=true;
+        sum.errors.push(f?tnRateFailMsg(f,' partway at '+tnMatchLabel(t,queue[i])):'Ratings stopped partway at '+tnMatchLabel(t,queue[i])+'. Tap Retry ratings to finish.');
+        return sum;
+      }
+      // The heartbeat: a run that lost its lock stops here instead of rating beside another exec.
+      var beat=await tnRateLock(tid,token,'beat');
+      if(!beat.ok&&beat.kind==='lock'&&i<queue.length-1){ lost=true; sum.errors.push(tnRateFailMsg(beat,' partway at '+tnMatchLabel(t,queue[i+1]))); return sum; }
     }
     return sum;
   } finally {
-    await tnRateLock(tid,token,'release');
+    if(!lost) await tnRateLock(tid,token,'release');
   }
 }
 // Brackets that are not finished: each division with pools needs a champion, and its Silver
@@ -20218,6 +20475,8 @@ var _ptRef=null, _ptHandler=null;
 var _ptData;              // undefined while loading, null when none exists, else the node
 var _ptSetup=null;        // this device's setup choices while meta.status is 'setup'
 var _ptDraft={};          // gid -> { s1, s2 } typed but not saved, kept across redraws
+var _ptDraftBase={};      // gid -> the stored score a draft started from ('' none), for the save re-check
+var _ptSaving={};         // gid -> true while that game's exec score save is in flight
 var _ptEditGid=null;      // the result being edited, if any
 var _ptView={};           // pool -> round index picked in the round view (absent means current)
 var _ptPoolTab='kings';   // which pool shows on a Kings and Queens night
@@ -20232,6 +20491,8 @@ function ptAttach(sid){
   ptDetach();
   if(!tid) return;
   _ptTid=tid;
+  // After an expired exec sign-in: what was entered on this night comes back (live only; a demo never keeps any).
+  if(db) csRestoreNightDrafts(tid);
   // Club demo: the night lives in the in-memory club, shared with the member card.
   if(!db&&DEMO_CLUB){ _ptData=(D.practiceTournaments||{})[tid]||null; return; }
   if(!db){ _ptData=null; return; }
@@ -20247,7 +20508,7 @@ function ptAttach(sid){
 function ptDetach(){
   if(_ptRef&&_ptHandler) _ptRef.off('value',_ptHandler);
   _ptRef=null; _ptHandler=null; _ptTid=null; _ptData=undefined; _ptSetup=null;
-  _ptDraft={}; _ptEditGid=null; _ptView={}; _ptUi={add:'',addPool:'',drop:''}; _ptBusy=false;
+  _ptDraft={}; _ptDraftBase={}; _ptSaving={}; _ptEditGid=null; _ptView={}; _ptUi={add:'',addPool:'',drop:''}; _ptBusy=false;
 }
 
 // ---- Reads over the live node --------------------------------------------
@@ -20306,11 +20567,20 @@ function ptScoreVal(v){
 // One multi-path update under practiceTournaments/{tid}, so each action lands whole or not at all.
 // Live mode needs no local mirror: the listener sees the change at once. Demo mode (no db) applies
 // the same paths to the in-memory node so the screen still moves.
+// Live: through /club/kings-night-exec (action update, the worker's allow-list of these paths).
+// Resolves true only once the worker confirms; failures show Not saved with Retry, and a retry
+// resends only if the night still holds what it held before the first try.
 function ptUpdate(updates){
   if(!_ptTid) return Promise.resolve(false);
   var clean=JSON.parse(JSON.stringify(updates));
   if(!db){ ptMirror(clean); if(DEMO_CLUB) _demoKeepNight(_ptTid); renderPracticeCheckin(); return Promise.resolve(true); }
-  return fbUpdateAt(DB_ROOT+'/practiceTournaments/'+_ptTid, clean);
+  var tid=_ptTid, before={}, tries=0;
+  Object.keys(clean).forEach(function(rel){ before[rel]=csCopy(csAt(_ptData||{},rel)); });
+  return csSave(function(){
+    var tok=csExecToken(); if(!tok) return {ok:false, kind:'expired'};
+    if(tries++>0&&!csUnchanged(_ptTid===tid?(_ptData||{}):{},before,clean)) return {ok:false, kind:'stale', msg:CS_STALE_MSG};
+    return csWorkerPost('/club/kings-night-exec',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'update', set:clean});
+  }).then(function(res){ return !!res.ok; });
 }
 // Club demo: keep the open night in the in-memory club so the leaderboard and the member card see
 // the same night the exec is running. Demo only (called from the !db branches).
@@ -20722,8 +20992,13 @@ function ptDelete(){
   if(ptHasResults()){ toast('Scores are in. Use End Night instead.'); return; }
   if(!window.confirm('Delete tonight\'s Kings Night? Its setup and rounds will be removed.')) return;
   var tid=_ptTid;
-  _ptBusy=true;
-  fbSet('practiceTournaments/'+tid,null).then(function(ok){
+  _ptBusy=true; renderPracticeCheckin();
+  // Live: the explicit delete action on /club/kings-night-exec (refused there too once a score is in).
+  var del=!db?fbSet('practiceTournaments/'+tid,null):csSave(function(){
+    var tok=csExecToken(); if(!tok) return {ok:false, kind:'expired'};
+    return csWorkerPost('/club/kings-night-exec',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'delete'});
+  }).then(function(res){ return !!res.ok; });
+  del.then(function(ok){
     _ptBusy=false;
     if(ok){ if(!db&&_ptTid===tid) _ptData=null; _ptSetup=null; _ptView={}; toast('Kings Night deleted'); }
     renderPracticeCheckin();
@@ -20760,10 +21035,17 @@ function ptReadTid(tid){
   return db.ref(ptNodePath(tid)).once('value').then(function(s){ return s.val(); }).catch(function(){ return null; });
 }
 // Multi-path write under one night's node, any night (the open one or one from the banner).
-function ptWriteTid(tid,updates){
+// The rating run's writes (status final, endedAt, rating marks), under the run's lock token. Live:
+// /club/kings-night-exec action rate. Resolves true on success; on failure the answer is kept in
+// _ptRateFail so the run can say why it stopped.
+var _ptRateFail=null;
+function ptWriteTid(tid,updates,token){
   var clean=JSON.parse(JSON.stringify(updates));
   if(!db){ if(tid===_ptTid){ ptMirror(clean); if(DEMO_CLUB) _demoKeepNight(tid); renderPracticeCheckin(); } return Promise.resolve(true); }
-  return fbUpdateAt(ptNodePath(tid),clean);
+  var tok=csExecToken();
+  if(!tok){ _ptRateFail={ok:false, kind:'expired'}; return Promise.resolve(false); }
+  return csWorkerPost('/club/kings-night-exec',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'rate', token:token, set:clean})
+    .then(function(res){ if(!res.ok) _ptRateFail=res; return !!res.ok; });
 }
 // Rating weight for a team size. A page still holding an older ratings.js has no weights and
 // would rate 3s and 4s as full games, so ptRateWeightReady holds those back until a reload.
@@ -20842,26 +21124,29 @@ function ptAppliedCount(keys,gameId,ts){
       .then(function(s){ return (s[0].val()!=null||s[1].val()===ts)?1:0; });
   })).then(function(a){ return a.reduce(function(x,y){ return x+y; },0); }).catch(function(){ return null; });
 }
+// The night's rating lock, through /club/kings-night-exec action lock (a conditional write on the
+// worker). Resolves to a csWorkerPost answer; a demo always holds it.
 function ptLock(tid,token,mode){
-  if(!db) return Promise.resolve(true);
-  var now=Date.now();
-  return db.ref(ptNodePath(tid)+'/meta/ratingRun').transaction(function(cur){
-    if(mode==='claim'){
-      if(cur&&cur.token!==token&&typeof cur.at==='number'&&now-cur.at<PT_RATE_LOCK_MS) return;
-      return {token:token, by:ptBy(), at:now};
-    }
-    if(!cur||cur.token!==token) return;
-    return mode==='beat'?{token:token, by:cur.by||'', at:now}:null;
-  }).then(function(r){ return !!(r&&r.committed); }).catch(function(){ return false; });
+  if(!db) return Promise.resolve({ok:true, kind:'ok'});
+  var tok=csExecToken(); if(!tok) return Promise.resolve({ok:false, kind:'expired'});
+  return csWorkerPost('/club/kings-night-exec',{slug:TN_SLUG, tid:tid, exec:tok, by:ptBy(), action:'lock', mode:mode, token:token});
+}
+// Why a Kings Night rating run stopped, in plain words.
+function ptRateFailMsg(res){
+  var who=COACH_LABEL.toLowerCase();
+  if(res&&res.kind==='lock') return 'Ratings stopped: another '+who+' took over rating this night. Tap Retry to finish.';
+  if(res&&res.kind==='expired') return 'Ratings stopped: your '+who+' session ended. Sign in again, then tap Retry.';
+  if(res&&res.kind==='offline') return 'Ratings stopped: no signal. Tap Retry when you have signal.';
+  return 'Ratings stopped partway. Tap Retry to finish.';
 }
 // Rate one result. 'next' moves on, 'stop' ends the run so a retry picks up from here.
-async function ptRateOne(tid,data,gid,accounts,tsFor){
+async function ptRateOne(tid,data,gid,accounts,tsFor,token){
   var r=data.results[gid], gameId=tid+'_'+gid, path='results/'+gid+'/', upd={};
   var rv=ptResolveResult(r);
   if(rv.blocker!==null){
     upd[path+'rated']='skipped';
     upd[path+'ratedNote']=(ptNameOf(data,rv.blocker)||'A player')+' '+rv.reason;
-    return (await ptWriteTid(tid,upd))?'next':'stop';
+    return (await ptWriteTid(tid,upd,token))?'next':'stop';
   }
   var keys=rv.ids.map(function(id){ return rv.byId[id].key; }).filter(function(k,i,a){ return a.indexOf(k)===i; });
   // The rating time: the one saved when this game went pending, else r.at for a game left pending
@@ -20874,7 +21159,7 @@ async function ptRateOne(tid,data,gid,accounts,tsFor){
     upd[path+'ratedGameId']=gameId;
     upd[path+'ratedNote']=(before===keys.length)?null:'Rated for some players only. An exec should check this game.';
     if(before===keys.length) upd[path+'ratedAt']=Date.now();
-    return (await ptWriteTid(tid,upd))?'next':'stop';
+    return (await ptWriteTid(tid,upd,token))?'next':'stop';
   }
   for(var i=0;i<rv.ids.length;i++){
     var id=rv.ids[i], res=rv.byId[id];
@@ -20884,11 +21169,11 @@ async function ptRateOne(tid,data,gid,accounts,tsFor){
     if(made==='taken'){
       upd[path+'rated']='skipped';
       upd[path+'ratedNote']=(ptNameOf(data,id)||'A player')+' needs a rating link';
-      return (await ptWriteTid(tid,upd))?'next':'stop';
+      return (await ptWriteTid(tid,upd,token))?'next':'stop';
     }
   }
   upd[path+'rated']='pending'; upd[path+'ratedGameId']=gameId; upd[path+'ratedNote']=null; upd[path+'ratedTs']=ts;
-  if(!(await ptWriteTid(tid,upd))) return 'stop';
+  if(!(await ptWriteTid(tid,upd,token))) return 'stop';
   var names=function(side){ return ptArr(side).map(function(id){ return rv.byId[id].name; }); };
   // 3s count half a game and 4s a quarter (Ratings.weightForTeamSize). 2s pass 1.0, today's call.
   await Ratings.applyGame({db:db, dbRoot:PT_RATINGS_ROOT, gameId:gameId, source:PT_RATE_SOURCE, ts:ts,
@@ -20899,7 +21184,7 @@ async function ptRateOne(tid,data,gid,accounts,tsFor){
   done[path+'rated']=(after===keys.length)?true:'partial';
   if(after===keys.length) done[path+'ratedAt']=Date.now();
   else done[path+'ratedNote']='Rated for some players only. An exec should check this game.';
-  return (await ptWriteTid(tid,done))?'next':'stop';
+  return (await ptWriteTid(tid,done,token))?'next':'stop';
 }
 // A strictly increasing rating time for every result of the night, in score order: the first
 // game keeps its entry time, and a tie moves the later game 1 ms on. Two games sharing a player
@@ -20914,14 +21199,21 @@ function ptRateTimes(results){
 }
 // Lock the night, then rate what is left. Safe to run again at any point: see the header above.
 async function ptRateNight(tid){
-  var token=gi('run');
-  if(!(await ptLock(tid,token,'claim'))){ toast('Another '+COACH_LABEL.toLowerCase()+' is rating this night. Try again in a few minutes.'); return false; }
+  var token=gi('run'), lost=false;
+  var claim=await ptLock(tid,token,'claim');
+  if(!claim.ok){
+    if(claim.kind==='lock') toast('Another '+COACH_LABEL.toLowerCase()+' is rating this night. Try again in a few minutes.');
+    else if(claim.kind==='expired') csExecResignin();
+    else csBarShow(claim.kind==='offline'?'Not ended: no signal. Tap End Night again when you have signal.':'Not ended: CourtSense had a problem. Try End Night again.',false);
+    return false;
+  }
+  _ptRateFail=null;
   try{
     var data=await ptReadTid(tid);
     if(!data||!data.meta){ toast('That Kings Night could not be loaded'); return false; }
     if(data.meta.status!=='final'){
       var now=Date.now();
-      if(!(await ptWriteTid(tid,{'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now}))) return false;
+      if(!(await ptWriteTid(tid,{'meta/status':'final','meta/endedAt':now,'meta/updatedAt':now},token))){ if(_ptRateFail&&_ptRateFail.kind==='lock') lost=true; csBarShow(ptRateFailMsg(_ptRateFail).replace('Ratings stopped','Not ended'),false); return false; }
       data.meta.status='final';
     }
     if(!db&&DEMO_CLUB){
@@ -20933,7 +21225,7 @@ async function ptRateNight(tid){
       _demoRateResults(only);
       var dupd={}, dnow=Date.now();
       dq.forEach(function(gid){ dupd['results/'+gid+'/rated']=true; dupd['results/'+gid+'/ratedAt']=dnow; });
-      await ptWriteTid(tid,dupd);
+      await ptWriteTid(tid,dupd,token);
       _pcRatingsIndex=null; _ppRating=null;
       return true;
     }
@@ -20945,12 +21237,19 @@ async function ptRateNight(tid){
     data.results=data.results||{};
     var queue=ptRateQueue(data.results), tsMap=ptRateTimes(data.results);
     for(var i=0;i<queue.length;i++){
-      if((await ptRateOne(tid,data,queue[i],accounts,tsMap[queue[i]]))==='stop'){ toast('Ratings stopped partway. Tap Retry to finish.'); return false; }
-      await ptLock(tid,token,'beat');
+      if((await ptRateOne(tid,data,queue[i],accounts,tsMap[queue[i]],token))==='stop'){
+        var f=_ptRateFail; _ptRateFail=null;
+        if(f&&f.kind==='lock') lost=true;
+        if(f) csBarShow(ptRateFailMsg(f),false); else toast('Ratings stopped partway. Tap Retry to finish.');
+        return false;
+      }
+      // The heartbeat: a run that lost its lock stops instead of rating beside another exec.
+      var beat=await ptLock(tid,token,'beat');
+      if(!beat.ok&&beat.kind==='lock'&&i<queue.length-1){ lost=true; csBarShow(ptRateFailMsg(beat),false); return false; }
     }
     return true;
   } finally {
-    await ptLock(tid,token,'release');
+    if(!lost) await ptLock(tid,token,'release');
   }
 }
 // End Night, step one: a preview with no writes. Works for the open night or one from the banner.
@@ -21111,7 +21410,12 @@ function ptDrop(){
 function ptUiSet(field,val){ _ptUi[field]=val||''; if(field==='add') _ptUi.addPool=''; renderPracticeCheckin(); }
 function ptPickPool(pool){ _ptPoolTab=(pool==='queens')?'queens':'kings'; renderPracticeCheckin(); }
 function ptPickRound(pool,i){ _ptView[pool]=i; renderPracticeCheckin(); }
-function ptDraftSet(gid,side,val){ (_ptDraft[gid]=_ptDraft[gid]||{})[side]=val; }
+function ptDraftSet(gid,side,val){
+  if(!(gid in _ptDraftBase)) _ptDraftBase[gid]=ptScoreKey(ptResultsObj()[gid]);
+  (_ptDraft[gid]=_ptDraft[gid]||{})[side]=val;
+}
+// A stored Kings Night score as text ('' for none), to tell whether it changed under a draft.
+function ptScoreKey(r){ return r?JSON.stringify([+r.s1,+r.s2,r.by||'',r.at||0,r.editedAt||0]):''; }
 function ptFindGame(pool,gid){
   var found=null;
   ptRoundsFor(pool).forEach(function(rd){ rd.games.forEach(function(g){ if(g.gid===gid) found=g; }); });
@@ -21131,10 +21435,19 @@ function ptSaveScore(pool,gid){
   } else {
     rec={pool:pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:ptBy(), rated:false};
   }
+  // Live: a score saved by someone else since this draft began is never replaced unseen.
+  if(db&&(gid in _ptDraftBase)&&ptScoreKey(prev)!==_ptDraftBase[gid]){
+    csBarShow(prev?'Not saved: '+String(prev.by||'Someone')+' saved this game meanwhile ('+prev.s1+' to '+prev.s2+'). Your numbers are still here: tap Save again only to replace it.':'Not saved: the score for this game was cleared meanwhile. Your numbers are still here: tap Save to enter them.',false);
+    _ptDraftBase[gid]=ptScoreKey(prev); // seen now: a second Save is the exec's own choice
+    renderPracticeCheckin(); return;
+  }
+  if(_ptSaving[gid]) return; // a save for this game is already on its way
   var upd={}; upd['results/'+gid]=rec; upd['meta/updatedAt']=now;
+  _ptSaving[gid]=true; if(db) renderPracticeCheckin();
   ptUpdate(upd).then(function(ok){
-    if(!ok) return; // the draft stays on screen so nothing is retyped
-    delete _ptDraft[gid];
+    delete _ptSaving[gid];
+    if(!ok){ renderPracticeCheckin(); return; } // the draft stays on screen so nothing is retyped
+    delete _ptDraft[gid]; delete _ptDraftBase[gid];
     if(_ptEditGid===gid) _ptEditGid=null;
     toast(prev?'Score updated':'Score saved');
     renderPracticeCheckin();
@@ -21142,16 +21455,18 @@ function ptSaveScore(pool,gid){
 }
 function ptEditScore(gid){
   var r=ptResultsObj()[gid]; if(!r||ptMeta().status!=='active') return;
-  _ptEditGid=gid; _ptDraft[gid]={s1:String(r.s1), s2:String(r.s2)};
+  _ptEditGid=gid; _ptDraft[gid]={s1:String(r.s1), s2:String(r.s2)}; _ptDraftBase[gid]=ptScoreKey(r);
   renderPracticeCheckin();
 }
-function ptCancelEdit(){ if(_ptEditGid) delete _ptDraft[_ptEditGid]; _ptEditGid=null; renderPracticeCheckin(); }
+function ptCancelEdit(){ if(_ptEditGid){ delete _ptDraft[_ptEditGid]; delete _ptDraftBase[_ptEditGid]; } _ptEditGid=null; renderPracticeCheckin(); }
 function ptClearScore(gid){
   if(!ptGate()||ptMeta().status!=='active') return;
   if(!ptResultsObj()[gid]) return;
+  if(_ptSaving[gid]) return;
   if(!window.confirm('Clear this score? The game goes back to unplayed.')) return;
   var upd={}; upd['results/'+gid]=null; upd['meta/updatedAt']=Date.now();
-  ptUpdate(upd).then(function(ok){ if(ok){ if(_ptEditGid===gid) _ptEditGid=null; delete _ptDraft[gid]; toast('Score cleared'); renderPracticeCheckin(); } });
+  _ptSaving[gid]=true;
+  ptUpdate(upd).then(function(ok){ delete _ptSaving[gid]; if(ok){ if(_ptEditGid===gid) _ptEditGid=null; delete _ptDraft[gid]; delete _ptDraftBase[gid]; toast('Score cleared'); renderPracticeCheckin(); } });
 }
 
 // ---- Tournament section of the Practice Check-in panel --------------------
@@ -21377,6 +21692,7 @@ function ptpSync(){
     ref.on('value',handler,function(err){ console.warn('kings night read failed',err); });
   });
   if(!want.length){ _ptpDraft={}; _ptpEditGid=null; _ptpNotice=null; }
+  else csRestoreMemberDrafts(); // after Sign in again: the numbers this member had entered
   ptpRender();
 }
 function ptpDetachAll(){
@@ -21421,11 +21737,6 @@ function ptpFindGame(data,gid){
   return found;
 }
 function ptpMyName(){ var p=gP(currentPlayerId); return p?(((p.firstName||'')+' '+(p.lastName||'')).trim()||currentPlayerId):currentPlayerId; }
-function ptpStatusIsActive(tid){
-  if(!db&&DEMO_CLUB){ var dm=(((D.practiceTournaments||{})[tid])||{}).meta; return Promise.resolve(!!dm&&dm.status==='active'); }
-  return db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/meta/status').once('value')
-    .then(function(s){ return s.val()==='active'; }).catch(function(){ return false; });
-}
 function ptpDraftSet(gid,side,val){ (_ptpDraft[gid]=_ptpDraft[gid]||{})[side]=val; }
 // Save a first entry or an edit for a game this player is in.
 async function ptpSave(tid,gid){
@@ -21451,35 +21762,31 @@ async function ptpSave(tid,gid){
     ptpRender();
     return;
   }
-  _ptpBusy=true;
-  try{
-    if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
-    var tx=await db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/results/'+gid).transaction(function(cur){
-      if(!editing){
-        if(cur!==null) return; // someone already entered it; never overwrite
-        return {pool:hit.pool, t1:g.t1, t2:g.t2, s1:s1, s2:s2, at:now, by:by, byRole:'player', rated:false};
-      }
-      if(cur===null||ptArr(cur.t1).concat(ptArr(cur.t2)).indexOf(pid)<0) return;
-      return Object.assign({},cur,{s1:s1, s2:s2, editedAt:now, by:by, byRole:'player'});
-    });
-    var v=tx&&tx.snapshot?tx.snapshot.val():null;
-    if(tx&&tx.committed){
-      delete _ptpDraft[gid]; _ptpEditGid=null; _ptpNotice=null;
-      toast(editing?'Score updated':'Score saved');
-    } else if(!editing&&v){
-      _ptpNotice={tid:tid, gid:gid, text:'Score already entered: '+v.s1+' to '+v.s2};
-      delete _ptpDraft[gid];
-    } else {
-      toast('That score was cleared. Enter it again.');
-      _ptpEditGid=null;
-    }
-  }catch(e){
-    console.warn('player score save failed',e);
-    toast('Your score did not save. Check your connection and try again.');
-  }finally{
-    _ptpBusy=false;
-    ptpRender();
-  }
+  // Live: /club/kings-night-score with this member's worker session. The worker applies the same
+  // rules (active night, the member's own game, first entry never overwritten) and the answer
+  // decides what the screen says. A failure keeps the numbers on screen.
+  var tok=tnPlayerSessionToken();
+  if(!tok){ ptpSignInNotice(tid,gid); return; }
+  _ptpBusy=true; ptpRender();
+  var res=await csSave(function(){
+    var t2=tnPlayerSessionToken(); if(!t2) return {ok:false, kind:'signin'};
+    return csWorkerPost('/club/kings-night-score',{slug:TN_SLUG, tid:tid, sessionToken:t2, pid:pid, gid:gid, action:editing?'edit':'save', s1:s1, s2:s2});
+  },{quiet:true, onSignin:function(){ ptpSignInNotice(tid,gid); }});
+  _ptpBusy=false;
+  var j=res.j||{};
+  // A first entry whose answer was lost: the stored score is this member's own, so it saved.
+  if(!res.ok&&res.kind==='taken'&&!editing&&j.s1===s1&&j.s2===s2) res={ok:true};
+  if(res.ok){ delete _ptpDraft[gid]; _ptpEditGid=null; _ptpNotice=null; toast(editing?'Score updated':'Score saved'); }
+  else if(res.kind==='taken'){ _ptpNotice={tid:tid, gid:gid, text:'Score already entered: '+j.s1+' to '+j.s2}; delete _ptpDraft[gid]; }
+  else if(res.kind==='lock') toast('This Kings Night has ended, so scores are locked');
+  else if(j.code==='cleared'){ toast('That score was cleared. Enter it again.'); _ptpEditGid=null; }
+  else if(res.kind==='refused') csBarShow('Not saved: '+(j.error||'that score was refused.'),false);
+  ptpRender();
+}
+// No usable member session: say so beside the game, keep the numbers, offer Sign in again.
+function ptpSignInNotice(tid,gid){
+  _ptpNotice={tid:tid, gid:gid, signIn:true, text:'Sign in again to save this score. What you entered is kept.'};
+  ptpRender();
 }
 function ptpEdit(tid,gid){
   var r=((_ptpData[tid]||{}).results||{})[gid]; if(!r) return;
@@ -21498,21 +21805,22 @@ async function ptpClear(tid,gid){
     ptpRender();
     return;
   }
-  _ptpBusy=true;
-  try{
-    if(!(await ptpStatusIsActive(tid))){ toast('This Kings Night has ended, so scores are locked'); return; }
-    var tx=await db.ref(DB_ROOT+'/practiceTournaments/'+tid+'/results/'+gid).transaction(function(cur){
-      if(cur===null||ptArr(cur.t1).concat(ptArr(cur.t2)).indexOf(pid)<0) return;
-      return null;
-    });
-    if(tx&&tx.committed){ if(_ptpEditGid===gid) _ptpEditGid=null; delete _ptpDraft[gid]; toast('Score cleared'); }
-  }catch(e){
-    console.warn('player score clear failed',e);
-    toast('The score was not cleared. Check your connection and try again.');
-  }finally{
-    _ptpBusy=false;
-    ptpRender();
-  }
+  // Live: /club/kings-night-score action clear (the stored score must list this member).
+  var tok=tnPlayerSessionToken();
+  if(!tok){ ptpSignInNotice(tid,gid); return; }
+  _ptpBusy=true; ptpRender();
+  var res=await csSave(function(){
+    var t2=tnPlayerSessionToken(); if(!t2) return {ok:false, kind:'signin'};
+    return csWorkerPost('/club/kings-night-score',{slug:TN_SLUG, tid:tid, sessionToken:t2, pid:pid, gid:gid, action:'clear'});
+  },{quiet:true, onSignin:function(){ ptpSignInNotice(tid,gid); }});
+  _ptpBusy=false;
+  var j=res.j||{}, gone=!(((_ptpData[tid]||{}).results||{})[gid]);
+  // nothing_to_clear with the score already gone: a retry after the first try landed.
+  if(res.ok||(j.code==='nothing_to_clear'&&gone)){ if(_ptpEditGid===gid) _ptpEditGid=null; delete _ptpDraft[gid]; toast('Score cleared'); }
+  else if(res.kind==='lock') toast('This Kings Night has ended, so scores are locked');
+  else if(j.code==='nothing_to_clear') toast('Only a score you played in can be cleared.');
+  else if(res.kind==='refused') csBarShow('Not cleared: '+(j.error||'that was refused.'),false);
+  ptpRender();
 }
 function ptpRender(){
   var el=document.getElementById('pp-kings'); if(!el) return;
@@ -21553,7 +21861,8 @@ function ptpHtml(){
   if(!isFinal){
     if(_ptpNotice&&_ptpNotice.tid===tid){
       html+='<div style="border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;color:var(--charcoal);">'+esc(_ptpNotice.text)
-        +'<div style="display:flex;gap:8px;margin-top:8px;">'+bigBtn('Edit','ptpEdit(\''+esc(tid)+'\',\''+esc(_ptpNotice.gid)+'\')','#217F7F','#fff')+'</div></div>';
+        +'<div style="display:flex;gap:8px;margin-top:8px;">'+(_ptpNotice.signIn?bigBtn('Sign in again','csMemberResignin()','#217F7F','#fff')
+          :bigBtn('Edit','ptpEdit(\''+esc(tid)+'\',\''+esc(_ptpNotice.gid)+'\')','#217F7F','#fff'))+'</div></div>';
     }
     if(v.sittingRound!=null){
       html+='<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:1px;color:var(--charcoal);margin-bottom:6px;">Sitting out round '+(v.sittingRound+1)+'</div>';
