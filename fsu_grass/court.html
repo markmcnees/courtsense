@@ -208,6 +208,11 @@
       <h2>Court not found</h2>
       <p class="muted">This link is not a court of a club tournament. Scan the QR code on the court again, or ask the exec team.</p>
     </section>
+    <section class="view center" id="v-gone">
+      <div class="cico">&#127952;</div>
+      <h2>This tournament is no longer available</h2>
+      <p class="muted">There is nothing to score here. Ask the exec team if you have questions.</p>
+    </section>
     <section class="view" id="v-pin">
       <h2 id="pin-h">Enter the court PIN</h2>
       <div id="pin-out"></div>
@@ -1657,7 +1662,13 @@ function liveTextOf(x){
 }
 function render(){
   var t = S.t;
-  if(!t || !t.meta){ show('v-invalid'); return; }
+  // The tournament is gone (deleted, or being deleted): say so, and close a scorer left open.
+  // A tournament that exists without this court keeps Court not found below.
+  if(!t || !t.meta || t.meta.status === 'deleting'){
+    if(LV.mid) closeLive(true);
+    $('t-name').textContent = ''; $('t-when').textContent = '';
+    show('v-gone'); return;
+  }
   $('c-name').textContent = 'Court ' + S.court;
   $('t-name').textContent = String(t.meta.name || 'Tournament');
   $('t-when').textContent = t.meta.date ? tnDayLabel(t.meta.date) : '';

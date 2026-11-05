@@ -280,6 +280,7 @@ h2{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:22px;letter-spa
       return true;
     }
     if(r.status === 401){ showGate('Sign in again', 'Your sign-in has expired. Sign in again, or open the team page link from your team email.', 'Sign in', signIn); stop(); return false; }
+    if(r.j && r.j.code === 'not_available'){ showGate('This tournament is no longer available', 'Ask the exec team if you have questions.', 'Find a partner', '/pickup/?view=tournaments'); stop(); return false; }
     if(r.status === 403 || (r.j && r.j.code === 'invalid_link')){ showGate('This team page is not available', 'You are not on a registered team for this tournament, or this link has been replaced. Use the newest link from your team emails.', 'Find a partner', '/pickup/?view=tournaments'); stop(); return false; }
     if(!headerDrawn) showGate('Could not load your team', r.j && r.j.error ? r.j.error : 'Something went wrong. Refresh to try again.', '', '');
     return false;

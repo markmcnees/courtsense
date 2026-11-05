@@ -1762,17 +1762,23 @@ function renderLive(){
   $('t-live-txt').textContent = (S.sdkLive ? 'Live' : 'Refreshes every 15 seconds') + ' · updated ' + ((h % 12) || 12) + ':' + mm + (h >= 12 ? ' PM' : ' AM');
 }
 
-function notFound(){
+// gone: the link is well formed but the tournament is not there (deleted, or being deleted).
+// A malformed link keeps the could-not-find message.
+function notFound(gone){
   S.notFound = true;
   $('t-name').textContent = 'Tournament';
   $('t-when').textContent = '';
   $('t-status').hidden = true;
-  $('app').innerHTML = '<div class="card center"><div class="cico" aria-hidden="true">🔎</div><h2>We could not find that tournament</h2>'
-    + '<p class="muted">Double check the link, or ask the exec team for the live page link.</p></div>';
+  if(gone){ $('t-live').hidden = true; S.updated = 0; }
+  $('app').innerHTML = gone
+    ? '<div class="card center"><div class="cico" aria-hidden="true">🔎</div><h2>This tournament is no longer available</h2>'
+      + '<p class="muted">Ask the exec team if you have questions.</p></div>'
+    : '<div class="card center"><div class="cico" aria-hidden="true">🔎</div><h2>We could not find that tournament</h2>'
+      + '<p class="muted">Double check the link, or ask the exec team for the live page link.</p></div>';
 }
 
 function render(){
-  if(!S.t || !S.t.meta){ notFound(); return; }
+  if(!S.t || !S.t.meta || S.t.meta.status === 'deleting'){ notFound(true); return; }
   S.notFound = false;
   renderHeader(); renderLive();
   var divs = divisions(), D = S.t.divisions || {};

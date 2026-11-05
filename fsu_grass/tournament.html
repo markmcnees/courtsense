@@ -203,6 +203,12 @@
       <p id="invalid-msg">Double check the link, or ask the exec team for a fresh one.</p>
     </section>
 
+    <section class="view center" id="v-gone">
+      <div class="cico" aria-hidden="true">🔗</div>
+      <h2>This tournament is no longer available</h2>
+      <p>Ask the exec team if you have questions.</p>
+    </section>
+
     <section class="view center" id="v-link-invalid">
       <div class="cico" aria-hidden="true">🔗</div>
       <h2>This link is no longer valid</h2>
@@ -2049,7 +2055,7 @@ async function loadManage(note){
   var res = await post('/club/tournament-manage-info', linkBody());
   var j = res.j;
   if(res.net){ $('invalid-msg').textContent = 'We could not load your team. Check your connection and refresh the page.'; show('v-invalid'); return; }
-  if(!j || j.ok !== true){ if(j && j.error === 'invalid_link') show('v-link-invalid'); else { $('invalid-msg').textContent = genericErr(res.r, j); show('v-invalid'); } return; }
+  if(!j || j.ok !== true){ if(j && j.code === 'not_available') show('v-gone'); else if(j && j.error === 'invalid_link') show('v-link-invalid'); else { $('invalid-msg').textContent = genericErr(res.r, j); show('v-invalid'); } return; }
   state.manage = j;
   state.manageRules = divRules(state.divisions[j.divId]) || { name: j.divisionName || '', size: 2, max: 2, coed: null };
   $('m-div').textContent = j.divisionName || state.manageRules.name || '';
@@ -2515,7 +2521,10 @@ async function boot(){
     return;
   }
   var m = state.meta;
-  if(!m || typeof m !== 'object' || !m.name){ invalid(); return; }
+  // A well formed link to a tournament that is not there (deleted, or being deleted). This reads
+  // the same public meta as above, before any link is checked, so it says nothing about a link.
+  if(m == null || (typeof m === 'object' && m.status === 'deleting')){ show('v-gone'); return; }
+  if(typeof m !== 'object' || !m.name){ invalid(); return; }
   $('t-name').textContent = m.name;
   $('t-when').textContent = dateLabel(m.date) + (m.location ? ' · ' + m.location : '');
   var ci = timeLabel(m.checkInTime), st = timeLabel(m.startTime);
