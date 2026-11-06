@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.223';
+const APP_VERSION='1.1.224';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -2524,6 +2524,10 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
     </div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin-bottom:8px;">Season Results</div>
     <div id="lf-results"></div>
+    <div id="lf-standings-section" style="display:none;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:14px;margin:16px 0 0;overflow:hidden;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${SC.colors.primaryDeeper};padding:12px 14px 8px;">Standings</div>
+      <div id="lf-standings"></div>
+    </div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:16px 0 8px;">Roster</div>
     <div id="lf-roster"></div>
 
@@ -3239,7 +3243,7 @@ function initFB(){
     return;
   }
   try{if(!firebase.apps.length)firebase.initializeApp(FB_CONFIG);
-    db=firebase.database();setSS(true);listenData();
+    db=firebase.database();setSS(true);if(!(typeof fanPublicBoot==='function'&&fanPublicBoot()))listenData();
   }catch(e){console.error(e);setSS(false);}
   if(typeof csVersionStart==='function') csVersionStart(); // live apps only; the demo returned above
 }
@@ -3476,7 +3480,28 @@ function hsCoachLiveScore(aid,idx,rec){
   _hsLiveChain[key]=next;
   return next;
 }
-function listenData(){if(!db)return;
+// School-node listeners on and off. A signed-out fan reading the public copy needs none of
+// them; leaving the fan page (or falling back) attaches them again for sign-in.
+var _schoolListening=false;
+function schoolListenOn(){ if(db&&!_schoolListening) listenData(); }
+function schoolListenOff(){
+  if(!db||!_schoolListening) return;
+  _schoolListening=false;
+  try{
+    [DB_ROOT,DB_ROOT+'/player_notes',DB_ROOT+'/opponents',DB_ROOT+'/broadcasts',DB_ROOT+'/live_scoring',SC.dbRoots.profiles,SC.dbRoots.profiles+'/quizScores','.info/connected','school_key_map']
+      .forEach(function(p){ db.ref(p).off('value'); });
+  }catch(e){}
+}
+// ?fans at a live high school with no saved sign-in: the fan page opens straight from the public
+// copy and no school-node listener is attached until the visitor leaves it.
+function fanPublicBoot(){
+  if(!_openFansOnBoot||typeof fanPublicWanted!=='function'||!fanPublicWanted()) return false;
+  _openFansOnBoot=false;
+  setTimeout(showLeonFans,0);
+  return true;
+}
+function listenData(){if(!db||_schoolListening)return;
+  _schoolListening=true;
   db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();updateSeasonLabel();});
   db.ref(SC.dbRoots.profiles+'/quizScores').on('value',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
   db.ref(DB_ROOT).on('value',snap=>{
@@ -3498,6 +3523,7 @@ function listenData(){if(!db)return;
     D.opponents=v.opponents||{};
     D.tierRequests=v.tier_requests||{};
     D.parentShowSkills=!!(v.config&&v.config.parentShowSkills===true);
+    D.fansSeeSets=!(v.config&&v.config.privacy&&v.config.privacy.fansSeeSets===false); // fan page fallback (switch 3)
     if(typeof hsParentSkillsSync==='function')hsParentSkillsSync();
     D.chat=v.chat||{};
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
@@ -24603,10 +24629,17 @@ function showLeonFans(){
   var loginOl=document.getElementById('login-overlay');
   if(loginOl)loginOl.classList.add('hidden');
   var ol=document.getElementById('school-fans-overlay');
+  if(_lfRefreshTimer){clearInterval(_lfRefreshTimer);_lfRefreshTimer=null;}
+  // A signed-out fan at a live high school reads the public copy (see _fanPubStart).
+  if(ol&&typeof fanPublicWanted==='function'&&fanPublicWanted()){
+    ol.style.display='block';history.pushState({fanPage:true},'');
+    if(typeof fanFormInit==='function')fanFormInit();
+    _fanPubStart();
+    return;
+  }
   if(ol){ol.style.display='block';renderFans();history.pushState({fanPage:true},'');}
   if(typeof fanFormInit==='function')fanFormInit();
   // Auto-refresh every 30 seconds while page is open
-  if(_lfRefreshTimer)clearInterval(_lfRefreshTimer);
   _lfRefreshTimer=setInterval(function(){
     var overlay=document.getElementById('school-fans-overlay');
     if(!overlay||overlay.style.display==='none'){clearInterval(_lfRefreshTimer);_lfRefreshTimer=null;return;}
@@ -24622,6 +24655,8 @@ function hideFans(){
   if(ol)ol.style.display='none';
   // Stop auto-refresh
   if(_lfRefreshTimer){clearInterval(_lfRefreshTimer);_lfRefreshTimer=null;}
+  // Leaving the public-copy fan page: the school data is needed again for sign-in.
+  if(typeof _fanPub!=='undefined'&&_fanPub.on){ _fanPubStop(); if(typeof schoolListenOn==='function')schoolListenOn(); }
   if(!currentRole){
     var loginOl=document.getElementById('login-overlay');
     if(loginOl)loginOl.classList.remove('hidden');
@@ -24650,6 +24685,7 @@ function fansDeepLinkOpen(){
 }
 
 function lfManualRefresh(){
+  if(typeof _fanPub!=='undefined'&&_fanPub.on){ _fanPubPoll(); return; }
   renderFans();
   var dot=document.getElementById('lf-refresh-dot');
   if(dot){dot.style.opacity='1';setTimeout(function(){dot.style.opacity='0.4';},600);}
@@ -24890,7 +24926,8 @@ function renderAthleteCard(pid){
   if(share)share.innerHTML=shareHtml;
 }
 
-function renderFans(){
+// The fan page as it was before the public copy. The club and both demos keep it exactly.
+function _renderFansLegacy(){
   var BN='font-family:"Bebas Neue",sans-serif';
   // School colors only: the main color (or its deepest shade when white text on it would be
   // hard to read), the deepest shade, and the school's own light background for chips.
@@ -25117,6 +25154,309 @@ function renderFans(){
         +'<div style="font-size:11px;color:'+RED+';">'+p.cls+'</div></div></div>';
     }).join('');
   }
+}
+
+// ===== FAN PAGE FROM THE PUBLIC COPY (HS data lockdown P2.2) =====
+// A signed-out fan at a live high school reads the worker's public copy (GET /hs/public, built
+// by the worker from an explicit field list) instead of the whole school node, and attaches no
+// school-node listener. It polls every 30 seconds, every 10 while a dual is live, and pauses
+// while the tab is hidden. The browser revalidates with the ETag itself (cache: 'no-cache'),
+// so no custom header and no preflight. If the first read fails or the copy is not built, the
+// page falls back to the school data it always used, so it never goes blank.
+//
+// Both sources go through one model and one renderer, and every name on the page is built
+// here as first name and last initial ("Jane S. #12"), so no path shows a full last name. The
+// club and both demos keep the page exactly as it was (_renderFansLegacy).
+const FAN_POLL_MS=30000, FAN_POLL_LIVE_MS=10000;
+var _fanPub={ on:false, mode:'', data:null, timer:0, visBound:false };
+// A saved sign-in on this device (coach, player or parent) may still be restoring in the
+// background, and it needs the school data, so the fan page keeps today's source then.
+function _fanSavedSignIn(){
+  var saved=false;
+  ['csCoachSession','leonAuth','courtsenseAuth','csParentSession','csPlayerSession'].forEach(function(k){
+    try{ if(sessionStorage.getItem(k)||localStorage.getItem(k)) saved=true; }catch(e){ saved=true; }
+  });
+  return saved;
+}
+function fanPublicWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!currentRole&&typeof fetch==='function'&&!_fanSavedSignIn(); }
+function _fanEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function _fanInitial(last){ var m=/[A-Za-zÀ-ɏ]/.exec(String(last==null?'':last)); return m?m[0].toUpperCase():''; }
+// "Jane S. #12": the only way a player name is ever built for the fan page.
+function fanLabel(p){
+  if(!p) return '';
+  var f=String(p.firstName==null?'':p.firstName).trim().slice(0,40); if(!f) return '';
+  var li=_fanInitial(p.lastName), j=String(p.jersey==null?'':p.jersey).trim();
+  return f+(li?' '+li+'.':'')+(/^[0-9A-Za-z]{1,4}$/.test(j)?' #'+j:'');
+}
+// The fallback model, from the school data this page already had, in the public copy's shape.
+function _fanModelFromD(){
+  var today=td(), byId={};
+  (D.players||[]).forEach(function(p){ if(p&&p.id) byId[p.id]=p; });
+  var label=function(id){ return fanLabel(byId[id]); };
+  var pairLabel=function(ids){ return (ids||[]).map(label).filter(Boolean).join(' & '); };
+  var sets=!(D.fansSeeSets===false);
+  var roster=(D.players||[]).map(function(p){ return { f:String(p.firstName||'').trim(), l:_fanInitial(p.lastName), j:String(p.jersey==null?'':p.jersey), c:String(p.classYear||'') }; })
+    .filter(function(r){ return !!r.f; }).sort(function(a,b){ return (parseInt(a.j)||999)-(parseInt(b.j)||999); });
+  var schedule=(D.schedule||[]).filter(inSeason).filter(function(g){ return g&&g.date; }).map(function(g){
+    var n=function(v){ return (v==null||v==='')?null:(parseInt(v)||0); };
+    return { dt:g.date, t:g.time||'', o:g.opponent||'', h:g.location==='away'?'away':g.location==='home'?'home':'', k:g.type==='scrimmage'?'scrimmage':'dual', us:n(g.scoreUs), them:n(g.scoreThem) };
+  }).sort(function(a,b){ return a.dt.localeCompare(b.dt); });
+  var results={};
+  (D.gamedays||[]).filter(inSeason).forEach(function(m){
+    if(!m||!m.date||!m.court) return;
+    var ids=(m.pair||[]).slice(0,2), w=0, l=0, out=[];
+    (m.sets||[]).slice(0,5).forEach(function(s){
+      var us=parseInt(s.scoreUs)||0, th=parseInt(s.scoreThem)||0;
+      if(us>th) w++; else if(th>us) l++;
+      if(!sets) return;
+      var st=[];
+      ids.forEach(function(id){ var x=s.stats&&s.stats[id]; var n=label(id); if(x&&n) st.push({ n:n, k:parseInt(x.k)||0, a:parseInt(x.a)||0, b:parseInt(x.b)||0 }); });
+      out.push(st.length?{ us:us, them:th, st:st }:{ us:us, them:th });
+    });
+    var row={ ct:parseInt(m.court)||0, p:pairLabel(ids)||('Court '+m.court), w:w, l:l, win:w>l };
+    if(sets) row.sets=out;
+    (results[m.date]=results[m.date]||{})[row.ct]=row;
+  });
+  Object.keys(results).forEach(function(d){ results[d]=Object.keys(results[d]).map(function(k){ return results[d][k]; }).sort(function(a,b){ return a.ct-b.ct; }); });
+  var asg=Object.values(D.assignments||{}).find(function(a){ return a&&a.date===today; })||null;
+  var live={}, liveToday=false;
+  if(asg){
+    var lv=lsView(asg.id);
+    Object.keys(lv||{}).forEach(function(idx){
+      var r=lv[idx]; if(!r||r.date!==today) return;
+      var c=(asg.courts||[])[parseInt(idx)]||{};
+      (live._=live._||{})[idx]={ us:parseInt(r.us)||0, them:parseInt(r.them)||0, n:parseInt(r.setNum)||1, ct:parseInt(r.court)||parseInt(c.court)||0, dt:today, p:pairLabel([c.p1,c.p2].filter(Boolean)) };
+      liveToday=true;
+    });
+  }
+  var todayOut=null;
+  if(asg){
+    var reached=false;
+    if(asg.time){ var tp=String(asg.time).split(':'), nh=new Date().getHours(), nm=new Date().getMinutes(), gh=parseInt(tp[0]||0), gm=parseInt(tp[1]||0); reached=nh>gh||(nh===gh&&nm>=gm); }
+    if(reached||!!results[today]||liveToday){
+      todayOut={ dt:today, t:asg.time||'', o:asg.opponent||'', courts:(asg.courts||[]).map(function(c){ return { ct:parseInt(c.court)||0, p:pairLabel([c.p1,c.p2].filter(Boolean)) }; }).filter(function(c){ return c.ct>0; }).sort(function(a,b){ return a.ct-b.ct; }) };
+    }
+  }
+  var standings={};
+  Object.keys(D.standings||{}).forEach(function(t){ var s=D.standings[t]||{}; standings[t]={ w:parseInt(s.w)||0, l:parseInt(s.l)||0 }; });
+  return { meta:{ sets:sets }, roster:roster, schedule:schedule, results:results, today:todayOut, live:live, standings:standings };
+}
+function _fanList(v){ return Array.isArray(v)?v:(v&&typeof v==='object')?Object.keys(v).sort().map(function(k){ return v[k]; }):[]; }
+function _fanModelFromPublic(d){
+  var results={};
+  Object.keys(d.results||{}).forEach(function(k){ results[k]=_fanList(d.results[k]).map(function(r){ var o=Object.assign({},r); if(r.sets) o.sets=_fanList(r.sets).map(function(s){ var x=Object.assign({},s); if(s.st) x.st=_fanList(s.st); return x; }); return o; }); });
+  var today=d.today?Object.assign({},d.today,{ courts:_fanList(d.today.courts) }):null;
+  return { meta:d.meta||{}, roster:_fanList(d.roster), schedule:_fanList(d.schedule), results:results, today:today, live:d.live||{}, standings:d.standings||{} };
+}
+// A dual is live: today's lineup is out and today's result is not in, or a live score is in.
+function _fanIsLive(m){
+  if(!m) return false;
+  var today=td();
+  var hasLive=Object.keys(m.live||{}).some(function(a){ return Object.keys(m.live[a]||{}).some(function(i){ var e=m.live[a][i]; return e&&e.dt===today; }); });
+  if(hasLive) return true;
+  if(!m.today) return false;
+  var g=(m.schedule||[]).find(function(x){ return x.dt===today; });
+  return !(g&&g.us!=null&&g.them!=null);
+}
+function _fanSetsText(row){ return row&&row.sets?row.sets.map(function(s){ return s.us+'-'+s.them; }).join(', '):''; }
+function _fanStatLines(row){
+  var tot={}, order=[];
+  (row&&row.sets||[]).forEach(function(s){ (s.st||[]).forEach(function(x){ if(!tot[x.n]){ tot[x.n]={k:0,a:0,b:0}; order.push(x.n); } tot[x.n].k+=x.k||0; tot[x.n].a+=x.a||0; tot[x.n].b+=x.b||0; }); });
+  return order.map(function(n){ return { n:n, k:tot[n].k, a:tot[n].a, b:tot[n].b }; });
+}
+// The club and both demos keep the page exactly as it was; a live high school draws it from
+// the public copy, or from the school data when falling back, through the same model.
+function renderFans(){
+  if(!HS_ACCOUNT_SIGNIN) return _renderFansLegacy();
+  var m=(_fanPub.on&&_fanPub.mode==='loading')?{ loading:true, schedule:[], results:{}, live:{}, standings:{}, roster:[] }
+    :(_fanPub.on&&_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data):_fanModelFromD());
+  var E=_fanEsc, BN='font-family:"Bebas Neue",sans-serif';
+  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=SC.colors.primaryDeeper,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
+  var today=td(), mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var dShort=function(dt){ var p=String(dt||'').split('-'); return p.length>=3?mon[parseInt(p[1])-1]+' '+parseInt(p[2]):''; };
+  var loading=!!m.loading;
+  var sched=m.schedule||[];
+  var past=sched.filter(function(g){ return g.k!=='scrimmage'&&g.us!=null&&g.them!=null; });
+  var upcoming=sched.filter(function(g){ return g.us==null&&g.dt>=today; });
+  var schedToday=sched.find(function(g){ return g.dt===today; });
+  var recEl=document.getElementById('lf-record');
+  if(recEl) recEl.textContent=loading?'':past.filter(function(g){ return g.us>g.them; }).length+'-'+past.filter(function(g){ return g.them>g.us; }).length;
+  var place=function(h){ return h==='away'?'Away':h==='home'?'Home':''; };
+
+  var bannerEl=document.getElementById('lf-banner');
+  if(bannerEl){
+    if(loading){ bannerEl.style.display='none'; }
+    else if(schedToday){
+      bannerEl.style.display='';
+      if(schedToday.us!=null&&schedToday.them!=null){
+        var win=schedToday.us>schedToday.them;
+        bannerEl.innerHTML='<div style="text-align:center;"><div style="'+BN+';font-size:11px;letter-spacing:3px;color:'+RED+';margin-bottom:4px;">TODAY\'S RESULT</div>'
+          +'<div style="'+BN+';font-size:22px;color:#fff;">vs '+E(schedToday.o)+'</div>'
+          +'<div style="'+BN+';font-size:38px;color:'+(win?WIN_C:LOSS_C)+';">'+schedToday.us+'-'+schedToday.them+' '+(win?'WIN':'LOSS')+'</div>'
+          +(place(schedToday.h)?'<div style="font-size:11px;color:#555;">📍 '+place(schedToday.h)+'</div>':'')+'</div>';
+        bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
+      } else {
+        bannerEl.innerHTML='<div style="display:flex;align-items:center;gap:12px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#4ade80;animation:pulse 1.5s infinite;flex-shrink:0;"></span>'
+          +'<div><div style="'+BN+';font-size:11px;letter-spacing:3px;color:#4ade80;margin-bottom:2px;">LIVE NOW</div><div style="'+BN+';font-size:20px;color:#fff;">vs '+E(schedToday.o)+'</div>'
+          +(place(schedToday.h)?'<div style="font-size:11px;color:#555;">📍 '+place(schedToday.h)+'</div>':'')+'</div></div>';
+        bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:rgba(10,158,92,0.2);border:1px solid rgba(74,222,128,0.4);';
+      }
+    } else if(upcoming.length){
+      var ng=upcoming[0];
+      bannerEl.style.display='';
+      bannerEl.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="'+BN+';font-size:11px;letter-spacing:2px;color:'+RED+';margin-bottom:4px;">NEXT GAME</div>'
+        +'<div style="'+BN+';font-size:20px;color:#fff;">'+(ng.h==='away'?'@ ':'vs ')+E(ng.o)+'</div>'
+        +(place(ng.h)?'<div style="font-size:12px;color:#555;">'+place(ng.h)+(ng.t?' \xb7 '+E(ng.t):'')+'</div>':'')
+        +'</div><div style="'+BN+';font-size:24px;color:'+RED+';">'+dShort(ng.dt)+'</div></div>';
+      bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
+    } else {
+      bannerEl.style.display='none';
+    }
+  }
+
+  // In progress: today's lineup with each court's sets and any live score.
+  var tc=document.getElementById('lf-today'), tcc=document.getElementById('lf-today-courts');
+  if(m.today&&!loading){
+    if(tc) tc.style.display='block';
+    if(tcc){
+      var rowsToday=(m.results||{})[today]||[];
+      var liveByCt={};
+      Object.keys(m.live||{}).forEach(function(a){ Object.keys(m.live[a]||{}).forEach(function(i){ var e=m.live[a][i]; if(e&&e.dt===today&&e.ct) liveByCt[e.ct]=e; }); });
+      var cs=(m.today.courts||[]).map(function(c){
+        var row=rowsToday.find(function(r){ return r.ct===c.ct; }), live=liveByCt[c.ct];
+        var hasLive=!!(live&&(live.us>0||live.them>0)), played=!!(row&&(row.w+row.l)>0);
+        if(played&&hasLive) return { ct:c.ct, pair:c.p, status:'live_with_history', sW:row.w, sL:row.l, sets:_fanSetsText(row), us:live.us, them:live.them, n:live.n||(row.w+row.l+1) };
+        if(played) return { ct:c.ct, pair:c.p, status:'done', sW:row.w, sL:row.l, sets:_fanSetsText(row) };
+        if(hasLive) return { ct:c.ct, pair:c.p, status:'live', us:live.us, them:live.them, n:live.n||1 };
+        return { ct:c.ct, pair:c.p, status:'warmup' };
+      });
+      var w2=cs.filter(function(c){ return (c.status==='done'||c.status==='live_with_history')&&c.sW>c.sL; }).length;
+      var l2=cs.filter(function(c){ return (c.status==='done'||c.status==='live_with_history')&&c.sL>c.sW; }).length;
+      var opp=(schedToday&&schedToday.o)||m.today.o||'Today\'s Dual';
+      var hdr='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><div><div style="'+BN+';font-size:16px;color:'+DARK_RED+';">vs '+E(opp)+'</div>'
+        +(m.today.t?'<div style="font-size:11px;color:'+RED+';">⏰ '+E(m.today.t)+'</div>':'')
+        +'</div><div style="'+BN+';font-size:22px;color:'+RED+';">'+w2+' '+String.fromCharCode(8211)+' '+l2+'</div></div>';
+      tcc.innerHTML=hdr+cs.map(function(c){
+        var sh;
+        if(c.status==='done'){ var col=c.sW>c.sL?WIN_C:LOSS_C; sh='<div style="text-align:right;"><div style="'+BN+';font-size:18px;color:'+col+';">'+c.sW+'-'+c.sL+'</div><div style="font-size:10px;color:'+col+';">'+(c.sW>c.sL?'WIN':'LOSS')+'</div>'+(c.sets?'<div style="font-size:10px;color:#888;">'+E(c.sets)+'</div>':'')+'</div>'; }
+        else if(c.status==='live_with_history'){ sh='<div style="text-align:right;"><div style="'+BN+';font-size:13px;color:'+(c.sW>c.sL?WIN_C:LOSS_C)+';">'+c.sW+'-'+c.sL+' sets</div><div style="'+BN+';font-size:22px;color:'+DARK_RED+';">'+c.us+' '+String.fromCharCode(8211)+' '+c.them+'</div><div style="font-size:10px;font-weight:700;color:#e67e00;letter-spacing:1px;">Set '+c.n+' • IN PLAY</div></div>'; }
+        else if(c.status==='live'){ sh='<div style="text-align:right;"><div style="'+BN+';font-size:26px;color:'+DARK_RED+';">'+c.us+' '+String.fromCharCode(8211)+' '+c.them+'</div><div style="font-size:10px;font-weight:700;color:#e67e00;letter-spacing:1px;">Set '+c.n+' • IN PLAY</div></div>'; }
+        else { sh='<div style="font-size:11px;color:#bbb;font-style:italic;">Warming up</div>'; }
+        var dot=(c.status==='live'||c.status==='live_with_history')?'<span style="display:inline-block;width:7px;height:7px;background:#e67e00;border-radius:50%;margin-right:5px;animation:pulse 1.5s infinite;"></span>':'';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eeeeee;"><div><span style="'+BN+';font-size:11px;background:'+CHIP_BG+';color:'+RED+';padding:2px 7px;border-radius:4px;margin-right:8px;">CT'+c.ct+'</span>'
+          +dot+'<span style="color:'+DARK_RED+';font-size:13px;font-weight:700;">'+E(c.pair)+'</span></div>'+sh+'</div>';
+      }).join('');
+    }
+  } else if(tc){ tc.style.display='none'; }
+
+  var upEl=document.getElementById('lf-upcoming'), upSec=document.getElementById('lf-upcoming-section');
+  if(upEl&&upSec){
+    if(upcoming.length&&!loading){
+      upEl.innerHTML=upcoming.slice(0,5).map(function(g){
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #eeeeee;"><div><div style="'+BN+';font-size:14px;color:'+DARK_RED+';">'+(g.h==='away'?'@ ':'vs ')+E(g.o)+'</div>'
+          +(place(g.h)?'<div style="font-size:11px;color:#555;">'+place(g.h)+(g.t?' \xb7 '+E(g.t):'')+'</div>':'')+'</div><div style="'+BN+';font-size:16px;color:'+RED+';">'+dShort(g.dt)+'</div></div>';
+      }).join('');
+      upSec.style.display='block';
+    } else upSec.style.display='none';
+  }
+
+  // Season results: each dual, then each regulation court with set scores and each player's
+  // kills, aces and blocks (when the coach shows set scores to fans).
+  var resEl=document.getElementById('lf-results');
+  if(resEl){
+    if(loading){ resEl.innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.7);font-size:13px;padding:16px;">Loading...</div>'; }
+    else if(!past.length){ resEl.innerHTML='<div style="text-align:center;color:var(--gray);font-size:13px;padding:16px;">No results yet this season.</div>'; }
+    else {
+      resEl.innerHTML=past.slice().reverse().map(function(g,gi){
+        var win=g.us>g.them, rc=win?WIN_C:LOSS_C, uid='lfc'+gi+String(g.dt).replace(/[^0-9]/g,'');
+        var courts=((m.results||{})[g.dt]||[]).filter(function(r){ return r.ct>=1&&r.ct<=5; }).map(function(r){
+          var setsTxt=_fanSetsText(r)||(r.w+'-'+r.l);
+          var lines=_fanStatLines(r).map(function(x){ return '<div style="font-size:11px;color:#666;padding-left:36px;">'+E(x.n)+': '+x.k+' K \xb7 '+x.a+' A \xb7 '+x.b+' B</div>'; }).join('');
+          return '<div style="padding:5px 0;border-bottom:1px solid #eeeeee;"><div style="display:flex;align-items:center;justify-content:space-between;"><div style="display:flex;align-items:center;gap:8px;">'
+            +'<span style="'+BN+';font-size:10px;background:'+CHIP_BG+';color:'+RED+';padding:1px 6px;border-radius:3px;">CT'+r.ct+'</span><span style="font-size:12px;color:'+DARK_RED+';">'+E(r.p)+'</span></div>'
+            +'<div style="font-size:12px;font-weight:700;color:'+(r.win?WIN_C:LOSS_C)+';">'+E(setsTxt)+'</div></div>'+lines+'</div>';
+        }).join('');
+        return '<div style="background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;margin-bottom:10px;overflow:hidden;">'
+          +'<div onclick="lfToggle(\''+uid+'\')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;"><div><span style="'+BN+';font-size:15px;color:'+DARK_RED+';">vs '+E(g.o)+'</span>'
+          +'<span style="font-size:12px;color:#888;margin-left:8px;">'+dShort(g.dt)+'</span></div><div style="display:flex;align-items:center;gap:10px;"><span style="'+BN+';font-size:14px;color:'+rc+';">'+g.us+'-'+g.them+' '+(win?'WIN':'LOSS')+'</span>'
+          +'<span style="color:#bbb;">▸</span></div></div><div id="'+uid+'_body" style="display:none;padding:10px 14px;background:#f7f7f7;">'+courts+'</div></div>';
+      }).join('');
+    }
+  }
+
+  var stSec=document.getElementById('lf-standings-section'), stEl=document.getElementById('lf-standings');
+  if(stSec&&stEl){
+    var teams=Object.keys(m.standings||{}).map(function(t){ var s=m.standings[t]||{}; return { t:t, w:s.w||0, l:s.l||0 }; })
+      .sort(function(a,b){ var pa=(a.w+a.l)?a.w/(a.w+a.l):0, pb=(b.w+b.l)?b.w/(b.w+b.l):0; return pb-pa||b.w-a.w; });
+    if(teams.length&&!loading){
+      stEl.innerHTML=teams.map(function(x,i){ return '<div style="display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #eeeeee;"><span style="font-size:13px;color:'+DARK_RED+';">'+(i+1)+'. '+E(x.t)+'</span><span style="'+BN+';font-size:15px;color:'+RED+';">'+x.w+'-'+x.l+'</span></div>'; }).join('');
+      stSec.style.display='block';
+    } else stSec.style.display='none';
+  }
+
+  var rostEl=document.getElementById('lf-roster');
+  if(rostEl){
+    var ro=m.roster||[];
+    if(loading) rostEl.innerHTML='';
+    else if(!ro.length) rostEl.innerHTML='<div style="font-size:14px;color:'+RED+';text-align:center;padding:12px;">Roster coming soon.</div>';
+    else rostEl.innerHTML=ro.map(function(p){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;margin-bottom:5px;"><span style="'+BN+';font-size:18px;color:'+DARK_RED+';min-width:26px;text-align:right;">'+E(p.j)+'</span>'
+        +'<div><div style="font-size:14px;font-weight:700;color:'+DARK_RED+';">'+E(p.f+(p.l?' '+p.l+'.':''))+'</div><div style="font-size:11px;color:'+RED+';">'+E(p.c)+'</div></div></div>';
+    }).join('');
+  }
+}
+// One read of the public copy: the copy, 'same' (not modified), or null for any failure.
+function _fanPubFetch(){
+  var p;
+  try{ p=fetch(AUTH_WORKER+'/hs/public?n='+encodeURIComponent(DB_ROOT),{ cache:'no-cache' }); }catch(e){ return Promise.resolve(null); }
+  return Promise.resolve(p).then(function(r){
+    if(r&&r.status===304) return 'same';
+    if(!r||!r.ok) return null;
+    return r.json().then(function(j){ return (j&&j.ok===true&&j.data&&typeof j.data==='object'&&j.data.meta&&typeof j.data.meta==='object')?j.data:null; },function(){ return null; });
+  },function(){ return null; });
+}
+function _fanPubFlash(){ var dot=document.getElementById('lf-refresh-dot'); if(dot){ dot.style.opacity='1'; setTimeout(function(){ dot.style.opacity='0.4'; },600); } }
+function _fanPubSchedule(){
+  if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; }
+  if(!_fanPub.on||document.visibilityState==='hidden') return;
+  var m=_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data):_fanModelFromD();
+  _fanPub.timer=setTimeout(_fanPubPoll,_fanIsLive(m)?FAN_POLL_LIVE_MS:FAN_POLL_MS);
+}
+function _fanPubPoll(){
+  if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; }
+  if(!_fanPub.on) return Promise.resolve();
+  return _fanPubFetch().then(function(d){
+    if(!_fanPub.on) return;
+    if(d&&d!=='same'){
+      _fanPub.data=d;
+      if(_fanPub.mode!=='public'){ _fanPub.mode='public'; if(typeof schoolListenOff==='function') schoolListenOff(); }
+    } else if(d!=='same'&&!_fanPub.data&&_fanPub.mode!=='fallback'){
+      // Nothing to show from the public copy yet: the school data this page always used.
+      _fanPub.mode='fallback';
+      if(typeof schoolListenOn==='function') schoolListenOn();
+    }
+    // A later failure keeps the last good copy on screen and tries again next time.
+    renderFans(); _fanPubFlash();
+    _fanPubSchedule();
+  });
+}
+function _fanPubStart(){
+  _fanPub.on=true; _fanPub.mode='loading'; _fanPub.data=null;
+  if(typeof schoolListenOff==='function') schoolListenOff();
+  if(!_fanPub.visBound){
+    _fanPub.visBound=true;
+    document.addEventListener('visibilitychange',function(){
+      if(!_fanPub.on) return;
+      if(document.visibilityState==='hidden'){ if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; } }
+      else _fanPubPoll();
+    });
+  }
+  renderFans();
+  return _fanPubPoll();
+}
+function _fanPubStop(){
+  _fanPub.on=false; _fanPub.mode=''; _fanPub.data=null;
+  if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; }
 }
 
 // ============================================================
