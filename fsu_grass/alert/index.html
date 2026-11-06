@@ -85,7 +85,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1.2px;line-
       var t = when(j.at);
       box.innerHTML = '<h1>' + esc(j.title) + '</h1>'
         + '<p class="msg">' + esc(j.body) + '</p>'
-        + '<p class="meta">' + (t ? esc(t) + ' ET · ' : '') + 'From ' + esc(j.senderDisplay || 'FSU Grass execs') + '</p>';
+        + '<p class="meta">' + (t ? esc(t) + ' ET · ' : '') + 'From ' + esc(j.senderDisplay || 'Exec Team') + '</p>';
       try { document.title = j.title + ' · FSU Grass'; } catch(e){}
     })
     .catch(gone);

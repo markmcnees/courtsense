@@ -211,13 +211,13 @@ label:first-child{margin-top:0;}
 
   <label>Logo <span class="opt">(optional)</span></label>
   <div class="lzone">
-    <input type="file" accept="image/png" onchange="handleLogo(event)">
+    <input type="file" accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" onchange="handleLogo(event)">
     <div class="ic">&#128247;</div>
-    <div class="tx">Click or tap to upload your logo (PNG)</div>
+    <div class="tx">Click or tap to upload your logo (PNG, JPG or SVG)</div>
   </div>
   <div class="limg" id="logo-prev"></div>
   <p class="note">Optional. You can also send your logo to your admin separately. If no logo is uploaded, your team emoji will display in the app header instead.</p>
-  <p class="note" style="margin-top:2px;">Logo must be a PNG file.</p>
+  <p class="note" style="margin-top:2px;">PNG, JPG or SVG, up to 5 MB. We turn it into a PNG for the app.</p>
 
   <label style="margin-top:18px;">School Colors</label>
   <div class="tabs">
@@ -331,6 +331,97 @@ label:first-child{margin-top:0;}
 
 </div>
 
+<script>
+// Logo kit for the sign-up form, the same approach as the coach-admin logo kit. A PNG,
+// JPG or SVG is accepted. A real PNG under the worker's cap is sent as it is (as before).
+// Anything else (a JPG, an SVG, a PNG over the cap) is drawn through an <img> onto a
+// canvas, fit to 512 px on the long side with transparency kept, and only that PNG is
+// kept. An SVG is only ever shown as an image, which runs no script and loads no outside
+// content, and its own bytes are never stored or sent. A file that cannot become a PNG
+// is refused.
+window.csOnboardLogo=(function(){
+  var MAX_FILE=5*1024*1024;      // refuse bigger files before reading them
+  var MAX_DATA_URL=699999;       // the worker's cap (validLogoDataUrl: under 700000 characters)
+  var LONG_SIDE=512;
+  var PNG_PREFIX='data:image/png;base64,';
+  var PNG_SIG=[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a];
+  function kind(f){
+    var t=String(f&&f.type||'').toLowerCase(), n=String(f&&f.name||'').toLowerCase();
+    if(t==='image/png'||(!t&&/\.png$/.test(n))) return 'png';
+    if(t==='image/jpeg'||(!t&&/\.jpe?g$/.test(n))) return 'jpg';
+    if(t==='image/svg+xml'||(!t&&/\.svg$/.test(n))) return 'svg';
+    return '';
+  }
+  function fileProblem(f){
+    if(!f) return 'Pick a file.';
+    if(!kind(f)) return 'Use a PNG, JPG or SVG file.';
+    if(f.size>MAX_FILE) return 'That file is over 5 MB. Use a smaller one.';
+    return '';
+  }
+  // Canvas size: the long side at most 512, never scaled up. An SVG with no size of its
+  // own draws at 512 square.
+  function fitSize(w,h){
+    w=+w||0; h=+h||0;
+    if(!w||!h) return {w:LONG_SIDE, h:LONG_SIDE};
+    var s=Math.min(1, LONG_SIDE/Math.max(w,h));
+    return {w:Math.max(1,Math.round(w*s)), h:Math.max(1,Math.round(h*s))};
+  }
+  function outputProblem(dataUrl){
+    if(typeof dataUrl!=='string'||dataUrl.indexOf(PNG_PREFIX)!==0) return 'That image could not be turned into a PNG. Try another file.';
+    if(dataUrl.length>MAX_DATA_URL) return 'That logo is too detailed to store (over 500 KB as a PNG). Try a simpler or smaller file.';
+    return '';
+  }
+  // True for a PNG data URL whose bytes start with the PNG signature and fit the cap.
+  function sendableAsIs(u){
+    if(typeof u!=='string'||u.indexOf(PNG_PREFIX)!==0||u.length>MAX_DATA_URL) return false;
+    var head;
+    try{ head=atob(u.slice(PNG_PREFIX.length, PNG_PREFIX.length+12)); }catch(e){ return false; }
+    return PNG_SIG.every(function(b,i){ return head.charCodeAt(i)===b; });
+  }
+  function readUrl(file){
+    return new Promise(function(resolve){
+      var rd=new FileReader();
+      rd.onerror=function(){ resolve(''); };
+      rd.onload=function(){ resolve(String(rd.result||'')); };
+      rd.readAsDataURL(file);
+    });
+  }
+  // A data URL drawn as an image onto a canvas, as a PNG data URL. '' on any failure,
+  // including a canvas the browser refuses to export.
+  function toPng(src,doc){
+    doc=doc||document;
+    return new Promise(function(resolve){
+      var img=new Image();
+      img.onerror=function(){ resolve(''); };
+      img.onload=function(){
+        try{
+          var sz=fitSize(img.naturalWidth,img.naturalHeight), c=doc.createElement('canvas');
+          c.width=sz.w; c.height=sz.h;
+          var ctx=c.getContext('2d'); ctx.clearRect(0,0,sz.w,sz.h); ctx.drawImage(img,0,0,sz.w,sz.h);
+          resolve(c.toDataURL('image/png'));
+        }catch(e){ resolve(''); }
+      };
+      img.src=src;
+    });
+  }
+  // The file as { dataUrl } ready to send, or { error } in plain words.
+  function prepare(file,doc){
+    var p=fileProblem(file);
+    if(p) return Promise.resolve({error:p});
+    var k=kind(file);
+    return readUrl(file).then(function(u){
+      if(!u) return {error:'We could not read that file. Try another one.'};
+      if(k==='png'&&sendableAsIs(u)) return {dataUrl:u};
+      return toPng(u,doc).then(function(png){
+        var e=outputProblem(png);
+        return e?{error:e}:{dataUrl:png};
+      });
+    });
+  }
+  function pngName(name){ return String(name||'logo').replace(/\.[^.]*$/,'')+'.png'; }
+  return {kind:kind, fileProblem:fileProblem, fitSize:fitSize, outputProblem:outputProblem, sendableAsIs:sendableAsIs, toPng:toPng, prepare:prepare, pngName:pngName};
+})();
+</script>
 <script>
 // ===== STATE =====
 var STEPS=['School Info','Branding','Roster','Schedule','Review'];
@@ -502,16 +593,26 @@ async function suggestColors(){
 }
 
 // ===== LOGO =====
+// A PNG, JPG or SVG through csOnboardLogo. Only the PNG it makes is kept and previewed; a
+// refused file clears the logo and says why. A newer pick wins over a slower older one.
+var _logoPick=0;
 function handleLogo(e){
-  var file=e.target.files[0];
+  var input=e.target, file=input.files[0];
   if(!file)return;
-  logoFn=file.name;
-  var reader=new FileReader();
-  reader.onload=function(ev){
-    logoDataUrl=ev.target.result;
-    document.getElementById('logo-prev').innerHTML='<img src="'+logoDataUrl+'" alt="Logo"><div class="fn">'+esc(logoFn)+'</div>';
-  };
-  reader.readAsDataURL(file);
+  var mine=++_logoPick, prev=document.getElementById('logo-prev');
+  logoDataUrl=''; logoFn='';
+  prev.innerHTML='<div class="fn">Preparing your logo...</div>';
+  window.csOnboardLogo.prepare(file).then(function(r){
+    if(mine!==_logoPick) return;
+    if(r.error){
+      input.value='';
+      prev.innerHTML='<div class="errmsg" style="display:block;">'+esc(r.error)+'</div>';
+      return;
+    }
+    logoDataUrl=r.dataUrl;
+    logoFn=window.csOnboardLogo.pngName(file.name);
+    prev.innerHTML='<img src="'+logoDataUrl+'" alt="Logo"><div class="fn">'+esc(logoFn)+'</div>';
+  });
 }
 
 // ===== ROSTER =====

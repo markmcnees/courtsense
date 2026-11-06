@@ -905,7 +905,7 @@ function renderPending(){
           <div class="lbl">Starting RD</div>
           <input class="inp" type="number" min="30" max="500" step="10" id="approve-rd-${r.id}" value="350">
         </div>
-        ${dupeRating ? '<div style="flex-basis:100%;font-size:11px;color:var(--gray);">Existing rating record found. Approve will preserve their current rating instead of writing these starters.</div>' : ''}
+        ${dupeRating ? '<div style="flex-basis:100%;font-size:11px;color:var(--gray);">Existing rating record found. Approve will preserve their current rating instead of writing these starters.</div>' : `<label style="flex-basis:100%;display:flex;align-items:center;gap:8px;min-height:44px;font-size:13px;cursor:pointer;"><input type="checkbox" id="approve-unrated-${r.id}" onchange="toggleStartUnrated('${esc(r.id)}',this.checked)" style="width:18px;height:18px;"> Start unrated: no starting rating, their first games set it</label>`}
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn" style="background:var(--win);color:#fff;flex:1;" onclick="doApprove('${esc(r.id)}')">✓ Approve</button>
@@ -915,13 +915,21 @@ function renderPending(){
   }).join('');
 }
 
+// Start unrated: the starting rating and RD do not apply, so they are greyed out.
+function toggleStartUnrated(id, on){
+  ['approve-rating-','approve-rd-'].forEach(function(p){ const el = $(p+id); if(el) el.disabled = !!on; });
+}
+
 async function doApprove(id){
   const r = (PENDING||{})[id];
   if(!r){ toast('Registration not found'); return; }
   if(r.status !== 'pending'){ toast('Already reviewed by '+(r.reviewedBy||'someone')); return; }
+  // Start unrated (unticked by default): approve without writing a starting rating
+  // record. The ratings engine makes their record on their first rated game.
+  const startUnrated = !!($('approve-unrated-'+id)?.checked);
   const ratingVal = parseFloat($('approve-rating-'+id)?.value);
   const rdVal     = parseFloat($('approve-rd-'+id)?.value);
-  if(!isFinite(ratingVal) || !isFinite(rdVal)){ toast('Bad rating or RD value'); return; }
+  if(!startUnrated && (!isFinite(ratingVal) || !isFinite(rdVal))){ toast('Bad rating or RD value'); return; }
 
   const k = nameKey(r.name);
   if(!k){ toast('Name normalizes to empty'); return; }
@@ -936,7 +944,7 @@ async function doApprove(id){
   }
 
   const reviewer = (window.Identity && Identity.getCurrent && Identity.getCurrent()) ? Identity.getCurrent().name : 'admin';
-  logLine('Approving '+r.name+' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')');
+  logLine('Approving '+r.name+(startUnrated ? ' (start unrated)' : ' (rating '+Math.round(ratingVal)+', RD '+Math.round(rdVal)+')'));
 
   // Re-check status via the worker (no client read of the deny-read pending node).
   const fresh = await checkPendingStatus(id);
@@ -959,7 +967,10 @@ async function doApprove(id){
   updates[ROOT+'/'+k+'/updatedAt']             = now;
   // Rating record (only if not already existing, to preserve history)
   const ratingExists = !!RATINGS_KEYS[k];
-  if(!ratingExists){
+  // Start unrated only matters when there is no record; an existing one is kept either way.
+  const unrated = startUnrated && !ratingExists;
+  if(startUnrated && !unrated && (!isFinite(ratingVal) || !isFinite(rdVal))){ toast('Bad rating or RD value'); return; }
+  if(!ratingExists && !unrated){
     updates[RATINGS_ROOT+'/'+k+'/name']           = r.name;
     updates[RATINGS_ROOT+'/'+k+'/rating']         = ratingVal;
     updates[RATINGS_ROOT+'/'+k+'/rd']             = rdVal;
@@ -974,13 +985,18 @@ async function doApprove(id){
   updates[PENDING_ROOT+'/'+id+'/status']        = 'approved';
   updates[PENDING_ROOT+'/'+id+'/reviewedAt']    = now;
   updates[PENDING_ROOT+'/'+id+'/reviewedBy']    = reviewer;
-  updates[PENDING_ROOT+'/'+id+'/appliedRating'] = ratingVal;
-  updates[PENDING_ROOT+'/'+id+'/appliedRD']     = rdVal;
+  if(unrated){
+    // No rating was applied, so the approval records the choice instead of starter values.
+    updates[PENDING_ROOT+'/'+id+'/startUnrated']  = true;
+  } else {
+    updates[PENDING_ROOT+'/'+id+'/appliedRating'] = ratingVal;
+    updates[PENDING_ROOT+'/'+id+'/appliedRD']     = rdVal;
+  }
   updates[PENDING_ROOT+'/'+id+'/preservedExistingRating'] = ratingExists;
 
   try {
     await db.ref().update(updates);
-    logLine('  approved. '+(ratingExists?'preserved existing rating.':'wrote new rating '+Math.round(ratingVal)+'.')+' no password stored; sending set-password invite.');
+    logLine('  approved. '+(ratingExists?'preserved existing rating.':unrated?'started unrated, no rating written.':'wrote new rating '+Math.round(ratingVal)+'.')+' no password stored; sending set-password invite.');
     loadPending();
     // Contact details to the private node. This runs BEFORE the invite because the
     // invite resolves the recipient through resolveOwnEmail, which reads the private

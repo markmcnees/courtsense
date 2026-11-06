@@ -1641,7 +1641,9 @@ function shareJoinLink(game){
     const park = game.location || 'the courts';
     message = `You've been invited to a pickup game on ${dayDate} at ${time} at ${park}. Claim Your Spot: ${url}`;
   } else {
-    url = 'https://courtsense.app/pickup/join';
+    // The single front door: /join makes an account (a signed-in friend goes on to
+    // their dashboard). The old /pickup/join list form is not the sign-up.
+    url = 'https://courtsense.app/join';
     // Append the link so the generic message is self-contained too. SMS and some
     // apps drop a separate url field, so the link must ride inside the text.
     message = 'Join me on CourtSense for beach volleyball pickups ' + url;

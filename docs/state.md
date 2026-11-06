@@ -46,7 +46,7 @@ Repo scaffolded with all SIX template types (invite, reminder, waitlist, admin, 
 2. `wrangler secret put RESEND_API_KEY`
 3. `wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON`
 
-**One-time on first deploy:** existing `admin_new_registration` items are queued in Firebase from past join-form submissions. They will all dispatch to Mark's inbox on first `POST /run`. Either drain the queue manually first via Firebase console (recommended; those applicants already actioned) or accept the inbox burst.
+**Queue draining:** the worker drains the email queue on its hourly cron, and some routes drain right after they queue. The old manual `POST /run` route has been removed; there is no manual drain route.
 
 Magic-link tokens deferred for v1 per D.36. Currently uses plain deep links. N.8 in plan tracks the hardening work.
 
@@ -115,8 +115,8 @@ In rough priority order:
 
 ## Two Firebase root namespaces, kept isolated
 
-- `tally_kotb` — league app data (kings, queens, archive)
-- `tally_kotb_pickup` — pickup app, ratings, email queue, registration, groups, leads, waitlist, **and (incoming) passwordHash per player**
+- `tally_kotb`: league app data (kings, queens, archive)
+- `tally_kotb_pickup`: pickup app, ratings, email queue, registration, groups, leads, waitlist, **and (incoming) passwordHash per player**
 
 The league app writes to `tally_kotb_pickup/ratings/` for cross-app rating sync. Otherwise the two namespaces are isolated.
 

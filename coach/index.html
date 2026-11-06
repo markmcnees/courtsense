@@ -371,11 +371,11 @@
 
       <div class="field">
         <label for="logoInput">Team logo <span class="opt">(optional)</span></label>
-        <span class="hint">Square PNG with a transparent background works best. Around 256 by 256 pixels. Under 500 KB.</span>
+        <span class="hint">PNG, JPG or SVG, up to 5 MB. A square logo with a transparent background works best. We turn it into a PNG for the app.</span>
         <div class="logo-drop" id="logoDrop">Tap to upload your logo</div>
-        <input type="file" id="logoInput" accept=".png,image/png" style="display:none;">
+        <input type="file" id="logoInput" accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" style="display:none;">
         <img id="logoPreview" class="logo-preview" alt="Logo preview">
-        <div class="field-err">That logo is over 500 KB. Use a smaller image, or email it to us and we'll add it.</div>
+        <div class="field-err">We could not use that logo. Try another file, or email it to us and we'll add it.</div>
       </div>
     </div>
 
@@ -450,6 +450,97 @@
 </div>
 
 <script>
+// Logo kit for the sign-up form, the same approach as the coach-admin logo kit. A PNG,
+// JPG or SVG is accepted. A real PNG under the worker's cap is sent as it is (as before).
+// Anything else (a JPG, an SVG, a PNG over the cap) is drawn through an <img> onto a
+// canvas, fit to 512 px on the long side with transparency kept, and only that PNG is
+// kept. An SVG is only ever shown as an image, which runs no script and loads no outside
+// content, and its own bytes are never stored or sent. A file that cannot become a PNG
+// is refused.
+window.csOnboardLogo=(function(){
+  var MAX_FILE=5*1024*1024;      // refuse bigger files before reading them
+  var MAX_DATA_URL=699999;       // the worker's cap (validLogoDataUrl: under 700000 characters)
+  var LONG_SIDE=512;
+  var PNG_PREFIX='data:image/png;base64,';
+  var PNG_SIG=[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a];
+  function kind(f){
+    var t=String(f&&f.type||'').toLowerCase(), n=String(f&&f.name||'').toLowerCase();
+    if(t==='image/png'||(!t&&/\.png$/.test(n))) return 'png';
+    if(t==='image/jpeg'||(!t&&/\.jpe?g$/.test(n))) return 'jpg';
+    if(t==='image/svg+xml'||(!t&&/\.svg$/.test(n))) return 'svg';
+    return '';
+  }
+  function fileProblem(f){
+    if(!f) return 'Pick a file.';
+    if(!kind(f)) return 'Use a PNG, JPG or SVG file.';
+    if(f.size>MAX_FILE) return 'That file is over 5 MB. Use a smaller one.';
+    return '';
+  }
+  // Canvas size: the long side at most 512, never scaled up. An SVG with no size of its
+  // own draws at 512 square.
+  function fitSize(w,h){
+    w=+w||0; h=+h||0;
+    if(!w||!h) return {w:LONG_SIDE, h:LONG_SIDE};
+    var s=Math.min(1, LONG_SIDE/Math.max(w,h));
+    return {w:Math.max(1,Math.round(w*s)), h:Math.max(1,Math.round(h*s))};
+  }
+  function outputProblem(dataUrl){
+    if(typeof dataUrl!=='string'||dataUrl.indexOf(PNG_PREFIX)!==0) return 'That image could not be turned into a PNG. Try another file.';
+    if(dataUrl.length>MAX_DATA_URL) return 'That logo is too detailed to store (over 500 KB as a PNG). Try a simpler or smaller file.';
+    return '';
+  }
+  // True for a PNG data URL whose bytes start with the PNG signature and fit the cap.
+  function sendableAsIs(u){
+    if(typeof u!=='string'||u.indexOf(PNG_PREFIX)!==0||u.length>MAX_DATA_URL) return false;
+    var head;
+    try{ head=atob(u.slice(PNG_PREFIX.length, PNG_PREFIX.length+12)); }catch(e){ return false; }
+    return PNG_SIG.every(function(b,i){ return head.charCodeAt(i)===b; });
+  }
+  function readUrl(file){
+    return new Promise(function(resolve){
+      var rd=new FileReader();
+      rd.onerror=function(){ resolve(''); };
+      rd.onload=function(){ resolve(String(rd.result||'')); };
+      rd.readAsDataURL(file);
+    });
+  }
+  // A data URL drawn as an image onto a canvas, as a PNG data URL. '' on any failure,
+  // including a canvas the browser refuses to export.
+  function toPng(src,doc){
+    doc=doc||document;
+    return new Promise(function(resolve){
+      var img=new Image();
+      img.onerror=function(){ resolve(''); };
+      img.onload=function(){
+        try{
+          var sz=fitSize(img.naturalWidth,img.naturalHeight), c=doc.createElement('canvas');
+          c.width=sz.w; c.height=sz.h;
+          var ctx=c.getContext('2d'); ctx.clearRect(0,0,sz.w,sz.h); ctx.drawImage(img,0,0,sz.w,sz.h);
+          resolve(c.toDataURL('image/png'));
+        }catch(e){ resolve(''); }
+      };
+      img.src=src;
+    });
+  }
+  // The file as { dataUrl } ready to send, or { error } in plain words.
+  function prepare(file,doc){
+    var p=fileProblem(file);
+    if(p) return Promise.resolve({error:p});
+    var k=kind(file);
+    return readUrl(file).then(function(u){
+      if(!u) return {error:'We could not read that file. Try another one.'};
+      if(k==='png'&&sendableAsIs(u)) return {dataUrl:u};
+      return toPng(u,doc).then(function(png){
+        var e=outputProblem(png);
+        return e?{error:e}:{dataUrl:png};
+      });
+    });
+  }
+  function pngName(name){ return String(name||'logo').replace(/\.[^.]*$/,'')+'.png'; }
+  return {kind:kind, fileProblem:fileProblem, fitSize:fitSize, outputProblem:outputProblem, sendableAsIs:sendableAsIs, toPng:toPng, prepare:prepare, pngName:pngName};
+})();
+</script>
+<script>
 (function(){
   var $=function(id){return document.getElementById(id);};
 
@@ -483,56 +574,39 @@
   attachPhoneFormat('phone');
   attachPhoneFormat('coachCell');
 
-  // logo upload preview (client-side only; no upload happens yet)
-  var logoData=null, logoName=null, logoReading=false;
+  // Logo pick: a PNG, JPG or SVG through csOnboardLogo (the kit above). Only the final PNG
+  // is held in logoData, so every submit, including a retry after a failed one, sends that
+  // PNG and never the picked file. A newer pick wins over an older one still converting;
+  // logoReading stays true until the newest pick is done, which holds the submit.
+  var logoData=null, logoName=null, logoReading=false, logoPick=0;
   $('logoDrop').addEventListener('click',function(){ $('logoInput').click(); });
   $('logoInput').addEventListener('change',function(e){
     var f=e.target.files&&e.target.files[0];
     var field=$('logoInput').closest('.field');
     var errEl=field?field.querySelector('.field-err'):null;
     if(!f) return;
-    // PNG only: reject by MIME type AND extension. Show the field error, clear the input,
-    // and do not include it in the payload.
-    var isPng=(f.type==='image/png')||/\.png$/i.test(f.name);
-    if(!isPng){
-      logoData=null; logoName=null;
-      if(errEl) errEl.textContent='We need a PNG image. Please upload a .png file.';
-      if(field) field.classList.add('show-err');
-      $('logoInput').value='';
-      var imgP=$('logoPreview'); imgP.style.display='none'; imgP.removeAttribute('src');
-      var dropP=$('logoDrop'); dropP.textContent='Tap to upload your logo'; dropP.classList.remove('has-file');
-      return;
-    }
-    if(errEl) errEl.textContent='That logo is over 500 KB. Use a smaller image, or email it to us and we\'ll add it.';
-    // Size guard: a data URL is ~1.3x the file and bloats the submission. Over 500 KB,
-    // reject it (do NOT include it in the payload) and show the field error.
-    if(f.size > 500*1024){
-      logoData=null; logoName=null;
-      if(field) field.classList.add('show-err');
-      $('logoInput').value='';
-      var img0=$('logoPreview'); img0.style.display='none'; img0.removeAttribute('src');
-      var drop0=$('logoDrop'); drop0.textContent='Tap to upload your logo'; drop0.classList.remove('has-file');
-      return;
-    }
+    var mine=++logoPick;
+    logoData=null; logoName=null; logoReading=true;
     if(field) field.classList.remove('show-err');
-    logoName=f.name;
-    var reader=new FileReader();
-    reader.onload=function(ev){
+    var dropW=$('logoDrop'); dropW.textContent='Preparing your logo...'; dropW.classList.remove('has-file');
+    var imgW=$('logoPreview'); imgW.style.display='none'; imgW.removeAttribute('src');
+    window.csOnboardLogo.prepare(f).then(function(r){
+      if(mine!==logoPick) return;
       logoReading=false;
-      logoData=ev.target.result; // data URL
+      if(r.error){
+        // Refused: show why, clear the input, and keep nothing for the payload.
+        if(errEl) errEl.textContent=r.error;
+        if(field) field.classList.add('show-err');
+        $('logoInput').value='';
+        var dropP=$('logoDrop'); dropP.textContent='Tap to upload your logo'; dropP.classList.remove('has-file');
+        return;
+      }
+      if(field) field.classList.remove('show-err'); // clears a "still reading" note from an early submit
+      logoData=r.dataUrl; // a PNG data URL, nothing else
+      logoName=window.csOnboardLogo.pngName(f.name);
       var img=$('logoPreview'); img.src=logoData; img.style.display='inline-block';
       var drop=$('logoDrop'); drop.textContent='Logo added: '+logoName; drop.classList.add('has-file');
-    };
-    reader.onerror=function(){
-      logoReading=false; logoData=null; logoName=null;
-      if(errEl) errEl.textContent='We could not read that image. Please try again, or email it to us and we\'ll add it.';
-      if(field) field.classList.add('show-err');
-      $('logoInput').value='';
-      var imgE=$('logoPreview'); imgE.style.display='none'; imgE.removeAttribute('src');
-      var dropE=$('logoDrop'); dropE.textContent='Tap to upload your logo'; dropE.classList.remove('has-file');
-    };
-    logoReading=true;
-    reader.readAsDataURL(f);
+    });
   });
 
   // validation
@@ -613,7 +687,7 @@
     if(bad){ bad.focus(); bad.scrollIntoView({behavior:'smooth',block:'center'}); return; }
 
     // Do not submit while the logo is still being read, or we would send a
-    // filename with no bytes. logoReading clears in the reader's onload/onerror.
+    // filename with no bytes. logoReading clears when the newest pick is ready or refused.
     if(logoReading){
       var lf=$('logoInput').closest('.field');
       var le=lf?lf.querySelector('.field-err'):null;
