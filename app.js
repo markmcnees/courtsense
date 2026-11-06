@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.221';
+const APP_VERSION='1.1.222';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3243,6 +3243,100 @@ function initFB(){
   }catch(e){console.error(e);setSS(false);}
 }
 function setSS(on){const d=document.getElementById('sync-dot');d.className='sync-dot '+(on?'online':'offline');d.title=on?'Connected':'Offline';}
+// ===== FIREBASE PASS (HS data lockdown P1) =====
+// After a sign-in, or when a saved sign-in resumes, this tab quietly swaps its CourtSense
+// session for a Firebase pass (worker POST /auth/firebase-pass) and signs the Firebase SDK in
+// with it, so later database rules can tell who is signed in. P1 enforces nothing: no rule
+// mentions auth yet, every read, write and listener is exactly as before, and any failure
+// leaves this tab anonymous as it always was. Nothing is ever shown to the user; the worker
+// only counts outcomes. Never in a demo (there is no database there). Per-tab persistence,
+// so a coach tab and a player tab in one browser never trade identities, and every step runs
+// one at a time so a sign-out can never race a sign-in.
+const FB_AUTH_SRC='https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js';
+const FB_PASS_TOKEN_RE=/^[a-f0-9]{64}$/;
+var _fbPass={ key:'', exp:0, timer:0, loader:null, chain:Promise.resolve() };
+function fbPassOff(){ return !!SC.demoMode||!db||typeof firebase==='undefined'||typeof fetch!=='function'; }
+function _fbPassQueue(fn){ var p=_fbPass.chain.then(fn,fn); _fbPass.chain=p.then(function(){},function(){}); return p; }
+// The Firebase Auth script, loaded once and only when a pass is actually wanted.
+function _fbPassLoadAuth(){
+  if(typeof firebase.auth==='function') return Promise.resolve(true);
+  if(_fbPass.loader) return _fbPass.loader;
+  _fbPass.loader=new Promise(function(res){
+    try{
+      var s=document.createElement('script'); s.src=FB_AUTH_SRC; s.async=true;
+      s.onload=function(){ res(typeof firebase.auth==='function'); };
+      s.onerror=function(){ _fbPass.loader=null; res(false); };
+      document.head.appendChild(s);
+    }catch(e){ _fbPass.loader=null; res(false); }
+  });
+  return _fbPass.loader;
+}
+// The session this tab is signed in with, in the shape the pass route takes, or null.
+function _fbPassSource(){
+  try{
+    if(currentRole==='coach'){
+      var c=JSON.parse(sessionStorage.getItem('csCoachSession')||'null');
+      if(c&&typeof c.token==='string'&&FB_PASS_TOKEN_RE.test(c.token)&&c.dbRoot===DB_ROOT&&!(typeof c.expiresAt==='number'&&c.expiresAt<=Date.now())) return {kind:'school',dbRoot:DB_ROOT,token:c.token};
+      return null;
+    }
+    var t='';
+    if(currentRole==='parent') t=(parentState&&parentState.token)||((typeof parentSessionRead==='function'&&parentSessionRead())||{}).token||'';
+    else if(currentRole==='player') t=(typeof tnPlayerSessionToken==='function'&&tnPlayerSessionToken())||(typeof pvDeviceToken==='function'&&pvDeviceToken())||'';
+    return (typeof t==='string'&&FB_PASS_TOKEN_RE.test(t))?{kind:'account',token:t}:null;
+  }catch(e){ return null; }
+}
+function _fbPassReport(role,ok){
+  try{ fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({report:ok?'signin_ok':'signin_failed',role:role||'unknown'})}).catch(function(){}); }catch(e){}
+}
+async function _fbPassDrop(){
+  _fbPass.key=''; _fbPass.exp=0;
+  if(_fbPass.timer){ clearTimeout(_fbPass.timer); _fbPass.timer=0; }
+  try{ if(typeof firebase!=='undefined'&&typeof firebase.auth==='function'&&firebase.auth().currentUser) await firebase.auth().signOut(); }catch(e){}
+}
+// When the CourtSense session ends, check again: the worker refuses a pass for an ended
+// session and the tab goes back to anonymous. Firebase renews its own token in between.
+function _fbPassSchedule(){
+  if(_fbPass.timer){ clearTimeout(_fbPass.timer); _fbPass.timer=0; }
+  if(!_fbPass.exp) return;
+  var wait=Math.min(Math.max(_fbPass.exp-Date.now()+1000,1000),24*3600000);
+  _fbPass.timer=setTimeout(function(){ _fbPass.timer=0; _fbPass.exp=0; fbPassEnsure(); },wait);
+}
+async function _fbPassRun(){
+  var src=_fbPassSource();
+  if(!src){ await _fbPassDrop(); return false; }
+  var key=src.kind+':'+src.token; // in memory only
+  if(_fbPass.key===key&&_fbPass.exp>Date.now()) return true;
+  var role='';
+  try{
+    var r=await fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(src)});
+    var j=await r.json().catch(function(){ return null; });
+    if(!j||j.ok!==true||typeof j.passToken!=='string'){
+      if(j&&j.code==='signed_out') await _fbPassDrop(); // the session ended: back to anonymous
+      return false;
+    }
+    role=typeof j.role==='string'?j.role:'';
+    if(!(await _fbPassLoadAuth())){ _fbPassReport(role,false); return false; }
+    var auth=firebase.auth();
+    await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+    await auth.signInWithCustomToken(j.passToken);
+    _fbPass.key=key; _fbPass.exp=(typeof j.expiresAt==='number')?j.expiresAt:0;
+    _fbPassSchedule();
+    _fbPassReport(role,true);
+    return true;
+  }catch(e){
+    if(role) _fbPassReport(role,false);
+    return false;
+  }
+}
+// Resolves true when this tab holds a pass, false otherwise. Never throws, never toasts.
+function fbPassEnsure(){ return fbPassOff()?Promise.resolve(false):_fbPassQueue(_fbPassRun); }
+// Called right after a sign-in step; the session it just stored is read on the next tick.
+function fbPassSoon(){ if(!fbPassOff()) setTimeout(fbPassEnsure,0); }
+function fbPassSignOut(){
+  if(_fbPass.timer){ clearTimeout(_fbPass.timer); _fbPass.timer=0; }
+  _fbPass.key=''; _fbPass.exp=0;
+  return fbPassOff()?Promise.resolve():_fbPassQueue(_fbPassDrop);
+}
 function listenData(){if(!db)return;
   db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();updateSeasonLabel();});
   db.ref(SC.dbRoots.profiles+'/quizScores').on('value',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
@@ -5376,6 +5470,7 @@ function updatePinDots(){document.querySelectorAll('.login-pin-dot').forEach((d,
 
 function loginAsCoach(){
   currentRole='coach';currentPlayerId=null;
+  if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this coach or exec session (HS lockdown P1)
   // Club tournament card: drafts kept when a save found the exec session ended (no-op otherwise).
   csRestoreExecDrafts();
   // An exec who scanned the door code lands here; say so rather than dropping it silently.
@@ -5601,6 +5696,7 @@ async function execLoginEmail(){
 function logout(){
   const _wasHsPlayer=HS_ACCOUNT_SIGNIN&&currentRole==='player';
   currentRole=null;currentPlayerId=null;pinEntry='';
+  if(typeof fbPassSignOut==='function')fbPassSignOut(); // the Firebase pass ends with the CourtSense sign-in (no-op in a demo)
   if(_wasHsPlayer){ hsClearDeviceSignin(); hsPlayerSigninHide(); }
   // Door mode is a full-screen layer above the app; signing out has to take it down with them.
   if(typeof tsDoorClose==='function')tsDoorClose();
@@ -5987,6 +6083,7 @@ async function parentEnter(token,keep,opts){
     here:res.children.filter(function(c){ return c.dbRoot===DB_ROOT; }), others:res.children.filter(function(c){ return c.dbRoot!==DB_ROOT; }),
     active:route.active, view:route.view, team:null, child:{}, prefs:{}, prefMsg:{} };
   currentRole='parent';
+  if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this parent's account session (HS lockdown P1)
   _hsParentOffer=null;
   var ov=document.getElementById('login-overlay'); if(ov) ov.classList.add('hidden');
   var aw=document.getElementById('app-wrapper'); if(aw) aw.style.display='none';
@@ -6048,6 +6145,7 @@ async function parentSignOut(){
   var s=parentState, tok=s?s.token:'';
   parentState=null; parentSessionClear();
   if(currentRole==='parent') currentRole=null;
+  if(typeof fbPassSignOut==='function')fbPassSignOut(); // the Firebase pass ends with the parent sign-in
   // The device sign-in goes too, but only when it is this same session (a shared family phone
   // keeps a player's own sign-in).
   if(tok&&pvDeviceToken()===tok&&typeof hsClearDeviceSignin==='function') hsClearDeviceSignin();
@@ -6531,6 +6629,7 @@ function renderLatestAlert(){
 // After a member logs in or a session is restored: re-read their rating, and on the club open
 // Club Life (the club chats) instead of My Info. Every other shell keeps its default tab.
 function ppAfterLogin(){
+  if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this member's account session (HS lockdown P1)
   // A read the portal render just started for this member is already fresh; do not start another.
   if(_ppRatingLoading!==currentPlayerId){ _ppRating=null; ppRenderRating(); }
   if(!SC.tiersEnabled) return;
