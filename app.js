@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.220';
+const APP_VERSION='1.1.221';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -1561,7 +1561,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
 <div id="app-wrapper" style="display:none;">
 <div class="header">
   <div class="header-top">
-    <h1><span class="crown">${logoHTML('cs-logo-header',28,SC.abbrev,'vertical-align:middle;')}</span> ${SC.displayName} <span class="sync-dot" id="sync-dot"></span></h1>
+    <h1>${SC.demoMode?'':'<a href="https://courtsense.app/" aria-label="CourtSense home" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;padding:8px;margin:-8px;">'}<span class="crown">${logoHTML('cs-logo-header',28,SC.abbrev,'vertical-align:middle;')}</span>${SC.demoMode?'':'</a>'} ${SC.displayName} <span class="sync-dot" id="sync-dot"></span></h1>
     <div class="header-user">
       <span class="header-username" id="header-username"></span>
       <button class="logout-btn" onclick="logout()">Logout</button>
@@ -1608,7 +1608,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       `:`
       <button class="tab" data-tab="recruiting">Recruiting</button>
       <button class="tab" data-tab="players">Stats</button>
-      <button class="tab" data-tab="settings">Practice Groups</button>
+      <button class="tab" data-tab="settings">Roster</button>
       <button class="tab" data-tab="goals">Goals</button>
       `}
     </div>
@@ -1940,7 +1940,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
   <!-- ====== ROSTER ====== -->
     <div class="tab-content" id="tab-settings">
 <div class="card"><div class="card-title"><span class="bar"></span> Player Roster</div>
-      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Assign pair levels. Changes sync in real time.</p><div id="roster-list"></div></div>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Assign pair levels. Changes sync in real time.</p>${SC.tiersEnabled?'':'<a href="javascript:void(0)" onclick="_goHsImportTab()" style="display:inline-block;padding:10px 0;margin:-10px 0 4px;font-size:13px;font-weight:600;color:var(--blue);">+ Add Player</a>'}<div id="roster-list"></div></div>
   <!-- Exec Access (per-exec logins): rendered by renderExecManagement, which
        no-ops for schools without account logins (SC.emailLogin false). -->
   <div id="exec-mgmt-card"></div>
@@ -2329,6 +2329,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
   ${SC.tiersEnabled?`<!-- ══ CLUB LIFE PANEL (group-facing: practice schedule, club chat, travel, partner posts) ══ -->
   <div class="pp-panel" id="pp-panel-clublife">
     ${(SC.emailLogin&&SC.tiersEnabled)?'<div id="pp-sms-card"></div>':''}
+    ${(SC.emailLogin&&SC.tiersEnabled&&!SC.demoMode)?`<div style="font-size:12px;color:var(--gray);margin:0 0 10px;line-height:1.5;">📲 <a href="https://courtsense.app/community/profile/#push-card" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;display:inline-block;padding:12px 0;margin:-12px 0;">Turn on phone alerts in your CourtSense profile</a> to get club announcements.</div>`:''}
     <div id="pp-latest-alert"></div>
     <div id="pp-club-tn"></div>
     <div id="pp-practice"></div>
@@ -8698,7 +8699,7 @@ function _importParseRows(rows){
   const cell=(r,i)=>(i>=0&&r[i]!=null)?String(r[i]).trim():'';
   const nameKey=s=>s.trim().toLowerCase();
   const byName={};
-  (D.players||[]).forEach(p=>{byName[nameKey(p.firstName||'')+' '+nameKey(p.lastName||'')]=p;});
+  (D.players||[]).forEach(p=>{byName[nameKey(p.firstName||'')+'\u0000'+nameKey(p.lastName||'')]=p;});
   const plan=[], needsContact=[];
   for(let i=hIdx+1;i<rows.length;i++){
     const r=rows[i]||[];
@@ -8740,7 +8741,7 @@ function _importParseRows(rows){
       if(_validPhone(phoneRaw)) phone=phoneRaw;
       else errors.push({row:rowNum,why:'Player phone is not a valid phone number, field skipped'});
     }
-    const existing=byName[nameKey(first)+' '+nameKey(last)]||null;
+    const existing=byName[nameKey(first)+'\u0000'+nameKey(last)]||null;
     const height=cell(r,C.height), reach=cell(r,C.reach);
     // Position/Side/Hand come from dropdown words; normalize to the app's stored values.
     // An unrecognized value is skipped for that field (never written raw) and reported.
@@ -11538,12 +11539,12 @@ function renderClubChat(){
   renderLatestAlert(); // club only: the card exists only in the Club Life panel
   ensureVisibleChannel();
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  // Layer 5d author rendering: an exec-voice item (authorRole 'exec', no authorId) shows as Exec with the Exec badge; otherwise resolve the person via gP. Applies to posts and comments.
+  // Layer 5d author rendering: an exec-voice item (authorRole 'exec', no authorId) shows as Exec Team with the Exec badge; otherwise resolve the person via gP. Applies to posts and comments.
   const EXEC_BADGE='<span class="tier-badge badge-exec">Exec</span>';
   // Anonymous comments (allclub only) carry anon:true and no authorId/authorName, so they resolve to an explicit
   // Anonymous label with no badge and no avatar. This is deliberately distinct from the 'Player' fallback below,
   // which means "named author whose player record is missing", not "author withheld".
-  const authorName=o=>{ if(o&&o.anon===true)return 'Anonymous'; if(o&&o.authorRole==='exec')return 'Exec'; const a=gP(o&&o.authorId); return a?a.firstName+' '+a.lastName:'Player'; };
+  const authorName=o=>{ if(o&&o.anon===true)return 'Anonymous'; if(o&&o.authorRole==='exec')return 'Exec Team'; const a=gP(o&&o.authorId); return a?a.firstName+' '+a.lastName:'Player'; };
   const authorBadge=o=>{ if(o&&o.anon===true)return ''; if(o&&o.authorRole==='exec')return EXEC_BADGE; return playerBadge(gP(o&&o.authorId)); };
   const msgs=(D.chat&&D.chat[activeChatChannel])||{};
   const rows=Object.keys(msgs)
@@ -11762,7 +11763,7 @@ function renderExecBroadcast(){
   }else{
     recent=rows.map(({m})=>{
       const a=gP(m.authorId);
-      const who=m.authorRole==='exec'?'Exec':(a?a.firstName+' '+a.lastName:'Player');
+      const who=m.authorRole==='exec'?'Exec Team':(a?a.firstName+' '+a.lastName:'Player');
       return `<div style="padding:6px 0;border-bottom:1px solid var(--gray-lighter);font-size:13px;"><span style="font-weight:700;color:var(--charcoal);">${esc(who)}</span> <span style="color:var(--black);white-space:pre-wrap;">${esc(m.text)}</span></div>`;
     }).join('');
   }
@@ -14921,8 +14922,9 @@ var TN_TEAM_ORDER={registered:0, incomplete:1, dropped:2};
 //      exactly one does (the weaker bridge resolveClubRating also uses);
 //   4. the TruVolley seed on a club roster record for the account (roster rating).
 // TruVolley: the rating record carries seededFromTruVolley, or the number came from the
-// roster seed (truVolley plus rating on the roster record). Provisional: not TruVolley and
-// fewer than 5 rated games. Nothing found reads as Unrated; no number is ever invented.
+// roster seed (truVolley plus rating on the roster record). New rating ("1342, new rating"):
+// not TruVolley and fewer than 5 rated games. Nothing found reads as Unrated; no number is
+// ever invented.
 var TN_PROVISIONAL_GAMES=5;
 var _tnRatingsKick=false;
 function tnPlayerRating(accountId){
@@ -14946,7 +14948,7 @@ function tnPlayerRating(accountId){
   if(!tv&&roster&&typeof roster.truVolley==='number'&&typeof roster.rating==='number'&&games<TN_PROVISIONAL_GAMES&&val===roster.rating) tv=true;
   if(val==null) return {value:null, label:'Unrated'};
   var n=Math.round(val);
-  return {value:n, label:tv?'TV '+n:(games<TN_PROVISIONAL_GAMES?n+' provisional':String(n))};
+  return {value:n, label:tv?'TV '+n:(games<TN_PROVISIONAL_GAMES?n+', new rating':String(n))};
 }
 // Load the rating records once for the card, then redraw. Reuses the practice loader.
 function tnWarmRatings(){
