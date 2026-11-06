@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.225';
+const APP_VERSION='1.1.226';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -2047,6 +2047,13 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:16px 0 6px;">Recent announcements</div>
       <div id="hs-bc-list"></div>
     </div>
+    ${(HS_ACCOUNT_SIGNIN||(SC.demoMode&&!SC.tiersEnabled))?`<div class="card" id="hs-privacy-card">
+      <div class="card-title"><span class="bar"></span> Privacy</div>
+      <div id="hs-priv-rows"></div>
+      <div id="hs-priv-status" style="font-size:13px;margin:4px 0 8px;color:var(--gray);"></div>
+      <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:10px 0 4px;">Recent changes</div>
+      <div id="hs-priv-history"></div>
+    </div>`:''}
     ${HS_ACCOUNT_SIGNIN?`<div class="card">
       <div class="card-title"><span class="bar"></span> Parent view</div>
       <label style="display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-size:14px;color:var(--charcoal);font-weight:600;"><input type="checkbox" id="hs-parent-skills" onchange="hsSetParentSkills(this.checked)" style="width:20px;height:20px;"> Show skills check to parents</label>
@@ -2207,6 +2214,14 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
 
     <!-- Rankings. Club build: skill ranking is exec only and never shown to the general membership, so
          the club omits this card. High schools keep it. -->
+    ${(HS_ACCOUNT_SIGNIN||(SC.demoMode&&!SC.tiersEnabled))?`<div class="card" id="pp-hs-ranks-card" style="display:none;"><div class="card-title"><span class="bar"></span> Where I Rank</div>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Your place on the team. Teammates' numbers stay private.</p>
+      <div id="pp-hs-ranks"></div>
+    </div>
+    <div class="card" id="pp-hs-team-card" style="display:none;"><div class="card-title"><span class="bar"></span> Team skills</div>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Your teammates' skills, shared by your coach.</p>
+      <div id="pp-hs-team"></div>
+    </div>`:''}
     ${(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN)?`<div class="card"><div class="card-title"><span class="bar"></span> My Team Rankings</div>
       <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">How you stack up against your teammates</p>
       <div id="pp-rankings"></div>
@@ -3571,6 +3586,274 @@ function hsShortName(n){
   return t[0]+(m?' '+m[0].toUpperCase()+'.':'');
 }
 function hsShortLabel(s){ s=String(s==null?'':s); return s.indexOf('&')>=0?s.split('&').map(hsShortName).join(' & '):hsShortName(s); }
+// ===== PLAYER LISTENERS AND PROFILE (HS data lockdown P2.4) =====
+// Once a player at a live high school holds a Firebase pass, the page drops the whole-school
+// listeners and attaches only what a player reads: the team sections, their own goals, quiz
+// scores and game day notes, and opponents only while the coach shows scouting to players
+// (switch 1). Their profile (identity, skills, drills, jumps, the coach's notes about them) and
+// their rank positions come from POST /hs/player/profile, never a teammate's numbers unless the
+// coach turns on switch 2. A coach flipping switch 1 or 2 re-attaches within seconds through the
+// config listener. If the pass or the profile call fails, the page keeps the whole-school
+// listeners exactly as before, so a player never sees a blank screen. Signing out puts the
+// whole-school listeners back for the sign-in screen.
+var _hsPL={ on:false, subs:[], pid:'', sw:null, opp:null, notesRef:null, notesDate:'', renderT:0, ranks:null, teammates:null, reason:'', refreshT:0, visBound:false };
+function hsPlayerSplitWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!!db&&currentRole==='player'&&!!currentPlayerId; }
+function _hsPLOn(path,fn){ var r=db.ref(path); r.on('value',fn,function(){}); _hsPL.subs.push(r); return r; }
+function _hsPLOff(r){ if(!r) return; try{ r.off('value'); }catch(e){} _hsPL.subs=_hsPL.subs.filter(function(x){ return x!==r; }); }
+function _hsPLRender(){
+  if(_hsPL.renderT) return;
+  _hsPL.renderT=setTimeout(function(){ _hsPL.renderT=0; if(_hsPL.on&&currentRole==='player') refreshCurrent(); },50);
+}
+function hsPlayerProfileFetch(){
+  var tok=hsPlayerToken();
+  if(!tok) return Promise.resolve(null);
+  return csWorkerPost('/hs/player/profile',{ dbRoot:DB_ROOT, token:tok, pid:currentPlayerId }).then(function(r){ return r.ok?r.j:null; },function(){ return null; });
+}
+// The profile answer, in the shape the player portal already reads (profilesData), for this
+// player only.
+function _hsApplyProfile(pid,j){
+  var pd={ players:{}, skills:{}, starDrills:{}, jumpTests:{}, notes:{} };
+  pd.players[pid]=j.identity||{};
+  pd.skills[pid]=j.skills||{};
+  (j.drills||[]).forEach(function(d,i){ pd.starDrills['d'+i]={ playerId:pid, player:pid, date:d.date, time:d.time }; });
+  (j.jumps||[]).forEach(function(v,i){ pd.jumpTests['j'+i]={ playerId:pid, player:pid, date:v.date, approachJump:v.approach||null, blockJump:v.block||null, standingReach:v.reach||null }; });
+  (j.notes||[]).forEach(function(n,i){ pd.notes['n'+i]={ playerId:pid, player:pid, date:n.date, text:n.text, coachName:n.coachName }; });
+  profilesData=pd;
+  _hsPL.ranks=(j.ranks&&typeof j.ranks==='object')?j.ranks:null;   // no ranks: switch 5 is off, the card hides
+  _hsPL.teammates=Array.isArray(j.teammates)?j.teammates:null;
+  hsRenderRanks();
+}
+var HS_RANK_LABELS={ avgSkill:'Average skill', serving:'Serving', passing:'Passing', setting:'Setting', hitting:'Hitting', blocking:'Blocking', defense:'Defense',
+  courtSense:'Court sense', communication:'Communication', starDrill:'Star drill', approachJump:'Approach jump', blockJump:'Block jump', standingReach:'Standing reach', height:'Height' };
+function _hsOrdinal(n){ var s=['th','st','nd','rd'], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
+// Two cards, each following only its own switch. Where I Rank: this player's own place and own
+// number, shown only while the profile has ranks (switch 5). Team skills: teammates' skills by
+// first name and last initial, shown only while the profile has them (switch 2).
+function _hsDemoOn(){ return !!SC.demoMode&&!SC.tiersEnabled; }
+// The HS demo works the same answer out in memory from its own data, under the demo switches.
+function _hsDemoProfile(pid){
+  var SK=['serving','passing','setting','hitting','blocking','defense','courtSense','communication'];
+  var ids=(D.players||[]).map(function(p){ return p&&p.id; }).filter(Boolean);
+  var skillsOf=function(id){ var s=(profilesData&&profilesData.skills&&profilesData.skills[id])||(profilesData&&profilesData.players&&profilesData.players[id]&&profilesData.players[id].skills)||{}, o={};
+    SK.forEach(function(k){ var n=Number(s[k]); if(n>0&&n<=10) o[k]=n; }); return o; };
+  var ranks={}, avg={}, per={};
+  ids.forEach(function(id){ var s=skillsOf(id), ks=Object.keys(s); if(!ks.length) return;
+    avg[id]=SK.reduce(function(t,k){ return t+(s[k]||0); },0)/SK.length;
+    ks.forEach(function(k){ (per[k]=per[k]||{})[id]=s[k]; }); });
+  var put=function(name,vals,hi,minOf,show){ if(!Object.prototype.hasOwnProperty.call(vals,pid)) return;
+    var mine=vals[pid], ks=Object.keys(vals), better=ks.filter(function(id){ return id!==pid&&(hi?vals[id]>mine:vals[id]<mine); }).length;
+    if(ks.length>=minOf) ranks[name]={ rank:better+1, of:ks.length, value:show?show(mine):mine }; };
+  put('avgSkill',avg,true,1,function(v){ return Math.round(v*10)/10; });
+  SK.forEach(function(k){ put(k,per[k]||{},true,2); });
+  var best={}; Object.values((profilesData&&profilesData.starDrills)||{}).forEach(function(d){ var id=d&&(d.playerId||d.player), t=d&&parseFloat(d.time);
+    if(id&&ids.indexOf(id)>=0&&t>0&&(best[id]===undefined||t<best[id])) best[id]=t; });
+  put('starDrill',best,false,1);
+  var teammates=ids.filter(function(id){ return id!==pid; }).map(function(id){ var p=gP(id)||{}; return { name:hsShortName(((p.firstName||'')+' '+(p.lastName||'')).trim()), skills:skillsOf(id) }; })
+    .filter(function(t){ return t.name&&Object.keys(t.skills).length; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+  return { ranks:ranks, teammates:teammates };
+}
+function _hsRankSource(){
+  if(_hsPL.on) return { ranks:_hsPL.ranks, teammates:_hsPL.teammates };
+  if(_hsDemoOn()&&currentRole==='player'&&currentPlayerId){
+    var sw=(_hsPriv.demo&&_hsPriv.demo.sw)||HS_PRIV_DEFAULTS, d=_hsDemoProfile(currentPlayerId);
+    return { ranks:sw.playersSeeRank!==false?d.ranks:null, teammates:sw.teammatesSeeSkills===true?d.teammates:null };
+  }
+  return null;
+}
+function hsRenderRanks(){
+  var src=_hsRankSource(), E=csEsc;
+  var card=document.getElementById('pp-hs-ranks-card'), el=document.getElementById('pp-hs-ranks');
+  if(card&&el){
+    var r=src&&src.ranks&&typeof src.ranks==='object'?src.ranks:null;
+    if(!r){ card.style.display='none'; el.innerHTML=''; }
+    else {
+      var keys=Object.keys(HS_RANK_LABELS).filter(function(k){ return r[k]; });
+      el.innerHTML=keys.length?keys.map(function(k){
+        var x=r[k], val=k==='starDrill'&&typeof x.value==='number'?x.value.toFixed(1)+'s':(x.value==null?'':String(x.value));
+        return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-lighter);"><span style="font-size:13px;color:var(--charcoal);">'+E(HS_RANK_LABELS[k])+(val?' <span style="color:var(--gray);">('+E(val)+')</span>':'')+'</span>'
+          +'<span style="font-family:\'Bebas Neue\';font-size:15px;color:var(--blue);">'+_hsOrdinal(x.rank)+' of '+x.of+'</span></div>';
+      }).join(''):'<div style="font-size:13px;color:var(--gray);">Your ranks show once your coach adds skills, drills or jumps.</div>';
+      card.style.display='';
+    }
+  }
+  var tc=document.getElementById('pp-hs-team-card'), tl=document.getElementById('pp-hs-team');
+  if(tc&&tl){
+    var tm=src&&Array.isArray(src.teammates)?src.teammates:[];
+    if(!tm.length){ tc.style.display='none'; tl.innerHTML=''; }
+    else {
+      tl.innerHTML=tm.map(function(t){
+        var sk=t.skills||{};
+        return '<div style="padding:6px 0;border-bottom:1px solid var(--gray-lighter);font-size:12.5px;"><b>'+E(t.name)+'</b> <span style="color:var(--gray);">'
+          +Object.keys(sk).map(function(k){ return E((HS_RANK_LABELS[k]||k)+' '+sk[k]); }).join(' \xb7 ')+'</span></div>';
+      }).join('');
+      tc.style.display='';
+    }
+  }
+}
+function hsPlayerProfileRefresh(){
+  if(!_hsPL.on) return Promise.resolve(false);
+  var pid=_hsPL.pid;
+  return hsPlayerProfileFetch().then(function(j){
+    if(!j||!_hsPL.on||_hsPL.pid!==pid) return false;   // a failed refresh keeps the last profile on screen
+    _hsApplyProfile(pid,j); _hsPLRender(); return true;
+  });
+}
+function _hsPLConfig(c){
+  var p=(c&&c.privacy)||{};
+  D.parentShowSkills=!!(c&&c.parentShowSkills===true);
+  D.fansSeeSets=p.fansSeeSets!==false;
+  D.playersSeeScouting=p.playersSeeScouting!==false;
+  D.scoutsFullNames=p.scoutsFullNames!==false;
+  D.playersSeeRank=p.playersSeeRank!==false;
+  var sw={ s1:D.playersSeeScouting, s2:p.teammatesSeeSkills===true, s5:D.playersSeeRank }, prev=_hsPL.sw;
+  _hsPL.sw=sw;
+  if(!prev||prev.s1!==sw.s1){
+    _hsPLOff(_hsPL.opp); _hsPL.opp=null;
+    if(sw.s1) _hsPL.opp=_hsPLOn(DB_ROOT+'/opponents',function(s){ D.opponents=s.val()||{}; if(typeof renderPlayerScouts==='function') renderPlayerScouts(); });
+    else { D.opponents={}; if(typeof renderPlayerScouts==='function') renderPlayerScouts(); }
+  }
+  if(prev&&prev.s5!==sw.s5&&!sw.s5){ _hsPL.ranks=null; hsRenderRanks(); }   // switch 5 off: hide the rank card at once
+  if(prev&&prev.s2!==sw.s2&&!sw.s2){ _hsPL.teammates=null; hsRenderRanks(); }   // switch 2 off: hide the team card at once
+  if(prev&&(prev.s2!==sw.s2||prev.s5!==sw.s5)) hsPlayerProfileRefresh();
+  _hsPLRender();
+}
+// The player's own game day notes, for the date the Game Day screen is showing.
+function hsPlayerNotesWatch(date){
+  if(!_hsPL.on||!date||_hsPL.notesDate===date) return;
+  _hsPLOff(_hsPL.notesRef);
+  var pid=_hsPL.pid;
+  _hsPL.notesDate=date;
+  _hsPL.notesRef=_hsPLOn(DB_ROOT+'/player_notes/'+date+'/'+pid,function(s){
+    var v=s.val();
+    pgdNotes={}; pgdNotes[pid]={};
+    if(v) pgdNotes[pid][date]=v;
+  });
+}
+function _hsPLAttach(){
+  var R=DB_ROOT, pid=_hsPL.pid;
+  var list=function(v){ return v?Object.values(v):[]; };
+  var S={
+    players:function(v){ D.players=list(v); _rosterLoaded=true; },
+    matches:function(v){ D.matches=list(v); }, planned:function(v){ D.planned=list(v); },
+    gamedays:function(v){ D.gamedays=list(v); }, scrimmages:function(v){ D.scrimmages=list(v); },
+    schedule:function(v){ D.schedule=list(v); }, duals:function(v){ D.duals=list(v); },
+    standings:function(v){ D.standings=v||{}; }, assignments:function(v){ D.assignments=v||{}; }
+  };
+  D.tierRequests={}; D.chat={}; D.practiceTournaments={};
+  Object.keys(S).forEach(function(k){ _hsPLOn(R+'/'+k,function(s){ S[k](s.val()); _hsPLRender(); }); });
+  _hsPLOn(R+'/config',function(s){ _hsPLConfig(s.val()||{}); });
+  _hsPLOn(R+'/goals/'+pid,function(s){ D.goals={}; D.goals[pid]=s.val()||{}; _hsPLRender(); });
+  _hsPLOn(SC.dbRoots.profiles+'/quizScores/'+pid,function(s){ D.quizScores={}; D.quizScores[pid]=s.val()||{}; _hsPLRender(); });
+  _hsPLOn(R+'/broadcasts',function(s){ D.broadcasts=s.val()||{}; if(typeof renderPlayerBroadcasts==='function') renderPlayerBroadcasts(); });
+  _hsPLOn(R+'/live_scoring',_onLiveScoringSnap);
+  _hsPLOn('.info/connected',function(s){ setSS(s.val()===true); });
+  _hsPLOn('school_key_map',function(s){ var m=s.val(); if(m&&typeof m==='object') SCHOOL_KEY_MAP=Object.assign({},SCHOOL_KEY_MAP,m); });
+  hsPlayerNotesWatch((typeof pgdCurrentDate!=='undefined'&&pgdCurrentDate)||td());
+}
+// After a player's sign-in: the pass first, then the profile, then the split. Any failure keeps
+// the whole-school listeners (the reason is kept in _hsPL.reason: 'pass' or 'profile').
+function hsPlayerSplitStart(){
+  if(!hsPlayerSplitWanted()||_hsPL.on) return Promise.resolve(false);
+  var pid=currentPlayerId;
+  return hsPlayerProfileFetch().then(function(j){
+    if(!j){ _hsPL.reason='profile'; return false; }
+    if(currentRole!=='player'||currentPlayerId!==pid||_hsPL.on) return false;
+    _hsPL.on=true; _hsPL.pid=pid; _hsPL.reason=''; _hsPL.sw=null;
+    _hsApplyProfile(pid,j);
+    schoolListenOff();
+    _hsPLAttach();
+    if(!_hsPL.refreshT) _hsPL.refreshT=setInterval(function(){ if(_hsPL.on) hsPlayerProfileRefresh(); },10*60000);
+    if(!_hsPL.visBound){ _hsPL.visBound=true; document.addEventListener('visibilitychange',function(){ if(_hsPL.on&&document.visibilityState==='visible') hsPlayerProfileRefresh(); }); }
+    _hsPLRender();
+    return true;
+  });
+}
+function hsPlayerSplitSoon(){
+  if(!hsPlayerSplitWanted()||typeof fbPassEnsure!=='function') return Promise.resolve(false);
+  return fbPassEnsure().then(function(ok){
+    if(!ok){ _hsPL.reason='pass'; return false; }
+    return hsPlayerSplitStart();
+  });
+}
+function hsPlayerSplitStop(){
+  if(!_hsPL.on) return;
+  _hsPL.subs.slice().forEach(_hsPLOff);
+  _hsPL.on=false; _hsPL.pid=''; _hsPL.sw=null; _hsPL.opp=null; _hsPL.notesRef=null; _hsPL.notesDate=''; _hsPL.ranks=null; _hsPL.teammates=null;
+  if(_hsPL.refreshT){ clearInterval(_hsPL.refreshT); _hsPL.refreshT=0; }
+  hsRenderRanks();
+  schoolListenOn();
+}
+// ===== PRIVACY CARD (HS data lockdown P2.4) =====
+// Coaches turn switches 1 to 3 on and off under Manage, Communicate. Read and written through
+// POST /hs/coach/privacy; nothing shows as changed until the worker confirms (Not saved with
+// Retry otherwise). The last 10 changes show under the switches. The HS demo works in memory
+// only; the club and the club demo have no card.
+var HS_PRIV_ROWS=[
+  ['playersSeeScouting','Players can see scouting reports','Your players see your scouting on opponents, including opponents\' names. Turn off to keep scouting for coaches only.'],
+  ['teammatesSeeSkills','Teammates can see each other\'s skills','Off: each player sees only their own skills check, jump and drill numbers, and where they rank. Coaches always see everyone. Parents follow the Parent view switch.'],
+  ['playersSeeRank','Players see their team rank','Each player sees their own place on the team for each skill, never a teammate\'s numbers. Turn off to hide rankings from players.'],
+  ['fansSeeSets','Fans see set scores','Your fan page shows set-by-set scores for each court, with each player\'s kills, aces and blocks. Errors are never shown. Fans only ever see first name, last initial and jersey.']
+];
+var HS_PRIV_DEFAULTS={ playersSeeScouting:true, teammatesSeeSkills:false, playersSeeRank:true, fansSeeSets:true };
+var _hsPriv={ sw:null, history:[], busy:false, demo:null };
+function hsPrivacyOn(){ return !!HS_ACCOUNT_SIGNIN||(!!SC.demoMode&&!SC.tiersEnabled); }
+function _hsPrivStatus(t){ var el=document.getElementById('hs-priv-status'); if(el) el.textContent=t||''; }
+function hsPrivacyRender(){
+  var rowsEl=document.getElementById('hs-priv-rows');
+  if(rowsEl&&!rowsEl.innerHTML) rowsEl.innerHTML=HS_PRIV_ROWS.map(function(r){
+    return '<div style="margin-bottom:10px;"><label style="display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-size:14px;color:var(--charcoal);font-weight:600;">'
+      +'<input type="checkbox" id="hs-priv-'+r[0]+'" disabled onchange="hsPrivacyToggle(\''+r[0]+'\',this)" style="width:20px;height:20px;"> '+csEsc(r[1])+'</label>'
+      +'<p style="font-size:12px;color:var(--gray);line-height:1.6;margin:0 0 0 30px;">'+csEsc(r[2])+'</p></div>';
+  }).join('');
+  HS_PRIV_ROWS.forEach(function(r){
+    var cb=document.getElementById('hs-priv-'+r[0]); if(!cb) return;
+    var v=_hsPriv.sw?_hsPriv.sw[r[0]]:false;
+    cb.checked=typeof v==='boolean'?v:HS_PRIV_DEFAULTS[r[0]]===true;   // a missing value shows its default
+    cb.disabled=!_hsPriv.sw||_hsPriv.busy;
+  });
+  var hl=document.getElementById('hs-priv-history'); if(!hl) return;
+  var names={}; HS_PRIV_ROWS.forEach(function(r){ names[r[0]]=r[1]; });
+  var rows=(_hsPriv.history||[]).slice(0,10);
+  hl.innerHTML=rows.length?rows.map(function(h){
+    var when=h.at?new Date(h.at).toLocaleString([],{ month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }):'';
+    return '<div style="font-size:12px;color:var(--gray);padding:4px 0;border-bottom:1px solid var(--gray-lighter);">'+csEsc((h.to?'Turned on: ':'Turned off: ')+(names[h.sw]||h.sw))+' <span style="color:#999;">('+csEsc((h.by==='admin'?'CourtSense admin':'coach')+(when?', '+when:''))+')</span></div>';
+  }).join(''):'<div style="font-size:12px;color:var(--gray);">No changes yet. These are the defaults.</div>';
+}
+function hsPrivacyLoad(){
+  if(!hsPrivacyOn()||!document.getElementById('hs-privacy-card')) return Promise.resolve(false);
+  if(SC.demoMode){
+    if(!_hsPriv.demo) _hsPriv.demo={ sw:Object.assign({},HS_PRIV_DEFAULTS), history:[] };
+    _hsPriv.sw=_hsPriv.demo.sw; _hsPriv.history=_hsPriv.demo.history;
+    hsPrivacyRender(); _hsPrivStatus('Demo: changes stay on this screen only.');
+    return Promise.resolve(true);
+  }
+  _hsPrivStatus('Loading...');
+  return csWorkerPost('/hs/coach/privacy',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), op:'get' }).then(function(res){
+    if(res.ok){ _hsPriv.sw=res.j.switches||null; _hsPriv.history=res.j.history||[]; _hsPrivStatus(''); }
+    else if(!_hsPriv.sw) _hsPrivStatus(res.kind==='signin'?'Your coach sign-in ended. Sign in again to see these settings.':'Could not load these settings. Open this tab again to retry.');
+    hsPrivacyRender();
+    return !!res.ok;
+  });
+}
+function hsPrivacyToggle(name,el){
+  var want=!!(el&&el.checked);
+  if(el) el.checked=!want;                       // nothing changes until the worker confirms
+  if(_hsPriv.busy||!_hsPriv.sw) return Promise.resolve(false);
+  if(SC.demoMode){
+    _hsPriv.demo.sw=Object.assign({},_hsPriv.demo.sw); _hsPriv.demo.sw[name]=want;
+    _hsPriv.demo.history.unshift({ at:Date.now(), sw:name, from:!want, to:want, by:'coach' });
+    _hsPriv.sw=_hsPriv.demo.sw; _hsPriv.history=_hsPriv.demo.history;
+    hsPrivacyRender(); hsRenderRanks(); _hsPrivStatus('Saved for this demo only.');
+    return Promise.resolve(true);
+  }
+  _hsPriv.busy=true; hsPrivacyRender(); _hsPrivStatus('Saving...');
+  return csSave(function(){ return csWorkerPost('/hs/coach/privacy',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), op:'set', sw:name, value:want }); },
+    { onSignin:function(){ csBarShow('Your coach sign-in ended. Sign in again to change this setting.',false); } }).then(function(res){
+    _hsPriv.busy=false;
+    if(res.ok){ if(res.j&&res.j.switches) _hsPriv.sw=res.j.switches; _hsPrivStatus('Saved.'); hsPrivacyRender(); hsPrivacyLoad().then(function(){ _hsPrivStatus('Saved.'); }); return true; }
+    _hsPrivStatus(''); hsPrivacyRender(); return false;
+  });
+}
 // School-node listeners on and off. A signed-out fan reading the public copy needs none of
 // them; leaving the fan page (or falling back) attaches them again for sign-in.
 var _schoolListening=false;
@@ -3769,7 +4052,10 @@ function listenData(){if(!db||_schoolListening)return;
       });
     }
   }
-  db.ref(DB_ROOT+'/live_scoring').on('value',snap=>{
+  db.ref(DB_ROOT+'/live_scoring').on('value',_onLiveScoringSnap);
+}
+// The live scores listener, shared by the whole-school listeners and a player's own (P2.4).
+function _onLiveScoringSnap(snap){
     D.liveScoring=snap.val()||{};
     var fo=document.getElementById('school-fans-overlay');
     if(fo&&fo.style.display!=='none')renderFans();
@@ -3807,7 +4093,6 @@ function listenData(){if(!db||_schoolListening)return;
         }
       }
     });
-  });
 }
 // Demo-mode (db===null) in-memory persistence. Mirrors how the DB_ROOT listener
 // maps each node into the D store, so demo edits made through fbSet/fbRemove
@@ -5099,6 +5384,7 @@ function rosterEmptyAddPlayer(){
   if(f){ f.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>{ try{ f.focus(); }catch(e){} },300); }
 }
 function renderRoster(){
+  { const _al=document.querySelector&&document.querySelector('#tab-settings a[onclick="_goHsImportTab()"]'); if(_al&&_al.style) _al.style.display=(!D.players||!D.players.length)?'none':''; }
   if(!SC.demoMode && (!D.players || !D.players.length)){
     const rl=document.getElementById('roster-list');
     if(rl) rl.innerHTML=_rosterLoaded?rosterEmptyHTML():`<div style="font-size:13px;color:var(--gray);text-align:center;padding:16px;">Loading roster...</div>`;
@@ -5956,6 +6242,7 @@ async function execLoginEmail(){
   loginAsCoach();
 }
 function logout(){
+  if(typeof hsPlayerSplitStop==='function')hsPlayerSplitStop(); // back to the whole-school listeners (HS lockdown P2.4)
   const _wasHsPlayer=HS_ACCOUNT_SIGNIN&&currentRole==='player';
   currentRole=null;currentPlayerId=null;pinEntry='';
   if(typeof fbPassSignOut==='function')fbPassSignOut(); // the Firebase pass ends with the CourtSense sign-in (no-op in a demo)
@@ -6892,6 +7179,7 @@ function renderLatestAlert(){
 // Club Life (the club chats) instead of My Info. Every other shell keeps its default tab.
 function ppAfterLogin(){
   if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this member's account session (HS lockdown P1)
+  if(typeof hsPlayerSplitSoon==='function')hsPlayerSplitSoon(); // a live high school player's own listeners (HS lockdown P2.4)
   // A read the portal render just started for this member is already fresh; do not start another.
   if(_ppRatingLoading!==currentPlayerId){ _ppRating=null; ppRenderRating(); }
   if(!SC.tiersEnabled) return;
@@ -7416,6 +7704,7 @@ function renderPlayerPortal(){
 
   document.getElementById('pp-rankings').innerHTML=rHTML||'<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;"><div style="font-size:28px;margin-bottom:8px;">📊</div>Rankings will appear here as match data is recorded.</div>';
   } // end !SC.tiersEnabled team rankings
+  if(_hsDemoOn()) hsRenderRanks();   // the HS demo: Where I Rank and Team skills from memory, under the demo switches
 
   // Queens matches
   const myQ=D.matches.filter(m=>(m.team1||[]).includes(pid)||(m.team2||[]).includes(pid))
@@ -12538,7 +12827,7 @@ function setHsBcAudience(a,btn){
   document.querySelectorAll('#hs-bc-audience .filter-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
 }
-function renderHsCommunicate(){ renderHsBroadcastList(); if(typeof hsParentSkillsSync==='function')hsParentSkillsSync(); if(HS_ACCOUNT_SIGNIN)hsNoticeLoad(); }
+function renderHsCommunicate(){ renderHsBroadcastList(); if(typeof hsParentSkillsSync==='function')hsParentSkillsSync(); if(HS_ACCOUNT_SIGNIN)hsNoticeLoad(); if(typeof hsPrivacyLoad==='function')hsPrivacyLoad(); }
 function renderHsBroadcastList(){
   const el=document.getElementById('hs-bc-list'); if(!el)return;
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -23203,6 +23492,7 @@ function renderPlayerGameDay(){
   }
 
   pgdCurrentDate=nextAssign?nextAssign.date:today;
+  if(typeof hsPlayerNotesWatch==='function')hsPlayerNotesWatch(pgdCurrentDate);
   const myMatches=D.gamedays.filter(m=>(m.pair||[]).includes(pid))
     .sort((a,b)=>b.date.localeCompare(a.date));
 
