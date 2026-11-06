@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.222';
+const APP_VERSION='1.1.223';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3241,6 +3241,7 @@ function initFB(){
   try{if(!firebase.apps.length)firebase.initializeApp(FB_CONFIG);
     db=firebase.database();setSS(true);listenData();
   }catch(e){console.error(e);setSS(false);}
+  if(typeof csVersionStart==='function') csVersionStart(); // live apps only; the demo returned above
 }
 function setSS(on){const d=document.getElementById('sync-dot');d.className='sync-dot '+(on?'online':'offline');d.title=on?'Connected':'Offline';}
 // ===== FIREBASE PASS (HS data lockdown P1) =====
@@ -3286,7 +3287,7 @@ function _fbPassSource(){
   }catch(e){ return null; }
 }
 function _fbPassReport(role,ok){
-  try{ fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({report:ok?'signin_ok':'signin_failed',role:role||'unknown'})}).catch(function(){}); }catch(e){}
+  try{ fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({report:ok?'signin_ok':'signin_failed',role:role||'unknown',v:APP_VERSION})}).catch(function(){}); }catch(e){}
 }
 async function _fbPassDrop(){
   _fbPass.key=''; _fbPass.exp=0;
@@ -3336,6 +3337,144 @@ function fbPassSignOut(){
   if(_fbPass.timer){ clearTimeout(_fbPass.timer); _fbPass.timer=0; }
   _fbPass.key=''; _fbPass.exp=0;
   return fbPassOff()?Promise.resolve():_fbPassQueue(_fbPassDrop);
+}
+// ===== VERSION CHECK (HS data lockdown P2.1) =====
+// deploy.sh writes courtsense.app/version.json as {"v":"<deployed>","min":"<oldest allowed>"}.
+// This page compares it with its own APP_VERSION at boot, every 15 minutes and whenever the tab
+// comes back into view. Newer v: a soft bar, "CourtSense has an update. Reload.", which can be
+// dismissed for this tab. Newer min: a firm bar that cannot be dismissed and shows again on every
+// save attempt. Never reloads by itself, never takes focus, and waits while someone is typing a
+// score. A failed check stays silent. Never in a demo.
+const CS_VERSION_URL='/version.json';
+const CS_VERSION_EVERY_MS=15*60000;
+var _csVer={ timer:0, kind:'', pending:'', started:false };
+function csVersionOff(){ return !!SC.demoMode||typeof fetch!=='function'||typeof document==='undefined'; }
+// -1, 0 or 1. Plain x.y.z numbers; anything else compares as 0.0.0.
+function csVersionCmp(a,b){
+  var pa=String(a||'').split('.'), pb=String(b||'').split('.');
+  for(var i=0;i<3;i++){ var x=parseInt(pa[i],10)||0, y=parseInt(pb[i],10)||0; if(x!==y) return x>y?1:-1; }
+  return 0;
+}
+function _csVerTyping(){
+  var ae=document.activeElement;
+  if(!ae) return false;
+  var tag=(ae.tagName||'').toUpperCase();
+  return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||ae.isContentEditable===true;
+}
+function _csVerDismissedFor(){ try{ return sessionStorage.getItem('csVerDismissed')||''; }catch(e){ return ''; } }
+function csVersionDismiss(){
+  if(_csVer.kind!=='soft') return;
+  try{ sessionStorage.setItem('csVerDismissed',_csVer.pendingV||''); }catch(e){}
+  var b=document.getElementById('cs-ver-banner'); if(b) b.remove();
+  _csVer.kind='';
+}
+function csVersionReload(){ try{ location.reload(); }catch(e){} }
+// Draws the bar. force: on a save attempt the firm bar shows even while typing (it never takes focus).
+function _csVerShow(kind,force){
+  if(!document.body) return;
+  if(!force&&_csVerTyping()){
+    if(_csVer.pending) return;
+    _csVer.pending=kind;
+    var retry=function(){ document.removeEventListener('focusout',retry,true); setTimeout(function(){ var k=_csVer.pending; _csVer.pending=''; if(k) _csVerShow(k,false); },400); };
+    document.addEventListener('focusout',retry,true);
+    return;
+  }
+  var b=document.getElementById('cs-ver-banner');
+  if(b&&b.dataset.kind===kind) return;
+  if(b) b.remove();
+  b=document.createElement('div');
+  b.id='cs-ver-banner'; b.dataset.kind=kind; b.setAttribute('role','status');
+  b.style.cssText='position:fixed;left:0;right:0;top:0;z-index:100000;display:flex;align-items:center;gap:10px;justify-content:center;padding:8px 12px;font-family:Barlow,sans-serif;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.15);'+(kind==='firm'?'background:#b91c1c;color:#fff;':'background:#082A4F;color:#fff;');
+  var msg=document.createElement('span');
+  msg.textContent=kind==='firm'?'This page is out of date. Reload to keep saving your changes.':'CourtSense has an update.';
+  var rl=document.createElement('button');
+  rl.type='button'; rl.textContent='Reload';
+  rl.style.cssText='min-height:32px;padding:4px 14px;border-radius:16px;border:1px solid #fff;background:#fff;color:'+(kind==='firm'?'#b91c1c':'#082A4F')+';font-weight:700;cursor:pointer;';
+  rl.onclick=csVersionReload;
+  b.appendChild(msg); b.appendChild(rl);
+  if(kind==='soft'){
+    var x=document.createElement('button');
+    x.type='button'; x.textContent='×'; x.setAttribute('aria-label','Dismiss');
+    x.style.cssText='min-width:32px;min-height:32px;border:none;background:transparent;color:#fff;font-size:20px;cursor:pointer;';
+    x.onclick=csVersionDismiss;
+    b.appendChild(x);
+  }
+  document.body.appendChild(b);
+  _csVer.kind=kind;
+}
+// One check. Resolves to '', 'soft' or 'firm'. Never throws, never shows an error.
+function csVersionCheck(){
+  if(csVersionOff()) return Promise.resolve('');
+  var url=CS_VERSION_URL+'?t='+Date.now();
+  var p;
+  try{ p=fetch(url,{cache:'no-store'}); }catch(e){ return Promise.resolve(''); }
+  return Promise.resolve(p).then(function(r){ return (r&&r.ok)?r.json():null; }).then(function(j){
+    if(!j||typeof j.v!=='string') return '';
+    if(typeof j.min==='string'&&csVersionCmp(j.min,APP_VERSION)>0){ _csVer.firm=true; _csVerShow('firm',false); return 'firm'; }
+    if(csVersionCmp(j.v,APP_VERSION)>0){
+      _csVer.pendingV=j.v;
+      if(_csVer.kind!=='firm'&&_csVerDismissedFor()!==j.v) _csVerShow('soft',false);
+      return 'soft';
+    }
+    return '';
+  }).catch(function(){ return ''; });
+}
+// Every save attempt: an out-of-date page says so again (the save itself goes ahead in P2).
+function csVersionOnSave(){ if(_csVer.firm) _csVerShow('firm',true); }
+function csVersionStart(){
+  if(_csVer.started||csVersionOff()) return;
+  _csVer.started=true;
+  csVersionCheck();
+  _csVer.timer=setInterval(csVersionCheck,CS_VERSION_EVERY_MS);
+  document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') csVersionCheck(); });
+}
+// ===== PUBLIC FAN COPY SYNC (HS data lockdown P2.1) =====
+// After a coach save that fans can see (schedule, duals, game days, standings, assignments,
+// roster, config) the worker rebuilds the school's public copy: POST /hs/public/sync with the
+// coach session, 2 seconds after the last such save; closing a dual syncs at once. Live high
+// schools only; the club and both demos never call it. A failed sync is silent, and the
+// worker's 15 minute rebuild covers it.
+const HS_PUBLIC_SECTIONS={schedule:1,duals:1,gamedays:1,standings:1,assignments:1,players:1,config:1};
+const HS_PUBLIC_SYNC_DELAY_MS=2000;
+var _hsPub={ timer:0 };
+function hsPublicSyncOn(){
+  return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!SC.tiersEnabled&&!!db&&currentRole==='coach'&&typeof fetch==='function'&&!!_hsCoachToken();
+}
+// path: the DB_ROOT-relative path just saved, or null for a multi-path roster or game day write.
+function hsPublicSyncSoon(path){
+  if(!hsPublicSyncOn()) return;
+  if(path!=null&&!HS_PUBLIC_SECTIONS[String(path).split('/')[0]]) return;
+  if(_hsPub.timer) clearTimeout(_hsPub.timer);
+  _hsPub.timer=setTimeout(function(){ _hsPub.timer=0; hsPublicSyncNow(); },HS_PUBLIC_SYNC_DELAY_MS);
+}
+function hsPublicSyncNow(){
+  if(_hsPub.timer){ clearTimeout(_hsPub.timer); _hsPub.timer=0; }
+  if(!hsPublicSyncOn()) return Promise.resolve(false);
+  try{
+    return fetch(AUTH_WORKER+'/hs/public/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,coach:_hsCoachToken()})})
+      .then(function(r){ return !!(r&&r.ok); },function(){ return false; });
+  }catch(e){ return Promise.resolve(false); }
+}
+// Coach live scores go through the worker (POST /hs/live-score), which also updates the fan
+// copy in the same write. If that call fails for any reason, the score is written directly
+// exactly as before, so a coach never loses a score. One call at a time per court.
+var _hsLiveChain={};
+function hsCoachLiveScore(aid,idx,rec){
+  var key=aid+'/'+idx;
+  var direct=function(){ return Promise.resolve(db.ref(DB_ROOT+'/live_scoring/'+key).set(Object.assign({},rec,{ts:Date.now()}))).then(function(){ return 'direct'; },function(){ return 'failed'; }); };
+  var run=function(){
+    var p;
+    try{
+      p=fetch(AUTH_WORKER+'/hs/live-score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dbRoot:DB_ROOT,coach:_hsCoachToken(),assignmentId:aid,idx:idx,us:rec.us,them:rec.them,setNum:rec.setNum})});
+    }catch(e){ return direct(); }
+    return Promise.resolve(p).then(function(r){
+      if(!r||!r.ok) return null;
+      return r.json().catch(function(){ return null; });
+    },function(){ return null; }).then(function(j){ return (j&&j.ok===true)?'worker':direct(); });
+  };
+  var next=(_hsLiveChain[key]||Promise.resolve()).then(run,run);
+  _hsLiveChain[key]=next;
+  return next;
 }
 function listenData(){if(!db)return;
   db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();updateSeasonLabel();});
@@ -3692,12 +3831,14 @@ function _fbWriteFailed(verb,path,err){
 // inside it still propagates synchronously to the caller exactly as before.
 function fbSet(path,val){
   if(!db){_demoWrite(path,val);return Promise.resolve(true);}
-  return db.ref(DB_ROOT+'/'+path).set(val).then(function(){ return true; })
+  if(typeof csVersionOnSave==='function') csVersionOnSave();
+  return db.ref(DB_ROOT+'/'+path).set(val).then(function(){ if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(path); return true; })
     .catch(function(err){ _fbWriteFailed('save',path,err); return false; });
 }
 function fbRemove(path){
   if(!db){_demoRemove(path);return Promise.resolve(true);}
-  return db.ref(DB_ROOT+'/'+path).remove().then(function(){ return true; })
+  if(typeof csVersionOnSave==='function') csVersionOnSave();
+  return db.ref(DB_ROOT+'/'+path).remove().then(function(){ if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(path); return true; })
     .catch(function(err){ _fbWriteFailed('delete',path,err); return false; });
 }
 // Checked merge-writer for a path OUTSIDE DB_ROOT. fbSet is DB_ROOT scoped, so the
@@ -3710,6 +3851,7 @@ function fbRemove(path){
 // site is already wrapped in if(db)). Resolves true there because nothing failed.
 function fbUpdateAt(path,val){
   if(!db) return Promise.resolve(true);
+  if(typeof csVersionOnSave==='function') csVersionOnSave();
   return db.ref(path).update(val).then(function(){ return true; })
     .catch(function(err){ _fbWriteFailed('save',path,err); return false; });
 }
@@ -4974,6 +5116,7 @@ function remPlayer(id){
     db.ref().update(u,function(err){
       if(err){toast('Could not remove player, try again');return;}
       toast('Player removed');
+      if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(null);
       // The player's private contacts record goes too, once the roster removal has landed
       // (the worker refuses while the player is still on the roster). A failure here never
       // undoes the removal; it only says the details are still on file.
@@ -10806,17 +10949,19 @@ function closeDual(){
   const existing=D.duals.find(d=>d.date===date&&(d.opponent||'').toLowerCase()===opponent.toLowerCase());
   const id=existing?existing.id:dualId;
 
-  fbSetResult('duals',id,{id,date,opponent,location:loc,leonCourts,oppCourts,dualWin,createdAt:existing?existing.createdAt:td()});
+  const _dualSaves=[fbSetResult('duals',id,{id,date,opponent,location:loc,leonCourts,oppCourts,dualWin,createdAt:existing?existing.createdAt:td()})];
   fanNotifyResult(date,opponent,leonCourts,oppCourts); // fan alert, once per dual (fire and forget)
   const _normOpp=s=>(s||'').toLowerCase().replace(/^[@\s]+/,'').replace(/[^a-z0-9]/g,'');
   const _oppNorm=_normOpp(opponent);
   let schedMatch=(D.schedule||[]).find(g=>g.date===date&&_normOpp(g.opponent)===_oppNorm);
   if(!schedMatch){const byDate=(D.schedule||[]).filter(g=>g.date===date&&g.scoreUs==null);if(byDate.length===1)schedMatch=byDate[0];}
   if(schedMatch){
-    fbSet('schedule/'+schedMatch.id+'/scoreUs',leonCourts);
-    fbSet('schedule/'+schedMatch.id+'/scoreThem',oppCourts);
+    _dualSaves.push(fbSet('schedule/'+schedMatch.id+'/scoreUs',leonCourts));
+    _dualSaves.push(fbSet('schedule/'+schedMatch.id+'/scoreThem',oppCourts));
   }
-  if(db){if(a.id)db.ref(DB_ROOT+'/live_scoring/'+a.id).remove();else db.ref(DB_ROOT+'/live_scoring').remove();}
+  if(db){_dualSaves.push(Promise.resolve(a.id?db.ref(DB_ROOT+'/live_scoring/'+a.id).remove():db.ref(DB_ROOT+'/live_scoring').remove()).then(function(){return true;},function(){return false;}));}
+  // The fan copy updates as soon as the result has landed, not 2 seconds later.
+  Promise.all(_dualSaves).then(function(){ if(typeof hsPublicSyncNow==='function') hsPublicSyncNow(); });
 
   const winner=dualWin?(SC.shortName||'Us'):opponent;
   const resultMsg=winner+' wins '+leonCourts+'-'+oppCourts;
@@ -11097,7 +11242,11 @@ function pushLiveScore(idx){
   const setNum=existing?(existing.sets||[]).length+1:1;
   const scoredBy=currentPlayerId?((gP(currentPlayerId)||{}).firstName||'Player'):'Coach';
   const _lsKey=(a.id?a.id+'/':'')+idx;
-  db.ref(DB_ROOT+'/live_scoring/'+_lsKey).set({us,them,setNum,pairLabel,court:c.court,date,ts:Date.now(),scoredBy,assignmentId:a.id||null});
+  const _lsRec={us,them,setNum,pairLabel,court:c.court,date,ts:Date.now(),scoredBy,assignmentId:a.id||null};
+  // A coach at a live high school scores through the worker (fan copy in the same write), with
+  // the direct write below as the fallback. Players are unchanged until P2.3.
+  if(currentRole==='coach'&&a.id&&typeof hsPublicSyncOn==='function'&&hsPublicSyncOn()){ hsCoachLiveScore(a.id,idx,_lsRec); return; }
+  db.ref(DB_ROOT+'/live_scoring/'+_lsKey).set(_lsRec);
 }
 function lsInpChange(id){
   const inp=document.getElementById(id+'-inp');
@@ -24435,6 +24584,7 @@ function seedMissingDuals(){return;//disabled
   }
   db.ref().update(u,function(err){
     if(err){toast('Error: '+err.message);return;}
+    if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(null);
     const msg='✓ Added '+Object.keys(u).length+' court records'+(skipped?' ('+skipped+' already existed)':'')+'! ⚠️ Check Mosley CT4 Set 2 score.';
     if(statusEl)statusEl.textContent=msg;
     toast('Done! '+Object.keys(u).length+' courts added');
