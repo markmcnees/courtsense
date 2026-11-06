@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.224';
+const APP_VERSION='1.1.225';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3480,6 +3480,97 @@ function hsCoachLiveScore(aid,idx,rec){
   _hsLiveChain[key]=next;
   return next;
 }
+// ===== PLAYER SAVES THROUGH THE WORKER (HS data lockdown P2.3) =====
+// At a live high school a player's game day sets, live sets, live scores and scout notes go
+// through the worker (POST /hs/player/set, /hs/live-score, /hs/player/scout-note), never
+// straight to Firebase. Same save behavior as the club (csSave and the Not saved bar): nothing
+// shows as saved until the worker confirms; no signal or a worker error shows Not saved with
+// one-tap Retry and keeps what the player entered; nothing is queued and nothing retries by
+// itself. A set someone else saved meanwhile is never overwritten: the player sees who saved it,
+// or that it changed. An ended sign-in says "Sign in again" and keeps what was entered.
+// Coaches, the club and both demos never come here.
+function hsPlayerWorkerOn(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!!db&&currentRole==='player'; }
+function hsPlayerToken(){ return (typeof tnPlayerSessionToken==='function'&&tnPlayerSessionToken())||(typeof pvDeviceToken==='function'&&pvDeviceToken())||''; }
+function hsPlayerResignin(){ csBarShow('Your sign-in ended. Sign in again to save. What you entered is still here.',false); }
+// Double-tap protection and the busy label, per save.
+var _hsBusy={};
+function hsBusyStart(key,btn){
+  if(_hsBusy[key]) return false;
+  _hsBusy[key]={ btn:btn||null, label:btn?btn.textContent:'' };
+  if(btn){ btn.disabled=true; btn.textContent='Saving...'; }
+  return true;
+}
+function hsBusyEnd(key){
+  var b=_hsBusy[key]; delete _hsBusy[key];
+  if(b&&b.btn){ b.btn.disabled=false; b.btn.textContent=b.label; }
+}
+function _hsFirst(pid){ var p=gP(pid); return (p&&p.firstName)||''; }
+// "changed" from the worker: either this player's own earlier try landed and only its answer
+// was lost (then it counts as saved), or someone else saved meanwhile (then say who, or that it
+// changed, and save nothing).
+function _hsSetChanged(body,res){
+  var j=res.j||{}, sets=Array.isArray(j.sets)?j.sets:null, want=body.set||{};
+  var mine=function(s){ return s&&s.scoreUs===want.scoreUs&&s.scoreThem===want.scoreThem&&s.enteredBy===currentPlayerId; };
+  if(body.op==='append'&&sets){
+    if(sets.length===(body.expectCount||0)+1&&mine(sets[sets.length-1])) return { ok:true, kind:'ok', j:{ ok:true, id:j.id||body.matchId, sets:sets } };
+    if(sets.length>(body.expectCount||0)){
+      var s=sets[(body.expectCount||0)], who=s&&s.enteredBy?_hsFirst(s.enteredBy):'';
+      return { ok:false, kind:'stale', msg:'Not saved: '+(who||'Someone')+' saved set '+((body.expectCount||0)+1)+' ('+(s?s.scoreUs+'-'+s.scoreThem:'')+') meanwhile. Your score is still here: check it, then save again if it is a new set.' };
+    }
+  }
+  return { ok:false, kind:'stale', msg:'Not saved: this score changed on another phone since you started. Check it, then save again.' };
+}
+function hsPlayerSetSend(body){
+  var tok=hsPlayerToken();
+  if(!tok) return Promise.resolve({ ok:false, kind:'signin', j:null });
+  return csWorkerPost('/hs/player/set',Object.assign({ dbRoot:DB_ROOT, token:tok, pid:currentPlayerId },body)).then(function(res){
+    if(!res.ok&&res.j&&res.j.code==='changed') return _hsSetChanged(body,res);
+    return res;
+  });
+}
+// One set save: resolves true once the worker confirms, false otherwise (the bar says why).
+function hsPlayerSaveSet(key,btn,body){
+  if(!hsBusyStart(key,btn)) return Promise.resolve(false);
+  return csSave(function(){ return hsPlayerSetSend(body); },{ onSignin:hsPlayerResignin }).then(function(res){
+    hsBusyEnd(key);
+    return res.ok?res:false;
+  });
+}
+// Live scores: the latest numbers on the screen, one call at a time per court. A failure shows
+// Not saved with Retry, which sends the numbers on the screen then; a later score that lands
+// clears the bar.
+var _hsPlayerLiveChain={};
+function hsPlayerLiveScore(aid,idx,read){
+  var key=aid+'/'+idx;
+  var run=function(){
+    var v=read();
+    if(!v) return Promise.resolve();
+    var tok=hsPlayerToken();
+    var p=tok?csWorkerPost('/hs/live-score',{ dbRoot:DB_ROOT, token:tok, pid:currentPlayerId, assignmentId:aid, idx:idx, us:v.us, them:v.them, setNum:v.setNum }):Promise.resolve({ ok:false, kind:'signin', j:null });
+    return p.then(function(res){
+      if(res.ok){ if(_csBar&&_csBar.live===key){ _csBar=null; csBarHide(); } return; }
+      if(res.kind==='signin'||res.kind==='expired'){ hsPlayerResignin(); return; }
+      if(csSaveRetryable(res.kind)){
+        if(_csBar&&!_csBar.live){ var old=_csBar; _csBar=null; old.resolve({ ok:false, kind:'dismissed' }); }
+        _csBar={ resolve:function(){}, busy:false, live:key, attempt:function(){ hsPlayerLiveScore(aid,idx,read); } };
+        csBarShow(CS_SAVE_MSG[res.kind]||CS_SAVE_MSG.server,true);
+        return;
+      }
+      csSaveRefused(res,{});
+    });
+  };
+  var next=(_hsPlayerLiveChain[key]||Promise.resolve()).then(run,run);
+  _hsPlayerLiveChain[key]=next;
+  return next;
+}
+// Switch 4 off: "Jane Smith" becomes "Jane S." (the worker shortens too).
+function hsShortName(n){
+  var t=String(n==null?'':n).trim().split(/\s+/).filter(Boolean);
+  if(t.length<2||/^[A-Za-zÀ-ɏ]\.?$/.test(t[t.length-1])) return t.join(' ');
+  var m=/[A-Za-zÀ-ɏ]/.exec(t[t.length-1]);
+  return t[0]+(m?' '+m[0].toUpperCase()+'.':'');
+}
+function hsShortLabel(s){ s=String(s==null?'':s); return s.indexOf('&')>=0?s.split('&').map(hsShortName).join(' & '):hsShortName(s); }
 // School-node listeners on and off. A signed-out fan reading the public copy needs none of
 // them; leaving the fan page (or falling back) attaches them again for sign-in.
 var _schoolListening=false;
@@ -3524,6 +3615,8 @@ function listenData(){if(!db||_schoolListening)return;
     D.tierRequests=v.tier_requests||{};
     D.parentShowSkills=!!(v.config&&v.config.parentShowSkills===true);
     D.fansSeeSets=!(v.config&&v.config.privacy&&v.config.privacy.fansSeeSets===false); // fan page fallback (switch 3)
+    D.playersSeeScouting=!(v.config&&v.config.privacy&&v.config.privacy.playersSeeScouting===false); // switch 1
+    D.scoutsFullNames=!(v.config&&v.config.privacy&&v.config.privacy.scoutsFullNames===false); // switch 4
     if(typeof hsParentSkillsSync==='function')hsParentSkillsSync();
     D.chat=v.chat||{};
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
@@ -10324,6 +10417,29 @@ function saveScoutNote(){
   const text=(document.getElementById('scout-note-text')?.value||'').trim();
   const tags=[...document.querySelectorAll('#scout-tag-chips button[data-active="1"]')].map(b=>b.dataset.tag);
   if(!text&&!tags.length){toast('Add a note or select tags');return;}
+  // A player at a live high school saves through the worker, only while the coach shows scouting
+  // to players (switch 1), with names shortened while switch 4 is off. The note stays in the
+  // open form on any failure.
+  if(typeof hsPlayerWorkerOn==='function'&&hsPlayerWorkerOn()){
+    if(D.playersSeeScouting===false){ csBarShow('Your coach keeps scouting for coaches only.',false); return; }
+    const label=D.scoutsFullNames===false&&ctx.targetType!=='school'?hsShortLabel(ctx.targetLabel):ctx.targetLabel;
+    const tok=hsPlayerToken();
+    if(!hsBusyStart('scout',document.getElementById('edit-save'))) return;
+    csSave(function(){
+      if(!tok) return {ok:false,kind:'signin',j:null};
+      return csWorkerPost('/hs/player/scout-note',{dbRoot:DB_ROOT,token:tok,pid:currentPlayerId,schoolK:ctx.schoolK,targetType:ctx.targetType,targetId:ctx.targetId||'',targetLabel:label,text,tags});
+    },{onSignin:hsPlayerResignin}).then(res=>{
+      hsBusyEnd('scout');
+      if(!res.ok) return;
+      toast('Scout note saved!');
+      const nm=pN(currentPlayerId);
+      notifyCoaches('Scout Note from '+nm+': '+label,
+        'Player '+nm+' added a scouting note.\nAbout: '+label+'\nSchool: '+ctx.schoolK.replace(/_/g,' ')+(tags.length?'\nTags: '+tags.join(', '):'')+(text?'\nNote: '+text:'')+'\n\nLog in to view.');
+      closeEdit();
+      setTimeout(()=>{openPlayerScoutSchool(ctx.schoolK);},400);
+    });
+    return;
+  }
   const id=gi('sn');
   const authorId=currentPlayerId||'coach';
   const authorName=currentPlayerId?pN(currentPlayerId):'Coach';
@@ -10352,6 +10468,12 @@ function renderPlayerScouts(){
   const listEl=document.getElementById('pp-scouts-list');
   const detailEl=document.getElementById('pp-scouts-detail');
   if(!listEl)return;
+  // Switch 1 off at a live high school: scouting is for coaches only.
+  if(HS_ACCOUNT_SIGNIN&&D.playersSeeScouting===false){
+    listEl.innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;">Your coach keeps scouting for coaches only.</div>';
+    if(detailEl)detailEl.style.display='none';
+    return;
+  }
   const schools=Object.entries(D.opponents||{});
   if(!schools.length){
     listEl.innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;">No opponents scouted yet.</div>';
@@ -10377,6 +10499,7 @@ function renderPlayerScouts(){
 }
 
 function openPlayerScoutSchool(key){
+  if(HS_ACCOUNT_SIGNIN&&D.playersSeeScouting===false){ renderPlayerScouts(); return; }
   const sc=D.opponents[key];if(!sc)return;
   const info=sc.info||{};
   const players=Object.values(sc.players||{}).sort((a,b)=>(a.typicalCourt||99)-(b.typicalCourt||99));
@@ -11269,8 +11392,21 @@ function pushLiveScore(idx){
   const scoredBy=currentPlayerId?((gP(currentPlayerId)||{}).firstName||'Player'):'Coach';
   const _lsKey=(a.id?a.id+'/':'')+idx;
   const _lsRec={us,them,setNum,pairLabel,court:c.court,date,ts:Date.now(),scoredBy,assignmentId:a.id||null};
+  // A player at a live high school scores through the worker only (P2.3): the numbers on the
+  // screen when each call goes, no direct write.
+  if(currentRole==='player'&&typeof hsPlayerWorkerOn==='function'&&hsPlayerWorkerOn()){
+    if(!a.id){ csBarShow('Not saved: this lineup cannot take live scores. Ask your coach.',false); return; }
+    hsPlayerLiveScore(a.id,idx,function(){
+      const ue=document.getElementById('ls-us-'+idx)||document.getElementById('qls-a-'+idx)||document.getElementById('pp-us-'+idx);
+      const te=document.getElementById('ls-them-'+idx)||document.getElementById('qls-b-'+idx)||document.getElementById('pp-them-'+idx);
+      if(!ue||!te) return null;
+      const ex=aType==='queens'?null:matchList.find(m=>resMatchesCourt(m,date,[c.p1,c.p2].filter(Boolean),a.id));
+      return {us:parseInt(ue.tagName==='INPUT'?ue.value:ue.textContent)||0,them:parseInt(te.tagName==='INPUT'?te.value:te.textContent)||0,setNum:Math.min(5,ex?(ex.sets||[]).length+1:1)};
+    });
+    return;
+  }
   // A coach at a live high school scores through the worker (fan copy in the same write), with
-  // the direct write below as the fallback. Players are unchanged until P2.3.
+  // the direct write below as the fallback.
   if(currentRole==='coach'&&a.id&&typeof hsPublicSyncOn==='function'&&hsPublicSyncOn()){ hsCoachLiveScore(a.id,idx,_lsRec); return; }
   db.ref(DB_ROOT+'/live_scoring/'+_lsKey).set(_lsRec);
 }
@@ -22873,7 +23009,7 @@ function pgdEditSetFormHTML(matchId,setIdx,s,pair,viewerPid,prefix){
       </div>`;
     }).join('')}
     <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="btn btn-blue btn-small" style="flex:1;" onclick="pgdSaveEditSet('${matchId}',${setIdx},'${pair.join(',')}','${prefix}')">Save</button>
+      <button class="btn btn-blue btn-small" style="flex:1;" onclick="pgdSaveEditSet('${matchId}',${setIdx},'${pair.join(',')}','${prefix}',this)">Save</button>
       <button class="btn btn-secondary btn-small" onclick="pgdToggleEditSet('${prefix}-edit-${setIdx}')">Cancel</button>
     </div>
   </div>`;
@@ -22884,7 +23020,7 @@ function pgdToggleEditSet(id){
   el.style.display=el.style.display==='none'?'block':'none';
 }
 
-function pgdSaveEditSet(matchId,setIdx,pairStr,prefix){
+function pgdSaveEditSet(matchId,setIdx,pairStr,prefix,btn){
   const pair=pairStr.split(',').filter(Boolean);
   const fbNode='gamedays';
   const m=D.gamedays.find(x=>x.id===matchId);if(!m)return;
@@ -22902,6 +23038,17 @@ function pgdSaveEditSet(matchId,setIdx,pairStr,prefix){
     });
     stats[pid2]=ps;
   });
+  // A player at a live high school edits through the worker; the edit form stays open with the
+  // numbers on any failure. Coaches keep saving directly.
+  if(typeof hsPlayerWorkerOn==='function'&&hsPlayerWorkerOn()){
+    hsPlayerSaveSet('edit:'+matchId+':'+setIdx,btn,{node:fbNode,op:'edit',matchId,setIndex:setIdx,date:m.date,court:m.court,pair:(m.pair||pair),
+      expectCount:(m.sets||[]).length,set:{scoreUs:us,scoreThem:them,stats}}).then(res=>{
+      if(!res) return;
+      toast('Set '+(setIdx+1)+' updated!');
+      setTimeout(renderPlayerGameDay,500);
+    });
+    return;
+  }
   const sets=[...(m.sets||[])];
   sets[setIdx]={...sets[setIdx],scoreUs:us,scoreThem:them,stats,editedBy:currentPlayerId||'coach',editedAt:td()};
   fbSet(fbNode+'/'+matchId+'/sets',sets);
@@ -22921,7 +23068,7 @@ function pgdNewSetCardHTML(setNum,pair,prefix,isSpectator){
         <div class="pgd-score-label">${SC.abbrev}</div>
         <div class="pgd-score-ctrl">
           <button class="pgd-score-btn" onclick="pgdScoreAdj('${prefix}','us',-1)">−</button>
-          <div class="pgd-score-num" id="${prefix}-us">0</div>
+          <div class="pgd-score-num" id="${prefix}-us">${(pgdPrefixScores[prefix]||{}).us||0}</div>
           <button class="pgd-score-btn" onclick="pgdScoreAdj('${prefix}','us',1)">+</button>
         </div>
       </div>
@@ -22930,7 +23077,7 @@ function pgdNewSetCardHTML(setNum,pair,prefix,isSpectator){
         <div class="pgd-score-label">OPP</div>
         <div class="pgd-score-ctrl">
           <button class="pgd-score-btn" onclick="pgdScoreAdj('${prefix}','them',-1)">−</button>
-          <div class="pgd-score-num" id="${prefix}-them">0</div>
+          <div class="pgd-score-num" id="${prefix}-them">${(pgdPrefixScores[prefix]||{}).them||0}</div>
           <button class="pgd-score-btn" onclick="pgdScoreAdj('${prefix}','them',1)">+</button>
         </div>
       </div>
@@ -22943,7 +23090,7 @@ function pgdNewSetCardHTML(setNum,pair,prefix,isSpectator){
         return pgdStatBlockHTML(pid2,pObj?pObj.firstName:'Player',prefix);
       }).join('')}
     </div>
-    <button class="btn btn-blue" style="width:100%;margin-top:12px;" onclick="pgdSubmitSet('${prefix}','${pair.join(',')}')">Save Set Score</button>
+    <button class="btn btn-blue" style="width:100%;margin-top:12px;" onclick="pgdSubmitSet('${prefix}','${pair.join(',')}',this)">Save Set Score</button>
   </div>`;
 }
 
@@ -22973,7 +23120,7 @@ function pgdToggleStatsSection(prefix){
   btn.classList.toggle('open',open);
 }
 
-function pgdSubmitSet(prefix,pairStr){
+function pgdSubmitSet(prefix,pairStr,btn){
   if(!pgdPrefixScores[prefix])pgdPrefixScores[prefix]={us:0,them:0};
   const scoreUs=pgdPrefixScores[prefix].us;
   const scoreThem=pgdPrefixScores[prefix].them;
@@ -22994,6 +23141,24 @@ function pgdSubmitSet(prefix,pairStr){
   const matchDate=pgdCurrentDate||td();
   const _pgdAssign=Object.values(D.assignments).find(a=>a.date===matchDate);
   const existingMatch=D.gamedays.find(m=>resMatchesCourt(m,matchDate,pair,_pgdAssign&&_pgdAssign.id));
+  // A player at a live high school saves through the worker; nothing shows as saved until it
+  // confirms, and on any failure the score stays on screen (see hsPlayerSaveSet).
+  if(typeof hsPlayerWorkerOn==='function'&&hsPlayerWorkerOn()){
+    const _ce=(Object.values(D.assignments).find(a=>a.date===matchDate)?.courts||[]).find(c=>arrEq([c.p1,c.p2].filter(Boolean),pair));
+    const body={node:'gamedays',op:'append',date:matchDate,court:existingMatch?existingMatch.court:(_ce?_ce.court:(gP(pair[0])?.court||1)),pair,
+      expectCount:existingMatch?(existingMatch.sets||[]).length:0,set:{scoreUs,scoreThem,stats}};
+    if(existingMatch) body.matchId=existingMatch.id;
+    hsPlayerSaveSet('set:'+prefix,btn,body).then(res=>{
+      if(!res) return;
+      if(prefix==='own') pgdCurrentMatchId=res.j.id||pgdCurrentMatchId;
+      toast((scoreUs>scoreThem?'✓ Win':'✗ Loss')+' saved, '+scoreUs+'-'+scoreThem);
+      pgdPrefixScores[prefix]={us:0,them:0};
+      if(pgdStats[pair[0]])pgdStats[pair[0]]={k:0,a:0,b:0,se:0,re:0,he:0,de:0};
+      if(pgdStats[pair[1]])pgdStats[pair[1]]={k:0,a:0,b:0,se:0,re:0,he:0,de:0};
+      setTimeout(renderPlayerGameDay,600);
+    });
+    return;
+  }
   if(existingMatch){
     const sets=[...(existingMatch.sets||[])];
     sets.push(newSet);
@@ -24118,7 +24283,7 @@ function renderPlayerLiveScoring(){
         <div style="font-size:11px;color:var(--gray);text-align:center;margin:8px 0 4px;">Tap +/− to count as you play</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const pObj=gP(pid2);return pgdStatBlockHTML(pid2,pObj?pObj.firstName:'Player','pp-st-${idx}');}).join('')}
       </div>
-      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${today}',${c.court},'${matchId||''}','${assignment.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set (Court ${c.court})</button>
+      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${today}',${c.court},'${matchId||''}','${assignment.opponent||''}','${fbNode}','pp-st-${idx}',this)">✓ Save Set (Court ${c.court})</button>
     </div></div>`;
     }else{
       h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
@@ -24191,7 +24356,7 @@ function ppLoadCourts(assignmentId){
         <div style="font-size:11px;color:var(--gray);text-align:center;margin:8px 0 4px;">Tap +/− to count as you play</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const pObj=gP(pid2);return pgdStatBlockHTML(pid2,pObj?pObj.firstName:'Player','pp-st-${idx}');}).join('')}
       </div>
-      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${a.date}',${c.court},'${matchId||''}','${a.opponent||''}','${fbNode}','pp-st-${idx}')">✓ Save Set (Court ${c.court})</button>
+      <button class="btn btn-blue btn-small" style="width:100%;margin-top:8px;" onclick="ppSaveLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${a.date}',${c.court},'${matchId||''}','${a.opponent||''}','${fbNode}','pp-st-${idx}',this)">✓ Save Set (Court ${c.court})</button>
     </div></div>`;
     }else{
       h+=`<div style="background:var(--off-white);border-radius:8px;padding:10px;margin-top:4px;text-align:center;">
@@ -24203,7 +24368,7 @@ function ppLoadCourts(assignmentId){
   container.innerHTML=h;
 }
 
-function ppSaveLiveSet(idx,p1,p2,date,court,existingId,opponent,fbNode,statsPrefix){
+function ppSaveLiveSet(idx,p1,p2,date,court,existingId,opponent,fbNode,statsPrefix,btn){
   const usEl=document.getElementById('pp-us-'+idx);
   const themEl=document.getElementById('pp-them-'+idx);
   const us=parseInt(usEl?.tagName==='INPUT'?usEl.value:usEl?.textContent);
@@ -24224,6 +24389,24 @@ function ppSaveLiveSet(idx,p1,p2,date,court,existingId,opponent,fbNode,statsPref
   });
   const newSet={scoreUs:us,scoreThem:them,stats,enteredBy:currentPlayerId||null};
   const opp=(opponent||'Opponent')+' CT'+court;
+  // A player at a live high school saves the set through the worker; the court's counters keep
+  // the numbers on any failure.
+  if(typeof hsPlayerWorkerOn==='function'&&hsPlayerWorkerOn()){
+    const _m=existingId?matchList.find(x=>x.id===existingId):null;
+    const body={node,op:'append',date,court:parseInt(court),pair,expectCount:_m?(_m.sets||[]).length:0,set:{scoreUs:us,scoreThem:them,stats}};
+    if(existingId) body.matchId=existingId;
+    hsPlayerSaveSet('live:'+node+':'+idx,btn,body).then(res=>{
+      if(!res) return;
+      toast((us>them?'✓ Win':'✗ Loss')+', '+us+'-'+them+' saved · Court '+court);
+      pair.forEach(pid=>{delete pgdStats[pid];});
+      const ue=document.getElementById('pp-us-'+idx), te=document.getElementById('pp-them-'+idx);
+      if(ue)ue.textContent='0'; if(te)te.textContent='0';
+      const ui=document.getElementById('pp-us-'+idx+'-inp'), ti=document.getElementById('pp-them-'+idx+'-inp');
+      if(ui)ui.value='0'; if(ti)ti.value='0';
+      setTimeout(renderPlayerLiveScoring,500);
+    });
+    return;
+  }
   if(existingId){
     const m=matchList.find(x=>x.id===existingId);
     const sets=m?[...(m.sets||[])]:[];
