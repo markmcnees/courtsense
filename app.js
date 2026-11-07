@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.227';
+const APP_VERSION='1.1.228';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3881,6 +3881,19 @@ function hsScoutFields(name,first,last){
   var t=name.split(' ');
   return { firstName:t[0]||name, lastName:t.length>1?t[t.length-1].replace(/\./g,''):'', fullName:name };
 }
+// The opponent pair text on a game day or scrimmage record ("Jane Smith & Amy Jones", from a
+// score sheet scan, a manual entry or an edit). While switch 4 is off it saves as "Jane S. & Amy J.",
+// the shape the trim writes; a court suffix (" CT3", " CT2b") is kept as typed. Text with no "&"
+// (a school name) and every save while switch 4 is on are unchanged. The club never shortens.
+function hsScoutPairText(v){
+  if(typeof v!=='string'||v.indexOf('&')<0||!hsScoutsShort()) return v;
+  var m=/^(.*?)(\s+CT\s*\d+[A-Za-z]?)$/.exec(v);
+  return m?_hsTrimPairText(m[1])+m[2]:_hsTrimPairText(v);
+}
+function hsScoutMatchRec(node,obj){
+  return (node==='gamedays'||node==='scrimmages')&&obj&&typeof obj.opponent==='string'&&obj.opponent.indexOf('&')>=0&&hsScoutsShort()
+    ?Object.assign({},obj,{opponent:hsScoutPairText(obj.opponent)}):obj;
+}
 
 // The trim offer. Counts come from a dry run of POST /hs/coach/scouting-trim (the HS demo
 // counts its own data in memory). Shortening needs SHORTEN typed, re-plans if the counts
@@ -4609,7 +4622,7 @@ async function _hsContactsDelete(pid){
 // Result-create writer: stamps seasonId onto full-object result creates (matches/duals/gamedays/scrimmages/schedule).
 // Preserves an explicit seasonId if the object already carries one. fbSet stays generic for non-result writes.
 // Writes through fbSet, so it inherits the failure toast and the boolean outcome.
-function fbSetResult(node,id,obj){return fbSet(node+'/'+id,Object.assign({},obj,{seasonId:obj.seasonId||_currentSeasonId}));}
+function fbSetResult(node,id,obj){obj=hsScoutMatchRec(node,obj);return fbSet(node+'/'+id,Object.assign({},obj,{seasonId:obj.seasonId||_currentSeasonId}));}
 // Active competitive season for read-side filtering. In demo mode the fixtures are the 2026 season regardless of wall-clock year.
 function _activeSeason(){ return SC.demoMode ? '2026' : _currentSeasonId; }
 // A result belongs to the active season if stamped with it. null-tolerant as belt-and-suspenders: live data is fully backfilled, so an unstamped record is only a straggler and should still show in the active season rather than vanish.
@@ -5417,7 +5430,7 @@ function openExtEdit(id,type){
     const opp=document.getElementById('ee-opp').value.trim();
     if(!date||!p1||!p2||!opp){toast('Fill in all fields');return;}
     if(p1===p2){toast('Select two different players');return;}
-    const updated={...m,date,court,pair:[p1,p2],opponent:opp};
+    const updated=hsScoutMatchRec(fbNode,{...m,date,court,pair:[p1,p2],opponent:opp});
     fbSet(fbNode+'/'+id,updated);
     closeEdit();toast('Match updated!');
   };
