@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.226';
+const APP_VERSION='1.1.227';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -2051,6 +2051,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <div class="card-title"><span class="bar"></span> Privacy</div>
       <div id="hs-priv-rows"></div>
       <div id="hs-priv-status" style="font-size:13px;margin:4px 0 8px;color:var(--gray);"></div>
+      <div id="hs-trim"></div>
       <div style="font-family:'Bebas Neue';font-size:13px;letter-spacing:1px;color:var(--charcoal);margin:10px 0 4px;">Recent changes</div>
       <div id="hs-priv-history"></div>
     </div>`:''}
@@ -2222,7 +2223,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Your teammates' skills, shared by your coach.</p>
       <div id="pp-hs-team"></div>
     </div>`:''}
-    ${(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN)?`<div class="card"><div class="card-title"><span class="bar"></span> My Team Rankings</div>
+    ${(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN&&!SC.demoMode)?`<div class="card"><div class="card-title"><span class="bar"></span> My Team Rankings</div>
       <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">How you stack up against your teammates</p>
       <div id="pp-rankings"></div>
     </div>`:''}
@@ -3784,7 +3785,7 @@ function hsPlayerSplitStop(){
   schoolListenOn();
 }
 // ===== PRIVACY CARD (HS data lockdown P2.4) =====
-// Coaches turn switches 1 to 3 on and off under Manage, Communicate. Read and written through
+// Coaches turn switches 1 to 5 on and off under Manage, Communicate. Read and written through
 // POST /hs/coach/privacy; nothing shows as changed until the worker confirms (Not saved with
 // Retry otherwise). The last 10 changes show under the switches. The HS demo works in memory
 // only; the club and the club demo have no card.
@@ -3792,9 +3793,10 @@ var HS_PRIV_ROWS=[
   ['playersSeeScouting','Players can see scouting reports','Your players see your scouting on opponents, including opponents\' names. Turn off to keep scouting for coaches only.'],
   ['teammatesSeeSkills','Teammates can see each other\'s skills','Off: each player sees only their own skills check, jump and drill numbers, and where they rank. Coaches always see everyone. Parents follow the Parent view switch.'],
   ['playersSeeRank','Players see their team rank','Each player sees their own place on the team for each skill, never a teammate\'s numbers. Turn off to hide rankings from players.'],
-  ['fansSeeSets','Fans see set scores','Your fan page shows set-by-set scores for each court, with each player\'s kills, aces and blocks. Errors are never shown. Fans only ever see first name, last initial and jersey.']
+  ['fansSeeSets','Fans see set scores','Your fan page shows set-by-set scores for each court, with each player\'s kills, aces and blocks. Errors are never shown. Fans only ever see first name, last initial and jersey.'],
+  ['scoutsFullNames','Save opponents\' full names in scouting','Off: new scouting saves keep first name and last initial. You\'ll be asked whether to shorten names already saved. Shortening can\'t be undone.']
 ];
-var HS_PRIV_DEFAULTS={ playersSeeScouting:true, teammatesSeeSkills:false, playersSeeRank:true, fansSeeSets:true };
+var HS_PRIV_DEFAULTS={ playersSeeScouting:true, teammatesSeeSkills:false, playersSeeRank:true, fansSeeSets:true, scoutsFullNames:true };
 var _hsPriv={ sw:null, history:[], busy:false, demo:null };
 function hsPrivacyOn(){ return !!HS_ACCOUNT_SIGNIN||(!!SC.demoMode&&!SC.tiersEnabled); }
 function _hsPrivStatus(t){ var el=document.getElementById('hs-priv-status'); if(el) el.textContent=t||''; }
@@ -3824,12 +3826,14 @@ function hsPrivacyLoad(){
   if(SC.demoMode){
     if(!_hsPriv.demo) _hsPriv.demo={ sw:Object.assign({},HS_PRIV_DEFAULTS), history:[] };
     _hsPriv.sw=_hsPriv.demo.sw; _hsPriv.history=_hsPriv.demo.history;
+    _hsPrivApply4();
     hsPrivacyRender(); _hsPrivStatus('Demo: changes stay on this screen only.');
+    if(_hsPriv.sw.scoutsFullNames===false) hsTrimCount();
     return Promise.resolve(true);
   }
   _hsPrivStatus('Loading...');
   return csWorkerPost('/hs/coach/privacy',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), op:'get' }).then(function(res){
-    if(res.ok){ _hsPriv.sw=res.j.switches||null; _hsPriv.history=res.j.history||[]; _hsPrivStatus(''); }
+    if(res.ok){ _hsPriv.sw=res.j.switches||null; _hsPriv.history=res.j.history||[]; _hsPrivStatus(''); _hsPrivApply4(); if(_hsPriv.sw&&_hsPriv.sw.scoutsFullNames===false&&!_hsTrim.open&&!_hsTrim.busy) hsTrimCount(); }
     else if(!_hsPriv.sw) _hsPrivStatus(res.kind==='signin'?'Your coach sign-in ended. Sign in again to see these settings.':'Could not load these settings. Open this tab again to retry.');
     hsPrivacyRender();
     return !!res.ok;
@@ -3843,16 +3847,213 @@ function hsPrivacyToggle(name,el){
     _hsPriv.demo.sw=Object.assign({},_hsPriv.demo.sw); _hsPriv.demo.sw[name]=want;
     _hsPriv.demo.history.unshift({ at:Date.now(), sw:name, from:!want, to:want, by:'coach' });
     _hsPriv.sw=_hsPriv.demo.sw; _hsPriv.history=_hsPriv.demo.history;
+    _hsPrivApply4();
     hsPrivacyRender(); hsRenderRanks(); _hsPrivStatus('Saved for this demo only.');
+    if(name==='scoutsFullNames') want?hsTrimClose(true):hsTrimOpen();
     return Promise.resolve(true);
   }
   _hsPriv.busy=true; hsPrivacyRender(); _hsPrivStatus('Saving...');
   return csSave(function(){ return csWorkerPost('/hs/coach/privacy',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), op:'set', sw:name, value:want }); },
     { onSignin:function(){ csBarShow('Your coach sign-in ended. Sign in again to change this setting.',false); } }).then(function(res){
     _hsPriv.busy=false;
-    if(res.ok){ if(res.j&&res.j.switches) _hsPriv.sw=res.j.switches; _hsPrivStatus('Saved.'); hsPrivacyRender(); hsPrivacyLoad().then(function(){ _hsPrivStatus('Saved.'); }); return true; }
+    if(res.ok){
+      if(res.j&&res.j.switches) _hsPriv.sw=res.j.switches;
+      _hsPrivApply4(); _hsPrivStatus('Saved.'); hsPrivacyRender();
+      if(name==='scoutsFullNames'){ if(want) hsTrimClose(true); else hsTrimOpen(); }   // the switch saves first, then the offer
+      hsPrivacyLoad().then(function(){ _hsPrivStatus('Saved.'); });
+      return true;
+    }
     _hsPrivStatus(''); hsPrivacyRender(); return false;
   });
+}
+// ===== SCOUTING NAMES, SWITCH 4 (HS data lockdown P2.5) =====
+// While switch 4 (scoutsFullNames) is off, every scouting save keeps first name and last initial
+// ("Jane S.", record key jane_s, the same shape the trim writes). Turning it back on saves full
+// names for new scans only; names already shortened stay short. Live high schools and the HS
+// demo only; the club never has the switch.
+function _hsPrivApply4(){ if(_hsPriv.sw) D.scoutsFullNames=_hsPriv.sw.scoutsFullNames!==false; }
+function hsScoutsShort(){ return D.scoutsFullNames===false&&hsPrivacyOn(); }
+function hsScoutName(n){ n=String(n==null?'':n).trim(); return hsScoutsShort()?hsShortName(n):n; }
+function hsScoutKey(n){ var k=String(n==null?'':n).toLowerCase().replace(/[^a-z0-9]+/g,'_'); return hsScoutsShort()?k.replace(/^_+|_+$/g,''):k; }
+// The name fields of a scouting player record, from a name already passed through hsScoutName.
+function hsScoutFields(name,first,last){
+  if(!hsScoutsShort()) return { firstName:first||name.split(' ')[0]||name, lastName:(first||last)?(last||''):(name.split(' ').slice(1).join(' ')||''), fullName:name };
+  var t=name.split(' ');
+  return { firstName:t[0]||name, lastName:t.length>1?t[t.length-1].replace(/\./g,''):'', fullName:name };
+}
+
+// The trim offer. Counts come from a dry run of POST /hs/coach/scouting-trim (the HS demo
+// counts its own data in memory). Shortening needs SHORTEN typed, re-plans if the counts
+// changed, and cannot be undone. "Not now" keeps a "Shorten saved names (N)" button.
+var _hsTrim={ open:false, busy:false, counts:null, n:0, msg:'', err:'', loading:false };
+function _hsTrimTotal(c){ return c?(c.players||0)+(c.pairs||0)+(c.notes||0)+(c.records||0):0; }
+function _hsTrimSwOff(){ return !!(_hsPriv.sw&&_hsPriv.sw.scoutsFullNames===false); }
+function _hsTrimDryRun(){
+  if(SC.demoMode) return Promise.resolve({ ok:true, j:{ ok:true, counts:_hsDemoTrimPlan(false) } });
+  return csWorkerPost('/hs/coach/scouting-trim',{ dbRoot:DB_ROOT, coach:_hsCoachToken() });
+}
+// Count only (card load, after a trim): updates the later button.
+function hsTrimCount(){
+  return _hsTrimDryRun().then(function(res){
+    if(res.ok&&res.j&&res.j.counts){ _hsTrim.counts=res.j.counts; _hsTrim.n=_hsTrimTotal(res.j.counts); }
+    hsTrimRender(); return !!res.ok;
+  });
+}
+function hsTrimOpen(){
+  if(!_hsTrimSwOff()) return Promise.resolve(false);
+  _hsTrim.open=true; _hsTrim.loading=true; _hsTrim.msg=''; _hsTrim.err=''; hsTrimRender();
+  return _hsTrimDryRun().then(function(res){
+    _hsTrim.loading=false;
+    if(res.ok&&res.j&&res.j.counts){ _hsTrim.counts=res.j.counts; _hsTrim.n=_hsTrimTotal(res.j.counts); }
+    else _hsTrim.err=res.kind==='signin'?'Your coach sign-in ended. Sign in again to shorten names.':'Could not count saved names. Check your signal and try again.';
+    hsTrimRender(); return !!res.ok;
+  });
+}
+function hsTrimClose(clear){
+  if(_hsTrim.busy) return;
+  _hsTrim.open=false; _hsTrim.msg=''; _hsTrim.err='';
+  if(clear){ _hsTrim.counts=null; _hsTrim.n=0; }
+  hsTrimRender();
+}
+function hsTrimInput(){
+  var i=document.getElementById('hs-trim-confirm'), b=document.getElementById('hs-trim-go');
+  if(b) b.disabled=_hsTrim.busy||!i||String(i.value).trim()!=='SHORTEN';
+}
+function hsTrimRender(){
+  var el=document.getElementById('hs-trim'); if(!el) return;
+  var E=csEsc, btn='min-height:44px;padding:8px 14px;border-radius:8px;font-size:14px;font-weight:700;';
+  if(!_hsTrimSwOff()){ el.innerHTML=''; return; }
+  if(!_hsTrim.open){
+    el.innerHTML=(_hsTrim.msg?'<div id="hs-trim-msg" style="font-size:13px;color:var(--charcoal);margin:6px 0;">'+E(_hsTrim.msg)+'</div>':'')
+      +(_hsTrim.n>0?'<button class="btn btn-secondary btn-small" id="hs-trim-later" style="'+btn+'" onclick="hsTrimOpen()">'+E('Shorten saved names ('+_hsTrim.n+')')+'</button>':'');
+    return;
+  }
+  var h='<div id="hs-trim-panel" role="dialog" aria-label="Shorten saved names" style="border:2px solid var(--gray-lighter);border-radius:10px;padding:12px;margin:8px 0;">'
+    +'<div style="font-weight:700;font-size:14px;color:var(--charcoal);margin-bottom:6px;">Shorten names already saved?</div>';
+  if(_hsTrim.loading) h+='<div style="font-size:13px;color:var(--gray);">Counting saved names...</div>';
+  else if(_hsTrim.err) h+='<div id="hs-trim-err" style="font-size:13px;color:var(--loss-red);margin-bottom:8px;">'+E(_hsTrim.err)+'</div>'
+    +'<button class="btn btn-secondary btn-small" style="'+btn+'" onclick="hsTrimOpen()">Try again</button> <button class="btn btn-secondary btn-small" style="'+btn+'" onclick="hsTrimClose()">Not now</button>';
+  else if(!_hsTrim.n) h+='<div style="font-size:13px;color:var(--gray);margin-bottom:8px;">No full names are saved in your scouting. New saves keep first name and last initial.</div>'
+    +'<button class="btn btn-secondary btn-small" style="'+btn+'" onclick="hsTrimClose()">Close</button>';
+  else {
+    var c=_hsTrim.counts;
+    h+='<div id="hs-trim-counts" style="font-size:13px;color:var(--charcoal);line-height:1.6;margin-bottom:6px;">'+E('We found '+c.players+' opponent players, '+c.pairs+' pairs, '+c.notes+' scout notes and '+c.records+' game or lineup records with full names, across '+c.schools+' schools.')+'</div>'
+      +'<div style="font-size:13px;color:var(--charcoal);line-height:1.6;margin-bottom:8px;"><b>This cannot be undone.</b> Each name becomes first name and last initial, and no copy of the full names is kept.</div>'
+      +(_hsTrim.msg?'<div id="hs-trim-msg" style="font-size:13px;color:var(--loss-red);margin-bottom:8px;">'+E(_hsTrim.msg)+'</div>':'')
+      +'<label style="font-size:12px;color:var(--gray);display:block;margin-bottom:4px;" for="hs-trim-confirm">Type SHORTEN to confirm</label>'
+      +'<input type="text" id="hs-trim-confirm" class="form-input" autocomplete="off" autocapitalize="characters" oninput="hsTrimInput()"'+(_hsTrim.busy?' disabled':'')+' style="margin-bottom:8px;">'
+      +'<button class="btn btn-primary btn-small" id="hs-trim-go" style="'+btn+'" disabled onclick="hsTrimApply()">'+(_hsTrim.busy?'Shortening...':'Shorten names')+'</button> '
+      +'<button class="btn btn-secondary btn-small" id="hs-trim-cancel" style="'+btn+'"'+(_hsTrim.busy?' disabled':'')+' onclick="hsTrimClose()">Not now</button>';
+  }
+  el.innerHTML=h+'</div>';
+}
+function hsTrimApply(){
+  var i=document.getElementById('hs-trim-confirm');
+  if(_hsTrim.busy||!_hsTrim.counts||!i||String(i.value).trim()!=='SHORTEN') return Promise.resolve(false);
+  _hsTrim.busy=true; _hsTrim.msg=''; hsTrimRender();
+  var expect={ players:_hsTrim.counts.players, pairs:_hsTrim.counts.pairs, notes:_hsTrim.counts.notes, records:_hsTrim.counts.records };
+  var send=SC.demoMode
+    ?function(){ return _hsDemoTrimApply(expect); }
+    :function(){ return csWorkerPost('/hs/coach/scouting-trim',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), dryRun:false, confirm:'SHORTEN', expect:expect }); };
+  return csSave(send,{ quiet:true, onSignin:function(){ csBarShow('Your coach sign-in ended. Sign in again to shorten names.',false); } }).then(function(res){
+    _hsTrim.busy=false;
+    if(res.ok){
+      var busy=(res.j&&res.j.busy)||0;
+      _hsTrim.open=false; _hsTrim.counts=null; _hsTrim.n=0;
+      _hsTrim.msg=busy?'Most names are shortened. Some schools were busy; tap Shorten saved names to finish.':'Done. Saved scouting names now show first name and last initial.';
+      hsTrimRender(); hsTrimCount(); return true;
+    }
+    var code=res.j&&res.j.code;
+    if(code==='changed'&&res.j.counts){ _hsTrim.counts=res.j.counts; _hsTrim.n=_hsTrimTotal(res.j.counts); _hsTrim.msg='Your scouting changed. Check the new numbers and type SHORTEN again.'; }
+    else if(code==='switch_on'){ _hsTrim.open=false; _hsTrim.msg=''; }
+    else if(res.kind==='signin'||res.kind==='expired') _hsTrim.msg='Not shortened. Sign in again, then try.';
+    else if(res.kind==='dismissed') _hsTrim.msg='Not shortened. Nothing was changed.';
+    else _hsTrim.msg='Not shortened: '+((res.j&&res.j.error)||'that was refused.');
+    hsTrimRender(); return false;
+  });
+}
+
+// ---- The HS demo: the same shortening, in memory, on the demo's own data only ----
+function _hsTrimShort(n){ var t=String(n||'').trim().split(/\s+/).filter(Boolean); return t.length<2||/^[A-Za-z\u00c0-\u024f]\.?$/.test(t[t.length-1]); }
+function _hsTrimKey(n){ return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,120); }
+function _hsTrimPairText(v){ return String(v).split('&').map(function(p){ return hsShortName(p); }).join(' & '); }
+function _hsDemoTrimSchool(school){
+  var c={ players:0, pairs:0, notes:0 }, players=school.players||{}, pairs=school.pairs||{}, notes=school.notes||{};
+  var nameOf=function(r){ return String(r.fullName||((r.firstName||'')+' '+(r.lastName||''))).trim(); };
+  var keyMap={}, np={}, toTrim=[];
+  Object.keys(players).forEach(function(k){ var r=players[k]; if(r&&typeof r==='object'&&!_hsTrimShort(nameOf(r))) toTrim.push(k); else np[k]=r; });
+  var taken={}; Object.keys(np).forEach(function(k){ taken[k]=1; });
+  toTrim.sort(function(a,b){ return String(players[a].firstSeen||'').localeCompare(String(players[b].firstSeen||''))||a.localeCompare(b); });
+  toTrim.forEach(function(k){
+    var r=players[k], sh=hsShortName(nameOf(r)), base=_hsTrimKey(sh)||'player', key=base, n=2;
+    while(taken[key]) key=base+'_'+(n++);
+    taken[key]=1; keyMap[k]=key;
+    var t=sh.split(' ');
+    np[key]=Object.assign({},r,{ firstName:t[0], lastName:t.length>1?t[t.length-1].replace(/\./g,''):'', fullName:sh }); c.players++;
+  });
+  var pairMap={}, npr={}, pt=[];
+  Object.keys(pairs).forEach(function(k){ var r=pairs[k]; if(r&&typeof r==='object'&&((r.player1&&!_hsTrimShort(r.player1))||(r.player2&&!_hsTrimShort(r.player2)))) pt.push(k); else npr[k]=r; });
+  var ptaken={}; Object.keys(npr).forEach(function(k){ ptaken[k]=1; });
+  pt.sort().forEach(function(k){
+    var r=pairs[k], kf=function(n){ var a=String(n).toLowerCase().replace(/[^a-z0-9]+/g,'_'); return keyMap[a]||keyMap[_hsTrimKey(n)]||_hsTrimKey(hsShortName(n)); };
+    var base=[kf(r.player1||''),kf(r.player2||'')].sort().join('__')||'pair', key=base, i=2;
+    while(ptaken[key]) key=base+'_'+(i++);
+    ptaken[key]=1; pairMap[k]=key;
+    npr[key]=Object.assign({},r,{ player1:hsShortName(r.player1||''), player2:hsShortName(r.player2||'') }); c.pairs++;
+  });
+  var nn={};
+  Object.keys(notes).forEach(function(id){
+    var n=notes[id]; if(!n||typeof n!=='object'){ nn[id]=n; return; }
+    var o=Object.assign({},n), ch=false;
+    if(n.targetType==='player'&&keyMap[n.targetId]){ o.targetId=keyMap[n.targetId]; ch=true; }
+    if(n.targetType==='pair'&&pairMap[n.targetId]){ o.targetId=pairMap[n.targetId]; ch=true; }
+    if(n.targetType!=='school'){ var l=String(n.targetLabel||''), sl=l.indexOf('&')>=0?_hsTrimPairText(l):hsShortName(l); if(sl!==l){ o.targetLabel=sl; ch=true; } }
+    nn[id]=o; if(ch) c.notes++;
+  });
+  var next=Object.assign({},school);
+  if(school.players) next.players=np;
+  if(school.pairs) next.pairs=npr;
+  if(school.notes) next.notes=nn;
+  return { next:next, counts:c };
+}
+// Plans (apply false) or shortens (apply true) the demo's scouting and records, in D only.
+function _hsDemoTrimPlan(apply){
+  var counts={ players:0, pairs:0, notes:0, records:0, schools:0 }, opp=D.opponents||{};
+  Object.keys(opp).forEach(function(sk){
+    if(!opp[sk]||typeof opp[sk]!=='object') return;
+    var r=_hsDemoTrimSchool(opp[sk]);
+    if(!(r.counts.players||r.counts.pairs||r.counts.notes)) return;
+    counts.players+=r.counts.players; counts.pairs+=r.counts.pairs; counts.notes+=r.counts.notes; counts.schools++;
+    if(apply) opp[sk]=r.next;
+  });
+  ['gamedays','scrimmages'].forEach(function(node){
+    var all=D[node]||[]; (Array.isArray(all)?all:Object.values(all)).forEach(function(m){
+      if(!m||typeof m!=='object') return;
+      ['opponent','opponentPair'].forEach(function(f){
+        var v=typeof m[f]==='string'?m[f]:''; if(v.indexOf('&')<0) return;
+        var sv=_hsTrimPairText(v); if(sv===v) return;
+        counts.records++; if(apply) m[f]=sv;
+      });
+    });
+  });
+  Object.values(D.assignments||{}).forEach(function(a){
+    if(!a||!Array.isArray(a.oppLineup)) return;
+    var ch=false, next=a.oppLineup.map(function(cx){
+      if(!cx||typeof cx!=='object') return cx;
+      var o=Object.assign({},cx);
+      ['player1','player2'].forEach(function(f){ var v=typeof cx[f]==='string'?cx[f]:'', sv=hsShortName(v); if(v&&sv!==v){ o[f]=sv; ch=true; } });
+      return o;
+    });
+    if(ch){ counts.records++; if(apply) a.oppLineup=next; }
+  });
+  return counts;
+}
+function _hsDemoTrimApply(expect){
+  var now=_hsDemoTrimPlan(false);
+  if(['players','pairs','notes','records'].some(function(k){ return now[k]!==expect[k]; })) return Promise.resolve({ ok:false, kind:'refused', j:{ ok:false, code:'changed', counts:now } });
+  var done=_hsDemoTrimPlan(true);
+  if(typeof refreshCurrent==='function') refreshCurrent();
+  return Promise.resolve({ ok:true, kind:'ok', j:{ ok:true, dryRun:false, counts:done, busy:0 } });
 }
 // School-node listeners on and off. A signed-out fan reading the public copy needs none of
 // them; leaving the fan page (or falling back) attaches them again for sign-in.
@@ -7514,7 +7715,7 @@ function renderPlayerPortal(){
   // The exec-side ranking (cpm-rankings, coach player modal) is a separate render path, unaffected.
   // A live high school's players see their own numbers only (HS_ACCOUNT_SIGNIN): no teammate
   // comparison, so the card is not rendered and this block is skipped. The demo keeps it.
-  if(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN){
+  if(!SC.tiersEnabled&&!HS_ACCOUNT_SIGNIN&&!SC.demoMode){
   // Build stats for all players
   const allPlayers=D.players.filter(pl=>pl.id);
   const rankings=[];
@@ -10069,8 +10270,8 @@ function confirmOppLineup(){
     const p2f=document.getElementById(`ca-opp-${i}-p2f`)?.value.trim()||'';
     const p2l=document.getElementById(`ca-opp-${i}-p2l`)?.value.trim()||'';
     const p2j=document.getElementById(`ca-opp-${i}-p2j`)?.value.trim()||'';
-    const p1Name=(p1f+' '+p1l).trim();
-    const p2Name=(p2f+' '+p2l).trim();
+    const p1Name=hsScoutName((p1f+' '+p1l).trim());   // first name and last initial while switch 4 is off
+    const p2Name=hsScoutName((p2f+' '+p2l).trim());
     if(p1Name||p2Name)oppCourts.push({court,player1:p1Name,jersey1:p1j,player2:p2Name,jersey2:p2j});
   }
 
@@ -10082,13 +10283,11 @@ function confirmOppLineup(){
   oppCourts.forEach((c)=>{
     const upsertPlayer=(name,jersey,court,isAlt)=>{
       if(!name)return;
-      const pKey=name.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const pKey=hsScoutKey(name);
       const existing=(existingSchool.players||{})[pKey]||{};
       fbSet('opponents/'+schoolKey+'/players/'+pKey,{
         ...existing,
-        firstName:name.split(' ')[0]||name,
-        lastName:name.split(' ').slice(1).join(' ')||'',
-        fullName:name,
+        ...hsScoutFields(name),
         jersey:jersey||existing.jersey||'',
         typicalCourt:court||existing.typicalCourt||null,
         isAlternate:isAlt||false,
@@ -10100,7 +10299,7 @@ function confirmOppLineup(){
     upsertPlayer(c.player2,c.jersey2,c.court,false);
     // Save pairing
     if(c.player1&&c.player2){
-      const pairKey=[c.player1,c.player2].map(n=>n.toLowerCase().replace(/[^a-z0-9]+/g,'_')).sort().join('__');
+      const pairKey=[c.player1,c.player2].map(n=>hsScoutKey(n)).sort().join('__');
       const existingPair=(existingSchool.pairs||{})[pairKey]||{};
       fbSet('opponents/'+schoolKey+'/pairs/'+pairKey,{
         ...existingPair,
@@ -10116,13 +10315,13 @@ function confirmOppLineup(){
     const af=document.getElementById(`ca-alt-${i}-f`)?.value.trim()||'';
     const al=document.getElementById(`ca-alt-${i}-l`)?.value.trim()||'';
     const aj=document.getElementById(`ca-alt-${i}-j`)?.value.trim()||'';
-    const aName=(af+' '+al).trim();
+    const aName=hsScoutName((af+' '+al).trim());
     if(aName){
-      const pKey=aName.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const pKey=hsScoutKey(aName);
       const existing=(existingSchool.players||{})[pKey]||{};
       fbSet('opponents/'+schoolKey+'/players/'+pKey,{
         ...existing,
-        firstName:af||aName,lastName:al||'',fullName:aName,
+        ...(hsScoutsShort()?hsScoutFields(aName):{firstName:af||aName,lastName:al||'',fullName:aName}),
         jersey:aj||existing.jersey||'',
         typicalCourt:existing.typicalCourt||null,
         isAlternate:true,
@@ -10732,8 +10931,9 @@ function saveScoutNote(){
   const id=gi('sn');
   const authorId=currentPlayerId||'coach';
   const authorName=currentPlayerId?pN(currentPlayerId):'Coach';
+  const noteLabel=hsScoutsShort()&&ctx.targetType!=='school'?hsShortLabel(ctx.targetLabel):ctx.targetLabel;   // switch 4
   fbSet('opponents/'+ctx.schoolK+'/notes/'+id,{
-    id,targetType:ctx.targetType,targetId:ctx.targetId,targetLabel:ctx.targetLabel,
+    id,targetType:ctx.targetType,targetId:ctx.targetId,targetLabel:noteLabel,
     text,tags,authorId,authorName,date:td(),createdAt:new Date().toISOString()
   });
   toast('Scout note saved!');
@@ -24415,8 +24615,8 @@ function dhScanOppSave(count,altCount){
   const oppCourts=[];
   for(let i=0;i<count;i++){
     const court=parseInt(document.getElementById(`dhso-${i}-court`)?.value)||i+1;
-    const p1Name=(document.getElementById(`dhso-${i}-p1f`)?.value.trim()+' '+document.getElementById(`dhso-${i}-p1l`)?.value.trim()).trim();
-    const p2Name=(document.getElementById(`dhso-${i}-p2f`)?.value.trim()+' '+document.getElementById(`dhso-${i}-p2l`)?.value.trim()).trim();
+    const p1Name=hsScoutName((document.getElementById(`dhso-${i}-p1f`)?.value.trim()+' '+document.getElementById(`dhso-${i}-p1l`)?.value.trim()).trim());   // switch 4
+    const p2Name=hsScoutName((document.getElementById(`dhso-${i}-p2f`)?.value.trim()+' '+document.getElementById(`dhso-${i}-p2l`)?.value.trim()).trim());
     const p1j=document.getElementById(`dhso-${i}-p1j`)?.value.trim()||'';
     const p2j=document.getElementById(`dhso-${i}-p2j`)?.value.trim()||'';
     if(p1Name||p2Name)oppCourts.push({court,player1:p1Name,jersey1:p1j,player2:p2Name,jersey2:p2j});
@@ -24425,14 +24625,14 @@ function dhScanOppSave(count,altCount){
   oppCourts.forEach(c=>{
     const up=(name,jersey,court,isAlt)=>{
       if(!name)return;
-      const pKey=name.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const pKey=hsScoutKey(name);
       const ex=(existingSchool.players||{})[pKey]||{};
-      fbSet('opponents/'+schoolKey+'/players/'+pKey,{...ex,firstName:name.split(' ')[0]||name,lastName:name.split(' ').slice(1).join(' ')||'',fullName:name,jersey:jersey||ex.jersey||'',typicalCourt:court||ex.typicalCourt||null,isAlternate:isAlt||false,firstSeen:ex.firstSeen||date,lastSeen:date});
+      fbSet('opponents/'+schoolKey+'/players/'+pKey,{...ex,...hsScoutFields(name),jersey:jersey||ex.jersey||'',typicalCourt:court||ex.typicalCourt||null,isAlternate:isAlt||false,firstSeen:ex.firstSeen||date,lastSeen:date});
     };
     up(c.player1,c.jersey1,c.court,false);
     up(c.player2,c.jersey2,c.court,false);
     if(c.player1&&c.player2){
-      const pairKey=[c.player1,c.player2].map(n=>n.toLowerCase().replace(/[^a-z0-9]+/g,'_')).sort().join('__');
+      const pairKey=[c.player1,c.player2].map(n=>hsScoutKey(n)).sort().join('__');
       const ex=(existingSchool.pairs||{})[pairKey]||{};
       fbSet('opponents/'+schoolKey+'/pairs/'+pairKey,{...ex,player1:c.player1,player2:c.player2,court:c.court,firstSeen:ex.firstSeen||date,lastSeen:date});
     }
@@ -24442,12 +24642,13 @@ function dhScanOppSave(count,altCount){
     const af=document.getElementById(`dhso-alt-${i}-f`)?.value.trim()||'';
     const al=document.getElementById(`dhso-alt-${i}-l`)?.value.trim()||'';
     const aj=document.getElementById(`dhso-alt-${i}-j`)?.value.trim()||'';
-    const aName=(af+' '+al).trim();
+    const aName=hsScoutName((af+' '+al).trim());
     if(aName){
-      alts.push({firstName:af,lastName:al,jersey:aj,fullName:aName});
-      const pKey=aName.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const aF=hsScoutsShort()?hsScoutFields(aName):{firstName:af||aName,lastName:al||'',fullName:aName};
+      alts.push({firstName:aF.firstName,lastName:aF.lastName,jersey:aj,fullName:aName});
+      const pKey=hsScoutKey(aName);
       const ex=(existingSchool.players||{})[pKey]||{};
-      fbSet('opponents/'+schoolKey+'/players/'+pKey,{...ex,firstName:af||aName,lastName:al||'',fullName:aName,jersey:aj||ex.jersey||'',typicalCourt:ex.typicalCourt||null,isAlternate:true,firstSeen:ex.firstSeen||date,lastSeen:date});
+      fbSet('opponents/'+schoolKey+'/players/'+pKey,{...ex,...aF,jersey:aj||ex.jersey||'',typicalCourt:ex.typicalCourt||null,isAlternate:true,firstSeen:ex.firstSeen||date,lastSeen:date});
     }
   }
   // Live high schools: the scanned opponent names stay on this device for this session and
