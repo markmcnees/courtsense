@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.228';
+const APP_VERSION='1.1.229';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -769,8 +769,7 @@ function _demoClubHydrate(){
   C.players.forEach(function(p){ if(p.tierRequest) D.tierRequests[p.id]={tier:p.tierRequest, ts:now-26*H}; });
   D.practiceSchedule={};
   Object.keys(C.practiceSchedule).forEach(function(t){ D.practiceSchedule[t]=Object.assign({updatedAt:now-200*H},C.practiceSchedule[t]); });
-  D.dues={amount:C.dues.amount, members:{}, lastReminderAt:now-96*H};
-  C.dues.paid.forEach(function(pid,i){ D.dues.members[pid]={paid:true, at:now-(120-i*5)*H}; });
+  duesDemoSeed(C, now);
   D.standing={}; Object.keys(C.standing).forEach(function(pid){ D.standing[pid]=Object.assign({at:now-60*H},C.standing[pid]); });
   D.pinned=Object.assign({at:now-48*H},C.pinned);
   D.broadcasts={};
@@ -2139,6 +2138,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
 
   <!-- ══ MY STATS PANEL ══ -->
   <div class="pp-panel active" id="pp-panel-stats">
+    ${SC.tiersEnabled?'<!-- Dues (club): this member\'s own status for the current semester --><div id="pp-dues"></div>':''}
 
     <!-- Athlete Card is a recruiting surface for the HS pillar. Its college-profile sections render as
          COMING SOON placeholders whenever demoMode is false, which is every club config, so the club
@@ -3184,7 +3184,7 @@ const EXHIBITION_COURTS=new Set([6,7,8]);
 const CO={SR:0,JR:1,SO:2,FR:3};
 let db=null;
 
-let D={players:[],matches:[],planned:[],gamedays:[],scrimmages:[],schedule:[],standings:{},goals:{},assignments:{},duals:[],opponents:{},liveScoring:{},quizScores:{},tierRequests:{},broadcasts:{},threads:{},tryoutSessions:{},tryoutAttendance:{},dues:{},practiceSchedule:{},travel:{},standing:{},pinned:null};
+let D={players:[],matches:[],planned:[],gamedays:[],scrimmages:[],schedule:[],standings:{},goals:{},assignments:{},duals:[],opponents:{},liveScoring:{},quizScores:{},tierRequests:{},broadcasts:{},threads:{},tryoutSessions:{},tryoutAttendance:{},practiceSchedule:{},travel:{},standing:{},pinned:null};
 // Active competitive season. Config leaf at DB_ROOT/config/currentSeasonId; defaults to the current year, overwritten by the init read below if a stored value exists. Result creates are stamped with this via fbSetResult.
 let _currentSeasonId=(new Date()).getFullYear().toString();
 let profilesData={}; // from leon_queens node for AI context
@@ -4175,14 +4175,8 @@ function listenData(){if(!db||_schoolListening)return;
     _maybeRenderRecruiting();
     if(typeof renderPracticeCheckin==='function')renderPracticeCheckin();
   });
-  // Club dues (exec only). Re-render Accounting live, but never while the exec is typing the amount.
-  db.ref(DB_ROOT+'/dues').on('value',s=>{
-    D.dues=s.val()||{};
-    if(currentRole!=='coach')return;
-    const pane=document.getElementById('tab-accounting'); if(!pane)return;
-    const ae=document.activeElement; if(ae&&ae.id==='acct-amount')return;
-    if(typeof renderAccounting==='function')renderAccounting();
-  });
+  // Club dues are not read here. They live worker-only (POST /club/dues/exec and /club/dues/mine),
+  // so no device downloads anyone's payment status.
   // Weekly practice schedule (club). Members see their own squad card; execs see both. Do not
   // clobber an exec who is mid-edit (any ps-* control focused).
   db.ref(DB_ROOT+'/practiceSchedule').on('value',s=>{
@@ -4323,7 +4317,7 @@ const _DEMO_NODES={
   chat:{key:'chat',arr:false}, tier_requests:{key:'tierRequests',arr:false},
   // Club nodes, so club demo edits land in memory the way the club listeners would map them.
   tryoutSessions:{key:'tryoutSessions',arr:false}, tryoutAttendance:{key:'tryoutAttendance',arr:false},
-  practiceSchedule:{key:'practiceSchedule',arr:false}, dues:{key:'dues',arr:false},
+  practiceSchedule:{key:'practiceSchedule',arr:false},
   travel:{key:'travel',arr:false}, broadcasts:{key:'broadcasts',arr:false}, threads:{key:'threads',arr:false},
   pinned:{key:'pinned',arr:false,whole:true}, standing:{key:'standing',arr:false},
   practiceTournaments:{key:'practiceTournaments',arr:false}
@@ -4415,7 +4409,7 @@ const _FB_LABELS={
   opponents:'the scout note', threads:'the message', chat:'the message',
   broadcasts:'the announcement', pinned:'the pinned message',
   tryoutSessions:'the tryout session', tryoutAttendance:'attendance',
-  dues:'dues', tier_requests:'the request', standing:'the standing',
+  tier_requests:'the request', standing:'the standing',
   standings:'standings', practiceSchedule:'the practice schedule',
   skills:'the assessment', notes:'the note', player_notes:'the note',
   coach_notes:'the note', live_scoring:'the score', fan_emails:'the signup'
@@ -5783,7 +5777,7 @@ function refreshTab(id){
     case'practice':renderTeamAnalysis();break;
     case'practicegroups':renderPracticeGroups();break;
     case'recruiting':renderRecruiting();break;
-    case'accounting':renderAccounting();break;
+    case'accounting':duesOpen();break;
     case'travel':renderTravel();break;
     case'info':renderInfo();break;
     case'tournaments':renderTournaments();break;
@@ -7699,6 +7693,7 @@ function renderPlayerPortal(){
     }
   }
   const _ppPr=document.getElementById('pp-practice'); if(_ppPr) _ppPr.innerHTML=memberPracticeHtml(p);
+  if(SC.tiersEnabled&&typeof ppDuesRender==='function') ppDuesRender(p);
 
   // Summary stats, filtered by ppStatView
   const qs=queensStats(pid,D.matches);
@@ -14974,56 +14969,239 @@ function renderRecruiting(){
   // Re-apply any live roster search so a redraw does not dump the exec back to the full list.
   sessions.forEach(function(sess){ if(_tsOpenPicker[sess.sid]&&_tsPickerQuery[sess.sid]) tsPickerFilter(sess.sid); });
 }
-// Accounting (Grass Club): real dues tracking. One dues amount for the club, a per-member paid toggle
-// (records who and when), a paid/collected summary, and a reminder that emails unpaid members. All
-// persisted under DB_ROOT/dues, a sub-key of the *_matches node the live rule already governs (no new
-// node, no rules change). Exec only: the player portal never renders any of this.
-//   dues/amount              = number (per-member dues)
-//   dues/members/{memberId}  = { paid:true, at:ms }   (absent means not paid)
-//   dues/lastReminderAt      = ms (when a reminder was last sent)
-function acctMembersList(){
-  // Real club members: everyone on the roster who is not a prospect. Dues apply to placed members.
-  return (Array.isArray(D.players)?D.players:[]).filter(function(p){ return p&&p.status!=='prospect'; })
-    .slice().sort(function(a,b){ return _cmpLast(a,b); });
+// Accounting (Grass Club): dues per semester, worker-only. Nothing here reads or writes Firebase.
+// The exec card reads and changes dues through POST /club/dues/exec, a signed-in member sees their
+// own status through POST /club/dues/mine, and the worker keeps the semester calendar, the change log
+// and every check (own-account execs change dues, the shared PIN reads only, past semesters are
+// read-only, each mark and unmark carries the status the exec was looking at). The club demo runs
+// the same screens on an in-memory store and makes no network call.
+var DUES_SLUG={grass_club_matches:'fsu_grass'};
+function duesEnabled(){ return !!(SC.tiersEnabled&&(DEMO_CLUB||DUES_SLUG[DB_ROOT])); }
+var _dues={data:null, cur:null, loading:false, loadErr:'', view:'', rowErr:{}, rowBusy:{}, notice:'', busy:false};
+function duesEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
+function duesMoney(a){ return (typeof a==='number'&&isFinite(a))?(Math.round(a)===a?String(a):a.toFixed(2)):''; }
+function duesDay(ms){ return (typeof ms==='number'&&isFinite(ms))?new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''; }
+function duesName(pid){ var p=gP(pid); return p?((p.firstName||'')+' '+(p.lastName||'')).trim():'A former member'; }
+function duesByName(by){
+  if(!by||by==='migrated') return '';
+  if(by==='platform_admin') return 'the CourtSense admin';
+  var pl=(Array.isArray(D.players)?D.players:[]).find(function(p){ return p&&(p.accountId===by||p.id===by); });
+  return pl&&pl.firstName?pl.firstName:'an exec';
 }
-function acctAmount(){ var a=(D.dues||{}).amount; return (typeof a==='number'&&isFinite(a))?a:0; }
-function acctIsPaid(pid){ var m=((D.dues||{}).members||{})[pid]; return !!(m&&m.paid); }
-function acctSetAmount(){
-  var el=document.getElementById('acct-amount'); if(!el) return;
-  var v=parseFloat(el.value);
-  if(!isFinite(v)||v<0){ toast('Enter a dues amount'); return; }
-  var amt=Math.round(v*100)/100;
-  fbSet('dues/amount', amt);
-  if(!D.dues)D.dues={}; D.dues.amount=amt;
-  renderAccounting();
-  toast('Dues amount saved');
+async function duesCall(body){
+  if(DEMO_CLUB) return duesDemoExec(body);
+  var s=paSession();
+  if(!s) return {status:403,j:{ok:false,code:'forbidden'}};
+  try{
+    var r=await fetch(AUTH_WORKER+'/club/dues/exec',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({slug:DUES_SLUG[DB_ROOT],token:s.token},body))});
+    var j=await r.json().catch(function(){ return null; });
+    return {status:r.status,j:j||{}};
+  }catch(e){ return {status:0,j:null}; }
 }
-function acctTogglePaid(pid){
-  if(!D.dues)D.dues={}; if(!D.dues.members)D.dues.members={};
-  if(acctIsPaid(pid)){
-    fbSet('dues/members/'+pid, null);
-    delete D.dues.members[pid];
+function duesErrText(status,j){
+  var code=j&&j.code;
+  if(status===0) return 'Not saved. Check your connection and try again.';
+  if(code==='exec_login_required') return 'Sign in with your own exec account to change dues.';
+  if(code==='forbidden') return 'Your exec session has ended. Sign in again.';
+  if(code==='changed') return 'Someone already changed this member. The list now shows the current status.';
+  if(code==='past_read_only') return 'Past semesters are read-only.';
+  if(code==='calendar_ended') return (j&&j.error)||'The semester calendar needs updating before dues can change.';
+  if((status===429||code==='bad_amount'||code==='not_member')&&j&&j.error) return j.error;
+  return 'Not saved. Try again in a moment.';
+}
+async function duesLoad(termId){
+  _dues.loading=true; _dues.loadErr='';
+  if(!_dues.data) renderAccounting();
+  var r=await duesCall(termId?{action:'get',term:termId}:{action:'get'});
+  _dues.loading=false;
+  if(r.j&&r.j.ok===true&&r.j.term){
+    _dues.data=r.j; _dues.view=r.j.term.id;
+    if(r.j.current&&r.j.term.id===r.j.current) _dues.cur=r.j;
   } else {
-    var rec={paid:true, at:Date.now()};
-    fbSet('dues/members/'+pid, rec);
-    D.dues.members[pid]=rec;
+    _dues.loadErr=(r.status===0)?'Could not load dues. Check your connection and try again.':duesErrText(r.status,r.j);
   }
   renderAccounting();
+  return r;
 }
-function acctSendReminder(){
-  var amount=acctAmount();
-  if(!(amount>0)){ toast('Set a dues amount first.'); return; }
-  var unpaid=acctMembersList().filter(function(p){ return !acctIsPaid(p.id); });
-  if(!unpaid.length){ toast('Everyone has paid. No reminder to send.'); return; }
-  var names=unpaid.map(function(p){ return ((p.firstName||'')+' '+(p.lastName||'')).trim(); });
-  var many=(unpaid.length!==1);
-  if(!window.confirm('Send a dues reminder to '+unpaid.length+' member'+(many?'s':'')+' who '+(many?'have':'has')+' not paid?\n\n'+names.join('\n'))) return;
-  var text='Just a friendly reminder that club dues of $'+amount+' are due. If you have already paid, thank you and please ignore this note. If not, please square up with an exec when you can, and reach out with any questions.';
-  execSendMessage(unpaid.map(function(p){ return p.id; }), text);
-  var now=Date.now();
-  fbSet('dues/lastReminderAt', now);
-  if(!D.dues)D.dues={}; D.dues.lastReminderAt=now;
+// Opening the Accounting tab always shows fresh numbers for the semester on screen.
+function duesOpen(){ _dues.notice=''; _dues.rowErr={}; duesLoad(_dues.data?_dues.view:''); }
+function duesView(termId){ _dues.notice=''; _dues.rowErr={}; duesLoad(termId); }
+// The current semester's record, for the Export column. True when it is loaded.
+async function duesEnsureCurrent(){
+  var r=await duesCall({action:'get'});
+  if(r.j&&r.j.ok===true&&r.j.term&&r.j.current&&r.j.term.id===r.j.current){ _dues.cur=r.j; return true; }
+  return false;
+}
+function acctIsPaid(pid){ var c=_dues.cur; var m=c&&c.term&&c.term.members&&c.term.members[pid]; return !!(m&&m.paid); }
+function duesTermArg(){ var t=_dues.data&&_dues.data.term; return (t&&t.past)?t.id:undefined; }
+async function duesSend(pid, body){
+  _dues.rowBusy[pid]=true; delete _dues.rowErr[pid]; _dues.notice=''; renderAccounting();
+  var r=await duesCall(body);
+  delete _dues.rowBusy[pid];
+  if(r.j&&r.j.ok===true){ await duesLoad(_dues.view); return; }
+  if(r.j&&r.j.code==='changed'){ _dues.notice=duesErrText(r.status,r.j); await duesLoad(_dues.view); return; }
+  if(r.status===0||r.status>=500){ _dues.rowErr[pid]={body:body}; renderAccounting(); return; }
+  _dues.notice=duesErrText(r.status,r.j); renderAccounting();
+}
+function duesMark(pid, mark){
+  var d=_dues.data; if(!d||!d.canEdit||_dues.rowBusy[pid]) return;
+  if(!mark&&!window.confirm('Mark '+duesName(pid)+' as not paid for '+d.term.label+'?')) return;
+  duesSend(pid,{action:mark?'mark':'unmark', memberId:pid, expect:mark?'unpaid':'paid', term:duesTermArg()});
+}
+// Not saved: send the same request again. If the first one did land, the worker answers
+// "changed" and the list shows the real status.
+function duesRetry(pid){ var e=_dues.rowErr[pid]; if(!e) return; duesSend(pid,e.body); }
+async function acctSetAmount(){
+  var el=document.getElementById('acct-amount'); if(!el) return;
+  var d=_dues.data; if(!d||!d.canEdit||_dues.busy) return;
+  var v=parseFloat(el.value);
+  if(!isFinite(v)||v<0){ toast('Enter a dues amount'); return; }
+  _dues.busy=true; _dues.notice=''; renderAccounting();
+  var r=await duesCall({action:'setAmount', amount:Math.round(v*100)/100, term:duesTermArg()});
+  _dues.busy=false;
+  if(r.j&&r.j.ok===true){ toast('Dues amount saved'); await duesLoad(_dues.view); return; }
+  _dues.notice=(r.status===0)?'Amount not saved. Check your connection and try again.':duesErrText(r.status,r.j);
   renderAccounting();
+}
+async function acctSendReminder(){
+  var d=_dues.data; if(!d||!d.canEdit||!d.term||d.term.past||_dues.busy) return;
+  var amount=d.term.amount;
+  if(!(amount>0)){ toast('Set a dues amount first.'); return; }
+  var unpaid=(d.term.eligible||[]).filter(function(id){ return !d.term.members[id]; });
+  if(!unpaid.length){ toast('Everyone has paid. No reminder to send.'); return; }
+  var many=(unpaid.length!==1);
+  if(!window.confirm('Send a dues reminder to '+unpaid.length+' member'+(many?'s':'')+' who '+(many?'have':'has')+' not paid?\n\n'+unpaid.map(duesName).join('\n'))) return;
+  _dues.busy=true; _dues.notice=''; renderAccounting();
+  var r=await duesCall({action:'remind'});
+  _dues.busy=false;
+  if(!(r.j&&r.j.ok===true)){ _dues.notice=(r.status===0)?'Reminder not sent. Check your connection and try again.':duesErrText(r.status,r.j); renderAccounting(); return; }
+  var ids=Array.isArray(r.j.unpaid)?r.j.unpaid:[];
+  if(!ids.length){ toast('Everyone has paid. No reminder to send.'); await duesLoad(_dues.view); return; }
+  var text='Just a friendly reminder that '+d.term.label+' club dues of $'+duesMoney(r.j.amount)+' are due. If you have already paid, thank you and please ignore this note. If not, please square up with an exec when you can, and reach out with any questions.';
+  execSendMessage(ids, text);
+  toast('Reminder sent to '+ids.length+' member'+(ids.length===1?'':'s')+'.');
+  await duesLoad(_dues.view);
+}
+function duesAuditLine(e){
+  var who=duesByName(e.by);
+  var what='';
+  if(e.action==='mark') what='marked '+duesName(e.memberId)+' paid';
+  else if(e.action==='unmark') what='marked '+duesName(e.memberId)+' not paid';
+  else if(e.action==='setAmount') what='set the amount to $'+duesMoney(e.to)+(typeof e.from==='number'?' (was $'+duesMoney(e.from)+')':'');
+  else if(e.action==='remind') what='sent a reminder to '+(e.count||0)+' member'+(e.count===1?'':'s');
+  else if(e.action==='migrate') what=(e.count||0)+' paid record'+(e.count===1?'':'s')+' moved from the old list';
+  else what='changed dues';
+  var when=(typeof e.at==='number')?new Date(e.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+  var line=(who?(who.charAt(0).toUpperCase()+who.slice(1)+' '+what):(what.charAt(0).toUpperCase()+what.slice(1)))+(e.correction?' (admin correction)':'');
+  return '<div style="font-size:12px;color:var(--charcoal);padding:3px 0;border-bottom:1px solid var(--gray-lighter);"><span style="color:var(--gray);">'+duesEsc(when)+'</span> '+duesEsc(line)+'</div>';
+}
+// ============================================================
+// Club demo dues: the same answers as the worker, kept in memory. A current semester and one
+// past semester, dated around today. Nothing here touches the network.
+var _duesDemo=null;
+function duesDemoSeed(C, now){
+  var H=3600000, dt=new Date(now), y=dt.getFullYear(), m=dt.getMonth()+1, d=dt.getDate();
+  var fall=(m>=6&&m<12)||(m===12&&d<12);
+  var sy=(m===12)?y+1:y;
+  var cur=fall?{id:'demo-cur',label:'Fall '+y,resetLabel:'Dec 12, '+y,startsLabel:''}
+              :{id:'demo-cur',label:'Spring '+sy,resetLabel:'May 1, '+sy,startsLabel:((m===12)||(m===1&&d<6))?'Jan 6':''};
+  var past=fall?{id:'demo-past',label:'Spring '+y,resetLabel:'May 1, '+y,startsLabel:''}
+               :{id:'demo-past',label:'Fall '+(sy-1),resetLabel:'Dec 12, '+(sy-1),startsLabel:''};
+  var members=(C.players||[]).filter(function(p){ return p&&p.active!==false&&p.status!=='prospect'; }).map(function(p){ return p.id; });
+  cur.amount=C.dues.amount; cur.members={}; cur.lastReminderAt=now-96*H;
+  C.dues.paid.forEach(function(pid,i){ cur.members[pid]={paid:true, at:now-(120-i*5)*H, by:'gc01'}; });
+  past.amount=55; past.members={}; past.lastReminderAt=now-200*24*H;
+  members.slice(0,Math.max(0,members.length-2)).forEach(function(pid,i){ past.members[pid]={paid:true, at:now-(220-i)*24*H, by:'gc01'}; });
+  var audit={'demo-cur':[], 'demo-past':[{at:now-230*24*H, by:'gc01', action:'setAmount', to:55}]};
+  C.dues.paid.slice(0,4).forEach(function(pid,i){ audit['demo-cur'].push({at:now-(120-i*5)*H, by:'gc01', action:'mark', memberId:pid, from:'unpaid', to:'paid'}); });
+  audit['demo-cur'].push({at:now-96*H, by:'gc01', action:'remind', count:Math.max(0,members.length-C.dues.paid.length)});
+  _duesDemo={cur:cur, past:past, audit:audit};
+}
+function duesDemoEligible(){ return (Array.isArray(D.players)?D.players:[]).filter(function(p){ return p&&p.active!==false&&p.status!=='prospect'; }).map(function(p){ return p.id; }); }
+function duesDemoView(t, isPast){
+  var mem={}; Object.keys(t.members).forEach(function(k){ mem[k]=Object.assign({},t.members[k]); });
+  var elig=isPast?[]:duesDemoEligible();
+  return {id:t.id, label:t.label, displayLabel:t.label+(t.startsLabel?' (starts '+t.startsLabel+')':''), past:isPast,
+    resetLabel:t.resetLabel, amount:t.amount, amountCarried:false, lastReminderAt:t.lastReminderAt||null, members:mem, eligible:elig,
+    eligibleCount:elig.length, paidCount:elig.filter(function(id){ return !!mem[id]; }).length};
+}
+function duesDemoExec(body){
+  var S=_duesDemo, now=Date.now();
+  var res=function(status,j){ return Promise.resolve({status:status,j:j}); };
+  if(!S) return res(400,{ok:false,code:'bad_club'});
+  var tid=body.term||'demo-cur', isPast=(tid==='demo-past'), t=isPast?S.past:(tid==='demo-cur'?S.cur:null);
+  if(!t) return res(400,{ok:false,code:'bad_term',error:'That semester is not open yet.'});
+  var a=body.action;
+  if(a==='get'){
+    var list=(S.audit[t.id]||[]).slice().sort(function(x,y){ return y.at-x.at; });
+    return res(200,{ok:true, canEdit:!isPast, readOnlyReason:isPast?'past':null, admin:false, calendarEnded:false, calendarMessage:null, current:'demo-cur',
+      terms:[{id:'demo-cur',label:S.cur.label,displayLabel:duesDemoView(S.cur,false).displayLabel,current:true,past:false},{id:'demo-past',label:S.past.label,displayLabel:S.past.label,current:false,past:true}],
+      term:duesDemoView(t,isPast), audit:list});
+  }
+  if(isPast) return res(403,{ok:false,code:'past_read_only',error:'Past semesters are read-only.'});
+  var log=function(e){ e.at=now; e.by='gc01'; S.audit[t.id].push(e); };
+  if(a==='setAmount'){
+    var v=Number(body.amount); if(!isFinite(v)||v<0||v>5000) return res(400,{ok:false,code:'bad_amount',error:'Enter a dues amount from 0 to 5000.'});
+    log({action:'setAmount', from:t.amount, to:v}); t.amount=v; return res(200,{ok:true, term:t.id, amount:v});
+  }
+  if(a==='mark'||a==='unmark'){
+    var mark=(a==='mark'), id=String(body.memberId||'');
+    if(body.expect!==(mark?'unpaid':'paid')) return res(400,{ok:false,code:'bad_expect',error:'Refresh the list and try again.'});
+    if(mark&&duesDemoEligible().indexOf(id)<0) return res(400,{ok:false,code:'not_member',error:'Only active club members owe dues.'});
+    var status=t.members[id]?'paid':'unpaid';
+    if(status!==body.expect) return res(409,{ok:false,code:'changed',status:status,error:'Someone already changed this member.'});
+    if(mark) t.members[id]={paid:true, at:now, by:'gc01'}; else delete t.members[id];
+    log({action:a, memberId:id, from:status, to:mark?'paid':'unpaid'});
+    return res(200,{ok:true, term:t.id, memberId:id, status:mark?'paid':'unpaid', at:mark?now:null});
+  }
+  if(a==='remind'){
+    var unpaid=duesDemoEligible().filter(function(id){ return !t.members[id]; });
+    if(unpaid.length){ t.lastReminderAt=now; log({action:'remind', count:unpaid.length}); }
+    return res(200,{ok:true, term:t.id, unpaid:unpaid, amount:t.amount, recorded:!!unpaid.length});
+  }
+  return res(400,{ok:false,code:'bad_action'});
+}
+function duesDemoMine(pid){
+  var S=_duesDemo; if(!S) return {available:false};
+  if(duesDemoEligible().indexOf(pid)<0) return {available:false};
+  var v=duesDemoView(S.cur,false), m=v.members[pid];
+  return {available:true, term:{label:v.label, displayLabel:v.displayLabel}, paid:!!m, paidAt:m?m.at:null, amount:v.amount};
+}
+// ============================================================
+// Member dues card (club My Info tab): the signed-in member's own status for the current
+// semester, from POST /club/dues/mine. Prospects see no card. One fetch per five minutes at most.
+var _ppDues={key:'', at:0, res:null, loading:false};
+function ppDuesHtml(res){
+  var box=function(body){ return '<div class="card" style="padding:12px 14px;margin-bottom:12px;"><div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:1px;color:var(--charcoal);margin-bottom:4px;">💵 Dues</div><div style="font-size:13px;color:var(--charcoal);line-height:1.5;">'+body+'</div></div>'; };
+  if(!res||res.error) return box('<span style="color:var(--gray);">Couldn\'t load your dues right now.</span>');
+  if(!res.available) return box('<span style="color:var(--gray);">Your dues status is not available.</span>');
+  var lbl='<b>'+duesEsc((res.term&&res.term.displayLabel)||'This semester')+' dues:</b> ';
+  if(res.paid) return box(lbl+'Paid'+(res.paidAt?' '+duesEsc(duesDay(res.paidAt)):'')+'. Thank you!');
+  if(typeof res.amount==='number'&&res.amount>0) return box(lbl+'Not paid yet ($'+duesMoney(res.amount)+'). Pay an exec when the team is set.');
+  return box(lbl+'Not paid yet. An exec will share the amount.');
+}
+function ppDuesRender(p){
+  var el=document.getElementById('pp-dues'); if(!el) return;
+  if(!duesEnabled()||!p||p.status==='prospect'){ el.innerHTML=''; return; }
+  if(DEMO_CLUB){ el.innerHTML=ppDuesHtml(duesDemoMine(p.id)); return; }
+  var tok=(typeof tnPlayerSessionToken==='function')?tnPlayerSessionToken():'';
+  if(!tok){ el.innerHTML=''; return; }
+  if(_ppDues.key===p.id&&_ppDues.res&&Date.now()-_ppDues.at<300000){ el.innerHTML=ppDuesHtml(_ppDues.res); return; }
+  if(_ppDues.loading) return;
+  _ppDues.loading=true;
+  var key=p.id;
+  fetch(AUTH_WORKER+'/club/dues/mine',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:DUES_SLUG[DB_ROOT],token:tok})})
+    .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return {status:r.status,j:j}; }); })
+    .catch(function(){ return {status:0,j:null}; })
+    .then(function(r){
+      _ppDues.loading=false;
+      if(currentPlayerId!==key) return;
+      var ok=!!(r.j&&r.j.ok===true);
+      _ppDues.key=key; _ppDues.res=ok?r.j:{error:true};
+      _ppDues.at=ok?Date.now():Date.now()-240000; // a failure is asked again after a minute
+      var box=document.getElementById('pp-dues'); if(box) box.innerHTML=ppDuesHtml(_ppDues.res);
+    });
 }
 // ============================================================
 // Logistics > Info. A field picker over the club roster, exec only, producing a
@@ -15141,6 +15319,8 @@ async function exportInfo(){
 
   const accounts=await ensureCommunityPlayers();
   if(!accounts){toast('Could not read member records. Check your connection.');return;}
+  // Dues paid comes from the current semester on the worker, read fresh for the file.
+  if(picked.dues&&!(await duesEnsureCurrent())){toast('Could not load dues. Untick Dues paid or try again.');return;}
 
   const rows=roster.map(p=>{
     const acct=p.accountId?accounts[p.accountId]:null;
@@ -18785,34 +18965,65 @@ function tnCardRender(){
 
 function renderAccounting(){
   const pane=document.getElementById('tab-accounting'); if(!pane)return;
-  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const members=acctMembersList();
-  const amount=acctAmount();
-  const total=members.length;
-  const paidCount=members.filter(m=>acctIsPaid(m.id)).length;
-  const collected=paidCount*amount;
-  const owed=total*amount;
-  const lastRem=(D.dues||{}).lastReminderAt;
-  const lastRemText=lastRem?('Last reminder sent '+new Date(lastRem).toLocaleString()):'No reminder sent yet.';
-  const rows=members.length?members.map(m=>{
-    const paid=acctIsPaid(m.id);
-    const when=paid?(((D.dues||{}).members||{})[m.id]||{}).at:null;
+  const esc=duesEsc;
+  const card=(inner)=>`<div class="card"><div class="card-title"><span class="bar"></span> 💵 ${inner}`;
+  if(!duesEnabled()){ pane.innerHTML=card('Accounting</div><p style="font-size:13px;color:var(--gray);">Dues are not set up for this club.</p></div>'); return; }
+  const d=_dues.data;
+  if(!d){
+    if(!_dues.loading&&!_dues.loadErr){ duesLoad(''); return; }
+    pane.innerHTML=card('Dues</div>'+(_dues.loadErr
+      ?`<p style="font-size:13px;color:var(--red);font-weight:600;margin-bottom:8px;">${esc(_dues.loadErr)}</p><button class="btn btn-small btn-secondary" style="min-height:44px;" onclick="duesOpen()">Retry</button>`
+      :'<p style="font-size:13px;color:var(--gray);">Loading dues...</p>')+'</div>');
+    return;
+  }
+  const t=d.term, edit=!!d.canEdit;
+  const amount=(typeof t.amount==='number')?t.amount:0;
+  // Read-only and status notes, in plain words.
+  let ro='';
+  if(d.readOnlyReason==='shared_pin') ro='Sign in with your own exec account to change dues.';
+  else if(d.calendarEnded) ro=d.calendarMessage||'The semester calendar needs updating before dues can change.';
+  else if(t.past&&!edit) ro='Past semester. Read-only.';
+  else if(t.past&&edit) ro='Admin correction. Every change is logged.';
+  const resetLine=t.past
+    ?('Reset on '+esc(t.resetLabel)+'.')
+    :('Resets '+esc(t.resetLabel)+'. Every member\'s status starts over for the next semester.');
+  // Rows: the current semester lists every active member; a past semester lists who paid.
+  const ids=t.past?Object.keys(t.members||{}):(t.eligible||[]).slice();
+  ids.sort((a,b)=>{ const pa=gP(a), pb=gP(b); return (pa&&pb)?_cmpLast(pa,pb):(pa?-1:pb?1:0); });
+  const total=t.past?ids.length:(t.eligibleCount||ids.length);
+  const paidCount=t.past?ids.length:(t.paidCount||ids.filter(id=>!!t.members[id]).length);
+  const cellCss='padding:6px 4px;border-bottom:1px solid var(--gray-lighter);font-size:13px;color:var(--charcoal);';
+  const rows=ids.length?ids.map(id=>{
+    const m=t.members[id], paid=!!m, busy=!!_dues.rowBusy[id], err=_dues.rowErr[id];
+    const by=paid?duesByName(m.by):'';
+    const note=paid&&m.at?`<span style="font-size:10px;color:var(--gray);margin-right:6px;">${esc(duesDay(m.at)+(by?', by '+by:''))}</span>`:'';
+    let ctl;
+    if(err) ctl=`<span style="font-size:11px;color:var(--red);font-weight:600;margin-right:6px;">Not saved.</span><button class="btn btn-small btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="duesRetry('${esc(id)}')">Retry</button>`;
+    else if(busy) ctl=`<span style="font-size:11px;color:var(--gray);">Saving...</span>`;
+    else if(edit) ctl=`<button class="btn btn-small ${paid?'btn-secondary':'btn-danger'}" style="padding:3px 10px;font-size:11px;" onclick="duesMark('${esc(id)}',${paid?'false':'true'})">${paid?'Paid':'Not paid'}</button>`;
+    else ctl=`<span style="font-size:11px;font-weight:700;color:${paid?'var(--green)':'var(--red)'};">${paid?'Paid':'Not paid'}</span>`;
     return `<tr>
-      <td style="padding:6px 4px;border-bottom:1px solid var(--gray-lighter);font-size:13px;color:var(--charcoal);">${esc(((m.firstName||'')+' '+(m.lastName||'')).trim())}</td>
-      <td style="padding:6px 4px;border-bottom:1px solid var(--gray-lighter);font-size:13px;color:var(--charcoal);text-align:right;">$${amount}</td>
-      <td style="padding:6px 4px;border-bottom:1px solid var(--gray-lighter);text-align:right;white-space:nowrap;">
-        ${paid&&when?`<span style="font-size:10px;color:var(--gray);margin-right:6px;">${esc(new Date(when).toLocaleDateString())}</span>`:''}
-        <button class="btn btn-small ${paid?'btn-secondary':'btn-danger'}" style="padding:3px 10px;font-size:11px;" onclick="acctTogglePaid('${esc(m.id)}')">${paid?'Paid':'Not paid'}</button>
-      </td>
+      <td style="${cellCss}">${esc(duesName(id))}</td>
+      <td style="${cellCss}text-align:right;">$${esc(duesMoney(amount))}</td>
+      <td style="${cellCss}text-align:right;white-space:nowrap;">${note}${ctl}</td>
     </tr>`;
-  }).join(''):`<tr><td colspan="3" style="padding:10px 4px;font-size:12px;color:var(--gray);">No club members yet. Place prospects onto a squad and they appear here.</td></tr>`;
-  pane.innerHTML=`<div class="card"><div class="card-title"><span class="bar"></span> 💵 Accounting</div>
+  }).join(''):`<tr><td colspan="3" style="padding:10px 4px;font-size:12px;color:var(--gray);">${t.past?'Nobody was marked paid this semester.':'No club members yet. Place prospects onto a squad and they appear here.'}</td></tr>`;
+  const opts=(d.terms||[]).map(x=>`<option value="${esc(x.id)}" ${x.id===t.id?'selected':''}>${esc(x.displayLabel+(x.current?' (current)':''))}</option>`).join('');
+  const lastRem=t.lastReminderAt?('Last reminder sent '+new Date(t.lastReminderAt).toLocaleString()):'No reminder sent yet.';
+  const log=(d.audit||[]).length?(d.audit||[]).map(duesAuditLine).join(''):'<div style="font-size:12px;color:var(--gray);">No changes yet.</div>';
+  pane.innerHTML=card(`${esc(t.displayLabel)} dues</div>
+    <div style="font-size:12px;color:var(--gray);margin:-4px 0 8px;">${resetLine}</div>
+    ${(d.terms||[]).length>1?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--charcoal);margin-bottom:8px;">Semester <select id="dues-term" onchange="duesView(this.value)" style="padding:4px 6px;font-size:12px;border:1px solid var(--gray-lighter);border-radius:6px;">${opts}</select></label>`:''}
+    ${ro?`<div id="dues-ro" style="font-size:12px;color:var(--charcoal);background:var(--gray-lighter);border-radius:6px;padding:6px 8px;margin-bottom:8px;">${esc(ro)}</div>`:''}
+    ${_dues.notice?`<div id="dues-notice" style="font-size:12px;color:var(--red);font-weight:600;margin-bottom:8px;">${esc(_dues.notice)}</div>`:''}
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <span style="font-size:12px;color:var(--charcoal);">Dues per member $</span>
-      <input type="number" id="acct-amount" min="0" step="1" value="${amount||''}" placeholder="0" style="width:90px;padding:6px 8px;font-size:13px;border:1px solid var(--gray-lighter);border-radius:6px;">
-      <button class="btn btn-small btn-secondary" style="padding:4px 12px;font-size:11px;" onclick="acctSetAmount()">Save amount</button>
+      ${edit?`<input type="number" id="acct-amount" min="0" step="1" value="${amount||''}" placeholder="0" style="width:90px;padding:6px 8px;font-size:13px;border:1px solid var(--gray-lighter);border-radius:6px;">
+      <button class="btn btn-small btn-secondary" style="padding:4px 12px;font-size:11px;" ${_dues.busy?'disabled':''} onclick="acctSetAmount()">Save amount</button>`
+      :`<span style="font-size:13px;font-weight:700;">${amount?esc(duesMoney(amount)):'not set'}</span>`}
+      ${t.amountCarried?'<span style="font-size:11px;color:var(--gray);">Carried over from last semester.</span>':''}
     </div>
-    <div style="font-size:13px;color:var(--charcoal);margin-bottom:8px;"><span style="font-weight:700;">${paidCount} of ${total} paid</span>, $${collected} collected of $${owed}</div>
+    <div style="font-size:13px;color:var(--charcoal);margin-bottom:8px;"><span style="font-weight:700;">${t.past?(paidCount+' paid'):(paidCount+' of '+total+' paid')}</span>, $${esc(duesMoney(paidCount*amount))} collected${t.past?'':' of $'+esc(duesMoney(total*amount))}</div>
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr>
         <th style="text-align:left;font-size:11px;letter-spacing:1px;color:var(--gray);padding:4px;">MEMBER</th>
@@ -18821,12 +19032,13 @@ function renderAccounting(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
-      <button class="btn btn-small" style="padding:5px 14px;font-size:12px;background:#082A4F;color:#fff;border:none;" onclick="acctSendReminder()">Email unpaid members a reminder</button>
-      <span style="font-size:11px;color:var(--gray);">${esc(lastRemText)}</span>
-    </div>
-    <p style="font-size:10px;color:var(--gray);margin-top:8px;">Dues status is exec only and is not shown to members. Not linked to any payment system.</p>
-  </div>`;
+    ${(!t.past&&edit)?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;">
+      <button class="btn btn-small" style="padding:5px 14px;font-size:12px;background:#082A4F;color:#fff;border:none;" ${_dues.busy?'disabled':''} onclick="acctSendReminder()">Email unpaid members a reminder</button>
+      <span style="font-size:11px;color:var(--gray);">${esc(lastRem)}</span>
+    </div>`:''}
+    <details style="margin-top:12px;"><summary style="font-size:12px;font-weight:700;color:var(--charcoal);cursor:pointer;">Change log</summary><div style="margin-top:6px;">${log}</div></details>
+    <p style="font-size:10px;color:var(--gray);margin-top:8px;">Only execs see this list. Each member sees only their own dues. Not linked to any payment system.</p>
+  </div>`);
 }
 // Travel: sample away tournament with line items and a per-player paid-up toggle.
 // ============================================================
