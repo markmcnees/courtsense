@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.230';
+const APP_VERSION='1.1.231';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3316,17 +3316,26 @@ async function _fbPassDrop(){
 }
 // When the CourtSense session ends, check again: the worker refuses a pass for an ended
 // session and the tab goes back to anonymous. Firebase renews its own token in between.
+// L2: five minutes before the session ends the pass is fetched again (a long coaching session
+// gets a fresh one, and a failed fetch keeps the current pass), then checked once more just after.
+const FB_PASS_EARLY_MS=5*60000;
 function _fbPassSchedule(){
   if(_fbPass.timer){ clearTimeout(_fbPass.timer); _fbPass.timer=0; }
   if(!_fbPass.exp) return;
-  var wait=Math.min(Math.max(_fbPass.exp-Date.now()+1000,1000),24*3600000);
-  _fbPass.timer=setTimeout(function(){ _fbPass.timer=0; _fbPass.exp=0; fbPassEnsure(); },wait);
+  var left=_fbPass.exp-Date.now(), early=left>FB_PASS_EARLY_MS+1000;
+  var wait=Math.min(early?left-FB_PASS_EARLY_MS:Math.max(left+1000,1000),24*3600000);
+  _fbPass.timer=setTimeout(function(){
+    _fbPass.timer=0;
+    if(!early){ _fbPass.exp=0; fbPassEnsure(); return; }
+    if(fbPassOff()) return;
+    _fbPassQueue(function(){ return _fbPassRun(true); }).then(function(){ if(!_fbPass.timer) _fbPassSchedule(); });
+  },wait);
 }
-async function _fbPassRun(){
+async function _fbPassRun(force){
   var src=_fbPassSource();
   if(!src){ await _fbPassDrop(); return false; }
   var key=src.kind+':'+src.token; // in memory only
-  if(_fbPass.key===key&&_fbPass.exp>Date.now()) return true;
+  if(!force&&_fbPass.key===key&&_fbPass.exp>Date.now()) return true;
   var role='';
   try{
     var r=await fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(src)});
@@ -3358,6 +3367,80 @@ function fbPassSignOut(){
   _fbPass.key=''; _fbPass.exp=0;
   return fbPassOff()?Promise.resolve():_fbPassQueue(_fbPassDrop);
 }
+// A phone that slept through its timers checks its pass again when it wakes.
+if(typeof document!=='undefined'&&document.addEventListener) document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&currentRole&&!fbPassOff()) fbPassEnsure();
+});
+// ===== COACH WRITES WAIT FOR A VALID PASS (HS data lockdown L2) =====
+// At a live high school every coach write to the school's nodes needs this tab's Firebase pass,
+// because the rules will refuse a write without one. When the pass is already valid the write
+// goes straight through exactly as before (same tick, same order). When it is not, the write
+// waits for the pass (one fetch, then one retry). With no valid pass nothing is written: the
+// coach sees "Please sign in again to save" with Sign in, and every change they made is kept in
+// memory (a copy, as it was at the moment they saved) and offered back once they sign in again.
+// The club, the demos, players and parents never come here.
+function hsCoachGateOn(){ return currentRole==='coach'&&!SC.demoMode&&!SC.tiersEnabled&&!!db&&!fbPassOff(); }
+function _fbPassValidNow(){
+  var src=_fbPassSource();
+  if(!src||_fbPass.key!==src.kind+':'+src.token||!(_fbPass.exp>Date.now()+5000)) return false;
+  try{ return !!(typeof firebase.auth==='function'&&firebase.auth().currentUser); }catch(e){ return false; }
+}
+var _hsWait=[];   // writes waiting for the pass: { fn, resolve }
+var _hsHeld=[];   // writes refused for want of a pass, offered back after the next coach sign-in
+var _hsGateBusy=null;
+// fn performs one write and returns its promise (or nothing). Resolves to fn's result, or false
+// when the write was held because there is no valid pass.
+function hsCoachWrite(fn){
+  if(!hsCoachGateOn()||_fbPassValidNow()) return fn();
+  var p=new Promise(function(resolve){ _hsWait.push({ fn:fn, resolve:resolve }); });
+  _hsGateRun();
+  return p;
+}
+function _hsGateRun(){
+  if(_hsGateBusy) return _hsGateBusy;
+  _hsGateBusy=fbPassEnsure().then(function(ok){ return ok&&_fbPassValidNow()?true:fbPassEnsure(); }).then(function(ok){
+    _hsGateBusy=null;
+    var q=_hsWait; _hsWait=[];
+    if(ok&&_fbPassValidNow()){
+      q.forEach(function(w){ var r; try{ r=w.fn(); }catch(e){ r=false; } Promise.resolve(r).then(w.resolve,function(){ w.resolve(false); }); });
+      return;
+    }
+    q.forEach(function(w){ _hsHeld.push(w.fn); w.resolve(false); });
+    if(q.length) hsCoachResignin();
+  });
+  return _hsGateBusy;
+}
+function _hsBar(msg,buttons){
+  var el=csBarEl();
+  el.setAttribute&&el.setAttribute('role','alert');
+  el.style.cssText='position:fixed;left:8px;right:8px;bottom:12px;z-index:9600;background:#7a1f1f;color:#fff;border-radius:10px;padding:12px 14px;'
+    +'box-shadow:0 4px 16px rgba(0,0,0,.35);font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;';
+  var b='min-height:44px;padding:8px 16px;border-radius:8px;font-size:15px;font-weight:700;border:2px solid #fff;';
+  el.innerHTML='<div style="flex:1;min-width:180px;font-weight:600;">'+csEsc(msg)+'</div>'
+    +buttons.map(function(x,i){ return '<button style="'+b+(i?'background:transparent;color:#fff;':'background:#fff;color:#7a1f1f;')+'" onclick="'+x[1]+'">'+csEsc(x[0])+'</button>'; }).join('');
+  el.hidden=false; el._csMsg=msg; el._csRetry=false;
+}
+function hsCoachResignin(){
+  _hsBar('Please sign in again to save. Your changes are kept and will be offered back after you sign in.',[['Sign in','hsCoachSigninAgain()'],['Dismiss','csBarHide()']]);
+}
+function hsCoachSigninAgain(){ csBarHide(); logout(); }
+// After a coach signs in again: the changes held from before, once this tab has a valid pass.
+function hsHeldOffer(){
+  if(!_hsHeld.length||!hsCoachGateOn()) return Promise.resolve(false);
+  return fbPassEnsure().then(function(ok){
+    if(!ok||!_hsHeld.length||currentRole!=='coach') return false;
+    var n=_hsHeld.length;
+    _hsBar(n+(n===1?' change':' changes')+' from before you signed in again '+(n===1?'was':'were')+' not saved. Save '+(n===1?'it':'them')+' now?',[['Save','hsHeldSave()'],['Discard','hsHeldDiscard()']]);
+    return true;
+  });
+}
+function hsHeldSave(){
+  var q=_hsHeld; _hsHeld=[]; csBarHide();
+  Promise.all(q.map(function(fn){ return Promise.resolve(hsCoachWrite(fn)).catch(function(){ return false; }); })).then(function(r){
+    if(r.every(function(x){ return x!==false; })) toast('Saved');
+  });
+}
+function hsHeldDiscard(){ _hsHeld=[]; csBarHide(); }
 // ===== VERSION CHECK (HS data lockdown P2.1) =====
 // deploy.sh writes courtsense.app/version.json as {"v":"<deployed>","min":"<oldest allowed>"}.
 // This page compares it with its own APP_VERSION at boot, every 15 minutes and whenever the tab
@@ -3481,7 +3564,7 @@ function hsPublicSyncNow(){
 var _hsLiveChain={};
 function hsCoachLiveScore(aid,idx,rec){
   var key=aid+'/'+idx;
-  var direct=function(){ return Promise.resolve(db.ref(DB_ROOT+'/live_scoring/'+key).set(Object.assign({},rec,{ts:Date.now()}))).then(function(){ return 'direct'; },function(){ return 'failed'; }); };
+  var direct=function(){ var v=Object.assign({},rec,{ts:Date.now()}); return Promise.resolve(hsCoachWrite(function(){ return db.ref(DB_ROOT+'/live_scoring/'+key).set(v); })).then(function(){ return 'direct'; },function(){ return 'failed'; }); };
   var run=function(){
     var p;
     try{
@@ -3543,6 +3626,13 @@ function hsPlayerSetSend(body){
     if(!res.ok&&res.j&&res.j.code==='changed') return _hsSetChanged(body,res);
     return res;
   });
+}
+// A player's own goals, game-day notes and quiz scores (HS data lockdown L2): the worker writes
+// them for the signed-in player's own roster id only. Resolves to the csSave answer.
+function hsPlayerOwnSave(path,body){
+  var tok=hsPlayerToken();
+  if(!tok){ hsPlayerResignin(); return Promise.resolve({ ok:false, kind:'signin', j:null }); }
+  return csSave(function(){ return csWorkerPost(path,Object.assign({ dbRoot:DB_ROOT, token:tok, pid:currentPlayerId },body)); },{ onSignin:hsPlayerResignin });
 }
 // One set save: resolves true once the worker confirms, false otherwise (the bar says why).
 function hsPlayerSaveSet(key,btn,body){
@@ -4443,12 +4533,19 @@ function _fbWriteFailed(verb,path,err){
 // inside it still propagates synchronously to the caller exactly as before.
 function fbSet(path,val){
   if(!db){_demoWrite(path,val);return Promise.resolve(true);}
+  if(hsCoachGateOn()&&!_fbPassValidNow()){ var v=csCopy(val); return hsCoachWrite(function(){ return _fbSetNow(path,v); }); }
+  return _fbSetNow(path,val);
+}
+function _fbSetNow(path,val){
   if(typeof csVersionOnSave==='function') csVersionOnSave();
   return db.ref(DB_ROOT+'/'+path).set(val).then(function(){ if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(path); return true; })
     .catch(function(err){ _fbWriteFailed('save',path,err); return false; });
 }
 function fbRemove(path){
   if(!db){_demoRemove(path);return Promise.resolve(true);}
+  return hsCoachWrite(function(){ return _fbRemoveNow(path); });
+}
+function _fbRemoveNow(path){
   if(typeof csVersionOnSave==='function') csVersionOnSave();
   return db.ref(DB_ROOT+'/'+path).remove().then(function(){ if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(path); return true; })
     .catch(function(err){ _fbWriteFailed('delete',path,err); return false; });
@@ -4463,6 +4560,10 @@ function fbRemove(path){
 // site is already wrapped in if(db)). Resolves true there because nothing failed.
 function fbUpdateAt(path,val){
   if(!db) return Promise.resolve(true);
+  if(hsCoachGateOn()&&!_fbPassValidNow()){ var v=csCopy(val); return hsCoachWrite(function(){ return _fbUpdateAtNow(path,v); }); }
+  return _fbUpdateAtNow(path,val);
+}
+function _fbUpdateAtNow(path,val){
   if(typeof csVersionOnSave==='function') csVersionOnSave();
   return db.ref(path).update(val).then(function(){ return true; })
     .catch(function(err){ _fbWriteFailed('save',path,err); return false; });
@@ -5391,7 +5492,7 @@ function saveAddSet(){
   });
   const sets=m.sets?[...m.sets]:[];
   sets.push({scoreUs:su,scoreThem:st,stats});
-  fbSet(fbNode+'/'+addSetMatchId+'/sets',sets);
+  dualScheduleBackfill(fbSet(fbNode+'/'+addSetMatchId+'/sets',sets));
   closeSetModal();toast('Set saved!');
 }
 function closeSetModal(){addSetMatchId=null;addSetType=null;document.getElementById('set-modal').classList.remove('active');}
@@ -5726,7 +5827,7 @@ function remPlayer(id){
     Object.keys(vt).forEach(function(k){ if(vt[k]&&vt[k].playerId===id) u[P+'/verticals/'+k]=null; }); // legacy jump-data node
     Object.keys(pn).forEach(function(date){ if(pn[date]&&pn[date][id]!==undefined) u[M+'/player_notes/'+date+'/'+id]=null; });
     Object.keys(cn).forEach(function(date){ if(cn[date]&&cn[date].players&&cn[date].players[id]!==undefined) u[M+'/coach_notes/'+date+'/players/'+id]=null; });
-    db.ref().update(u,function(err){
+    hsCoachWrite(function(){ return db.ref().update(u,function(err){
       if(err){toast('Could not remove player, try again');return;}
       toast('Player removed');
       if(typeof hsPublicSyncSoon==='function') hsPublicSyncSoon(null);
@@ -5736,7 +5837,7 @@ function remPlayer(id){
       _hsContactsDelete(id).then(function(ok){
         if(!ok)toast('Player removed, but their contact details were not cleared. Tell Mark.');
       });
-    });
+    }); });
   }).catch(function(){ toast('Could not remove player, try again'); });
 }
 
@@ -6043,7 +6144,7 @@ const _addP=document.getElementById('add-player'); if(_addP) _addP.addEventListe
   const _p2=_mkParent(_pv('new-p2-name'),_pv('new-p2-email'),_pv('new-p2-phone'));
   if(!_hsc&&_p1)prof.parent1=_p1;                                    // only write a parent with at least one field
   if(!_hsc&&_p2)prof.parent2=_p2;
-  if(db)db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
+  if(db){const _v=csCopy(prof);hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/players/'+id).update(_v));}
   // Contacts are saved through the worker after the roster write lands, because the
   // worker only saves for a player who is on the roster. Nothing is sent when every
   // contact field was blank. Off a live school the email keeps its old path.
@@ -6227,6 +6328,7 @@ function updatePinDots(){document.querySelectorAll('.login-pin-dot').forEach((d,
 function loginAsCoach(){
   currentRole='coach';currentPlayerId=null;
   if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this coach or exec session (HS lockdown P1)
+  if(typeof hsHeldOffer==='function')hsHeldOffer(); // changes held when the last sign-in ended (HS lockdown L2)
   // Club tournament card: drafts kept when a save found the exec session ended (no-op otherwise).
   csRestoreExecDrafts();
   // An exec who scanned the door code lands here; say so rather than dropping it silently.
@@ -8086,18 +8188,30 @@ function addPlayerGoal(){
   const pid=currentPlayerId;
   const existing=D.goals[pid]||{};
   if(Object.values(existing).some(g=>g.goalType===goalType)){toast('You already have this goal');return;}
-  const gid=gi('goal');
   const goalLabel=GOAL_LABELS[goalType]||goalType;
+  const done=()=>{
+    sel.value='';toast('Goal added!');
+    const p=gP(pid);const pname=p?p.firstName+' '+p.lastName:pid;
+    notifyCoaches(
+      SC.schoolName+': New goal for '+pname,
+      'Player: '+pname+'\nGoal: '+goalLabel+'\nDate: '+td()+'\n\nLog in to create an AI development plan.'
+    );
+  };
+  // A live high school player saves through the worker (HS data lockdown L2).
+  if(hsPlayerWorkerOn()){
+    hsPlayerOwnSave('/hs/player/goal',{op:'add',goalType}).then(res=>{if(res.ok)done();});
+    return;
+  }
+  const gid=gi('goal');
   fbSet('goals/'+pid+'/'+gid,{goalType,label:goalLabel,selectedAt:td(),aiFeedback:null});
-  sel.value='';toast('Goal added!');
-  const p=gP(pid);const pname=p?p.firstName+' '+p.lastName:pid;
-  notifyCoaches(
-    SC.schoolName+': New goal for '+pname,
-    'Player: '+pname+'\nGoal: '+goalLabel+'\nDate: '+td()+'\n\nLog in to create an AI development plan.'
-  );
+  done();
 }
 
 function removeGoal(pid,gid){
+  if(hsPlayerWorkerOn()){
+    hsPlayerOwnSave('/hs/player/goal',{op:'remove',gid}).then(res=>{if(res.ok)toast('Goal removed');});
+    return;
+  }
   fbRemove('goals/'+pid+'/'+gid);toast('Goal removed');
 }
 
@@ -8512,7 +8626,7 @@ function coachSaveSkills(){
   if(!Object.keys(skills).length){toast('Nothing to save yet. Set at least one skill to 1 or higher.');return;}
   // Demo mode (db null) persists in-memory to profilesData, mirroring the profiles
   // listener. Merged, not replaced, so demo behavior matches the live branch.
-  if(db){db.ref(SC.dbRoots.profiles+'/skills/'+pid).update(skills);}
+  if(db){const _v=csCopy(skills);hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/skills/'+pid).update(_v));}
   else{profilesData.skills=profilesData.skills||{};profilesData.skills[pid]=Object.assign({},profilesData.skills[pid]||{},skills);}
   toast('Skills saved!');
 }
@@ -8654,7 +8768,7 @@ function coachAddDrill(){
   const timeVal=parseFloat(document.getElementById('cpm-drill-time')?.value);
   if(!date||isNaN(timeVal)||timeVal<=0){toast('Enter date and time');return;}
   const id='sd-'+pid+'-'+Date.now();
-  if(db){db.ref(SC.dbRoots.profiles+'/starDrills/'+id).set({id,playerId:pid,player:pid,date,time:timeVal});}
+  if(db){const _v={id,playerId:pid,player:pid,date,time:timeVal};hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/starDrills/'+id).set(_v));}
   else{profilesData.starDrills=profilesData.starDrills||{};profilesData.starDrills[id]={id,playerId:pid,player:pid,date,time:timeVal};}
   document.getElementById('cpm-drill-time').value='';
   toast('Drill time added!');
@@ -8681,7 +8795,7 @@ function coachAddVertical(){
   if(!date||(!bj&&!aj)){toast('Enter date and at least one measurement');return;}
   const id='jt-'+pid+'-'+Date.now();
   // Standing reach is now a durable identity field (profiles/players), not a per-test value.
-  if(db){db.ref(SC.dbRoots.profiles+'/jumpTests/'+id).set({id,playerId:pid,player:pid,date,blockJump:bj||null,approachJump:aj||null});}
+  if(db){const _v={id,playerId:pid,player:pid,date,blockJump:bj||null,approachJump:aj||null};hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/jumpTests/'+id).set(_v));}
   else{profilesData.jumpTests=profilesData.jumpTests||{};profilesData.jumpTests[id]={id,playerId:pid,player:pid,date,blockJump:bj||null,approachJump:aj||null};}
   ['cpm-vert-bj','cpm-vert-aj'].forEach(i=>{const el=document.getElementById(i);if(el)el.value='';});
   toast('Vertical added!');
@@ -8725,7 +8839,7 @@ function coachAddNote(){
   const text=document.getElementById('cpm-note-text')?.value.trim();
   if(!date||!text){toast('Enter date and note');return;}
   const id='note-'+pid+'-'+Date.now();
-  if(db){db.ref(SC.dbRoots.profiles+'/notes/'+id).set({id,playerId:pid,player:pid,date,text,coachName:'Coach'});}
+  if(db){const _v={id,playerId:pid,player:pid,date,text,coachName:'Coach'};hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/notes/'+id).set(_v));}
   else{profilesData.notes=profilesData.notes||{};profilesData.notes[id]={id,playerId:pid,player:pid,date,text,coachName:'Coach'};}
   document.getElementById('cpm-note-text').value='';
   toast('Note saved!');
@@ -8803,10 +8917,15 @@ function playerGoalCollapse(gid){
   btn.textContent=hidden?'\u25b2 Collapse':'\u25bc Show Plan';
 }
 function archivePlayerGoal(pid,gid){
+  if(hsPlayerWorkerOn()){
+    hsPlayerOwnSave('/hs/player/goal',{op:'archive',gid}).then(res=>{if(res.ok)toast('Goal archived. Find it in Past Goals any time');});
+    return;
+  }
   fbSet('goals/'+pid+'/'+gid+'/archivedPlayer',true);
   toast('Goal archived. Find it in Past Goals any time');
 }
 function unarchivePlayerGoal(pid,gid){
+  if(hsPlayerWorkerOn()){ hsPlayerOwnSave('/hs/player/goal',{op:'unarchive',gid}); return; }
   fbSet('goals/'+pid+'/'+gid+'/archivedPlayer',false);
 }
 function renderPlayerGoals(){
@@ -9865,7 +9984,7 @@ function _importCommit(plan){
       const _hsc=_hsContactsMode();
       if(!_hsc&&d.parent1)prof.parent1=d.parent1;
       if(!_hsc&&d.parent2)prof.parent2=d.parent2;
-      db.ref(SC.dbRoots.profiles+'/players/'+id).update(prof);
+      {const _v=csCopy(prof);hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/players/'+id).update(_v));}
       if(_hsc){
         const c={};
         if(d.email)c.playerEmail=d.email;
@@ -9900,7 +10019,7 @@ function _importCommit(plan){
 function _importCommitSkills(plan){
   if(!db)return 0;
   let n=0;
-  plan.forEach(e=>{db.ref(SC.dbRoots.profiles+'/skills/'+e.playerId).update(e.skills);n++;});
+  plan.forEach(e=>{const _v=csCopy(e.skills);hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/skills/'+e.playerId).update(_v));n++;});
   return n;
 }
 // Star Drill commit: one NEW record per attempt, keyed by its own id with a playerId
@@ -9910,7 +10029,7 @@ function _importCommitDrills(plan){
   let n=0;
   plan.forEach((e,idx)=>{
     const id='sd-'+e.playerId+'-'+Date.now()+'-'+idx;
-    db.ref(SC.dbRoots.profiles+'/starDrills/'+id).set({id,playerId:e.playerId,player:e.playerId,date:e.date,time:e.time});
+    {const _v={id,playerId:e.playerId,player:e.playerId,date:e.date,time:e.time};hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/starDrills/'+id).set(_v));}
     n++;
   });
   return n;
@@ -9921,7 +10040,7 @@ function _importCommitVerts(plan){
   let n=0;
   plan.forEach((e,idx)=>{
     const id='jt-'+e.playerId+'-'+Date.now()+'-'+idx;
-    db.ref(SC.dbRoots.profiles+'/jumpTests/'+id).set({id,playerId:e.playerId,player:e.playerId,date:e.date,blockJump:e.blockJump,approachJump:e.approachJump});
+    {const _v={id,playerId:e.playerId,player:e.playerId,date:e.date,blockJump:e.blockJump,approachJump:e.approachJump};hsCoachWrite(()=>db.ref(SC.dbRoots.profiles+'/jumpTests/'+id).set(_v));}
     n++;
   });
   return n;
@@ -11628,7 +11747,7 @@ function closeDual(){
     _dualSaves.push(fbSet('schedule/'+schedMatch.id+'/scoreUs',leonCourts));
     _dualSaves.push(fbSet('schedule/'+schedMatch.id+'/scoreThem',oppCourts));
   }
-  if(db){_dualSaves.push(Promise.resolve(a.id?db.ref(DB_ROOT+'/live_scoring/'+a.id).remove():db.ref(DB_ROOT+'/live_scoring').remove()).then(function(){return true;},function(){return false;}));}
+  if(db){const _lp=DB_ROOT+'/live_scoring'+(a.id?'/'+a.id:'');_dualSaves.push(Promise.resolve(hsCoachWrite(()=>db.ref(_lp).remove())).then(function(){return true;},function(){return false;}));}
   // The fan copy updates as soon as the result has landed, not 2 seconds later.
   Promise.all(_dualSaves).then(function(){ if(typeof hsPublicSyncNow==='function') hsPublicSyncNow(); });
 
@@ -11928,7 +12047,7 @@ function pushLiveScore(idx){
   // A coach at a live high school scores through the worker (fan copy in the same write), with
   // the direct write below as the fallback.
   if(currentRole==='coach'&&a.id&&typeof hsPublicSyncOn==='function'&&hsPublicSyncOn()){ hsCoachLiveScore(a.id,idx,_lsRec); return; }
-  db.ref(DB_ROOT+'/live_scoring/'+_lsKey).set(_lsRec);
+  {const _lp=DB_ROOT+'/live_scoring/'+_lsKey,_v=csCopy(_lsRec);hsCoachWrite(()=>db.ref(_lp).set(_v));}
 }
 function lsInpChange(id){
   const inp=document.getElementById(id+'-inp');
@@ -11977,7 +12096,7 @@ function saveLiveSet(idx,p1,p2,date,court,subCourt,existingId,opponent,fbNode){
   // Immediately zero scores so user sees 0-0 right away (no need to hit minus)
   {const usR=document.getElementById('ls-us-'+idx);const themR=document.getElementById('ls-them-'+idx);
   if(usR)usR.value='0';if(themR)themR.value='0';}
-  if(db){const _aid=(window._loadedAssignment||{}).id;db.ref(DB_ROOT+'/live_scoring/'+((_aid?_aid+'/':'')+idx)).remove();}
+  if(db){const _aid=(window._loadedAssignment||{}).id;const _lp=DB_ROOT+'/live_scoring/'+((_aid?_aid+'/':'')+idx);hsCoachWrite(()=>db.ref(_lp).remove());}
   setTimeout(()=>refreshSingleCourtCard(idx,date,node),600);
 }
 
@@ -12266,7 +12385,7 @@ function saveQueensLiveSet(idx,p1,p2,date,court){
   const id=gi('qm');
   fbSetResult('matches',id,{id,date,court:parseInt(court),team1:[p1,p2].filter(Boolean),team2:[op1,op2].filter(Boolean),score1:sa,score2:sb,stats});
   toast((sa>sb?'✓ Win':'✗ Loss')+' saved, '+sa+'–'+sb);
-  if(db){const _aid=(window._loadedAssignment||{}).id;db.ref(DB_ROOT+'/live_scoring/'+((_aid?_aid+'/':'')+idx)).remove();}
+  if(db){const _aid=(window._loadedAssignment||{}).id;const _lp=DB_ROOT+'/live_scoring/'+((_aid?_aid+'/':'')+idx);hsCoachWrite(()=>db.ref(_lp).remove());}
   setTimeout(()=>refreshSingleQueensCard(idx,date),600);
 }
 
@@ -12373,7 +12492,7 @@ function saveCoachNote(type){
   if(!coachNotesDate){toast('Load a date first');return;}
   if(type==='game'){
     const text=document.getElementById('cnote-game-text').value;
-    if(db)db.ref(DB_ROOT+'/coach_notes/'+coachNotesDate+'/game').set(text||null);
+    if(db){const _lp=DB_ROOT+'/coach_notes/'+coachNotesDate+'/game',_v=text||null;hsCoachWrite(()=>db.ref(_lp).set(_v));}
     const saved=document.getElementById('cnote-game-saved');
     if(saved){saved.style.opacity='1';setTimeout(()=>saved.style.opacity='0',2000);}
     toast('Game notes saved!');
@@ -12384,7 +12503,7 @@ function autoSavePlayerNote(pid){
   if(!coachNotesDate)return;
   const el=document.getElementById('cnpn-'+pid);if(!el)return;
   const val=el.value||null;
-  if(db)db.ref(DB_ROOT+'/coach_notes/'+coachNotesDate+'/players/'+pid).set(val);
+  if(db){const _lp=DB_ROOT+'/coach_notes/'+coachNotesDate+'/players/'+pid,_v=csCopy(val);hsCoachWrite(()=>db.ref(_lp).set(_v));}
   if(val){const p=gP(pid);reportNotifyMisses([notifyPlayer(pid,'cnote','New note from your coach',
     'Hi '+(p?p.firstName:'there')+',\n\nYour coach added a note for '+coachNotesDate+':\n\n'+val+'\n\nLog in to the app to read it.')],'the note');}
 }
@@ -12392,7 +12511,7 @@ function autoSavePlayerNote(pid){
 function autoSavePairNote(key){
   if(!coachNotesDate)return;
   const el=document.getElementById('cnpair-'+key);if(!el)return;
-  if(db)db.ref(DB_ROOT+'/coach_notes/'+coachNotesDate+'/pairs/'+key).set(el.value||null);
+  if(db){const _lp=DB_ROOT+'/coach_notes/'+coachNotesDate+'/pairs/'+key,_v=el.value||null;hsCoachWrite(()=>db.ref(_lp).set(_v));}
 }
 
 // ============================================================
@@ -23899,7 +24018,7 @@ function pgdSubmitSet(prefix,pairStr,btn){
   if(existingMatch){
     const sets=[...(existingMatch.sets||[])];
     sets.push(newSet);
-    fbSet('gamedays/'+existingMatch.id+'/sets',sets);
+    { const _sv=fbSet('gamedays/'+existingMatch.id+'/sets',sets); if(currentRole==='coach') dualScheduleBackfill(_sv); }
     if(prefix==='own')pgdCurrentMatchId=existingMatch.id;
   }else{
     // Need opponent info, so look it up from the assignment
@@ -23908,7 +24027,7 @@ function pgdSubmitSet(prefix,pairStr,btn){
     const courtNum=courtEntry?courtEntry.court:(gP(pair[0])?.court||1);
     const opp=(assignment?.opponent||'Opponent')+' CT'+courtNum;
     const id=gi('gd');
-    fbSetResult('gamedays',id,{id,date:matchDate,court:courtNum,pair,opponent:opp,assignmentId:(_pgdAssign&&_pgdAssign.id)||null,sets:[newSet]});
+    { const _sv=fbSetResult('gamedays',id,{id,date:matchDate,court:courtNum,pair,opponent:opp,assignmentId:(_pgdAssign&&_pgdAssign.id)||null,sets:[newSet]}); if(currentRole==='coach') dualScheduleBackfill(_sv); }
     if(prefix==='own')pgdCurrentMatchId=id;
   }
 
@@ -24087,11 +24206,21 @@ function pgdSaveNotes(){
   if(!currentPlayerId||!pgdCurrentDate){toast('No active game day');return;}
   const perf=document.getElementById('pgd-note-perf')?.value||'';
   const opp=document.getElementById('pgd-note-opp')?.value||'';
+  const pid=currentPlayerId, date=pgdCurrentDate;
+  // A live high school player saves through the worker (HS data lockdown L2); nothing shows as
+  // saved until the worker confirms, and the typed notes stay in the boxes if it does not.
+  if(hsPlayerWorkerOn()){
+    hsPlayerOwnSave('/hs/player/notes',{date,performance:perf,opponent:opp}).then(res=>{if(res.ok)_pgdNotesSaved(pid,date,perf,opp);});
+    return;
+  }
   // Guard the Firebase write only; the pgdNotes self-update below runs in all modes
   // so player game-day notes persist in-memory in demo too.
-  if(db)db.ref(DB_ROOT+'/player_notes/'+pgdCurrentDate+'/'+currentPlayerId).set({
+  if(db)db.ref(DB_ROOT+'/player_notes/'+date+'/'+pid).set({
     performance:perf||null,opponent:opp||null,savedAt:td()
   });
+  _pgdNotesSaved(pid,date,perf,opp);
+}
+function _pgdNotesSaved(currentPlayerId,pgdCurrentDate,perf,opp){
   toast('Notes saved!');
   if(!pgdNotes[currentPlayerId])pgdNotes[currentPlayerId]={};
   pgdNotes[currentPlayerId][pgdCurrentDate]={performance:perf,opponent:opp,savedAt:td()};
@@ -24106,12 +24235,15 @@ function pgdSaveNotes(){
 // ============================================================
 // DUALS
 // ============================================================
-function getDualRecord(seasonId){
+function getDualRecord(seasonId,pending){
   let w=0,l=0;
   // Season-scoped views of the result nodes. Defaults to the active season (zero-arg call is unchanged); a passed seasonId scopes to that season for career rollups.
   const _S = seasonId || _activeSeason();
   const _inS = r => r && (r.seasonId===_S || r.seasonId==null);
-  const sched=(D.schedule||[]).filter(_inS), duals=(D.duals||[]).filter(_inS), gds=(D.gamedays||[]).filter(_inS);
+  // pending (display only, L2): schedule scores a finished dual will fill in at the coach's next
+  // dual save ({ id, rec } from dualBackfillList), counted here as if already saved. Never written.
+  const _pend={}; (pending||[]).forEach(x=>{ if(x&&x.id&&x.rec) _pend[x.id]=x.rec; });
+  const sched=(D.schedule||[]).map(g=>(g&&_pend[g.id])?Object.assign({},g,{scoreUs:_pend[g.id].scoreUs,scoreThem:_pend[g.id].scoreThem}):g).filter(_inS), duals=(D.duals||[]).filter(_inS), gds=(D.gamedays||[]).filter(_inS);
   // Dual W-L: from schedule (dual-level wins)
   sched.forEach(g=>{if(g.type==='scrimmage')return;if(g.scoreUs!=null&&g.scoreThem!=null&&g.scoreUs!==''&&g.scoreThem!==''){parseInt(g.scoreUs)>parseInt(g.scoreThem)?w++:l++;}});
   // Also count from D.duals that have no matching schedule entry with scores
@@ -24210,6 +24342,36 @@ function buildDualsFromGamedays(){
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 }
 
+// The schedule entries a finished dual should fill in: { id, rec } for each entry that matches
+// the dual's date and opponent, is not a scrimmage, and has no score yet. Pure: no writes.
+var _dualBackfillDue=[];
+function dualBackfillList(duals){
+  const out=[];
+  const _normOpp=s=>(s||'').toLowerCase().replace(/^[@\s]+/,'').replace(/[^a-z0-9]/g,'');
+  (duals||[]).forEach(d=>{
+    if(d.type==='scrimmage')return; // never copy a scrimmage score onto an unmarked entry
+    const lc=d.leonCourts||0,oc=d.oppCourts||0;
+    if(lc===0&&oc===0)return;
+    const hasCourts=(d.courts||[]).some(c=>!c.isExhibition&&(c.sets||[]).length>0);
+    if(!hasCourts)return;
+    const dOppNorm=_normOpp(d.opponent);
+    const schedMatch=(D.schedule||[]).find(g=>g.date===d.date&&_normOpp(g.opponent)===dOppNorm&&g.type!=='scrimmage');
+    if(schedMatch&&(schedMatch.scoreUs==null||schedMatch.scoreThem==null)&&!out.some(x=>x.id===schedMatch.id)){
+      out.push({id:schedMatch.id,rec:Object.assign({},schedMatch,{scoreUs:lc,scoreThem:oc})});
+    }
+  });
+  return out;
+}
+// After a coach's save lands: render the duals again (which works out what is missing) and fill
+// in those schedule scores. The same update the render used to make, now from the save itself.
+function dualScheduleBackfill(saved){
+  return Promise.resolve(saved).then(function(){
+    if(currentRole!=='coach'||!db) return;
+    renderDuals();
+    var due=_dualBackfillDue||[]; _dualBackfillDue=[];
+    due.forEach(function(x){ fbSet('schedule/'+x.id,x.rec); });
+  });
+}
 function renderDuals(){
   const rec=getDualRecord();
   const setEl=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
@@ -24238,21 +24400,16 @@ function renderDuals(){
 
   const duals=merged;
 
-  // Auto-sync: write dual results back to schedule if schedule entry is missing scores
-  if(currentRole==='coach'&&db){
-    const _normOpp=s=>(s||'').toLowerCase().replace(/^[@\s]+/,'').replace(/[^a-z0-9]/g,'');
-    duals.forEach(d=>{
-      if(d.type==='scrimmage')return; // never copy a scrimmage score onto an unmarked entry
-      const lc=d.leonCourts||0,oc=d.oppCourts||0;
-      if(lc===0&&oc===0)return;
-      const hasCourts=(d.courts||[]).some(c=>!c.isExhibition&&(c.sets||[]).length>0);
-      if(!hasCourts)return;
-      const dOppNorm=_normOpp(d.opponent);
-      const schedMatch=D.schedule.find(g=>g.date===d.date&&_normOpp(g.opponent)===dOppNorm&&g.type!=='scrimmage');
-      if(schedMatch&&(schedMatch.scoreUs==null||schedMatch.scoreThem==null)){
-        fbSet('schedule/'+schedMatch.id,Object.assign({},schedMatch,{scoreUs:lc,scoreThem:oc}));
-      }
-    });
+  // Schedule entries missing a finished dual's score: worked out here, written only from a
+  // coach's save (dualScheduleBackfill), never during a render (HS data lockdown L2).
+  _dualBackfillDue=(currentRole==='coach'&&db)?dualBackfillList(duals):[];
+  // Display fallback: a dual whose sets are complete but whose schedule score is not saved yet
+  // counts in the records shown here straight away. Nothing is written by this.
+  const _shownDue=dualBackfillList(duals);
+  if(_shownDue.length){
+    const r2=getDualRecord(undefined,_shownDue);
+    setEl('dual-season-rec',r2.w+'-'+r2.l); setEl('dual-courts-rec',r2.cw+'-'+r2.cl); setEl('dual-sets-rec',r2.sw+'-'+r2.sl);
+    setEl('dash-dual-rec',r2.w+'-'+r2.l); setEl('dash-courts-rec',r2.cw+'-'+r2.cl); setEl('dash-sets-rec',r2.sw+'-'+r2.sl);
   }
 
   if(!duals.length){container.innerHTML='<div class="empty-state"><div class="emoji">&#127942;</div><p>No dual matches recorded yet.</p></div>';return;}
@@ -24405,7 +24562,7 @@ function saveDualEdit(id){
   if(existing){
     fbSet('duals/'+id+'/date',date);
     fbSet('duals/'+id+'/opponent',opp);
-    fbSet('duals/'+id+'/location',loc);
+    dualScheduleBackfill(fbSet('duals/'+id+'/location',loc));
     toast('Dual updated!');
     closeEdit();
   }else{
@@ -24640,13 +24797,13 @@ function dhSaveSet(matchId,si){
   if(us===them){toast('Scores cannot be tied');return;}
   const sets=[...(m.sets||[])];
   sets[si]={...sets[si],scoreUs:us,scoreThem:them,editedBy:'coach',editedAt:td()};
-  fbSet('gamedays/'+matchId+'/sets',sets);
+  dualScheduleBackfill(fbSet('gamedays/'+matchId+'/sets',sets));
   toast('Set updated!');
 }
 function dhDeleteSet(matchId,si){
   const m=D.gamedays.find(x=>x.id===matchId);if(!m)return;
   const sets=(m.sets||[]).filter((_,i)=>i!==si);
-  fbSet('gamedays/'+matchId+'/sets',sets.length?sets:null);
+  dualScheduleBackfill(fbSet('gamedays/'+matchId+'/sets',sets.length?sets:null));
   toast('Set deleted');
 }
 function dhAddSet(matchId){
@@ -24697,7 +24854,7 @@ function dhSavePair(matchId){
   if(p1===p2){toast('Players must be different');return;}
   fbSet('gamedays/'+matchId+'/court',court);
   fbSet('gamedays/'+matchId+'/pair',[p1,p2]);
-  fbSet('gamedays/'+matchId+'/isExhibition',exhib);
+  dualScheduleBackfill(fbSet('gamedays/'+matchId+'/isExhibition',exhib));
   toast('Pair updated!');
   closeEdit();
 }
@@ -25174,6 +25331,17 @@ function ppDelLiveSet(matchId,fbNode,setIdx){
   const node=fbNode||'gamedays';
   const matchList=node==='scrimmages'?D.scrimmages:D.gamedays;
   const m=matchList.find(x=>x.id===matchId);if(!m)return;
+  // A live high school player deletes through the worker's scoring route (HS data lockdown L2),
+  // with the same checks as saving a set; a set someone changed meanwhile is never deleted.
+  if(hsPlayerWorkerOn()){
+    hsPlayerSaveSet('del:'+node+':'+matchId+':'+setIdx,null,{node,op:'delete',matchId,setIndex:setIdx,date:m.date,pair:m.pair,expectCount:(m.sets||[]).length}).then(res=>{
+      if(!res)return;
+      m.sets=res.j&&Array.isArray(res.j.sets)?res.j.sets:(m.sets||[]).filter((_,i)=>i!==setIdx);
+      toast('Set deleted');
+      setTimeout(renderPlayerLiveScoring,400);
+    });
+    return;
+  }
   const sets=(m.sets||[]).filter((_,i)=>i!==setIdx);
   fbSet(node+'/'+matchId+'/sets',sets.length?sets:null);
   toast('Set deleted');
@@ -26635,11 +26803,24 @@ function renderPPQuizHistory(){
   });
   el.innerHTML=h;
 }
+// The quiz frame's origin: CourtSense's own, or the exact origin of SC.courtsenseUrl.
+function ppQuizOrigins(){
+  var o=[location.origin];
+  try{ var q=new URL(SC.courtsenseUrl||'/quiz/',location.href).origin; if(o.indexOf(q)<0)o.push(q); }catch(err){}
+  return o;
+}
+// A finished quiz: only from CourtSense's own quiz frame, and always for the signed-in player.
+// Any player id in the message is ignored. Signed out: ignored.
 window.addEventListener('message',function(e){
   if(!e.data||e.data.type!=='courtsenseScore')return;
-  const {playerId,score,maxScore,date}=e.data;if(!playerId)return;
-  const key=date.replace(/-/g,'')+'_'+Date.now();
-  if(db)db.ref(SC.dbRoots.profiles+'/quizScores/'+playerId+'/'+key).set({score,maxScore,date});
+  if(ppQuizOrigins().indexOf(e.origin)<0)return;
+  const frame=document.getElementById('pp-quiz-iframe');
+  if(!frame||e.source!==frame.contentWindow)return;
+  const pid=currentPlayerId;if(!pid||currentRole!=='player')return;
+  const score=Number(e.data.score), maxScore=Number(e.data.maxScore), date=String(e.data.date||'');
+  if(!Number.isInteger(score)||!Number.isInteger(maxScore)||maxScore<10||maxScore>1000||score<0||score>maxScore||!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
+  if(hsPlayerWorkerOn()) hsPlayerOwnSave('/hs/player/quiz',{score,maxScore,date}).then(res=>{if(res.ok)setTimeout(()=>renderPPQuizHistory(),600);});
+  else if(db) db.ref(SC.dbRoots.profiles+'/quizScores/'+pid+'/'+date.replace(/-/g,'')+'_'+Date.now()).set({score,maxScore,date});
   const wrap=document.getElementById('pp-quiz-frame-wrap');
   const iframe=document.getElementById('pp-quiz-iframe');
   const btn=document.getElementById('pp-start-quiz-btn');
