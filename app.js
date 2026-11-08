@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.229';
+const APP_VERSION='1.1.230';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -2553,7 +2553,7 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
     ${(HS_ACCOUNT_SIGNIN&&hsSignupSlug())?`
     <div id="lf-alerts" style="margin-top:24px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:18px;box-sizing:border-box;max-width:100%;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#fff;margin-bottom:4px;">Stay Updated</div>
-      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:14px;line-height:1.4;">Get final results and schedule changes by email, text or both.</div>
+      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:14px;line-height:1.4;">Get final results and schedule changes by email. Text alerts are coming soon.</div>
       <div id="lf-alerts-done" style="display:none;font-family:'Barlow',sans-serif;font-size:14px;color:#fff;line-height:1.5;text-align:center;padding:6px 0;"></div>
       <form id="lf-alerts-form" onsubmit="return false;" novalidate>
         <label for="lf-alerts-email" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:4px;">Email</label>
@@ -3639,7 +3639,7 @@ function _hsDemoProfile(pid){
     SK.forEach(function(k){ var n=Number(s[k]); if(n>0&&n<=10) o[k]=n; }); return o; };
   var ranks={}, avg={}, per={};
   ids.forEach(function(id){ var s=skillsOf(id), ks=Object.keys(s); if(!ks.length) return;
-    avg[id]=SK.reduce(function(t,k){ return t+(s[k]||0); },0)/SK.length;
+    avg[id]=ks.reduce(function(t,k){ return t+s[k]; },0)/ks.length;   // assessed skills only
     ks.forEach(function(k){ (per[k]=per[k]||{})[id]=s[k]; }); });
   var put=function(name,vals,hi,minOf,show){ if(!Object.prototype.hasOwnProperty.call(vals,pid)) return;
     var mine=vals[pid], ks=Object.keys(vals), better=ks.filter(function(id){ return id!==pid&&(hi?vals[id]>mine:vals[id]<mine); }).length;
@@ -7177,14 +7177,29 @@ function pvNoLinkHtml(){
     +'<a class="pv-btn pv-btn-navy" id="pv-nolink-home" href="https://courtsense.app/">Back to CourtSense home</a>'
     +'<button class="pv-btn pv-btn-ghost" id="pv-nolink-other" onclick="parentSignOut()">Try a different account</button>';
 }
-// Coach side: the skills switch for parents (config/parentShowSkills, true or nothing).
+// Skill ratings run 1 to 10. A 0, a missing value or anything out of range means not yet
+// assessed: it is never shown as a score, never sent to an AI prompt, never averaged.
+function csRatedSkills(sk,keys){ var o=[]; (keys||[]).forEach(function(k){ var n=Number(sk&&sk[k]); if(n>=1&&n<=10) o.push([k,n]); }); return o; }
+function csSkillAvg(sk,keys){ var r=csRatedSkills(sk,keys); return r.length?r.reduce(function(t,x){ return t+x[1]; },0)/r.length:null; }
+// Coach side: the skills switch for parents (config/parentShowSkills, true or nothing). Saved
+// by the worker under the coach session (POST /hs/coach/config), which logs each change, so
+// the school node no longer needs to take this write from a browser.
 function hsParentSkillsSync(){ var el=document.getElementById('hs-parent-skills'); if(el) el.checked=D.parentShowSkills===true; }
 function hsSetParentSkills(on){
   if(!HS_ACCOUNT_SIGNIN||currentRole!=='coach') return;
+  var want=on===true;
   var st=document.getElementById('hs-parent-skills-status'); if(st) st.textContent='Saving...';
-  Promise.resolve(fbSet('config/parentShowSkills',on?true:null)).then(function(ok){
-    if(st) st.textContent=ok?(on?'On. Parents see their own player\'s skills check.':'Off. Parents do not see the skills check.'):'Could not save. Try again.';
-    if(!ok) hsParentSkillsSync();
+  return csSave(function(){ return csWorkerPost('/hs/coach/config',{ dbRoot:DB_ROOT, coach:_hsCoachToken(), op:'set', key:'parentShowSkills', value:want }); },
+    { onSignin:function(){ csBarShow('Your coach sign-in ended. Sign in again to change this setting.',false); } }).then(function(res){
+    if(res&&res.ok){
+      D.parentShowSkills=want;
+      if(st) st.textContent=want?'On. Parents see their own player\'s skills check.':'Off. Parents do not see the skills check.';
+      hsParentSkillsSync();
+      return true;
+    }
+    if(st) st.textContent='Could not save. Try again.';
+    hsParentSkillsSync();
+    return false;
   });
 }
 // Fan page colors. White text must read on the school's main color: at a contrast ratio below
@@ -7900,7 +7915,7 @@ function renderPlayerPortal(){
 
   // Average skill ranking
   const avgSkillRanks=Object.entries(playerSkills).map(([id,sk])=>{
-    const avg=skillNames.reduce((s,k)=>s+(sk[k]||0),0)/skillNames.length;
+    const avg=csSkillAvg(sk,skillNames);   // assessed skills only
     return{id,val:avg};
   }).sort((a,b)=>b.val-a.val);
   rHTML+=rankHTML('Avg Skill Rating',avgSkillRanks,pid,v=>v.toFixed(1));
@@ -8106,9 +8121,12 @@ function getPlayerDataSummary(pid){
   const skillNames=['serving','passing','setting','hitting','blocking','defense','courtSense','communication'];
   const hasSkills=skillNames.some(k=>skills[k]>0);
   if(hasSkills){
-    summary+='Skills (1-10): '+skillNames.map(k=>k+': '+(skills[k]||0)).join(', ')+'\n';
-    const avg=skillNames.reduce((s,k)=>s+(skills[k]||0),0)/skillNames.length;
-    summary+=`Average skill rating: ${avg.toFixed(1)}\n`;
+    // Only assessed skills are scores. Unrated ones are named as not rated, never sent as 0.
+    const rated=csRatedSkills(skills,skillNames);
+    summary+='Skills (1-10, assessed only): '+rated.map(r=>r[0]+': '+r[1]).join(', ')+'\n';
+    const notRated=skillNames.filter(k=>!rated.some(r=>r[0]===k));
+    if(notRated.length) summary+='Not rated yet (no data, not a weakness): '+notRated.join(', ')+'\n';
+    summary+=`Average of assessed skills: ${csSkillAvg(skills,skillNames).toFixed(1)}\n`;
   }
   // Star drill from profiles data
   const drills=Object.values(profilesData?.starDrills||{}).filter(d=>d.playerId===pid||d.player===pid);
@@ -8278,14 +8296,18 @@ function renderPlayerProfileData(pid){
   // Skills
   const sk=profilesData?.skills?.[pid]||profilesData?.players?.[pid]?.skills||{};
   if(skillNames.some(k=>sk[k]>0)){
-    let h='';skillNames.forEach(k=>{const v=sk[k]||0;
+    let h='';skillNames.forEach(k=>{const n=Number(sk[k]);
+      if(!(n>=1&&n<=10)){ h+=`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+        <span style="font-size:12px;font-weight:600;min-width:100px;text-transform:capitalize;">${skillLabels[k]}</span>
+        <span style="flex:1;font-size:12px;color:var(--gray);">Not rated</span></div>`; return; }
+      const v=n;
       h+=`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
         <span style="font-size:12px;font-weight:600;min-width:100px;text-transform:capitalize;">${skillLabels[k]}</span>
         <div style="flex:1;height:8px;border-radius:4px;background:var(--gray-lighter);overflow:hidden;">
           <div style="height:100%;border-radius:4px;width:${v*10}%;background:${skillColor(v)};"></div></div>
         <span style="font-family:'Bebas Neue';font-size:14px;min-width:24px;text-align:right;color:${skillColor(v)}">${v}</span></div>`;});
-    const avg=skillNames.reduce((s,k)=>s+(sk[k]||0),0)/skillNames.length;
-    h+=`<div style="text-align:right;font-size:12px;color:var(--gray);margin-top:6px;">Average: <strong>${avg.toFixed(1)}</strong>/10</div>`;
+    const avg=csSkillAvg(sk,skillNames);
+    h+=`<div style="text-align:right;font-size:12px;color:var(--gray);margin-top:6px;">Average of rated skills: <strong>${avg.toFixed(1)}</strong>/10</div>`;
     document.getElementById('pp-skills').innerHTML=h;
   }else{document.getElementById('pp-skills').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No skill ratings yet.</div>';}
 
@@ -8766,7 +8788,7 @@ function coachRenderRankings(pid){
   const SKILL_LABELS={serving:'Serving',passing:'Passing',setting:'Setting',hitting:'Hitting',blocking:'Blocking',defense:'Defense',courtSense:'Court Sense',communication:'Communication'};
   const playerSkills={};
   allPlayers.forEach(pl=>{const sk=profilesData?.skills?.[pl.id]||profilesData?.players?.[pl.id]?.skills||{};if(SKILL_KEYS.some(k=>sk[k]>0))playerSkills[pl.id]=sk;});
-  const avgSkillRanks=Object.entries(playerSkills).map(([id,sk])=>({id,val:SKILL_KEYS.reduce((s,k)=>s+(sk[k]||0),0)/SKILL_KEYS.length})).sort((a,b)=>b.val-a.val);
+  const avgSkillRanks=Object.entries(playerSkills).map(([id,sk])=>({id,val:csSkillAvg(sk,SKILL_KEYS)})).sort((a,b)=>b.val-a.val);
   h+=rankHTML('Avg Skill Rating',avgSkillRanks,pid,v=>v.toFixed(1));
   SKILL_KEYS.forEach(sk=>{const arr=Object.entries(playerSkills).map(([id,skills])=>({id,val:skills[sk]||0})).filter(r=>r.val>0).sort((a,b)=>b.val-a.val);if(arr.length>1)h+=rankHTML(SKILL_LABELS[sk],arr,pid,v=>''+v);});
   el.innerHTML=h||'<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;">Rankings will appear as data is recorded.</div>';
@@ -9011,7 +9033,8 @@ function buildTeamDataForPairings(){
     if(pp.height)data+=`, Height: ${pp.height}`;
     const skillNames=['serving','passing','setting','hitting','blocking','defense','courtSense','communication'];
     const hasSkills=skillNames.some(k=>sk[k]>0);
-    if(hasSkills)data+=`, Skills: ${skillNames.map(k=>k.charAt(0).toUpperCase()+':'+((sk[k]||0))).join(' ')}`;
+    // Assessed skills only; an unrated skill is left out, never sent as 0.
+    if(hasSkills)data+=`, Skills (assessed only): ${csRatedSkills(sk,skillNames).map(r=>r[0].charAt(0).toUpperCase()+':'+r[1]).join(' ')}`;
     // Star drill
     const myDrills=allDrillsAI.filter(d=>(d.playerId===p.id||d.player===p.id));
     if(myDrills.length){const best=Math.min(...myDrills.map(d=>d.time));data+=`, Star Drill: ${best.toFixed(1)}s (${myDrills.length} attempts)`;}
@@ -14256,7 +14279,7 @@ function fanFormSubmit(){
       if(res.status===200&&res.j&&res.j.ok===true){
         var lines=[];
         if(f.email) lines.push('Check your email to confirm.');
-        if(f.phone) lines.push("We'll text you to confirm. Reply YES.");
+        if(f.phone) lines.push("Text alerts are coming soon. We saved your mobile number for when they start.");
         var form=document.getElementById('lf-alerts-form'), done=document.getElementById('lf-alerts-done');
         if(form){ form.reset(); form.style.display='none'; }
         fanFormPhoneChanged();
@@ -26163,12 +26186,16 @@ function _fanStatLines(row){
   (row&&row.sets||[]).forEach(function(s){ (s.st||[]).forEach(function(x){ if(!tot[x.n]){ tot[x.n]={k:0,a:0,b:0}; order.push(x.n); } tot[x.n].k+=x.k||0; tot[x.n].a+=x.a||0; tot[x.n].b+=x.b||0; }); });
   return order.map(function(n){ return { n:n, k:tot[n].k, a:tot[n].a, b:tot[n].b }; });
 }
-// The club and both demos keep the page exactly as it was; a live high school draws it from
-// the public copy, or from the school data when falling back, through the same model.
+// The club and both demos keep the page exactly as it was. A signed-out fan at a live high
+// school sees the public copy only: while it has not arrived the page says so, and it never
+// falls back to reading the school node. A signed-in viewer (a coach or player opening the
+// fan view) already holds the school data and draws from it through the same model.
 function renderFans(){
   if(!HS_ACCOUNT_SIGNIN) return _renderFansLegacy();
-  var m=(_fanPub.on&&_fanPub.mode==='loading')?{ loading:true, schedule:[], results:{}, live:{}, standings:{}, roster:[] }
-    :(_fanPub.on&&_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data):_fanModelFromD());
+  var m=_fanPub.on
+    ?(_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data)
+      :{ loading:true, unavailable:_fanPub.mode==='unavailable', schedule:[], results:{}, live:{}, standings:{}, roster:[] })
+    :_fanModelFromD();
   var E=_fanEsc, BN='font-family:"Bebas Neue",sans-serif';
   var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=SC.colors.primaryDeeper,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
   var today=td(), mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -26263,7 +26290,7 @@ function renderFans(){
   // kills, aces and blocks (when the coach shows set scores to fans).
   var resEl=document.getElementById('lf-results');
   if(resEl){
-    if(loading){ resEl.innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.7);font-size:13px;padding:16px;">Loading...</div>'; }
+    if(loading){ resEl.innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.7);font-size:13px;padding:16px;">'+(m.unavailable?'Results are taking a moment, try again shortly.':'Loading...')+'</div>'; }
     else if(!past.length){ resEl.innerHTML='<div style="text-align:center;color:var(--gray);font-size:13px;padding:16px;">No results yet this season.</div>'; }
     else {
       resEl.innerHTML=past.slice().reverse().map(function(g,gi){
@@ -26318,8 +26345,8 @@ function _fanPubFlash(){ var dot=document.getElementById('lf-refresh-dot'); if(d
 function _fanPubSchedule(){
   if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; }
   if(!_fanPub.on||document.visibilityState==='hidden') return;
-  var m=_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data):_fanModelFromD();
-  _fanPub.timer=setTimeout(_fanPubPoll,_fanIsLive(m)?FAN_POLL_LIVE_MS:FAN_POLL_MS);
+  var m=_fanPub.mode==='public'&&_fanPub.data?_fanModelFromPublic(_fanPub.data):null;
+  _fanPub.timer=setTimeout(_fanPubPoll,m&&_fanIsLive(m)?FAN_POLL_LIVE_MS:FAN_POLL_MS);
 }
 function _fanPubPoll(){
   if(_fanPub.timer){ clearTimeout(_fanPub.timer); _fanPub.timer=0; }
@@ -26329,10 +26356,10 @@ function _fanPubPoll(){
     if(d&&d!=='same'){
       _fanPub.data=d;
       if(_fanPub.mode!=='public'){ _fanPub.mode='public'; if(typeof schoolListenOff==='function') schoolListenOff(); }
-    } else if(d!=='same'&&!_fanPub.data&&_fanPub.mode!=='fallback'){
-      // Nothing to show from the public copy yet: the school data this page always used.
-      _fanPub.mode='fallback';
-      if(typeof schoolListenOn==='function') schoolListenOn();
+    } else if(d!=='same'&&!_fanPub.data){
+      // Nothing to show from the public copy yet: say so and keep trying. The school node is
+      // never read here, so a fan page works the same once that node is closed to the public.
+      _fanPub.mode='unavailable';
     }
     // A later failure keeps the last good copy on screen and tries again next time.
     renderFans(); _fanPubFlash();
