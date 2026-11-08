@@ -683,8 +683,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <!-- INVITE DETAIL VIEW -->
   <div class="pane" id="view-invite-detail">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
-    <div id="iv-detail-body"></div>
     <div id="iv-court-box"></div>
+    <div id="iv-detail-body"></div>
   </div>
 
   <!-- CREATE A PICKUP POLL: the organizer offers 2 to 10 times, players pick, the worker
@@ -935,6 +935,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="mtitle"><span>Your Places</span><button class="mclose" onclick="closeModal('places-modal')">✕</button></div>
     <p style="font-size:13px;color:var(--gray);margin-bottom:10px;">Places you typed under Other. Only you see them. Removing one never changes a game or poll that used it.</p>
     <ul class="pl-list" id="places-list"></ul>
+    <div id="places-court-box"></div>
   </div>
 </div>
 
@@ -9101,8 +9102,9 @@ async function saveInvite(){
     await db.ref().update(updates);
     toast(occurrences>1 ? occurrences+' games posted' : 'Game posted');
     rememberPlace(base.location);
-    // Offer Add court once on the new game's detail, when its place was typed under Other.
-    if(typeof window !== 'undefined' && window.csCourtPage) window.csCourtPage.notePosted(firstId, base.location, !!($('iv-loc') && $('iv-loc').value === '__other__'));
+    // Offer Add court on the new game's detail when its place was typed under Other or
+    // picked from Your places (and is not already a listed court or a preset).
+    if(typeof window !== 'undefined' && window.csCourtPage) window.csCourtPage.notePosted(firstId, base.location, window.csCourtPage.promptSource($('iv-loc')));
     activeInvite = firstId;
     showView('invite-detail');
     // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
@@ -10990,7 +10992,8 @@ window.csCourtKit=(function(){
   var PRESET_AREA='tallahassee-fl', PRESET_CITY='Tallahassee', PRESET_STATE='FL';
   var STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
   var SURFACES=['sand','grass','indoor'];
-  var AREA_KEY='cs_pickup_area', SKIP_KEY='cs_pickup_area_skip', PROMPT_PREFIX='cs_court_prompt_';
+  var AREA_KEY='cs_pickup_area', SKIP_KEY='cs_pickup_area_skip', PROMPT_PREFIX='cs_court_prompt_', PLACE_PREFIX='cs_court_prompt_place_', PENDING_KEY='cs_court_pending';
+  var PENDING_MS=24*3600000, PLACE_MS=30*24*3600000;
   var AREA_RE=/^[a-z0-9]+(?:-[a-z0-9]+)*-[a-z]{2}$/, ID_RE=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
   var OFFLINE='Could not reach CourtSense. Check your connection and try again.';
   var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
@@ -11044,6 +11047,38 @@ window.csCourtKit=(function(){
     try { store.setItem(key, JSON.stringify({at:now})); return true; } catch(e){ return false; }
   }
   function promptKey(inviteId){ return PROMPT_PREFIX+String(inviteId||''); }
+  // A { at } flag that counts only while younger than maxAge (the per-place Not now).
+  function readFreshFlag(store, key, now, maxAge){
+    try { var raw=store&&store.getItem(key); if(!raw) return false; var x=JSON.parse(raw); return !!x&&typeof x.at==='number'&&now-x.at<maxAge; } catch(e){ return false; }
+  }
+  // Not now on a place: cs_court_prompt_place_<first 16 hex of sha256 of the lowercased
+  // place>, so the place name itself is never a storage key. Resolves '' without crypto.
+  function placeKey(location){
+    try {
+      var c=window.crypto&&window.crypto.subtle, Enc=window.TextEncoder;
+      if(!c||!Enc) return Promise.resolve('');
+      return c.digest('SHA-256', new Enc().encode(clean(location).toLowerCase())).then(function(buf){
+        var b=new Uint8Array(buf), h='';
+        for(var i=0;i<8;i++) h+=(b[i]<16?'0':'')+b[i].toString(16);
+        return PLACE_PREFIX+h;
+      }, function(){ return ''; });
+    } catch(e){ return Promise.resolve(''); }
+  }
+  // The pending Add court prompt, cs_court_pending = { inviteId, location, at }, so a
+  // reload still offers it. It lapses after 24 hours and is then removed.
+  function readPending(store, now){
+    try {
+      var raw=store&&store.getItem(PENDING_KEY); if(!raw) return null;
+      var x=JSON.parse(raw);
+      var ok=!!x&&typeof x.inviteId==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(x.inviteId)&&typeof x.location==='string'&&x.location.length>0&&x.location.length<=150&&typeof x.at==='number';
+      if(!ok||now-x.at>=PENDING_MS){ try { store.removeItem(PENDING_KEY); } catch(e2){} return null; }
+      return { inviteId:x.inviteId, location:x.location, at:x.at };
+    } catch(e){ return null; }
+  }
+  function writePending(store, inviteId, location, now){
+    try { store.setItem(PENDING_KEY, JSON.stringify({inviteId:String(inviteId), location:String(location), at:now})); return true; } catch(e){ return false; }
+  }
+  function clearPending(store){ try { store.removeItem(PENDING_KEY); return true; } catch(e){ return false; } }
   function areasPath(){ return '/pickup/courts/areas'; }
   function courtsPath(areaKey){ return '/pickup/courts?area='+encodeURIComponent(areaKey); }
   function areasList(res){
@@ -11144,10 +11179,15 @@ window.csCourtKit=(function(){
     });
     return rows.map(function(r){ return r.g; });
   }
-  // The Add court step: adults who answered 18 or older, with a confirmed email.
+  // The Add court step: never for an account that answered under 18, never for a quick
+  // account with an unconfirmed email. An account that never answered may add, after
+  // ticking "I'm 18 or older" on the card (ageUnknown); the worker refuses known minors.
   function canAddCourt(p){
-    return !!p&&typeof p==='object'&&!!p.adult&&typeof p.adult==='object'&&p.adult.value===true&&!(p.quickAccount===true&&p.emailVerified!==true);
+    if(!p||typeof p!=='object') return false;
+    if(p.adult&&typeof p.adult==='object'&&p.adult.value===false) return false;
+    return !(p.quickAccount===true&&p.emailVerified!==true);
   }
+  function ageUnknown(p){ return !(p&&p.adult&&typeof p.adult==='object'&&p.adult.value===true); }
   function addProblem(f){
     var n=clean(f&&f.name);
     if(n.length<3||n.length>80) return 'The court name must be 3 to 80 characters.';
@@ -11196,7 +11236,8 @@ window.csCourtKit=(function(){
     cityProblem:cityProblem, areaOf:areaOf, validArea:validArea, readArea:readArea, writeArea:writeArea, readFlag:readFlag, writeFlag:writeFlag,
     promptKey:promptKey, areasPath:areasPath, courtsPath:courtsPath, areasList:areasList, suggestArea:suggestArea, cleanCourt:cleanCourt,
     courtsList:courtsList, pickerCourts:pickerCourts, index:index, resolveCourt:resolveCourt, directionsUrl:directionsUrl, miles:miles,
-    milesLabel:milesLabel, orderGames:orderGames, canAddCourt:canAddCourt, addProblem:addProblem, addReq:addReq, addResult:addResult,
+    milesLabel:milesLabel, orderGames:orderGames, canAddCourt:canAddCourt, ageUnknown:ageUnknown, readFreshFlag:readFreshFlag, placeKey:placeKey,
+    readPending:readPending, writePending:writePending, clearPending:clearPending, PENDING_KEY:PENDING_KEY, PENDING_MS:PENDING_MS, PLACE_MS:PLACE_MS, addProblem:addProblem, addReq:addReq, addResult:addResult,
     confirmReq:confirmReq, reportReq:reportReq, courtAction:courtAction, OFFLINE:OFFLINE, WORKER:WORKER, get:get };
 })();
 </script>
@@ -11277,10 +11318,14 @@ function rememberPlace(loc){
 function drawPlaces(){
   const box = $('places-list'); if(!box) return;
   box.innerHTML = _places.list.length
-    ? _places.list.map(p => '<li class="pl-row"><span class="pl-name">'+escapeHTML(p.label)+'</span><button type="button" class="btn btn-g btn-sm" onclick="forgetPlace(\''+p.id+'\')">Remove</button></li>').join('')
+    ? _places.list.map((p, i) => '<li class="pl-row"><span class="pl-name">'+escapeHTML(p.label)+'</span>'+placeAddButton(p.label, i)+'<button type="button" class="btn btn-g btn-sm" onclick="forgetPlace(\''+p.id+'\')">Remove</button></li>').join('')
     : '<li class="pl-row" style="color:var(--gray);">No saved places.</li>';
 }
-function openPlaces(){ drawPlaces(); $('places-modal').classList.add('on'); }
+// Add to [City] list on a saved place that is not a listed court (csCourtPage); '' else.
+function placeAddButton(label, i){
+  try { return (window.csCourtPage && window.csCourtPage.placeButton) ? window.csCourtPage.placeButton(label, i) : ''; } catch(e){ return ''; }
+}
+function openPlaces(){ const pb = $('places-court-box'); if(pb) pb.innerHTML = ''; drawPlaces(); $('places-modal').classList.add('on'); }
 function forgetPlace(id){
   const K = window.csPollPlanKit, session = ppSession();
   if(!session){ toast('Sign in again to change your places'); return; }
@@ -11620,7 +11665,7 @@ async function ppConfirm(pollId, optId){
 window.csCourtPage=(function(){
   var CK=window.csCourtKit, K=window.csPollPlanKit;
   var S={ lists:{}, loading:{}, failedAt:{}, areas:null, areasAsked:false, chooser:false, barSig:'', near:{ state:'off', lat:null, lon:null },
-    ui:{}, report:{}, prompt:null, boxFor:null, pin:null, diff:false };
+    ui:{}, report:{}, prompt:null, boxFor:null, boxState:'', pin:{}, diff:{}, place:null };
   var RETRY_MS=60000;
   function store(){ try { return window.localStorage; } catch(e){ return null; } }
   function esc(s){ return escapeHTML(s); }
@@ -11792,91 +11837,170 @@ window.csCourtPage=(function(){
     });
   }
 
-  // ── Add court card: once, right after a NEW game posted with an Other location ──
-  function notePosted(inviteId, name, fromOther){ S.prompt=fromOther&&name?{ id:inviteId, name:String(name) }:null; S.boxFor=null; S.pin=null; S.diff=false; }
-  function cardWanted(inv){
-    var p=S.prompt;
-    if(!p||!inv||inv.id!==p.id||inv.postType==='partner') return false;
-    if(CK.readFlag(store(), CK.promptKey(p.id))) return false;
-    var me=window.CourtSenseAuth&&CourtSenseAuth.currentPlayer?CourtSenseAuth.currentPlayer():null;
-    return CK.canAddCourt(me)&&!!session();
+  // ── Add court card ──
+  // Offered on a NEW game whose place was typed under Other or picked from Your places,
+  // when that place is not a listed court or a preset; also from a saved place in Your
+  // places. Same form, same gate, same answers in both. The game card sits above the
+  // game's detail and survives a reload for 24 hours (cs_court_pending). Nothing here
+  // writes to the player record: the age tick only unlocks the button.
+  function me(){ return window.CourtSenseAuth&&CourtSenseAuth.currentPlayer?CourtSenseAuth.currentPlayer():null; }
+  function isSavedPlace(loc){ try { return typeof _places!=='undefined'&&_places.list.some(function(p){ return p.label===loc; }); } catch(e){ return false; } }
+  // Whether the picker choice of a game just posted may offer the card.
+  function promptSource(sel){ try { if(!sel) return false; return sel.value==='__other__'||isSavedPlace(sel.value); } catch(e){ return false; } }
+  function resyncGame(){ if(typeof view!=='undefined'&&view==='invite-detail'&&typeof renderInviteDetail==='function') renderInviteDetail(); }
+  function setPrompt(inviteId, name, fresh){
+    var p={ id:String(inviteId), name:String(name), placeKey:null, fresh:!!fresh };
+    S.prompt=p;
+    CK.placeKey(name).then(function(k){ if(S.prompt===p){ p.placeKey=k||''; resyncGame(); } });
   }
-  function cardHTML(){
-    var p=S.prompt, a=area()||{ city:'', state:'' };
-    var states=CK.STATES.map(function(s){ return '<option value="'+s+'"'+(s===a.state?' selected':'')+'>'+s+'</option>'; }).join('');
-    return '<div class="card" id="ac-card">'
-      +'<div class="ctitle"><span class="bar"></span>Add '+esc(p.name)+' to the '+esc(a.city||'city')+' list?</div>'
-      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Then other players can pick it too. Public courts only.</div>'
-      +'<div class="fg"><label class="lbl">Court name</label><input class="inp" id="ac-name" maxlength="80" value="'+esc(p.name)+'"></div>'
-      +'<div class="fg"><label class="lbl">City</label><input class="inp" id="ac-city" maxlength="40" value="'+esc(a.city)+'"></div>'
-      +'<div class="fg"><label class="lbl">State</label><select class="inp" id="ac-state"><option value="">State</option>'+states+'</select></div>'
-      +'<div class="fg"><label class="lbl">Surface</label><select class="inp" id="ac-surface"><option value="sand">Sand</option><option value="grass">Grass</option><option value="indoor">Indoor</option></select></div>'
-      +'<div class="fg"><label class="lbl">Nets (optional)</label><input class="inp" id="ac-nets" inputmode="numeric" maxlength="2" placeholder="1 to 20"></div>'
-      +'<div class="fg"><label class="lbl">Lights</label><select class="inp" id="ac-lights"><option value="">Not sure</option><option value="yes">Yes</option><option value="no">No</option></select></div>'
-      +'<div class="fg"><label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" id="ac-public"> This is a public place</label></div>'
-      +'<div class="fg" id="ac-pin-row"></div>'
-      +'<div id="ac-msg" style="font-size:13px;margin:6px 0;"></div>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-p btn-sm" id="ac-send" onclick="csCourtPage.sendAdd(false)">Add court</button>'
-      +'<button type="button" class="btn btn-g btn-sm" id="ac-diff" style="display:none;" onclick="csCourtPage.sendAdd(true)">This is a different court</button>'
-      +'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.notNow()">Not now</button></div>'
+  function notePosted(inviteId, name, eligible){
+    S.boxFor=null; S.boxState=''; S.pin['ac-']=null; S.diff['ac-']=false;
+    if(!eligible||!name||resolve({ location:name })){ S.prompt=null; return; }
+    CK.writePending(store(), inviteId, name, Date.now());
+    setPrompt(inviteId, name, true);
+  }
+  function restorePending(){
+    var x=CK.readPending(store(), Date.now());
+    if(x&&!S.prompt) setPrompt(x.inviteId, x.location, false);
+  }
+  function title(name){ var a=area(); return 'Add '+esc(name)+' to the '+esc(a&&a.city?a.city:'city')+' list?'; }
+  // 'full', 'signin' (the gate passes but there is no verified session), or '' (none).
+  function cardState(inv){
+    var p=S.prompt;
+    if(!p||!inv||inv.id!==p.id||inv.postType==='partner'||p.placeKey===null) return '';
+    var st=store();
+    if(CK.readFlag(st, CK.promptKey(p.id))) return '';
+    if(p.placeKey&&CK.readFreshFlag(st, p.placeKey, Date.now(), CK.PLACE_MS)) return '';
+    if(resolve({ location:p.name })) return '';
+    if(!CK.canAddCourt(me())) return '';
+    return session()?'full':'signin';
+  }
+  function signinHTML(name, pre){
+    return '<div class="card" id="'+pre+'card">'
+      +'<div class="ctitle"><span class="bar"></span>'+title(name)+'</div>'
+      +'<div style="font-size:13px;margin-bottom:8px;">Sign in again to add this court.</div>'
+      +'<div style="display:flex;gap:8px;"><button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.signInToAdd(\''+pre+'\')">Sign in</button>'
+      +'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.notNow(\''+pre+'\')">Not now</button></div>'
       +'</div>';
   }
-  function drawPin(){
-    var row=$('ac-pin-row'); if(!row) return;
-    row.innerHTML=S.pin
-      ?'<span style="font-size:13px;">Pin added</span> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.removePin()">Remove</button>'
-      :'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.addPin()">I\'m at the court now</button>';
+  function cardHTML(name, pre){
+    var a=area()||{ city:'', state:'' }, unknown=CK.ageUnknown(me());
+    var states=CK.STATES.map(function(s){ return '<option value="'+s+'"'+(s===a.state?' selected':'')+'>'+s+'</option>'; }).join('');
+    return '<div class="card" id="'+pre+'card">'
+      +'<div class="ctitle"><span class="bar"></span>'+title(name)+'</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Then other players can pick it too. Public courts only.</div>'
+      +'<div class="fg"><label class="lbl">Court name</label><input class="inp" id="'+pre+'name" maxlength="80" value="'+esc(name)+'"></div>'
+      +'<div class="fg"><label class="lbl">City</label><input class="inp" id="'+pre+'city" maxlength="40" value="'+esc(a.city)+'"></div>'
+      +'<div class="fg"><label class="lbl">State</label><select class="inp" id="'+pre+'state"><option value="">State</option>'+states+'</select></div>'
+      +'<div class="fg"><label class="lbl">Surface</label><select class="inp" id="'+pre+'surface"><option value="sand">Sand</option><option value="grass">Grass</option><option value="indoor">Indoor</option></select></div>'
+      +'<div class="fg"><label class="lbl">Nets (optional)</label><input class="inp" id="'+pre+'nets" inputmode="numeric" maxlength="2" placeholder="1 to 20"></div>'
+      +'<div class="fg"><label class="lbl">Lights</label><select class="inp" id="'+pre+'lights"><option value="">Not sure</option><option value="yes">Yes</option><option value="no">No</option></select></div>'
+      +'<div class="fg"><label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" id="'+pre+'public"> This is a public place</label></div>'
+      +(unknown?'<div class="fg"><label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" id="'+pre+'adult" onchange="csCourtPage.ageTick(\''+pre+'\')"> I\'m 18 or older</label></div>':'')
+      +'<div class="fg" id="'+pre+'pin-row"></div>'
+      +'<div id="'+pre+'msg" style="font-size:13px;margin:6px 0;"></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-p btn-sm" id="'+pre+'send"'+(unknown?' disabled':'')+' onclick="csCourtPage.sendAdd(\''+pre+'\', false)">Add court</button>'
+      +'<button type="button" class="btn btn-g btn-sm" id="'+pre+'diff" style="display:none;" onclick="csCourtPage.sendAdd(\''+pre+'\', true)">This is a different court</button>'
+      +'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.notNow(\''+pre+'\')">Not now</button></div>'
+      +'</div>';
   }
-  // Keeps the card out of the detail re-render, so typing survives a Firebase update.
+  function drawPin(pre){
+    var row=$(pre+'pin-row'); if(!row) return;
+    row.innerHTML=S.pin[pre]
+      ?'<span style="font-size:13px;">Pin added</span> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.removePin(\''+pre+'\')">Remove</button>'
+      :'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.addPin(\''+pre+'\')">I\'m at the court now</button>';
+  }
+  // The game card, above the detail. Kept out of the detail re-render, so typing survives
+  // a Firebase update; redrawn only when its state changes (signing in, for one).
   function syncBox(inv){
     var box=$('iv-court-box'); if(!box) return;
-    var want=cardWanted(inv);
-    if(!want){ if(S.boxFor!==null){ box.innerHTML=''; S.boxFor=null; } return; }
-    if(S.boxFor===inv.id) return;
-    S.boxFor=inv.id; box.innerHTML=cardHTML(); drawPin();
+    var st=cardState(inv);
+    if(!st){ if(S.boxFor!==null){ box.innerHTML=''; S.boxFor=null; S.boxState=''; } return; }
+    if(S.boxFor===inv.id&&S.boxState===st) return;
+    S.boxFor=inv.id; S.boxState=st;
+    box.innerHTML=st==='full'?cardHTML(S.prompt.name, 'ac-'):signinHTML(S.prompt.name, 'ac-');
+    if(st==='full') drawPin('ac-');
+    if(S.prompt.fresh){
+      S.prompt.fresh=false;
+      try { if(box.scrollIntoView) box.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
+    }
   }
-  function addPin(){
-    if(!navigator.geolocation){ var m=$('ac-msg'); if(m) m.textContent='Location is not available on this device.'; return; }
+  function ageTick(pre){ var b=$(pre+'send'), c=$(pre+'adult'); if(b) b.disabled=!(c&&c.checked); }
+  function addPin(pre){
+    if(!navigator.geolocation){ var m=$(pre+'msg'); if(m) m.textContent='Location is not available on this device.'; return; }
     navigator.geolocation.getCurrentPosition(function(p){
-      S.pin={ lat:Math.round(p.coords.latitude*1e5)/1e5, lon:Math.round(p.coords.longitude*1e5)/1e5 }; drawPin();
-    }, function(){ var m=$('ac-msg'); if(m) m.textContent='Location is off, so no pin. You can still add the court.'; }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+      S.pin[pre]={ lat:Math.round(p.coords.latitude*1e5)/1e5, lon:Math.round(p.coords.longitude*1e5)/1e5 }; drawPin(pre);
+    }, function(){ var m=$(pre+'msg'); if(m) m.textContent='Location is off, so no pin. You can still add the court.'; }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
   }
-  function removePin(){ S.pin=null; drawPin(); }
-  function readForm(){
-    var v=function(id){ return $(id)?$(id).value:''; };
-    return { name:v('ac-name'), city:v('ac-city'), state:v('ac-state'), surface:v('ac-surface'), nets:v('ac-nets').trim(), lights:v('ac-lights'),
-      publicPlace:!!($('ac-public')&&$('ac-public').checked), pin:S.pin };
+  function removePin(pre){ S.pin[pre]=null; drawPin(pre); }
+  function readForm(pre){
+    var v=function(id){ return $(pre+id)?$(pre+id).value:''; };
+    return { name:v('name'), city:v('city'), state:v('state'), surface:v('surface'), nets:String(v('nets')).trim(), lights:v('lights'),
+      publicPlace:!!($(pre+'public')&&$(pre+'public').checked), pin:S.pin[pre] };
   }
-  function sendAdd(different){
-    var f=readForm(), msg=$('ac-msg'), btn=$('ac-send'), diff=$('ac-diff');
+  function sendAdd(pre, different){
+    var f=readForm(pre), msg=$(pre+'msg'), btn=$(pre+'send'), diff=$(pre+'diff');
+    if(CK.ageUnknown(me())&&!($(pre+'adult')&&$(pre+'adult').checked)){ if(msg) msg.textContent='Tick I\'m 18 or older to add a court.'; return; }
     var problem=CK.addProblem(f);
     if(problem){ if(msg) msg.textContent=problem; return; }
     var s=session(); if(!s){ if(msg) msg.textContent='Sign in again to add this court.'; return; }
-    if(different===true&&!S.diff) return;
+    if(different===true&&!S.diff[pre]) return;
     if(btn) btn.disabled=true;
-    K.post(fetch, CK.addReq(s, f, different===true&&S.diff)).then(function(res){
+    K.post(fetch, CK.addReq(s, f, different===true&&S.diff[pre])).then(function(res){
       if(btn) btn.disabled=false;
       var r=CK.addResult(res, f.city);
       if(msg) msg.textContent=r.text;
-      S.diff=r.canOverride===true;
-      if(diff) diff.style.display=S.diff?'':'none';
-      if(r.kind==='added'){
-        if(btn) btn.style.display='none';
-        if(S.prompt) CK.writeFlag(store(), CK.promptKey(S.prompt.id), Date.now());
-        var a=CK.areaOf(f.city, f.state); if(a) forget(a.areaKey);
-      }
+      S.diff[pre]=r.canOverride===true;
+      if(diff) diff.style.display=S.diff[pre]?'':'none';
+      if(r.kind!=='added') return;
+      if(btn) btn.style.display='none';
+      if(pre==='ac-'&&S.prompt){ CK.writeFlag(store(), CK.promptKey(S.prompt.id), Date.now()); CK.clearPending(store()); }
+      var a=CK.areaOf(f.city, f.state);
+      if(a){ forget(a.areaKey); var mine=area(); if(mine&&mine.areaKey===a.areaKey) load(a.areaKey).then(function(){ if(typeof drawPlaces==='function') drawPlaces(); }); }
     });
   }
-  function notNow(){
-    if(S.prompt) CK.writeFlag(store(), CK.promptKey(S.prompt.id), Date.now());
+  // Not now. On a game: this game and this place stay quiet (the place for 30 days), and
+  // the pending prompt is cleared. In Your places it just closes the form.
+  function notNow(pre){
+    if(pre==='acp-'){ var pb=$('places-court-box'); if(pb) pb.innerHTML=''; S.place=null; return; }
+    var st=store(), p=S.prompt;
+    if(p){ CK.writeFlag(st, CK.promptKey(p.id), Date.now()); if(p.placeKey) CK.writeFlag(st, p.placeKey, Date.now()); }
+    CK.clearPending(st);
     var box=$('iv-court-box'); if(box) box.innerHTML='';
-    S.prompt=null; S.boxFor=null; S.pin=null;
+    S.prompt=null; S.boxFor=null; S.boxState=''; S.pin['ac-']=null;
+  }
+  // Sign in, then come back: to this game, or to Your places.
+  function signInToAdd(pre){
+    if(typeof askSignIn!=='function') return;
+    if(pre==='acp-'){ askSignIn('Sign in again to add this court', function(){ if(typeof openPlaces==='function') openPlaces(); }); return; }
+    var id=S.prompt&&S.prompt.id;
+    askSignIn('Sign in again to add this court', function(){
+      if(!id) return;
+      activeInvite=id; S.boxFor=null; S.boxState='';
+      showView('invite-detail');
+    });
+  }
+  // Your places: an Add to list button on each saved place that is not a listed court.
+  function placeButton(label, i){
+    if(!label||resolve({ location:label })||!CK.canAddCourt(me())) return '';
+    var a=area();
+    return '<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.addFromPlace('+Number(i)+')">'+(a?'Add to '+esc(a.city)+' list':'Add to list')+'</button>';
+  }
+  function addFromPlace(i){
+    var p=typeof _places!=='undefined'&&_places.list[i]; if(!p) return;
+    var box=$('places-court-box'); if(!box) return;
+    S.place={ name:p.label }; S.pin['acp-']=null; S.diff['acp-']=false;
+    if(!CK.canAddCourt(me())){ box.innerHTML=''; return; }
+    if(session()){ box.innerHTML=cardHTML(p.label, 'acp-'); drawPin('acp-'); }
+    else box.innerHTML=signinHTML(p.label, 'acp-');
   }
   function detailOpened(){ var a=area(); if(a&&!listFor(a.areaKey)) load(a.areaKey).then(function(l){ if(l&&typeof view!=='undefined'&&view==='invite-detail') rerenderDetail(); }); }
 
+  restorePending();
   return { pickerCourts:pickerCourts, isListedName:isListedName, formOpened:formOpened, pickedCourtId:pickedCourtId, renderBar:renderBar,
     openChooser:openChooser, pickChanged:pickChanged, saveArea:saveArea, skipArea:skipArea, nearMe:nearMe, order:order, distLabel:distLabel,
     detailExtras:detailExtras, confirmCourt:confirmCourt, openReport:openReport, sendReport:sendReport, notePosted:notePosted, syncBox:syncBox,
+    promptSource:promptSource, ageTick:ageTick, signInToAdd:signInToAdd, placeButton:placeButton, addFromPlace:addFromPlace,
     addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve };
 })();
 </script>
