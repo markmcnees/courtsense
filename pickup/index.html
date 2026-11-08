@@ -349,6 +349,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
          genuinely different: this is pickup games and ranked nights, and
          Tournaments is the directory plus the two things you do to it. -->
     <div id="needs-you"></div>
+    <div id="area-bar"></div>
     <div id="invite-list"></div>
     <div id="pp-sent"></div>
     <div id="my-polls"></div>
@@ -683,6 +684,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <div class="pane" id="view-invite-detail">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
     <div id="iv-detail-body"></div>
+    <div id="iv-court-box"></div>
   </div>
 
   <!-- CREATE A PICKUP POLL: the organizer offers 2 to 10 times, players pick, the worker
@@ -2052,7 +2054,7 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderNeedsYou(); renderInviteList(); renderTrnPointer(); renderEventList(); renderPollEntry(); renderMyPolls(false); }
+  if(view==='list'){ renderNeedsYou(); if(window.csCourtPage) csCourtPage.renderBar(); renderInviteList(); renderTrnPointer(); renderEventList(); renderPollEntry(); renderMyPolls(false); }
   else if(view==='tournaments'){ renderTournamentList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
@@ -4009,6 +4011,9 @@ function renderInviteList(){
   // (invited-in games, or a filled game that re-ranked a widening tier). No blank-return for
   // zero games: that falls through to the shared empty-state below, never a blank screen.
   const shown = upcoming.filter(i => isChatEligible(i, myKey));
+  // Community courts: reorder only (area first, Near me by distance), after the filter
+  // above has decided which games this player may see. The count and the set stay the same.
+  const ordered = window.csCourtPage ? csCourtPage.order(shown) : shown;
 
   let h = `<div class="ctitle"><span class="bar"></span>Your games (${shown.length})</div>`;
   if(!shown.length){
@@ -4022,7 +4027,7 @@ function renderInviteList(){
     cont.innerHTML = h;
     return;
   }
-  h += shown.map(i => {
+  h += ordered.map(i => {
     const rsvps = i.rsvps || {};
     const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
     const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
@@ -4042,7 +4047,7 @@ function renderInviteList(){
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
           <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}</div>
+          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
           <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||6} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
         </div>
         ${badge}
@@ -8837,6 +8842,9 @@ function buildInviteRecord(){
   const location = (_locSel === '__other__'
     ? (($('iv-loc-other') && $('iv-loc-other').value) || '')
     : _locSel).trim();
+  // A listed community court picked from the dropdown carries its id; presets the worker
+  // has not listed, saved places and Other carry null. Readers never trust it on its own.
+  const courtId = (typeof window !== 'undefined' && window.csCourtPage) ? (window.csCourtPage.pickedCourtId($('iv-loc')) || null) : null;
   // Optional court (known parks only). Null when unset, park unknown, or "Other".
   const _courtSel = $('iv-court') ? $('iv-court').value : '';
   const court = (PARK_COURTS[location] && _courtSel) ? parseInt(_courtSel,10) : null;
@@ -8905,7 +8913,7 @@ function buildInviteRecord(){
   const _hostAuth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const hostId = _hostAuth && _hostAuth.id ? _hostAuth.id : null;
 
-  return { name, date, startTime, endTime, location, court, courts, description, slots, minSlots, rsvpDeadline, ...(startMs !== null ? { startMs } : {}), eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
+  return { name, date, startTime, endTime, location, courtId, court, courts, description, slots, minSlots, rsvpDeadline, ...(startMs !== null ? { startMs } : {}), eligibility, hostName: me ? me.name : 'Anonymous', hostId, gameType, wideningTiers, cancelDeadlineOffsetMins };
 }
 
 // The host-checked circle (inviteIncSelected) as worker recipients: account ids only.
@@ -9093,6 +9101,8 @@ async function saveInvite(){
     await db.ref().update(updates);
     toast(occurrences>1 ? occurrences+' games posted' : 'Game posted');
     rememberPlace(base.location);
+    // Offer Add court once on the new game's detail, when its place was typed under Other.
+    if(typeof window !== 'undefined' && window.csCourtPage) window.csCourtPage.notePosted(firstId, base.location, !!($('iv-loc') && $('iv-loc').value === '__other__'));
     activeInvite = firstId;
     showView('invite-detail');
     // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
@@ -9192,6 +9202,7 @@ function isLoggedInHost(inv){
 function renderInviteDetail(){
   const cont = $('iv-detail-body'); if(!cont) return;
   const i = (D.invites||{})[activeInvite];
+  if(window.csCourtPage){ csCourtPage.syncBox(i); csCourtPage.detailOpened(); }
   if(!i){ dbgLog('renderInviteDetail: no invite in D'); cont.innerHTML = '<p>Pickup not found.</p>'; return; }
   // Tournament partner posts render through their own detail view; everything
   // else about the record (rsvps, guestRequests, chat, host checks) is shared.
@@ -9307,7 +9318,7 @@ function renderInviteDetail(){
         <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:var(--primary);line-height:1.1;">${escapeHTML(i.name||'Pickup')}</div>
         <div style="font-size:13px;color:var(--gray);margin-top:4px;">${dateStr}</div>
         <div style="font-size:13px;margin-top:2px;">${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}</div>
-        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}${courtLabel(i) ? ', '+courtLabel(i) : ''}</div>`:''}
+        ${i.location?`<div style="font-size:13px;margin-top:4px;">📍 ${escapeHTML(i.location)}${courtLabel(i) ? ', '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.detailExtras(i) : ''}</div>`:''}
       </div>
       ${isCancelled?'<span style="background:#fee2e2;color:#b91c1c;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">CANCELLED</span>':''}
     </div>
@@ -10911,12 +10922,29 @@ window.csPollPlanKit=(function(){
     });
     return out;
   }
-  function locPicker(value, saved){
-    var v=String(value||''), mine=savedChoices(saved);
-    var sel=!v?'':(PRESETS.indexOf(v)>=0||mine.indexOf(v)>=0?v:OTHER);
-    var opt=function(val,text){ return '<option value="'+escAttr(val)+'"'+(val===sel?' selected':'')+'>'+escAttr(text)+'</option>'; };
-    var html=opt('','Pick a location')+PRESETS.map(function(p){ return opt(p,p); }).join('')
+  // courts (optional, from csCourtKit.pickerCourts): { listed:[{name,id}], pending:[{name,id}] }.
+  // Without it (no area set, or the worker did not answer) the picker is exactly the
+  // preset list above. With it, the area's courts replace the presets (Tallahassee keeps
+  // the presets first), courts not yet confirmed get their own group after Your places,
+  // and each worker court carries its id as data-court-id. A community court's net count
+  // shows next to its name as information only; it never caps court numbers.
+  function netsNote(c){ return c&&typeof c.nets==='number'&&c.nets>0?' ('+c.nets+(c.nets===1?' net)':' nets)'):''; }
+  function locPicker(value, saved, courts){
+    var v=String(value||'');
+    var listed=courts&&Array.isArray(courts.listed)?courts.listed:null;
+    var pend=listed&&Array.isArray(courts.pending)?courts.pending:[];
+    var names=listed?listed.map(function(c){ return c.name; }):PRESETS;
+    var pendNames=pend.map(function(c){ return c.name; });
+    var taken={}; names.concat(pendNames).forEach(function(n){ taken[String(n).toLowerCase()]=1; });
+    var mine=savedChoices(saved).filter(function(p){ return !listed||!taken[p.toLowerCase()]; });
+    var sel=!v?'':(names.indexOf(v)>=0||mine.indexOf(v)>=0||pendNames.indexOf(v)>=0?v:OTHER);
+    var opt=function(val,text,cid){ return '<option value="'+escAttr(val)+'"'+(cid?' data-court-id="'+escAttr(cid)+'"':'')+(val===sel?' selected':'')+'>'+escAttr(text)+'</option>'; };
+    var top=!listed?PRESETS.map(function(p){ return opt(p,p); }).join('')
+      :listed.length?listed.map(function(c){ return opt(c.name,c.name+netsNote(c),c.id); }).join('')
+      :'<option value="__none__" disabled>No courts listed here yet. Pick Other and add yours.</option>';
+    var html=opt('','Pick a location')+top
       +(mine.length?'<optgroup label="Your places">'+mine.map(function(p){ return opt(p,p); }).join('')+'</optgroup>':'')
+      +(pend.length?'<optgroup label="New courts, help confirm">'+pend.map(function(c){ return opt(c.name,c.name+netsNote(c)+(c.mine?' (your new court)':''),c.id); }).join('')+'</optgroup>':'')
       +opt(OTHER,'Other');
     return { html:html, selected:sel, otherText:sel===OTHER?v:'' };
   }
@@ -10952,6 +10980,228 @@ window.csPollPlanKit=(function(){
 </script>
 
 <script>
+// Community courts (worker src/pickup-courts.ts): pure helpers, kept apart from the DOM so
+// the check script (pickup-courts-pages-check) can run them in a sandbox. The worker's
+// court list layers on top of csPickupParks, which stays the offline list. Nothing here
+// stores or sends the device location; the only place a position leaves the page is the
+// pin a player chooses to submit in the Add court form (addReq).
+window.csCourtKit=(function(){
+  var PARKS=window.csPickupParks||[];
+  var PRESET_AREA='tallahassee-fl', PRESET_CITY='Tallahassee', PRESET_STATE='FL';
+  var STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+  var SURFACES=['sand','grass','indoor'];
+  var AREA_KEY='cs_pickup_area', SKIP_KEY='cs_pickup_area_skip', PROMPT_PREFIX='cs_court_prompt_';
+  var AREA_RE=/^[a-z0-9]+(?:-[a-z0-9]+)*-[a-z]{2}$/, ID_RE=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  var OFFLINE='Could not reach CourtSense. Check your connection and try again.';
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  // The read-only twin of csPollPlanKit.post: same worker, same {status, j} answer, status
+  // 0 when the network fails. A session, when given, goes as Authorization: Bearer.
+  function get(fetchFn, path, session){
+    var h={}; if(session) h.Authorization='Bearer '+session;
+    return fetchFn(WORKER+path,{method:'GET',headers:h})
+      .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+      .catch(function(){ return {status:0,j:null}; });
+  }
+  // The worker's normName and slugOf: accents dropped, "&" as "and", anything else not a
+  // letter or digit is a space; the slug joins the words with "-".
+  function norm(v){
+    return String(v==null?'':v).replace(/[\u0000-\u001f\u007f-\u009f]/g,' ').replace(/\s+/g,' ').trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim();
+  }
+  function slug(v){ return norm(v).replace(/ /g,'-'); }
+  function clean(v){ return String(v==null?'':v).replace(/\s+/g,' ').trim(); }
+  function titleCity(v){ return String(v).toLowerCase().replace(/(^|[\s\-.'])(\p{L})/gu,function(m,a,b){ return a+b.toUpperCase(); }); }
+  function cityProblem(c){
+    var s=clean(c);
+    if(s.length<2||s.length>40) return 'The city must be 2 to 40 characters.';
+    if(!/^\p{L}[\p{L} .'\-]*$/u.test(s)||!slug(s)) return 'Use letters in the city name.';
+    return '';
+  }
+  // An area from typed city and state, keyed the way the worker keys it (tampa-fl).
+  function areaOf(city, state){
+    var st=clean(state).toUpperCase();
+    if(cityProblem(city)||STATES.indexOf(st)<0) return null;
+    var c=titleCity(clean(city));
+    return { areaKey:slug(c)+'-'+st.toLowerCase(), city:c, state:st };
+  }
+  function validArea(a){
+    return !!a&&typeof a==='object'&&typeof a.areaKey==='string'&&a.areaKey.length<=64&&AREA_RE.test(a.areaKey)
+      &&typeof a.city==='string'&&a.city.length>=2&&a.city.length<=40&&STATES.indexOf(a.state)>=0;
+  }
+  // cs_pickup_area = { areaKey, city, state, at }. Every access is its own try/catch.
+  function readArea(store){
+    try { var raw=store&&store.getItem(AREA_KEY); if(!raw) return null; var a=JSON.parse(raw); return validArea(a)?{areaKey:a.areaKey,city:a.city,state:a.state,at:typeof a.at==='number'?a.at:0}:null; } catch(e){ return null; }
+  }
+  function writeArea(store, a, now){
+    if(!validArea(a)) return false;
+    try { store.setItem(AREA_KEY, JSON.stringify({areaKey:a.areaKey,city:a.city,state:a.state,at:now})); return true; } catch(e){ return false; }
+  }
+  // One-time flags (the chooser's Not now, a game's Add court Not now) are { at }.
+  function readFlag(store, key){
+    try { var raw=store&&store.getItem(key); if(!raw) return false; var x=JSON.parse(raw); return !!x&&typeof x.at==='number'; } catch(e){ return false; }
+  }
+  function writeFlag(store, key, now){
+    try { store.setItem(key, JSON.stringify({at:now})); return true; } catch(e){ return false; }
+  }
+  function promptKey(inviteId){ return PROMPT_PREFIX+String(inviteId||''); }
+  function areasPath(){ return '/pickup/courts/areas'; }
+  function courtsPath(areaKey){ return '/pickup/courts?area='+encodeURIComponent(areaKey); }
+  function areasList(res){
+    var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.areas)?res.j.areas:[];
+    return a.filter(validArea).map(function(x){ return {areaKey:x.areaKey,city:x.city,state:x.state}; });
+  }
+  // The listed area matching the player's own city, if any.
+  function suggestArea(areas, playerCity){
+    var k=slug(playerCity); if(!k) return null;
+    for(var i=0;i<(areas||[]).length;i++) if(slug(areas[i].city)===k) return areas[i];
+    return null;
+  }
+  function num(v){ return typeof v==='number'&&isFinite(v)?v:null; }
+  // One worker court, well formed, public fields only.
+  function cleanCourt(c){
+    if(!c||typeof c!=='object'||typeof c.id!=='string'||!ID_RE.test(c.id)||c.id.length>160) return null;
+    if(typeof c.name!=='string'||!c.name||c.name.length>80||typeof c.areaKey!=='string'||!AREA_RE.test(c.areaKey)) return null;
+    if(c.status!=='live'&&c.status!=='pending') return null;
+    var lat=num(c.lat), lon=num(c.lon);
+    return { id:c.id, name:c.name, city:String(c.city||''), state:String(c.state||''), areaKey:c.areaKey, surface:String(c.surface||''),
+      nets:Number.isInteger(c.nets)?c.nets:null, lat:lat!=null&&lon!=null?lat:null, lon:lat!=null&&lon!=null?lon:null,
+      status:c.status, mine:c.mine===true, confirmed:c.confirmed===true };
+  }
+  // The court list from GET /pickup/courts, or null when the worker did not answer.
+  function courtsList(res){
+    var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.courts)?res.j.courts:null;
+    return a?a.map(cleanCourt).filter(Boolean):null;
+  }
+  function byName(a,b){ return a.name.localeCompare(b.name); }
+  // What the location pickers offer for an area, or null (no area or no list: presets).
+  // Tallahassee keeps the presets first, a worker court of the same name being the same
+  // court; then other listed courts by name (their nets as info only). Pending courts go
+  // in their own group, the player's own marked mine.
+  function pickerCourts(areaKey, list){
+    if(!areaKey||!Array.isArray(list)) return null;
+    var inArea=list.filter(function(c){ return c.areaKey===areaKey; });
+    var live=inArea.filter(function(c){ return c.status==='live'; }).sort(byName);
+    var pend=inArea.filter(function(c){ return c.status==='pending'; }).sort(byName);
+    var listed=[], seen={};
+    if(areaKey===PRESET_AREA) PARKS.forEach(function(p){
+      var w=live.filter(function(c){ return c.name===p[0]; })[0];
+      listed.push({name:p[0],id:w?w.id:null}); seen[p[0]]=1;
+    });
+    live.forEach(function(c){ if(!seen[c.name]){ seen[c.name]=1; listed.push({name:c.name,id:c.id,nets:c.nets}); } });
+    var pending=[];
+    pend.forEach(function(c){ if(!seen[c.name]){ seen[c.name]=1; pending.push({name:c.name,id:c.id,nets:c.nets,mine:c.mine===true}); } });
+    return { listed:listed, pending:pending };
+  }
+  // Lookup tables over every fetched list, the player's area first so a name shared by
+  // two cities resolves to theirs.
+  function index(lists){
+    var byId={}, byName={};
+    (lists||[]).forEach(function(l){ (l||[]).forEach(function(c){ if(!byId[c.id]) byId[c.id]=c; if(!byName[c.name]) byName[c.name]=c; }); });
+    return { byId:byId, byName:byName };
+  }
+  function presetCourt(i){
+    var p=PARKS[i];
+    return { id:null, name:p[0], city:PRESET_CITY, state:PRESET_STATE, areaKey:PRESET_AREA, surface:'sand', nets:p[1], lat:null, lon:null, status:'live', mine:false, confirmed:false, preset:true };
+  }
+  // A game's court. An invite's courtId is never trusted on its own (invites are world
+  // writable): it counts only when the fetched list has that id AND that court's name is
+  // exactly the game's location. Otherwise the exact location name in the list, then a
+  // preset name; otherwise the location is plain text (no Directions, confirm or report).
+  function resolveCourt(inv, idx){
+    if(!inv||typeof inv!=='object') return null;
+    var loc=typeof inv.location==='string'?inv.location:'';
+    var cid=typeof inv.courtId==='string'?inv.courtId:'';
+    if(idx&&cid&&ID_RE.test(cid)&&idx.byId[cid]&&idx.byId[cid].name===loc) return idx.byId[cid];
+    if(idx&&loc&&idx.byName[loc]) return idx.byName[loc];
+    for(var i=0;i<PARKS.length;i++) if(PARKS[i][0]===loc) return presetCourt(i);
+    return null;
+  }
+  function directionsUrl(c){
+    if(!c||!c.name) return '';
+    if(typeof c.lat==='number'&&typeof c.lon==='number') return 'https://www.google.com/maps/dir/?api=1&destination='+c.lat+','+c.lon;
+    return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(c.name+', '+c.city+', '+c.state);
+  }
+  function miles(a, b){
+    var r=function(d){ return d*Math.PI/180; };
+    var dLat=r(b.lat-a.lat), dLon=r(b.lon-a.lon);
+    var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return 2*3958.8*Math.asin(Math.min(1,Math.sqrt(h)));
+  }
+  function milesLabel(m){ return (m<10?Math.round(m*10)/10:Math.round(m))+' mi'; }
+  // Reorders the games a player can already see; never adds or drops one. Games at a
+  // court in the player's area first, then the rest, time order kept inside each group.
+  // With a position (Near me), pinned courts go first in each group, nearest first.
+  function orderGames(games, resolve, areaKey, origin){
+    var rows=(games||[]).map(function(g,i){
+      var c=resolve(g);
+      var d=origin&&c&&typeof c.lat==='number'&&typeof c.lon==='number'?miles(origin,c):null;
+      return { g:g, i:i, inArea:!!(areaKey&&c&&c.areaKey===areaKey), d:d };
+    });
+    rows.sort(function(a,b){
+      if(a.inArea!==b.inArea) return a.inArea?-1:1;
+      if(origin){ var ap=a.d!=null, bp=b.d!=null; if(ap!==bp) return ap?-1:1; if(ap&&a.d!==b.d) return a.d-b.d; }
+      return a.i-b.i;
+    });
+    return rows.map(function(r){ return r.g; });
+  }
+  // The Add court step: adults who answered 18 or older, with a confirmed email.
+  function canAddCourt(p){
+    return !!p&&typeof p==='object'&&!!p.adult&&typeof p.adult==='object'&&p.adult.value===true&&!(p.quickAccount===true&&p.emailVerified!==true);
+  }
+  function addProblem(f){
+    var n=clean(f&&f.name);
+    if(n.length<3||n.length>80) return 'The court name must be 3 to 80 characters.';
+    var cp=cityProblem(f.city); if(cp) return cp;
+    if(STATES.indexOf(clean(f.state).toUpperCase())<0) return 'Pick a state.';
+    if(SURFACES.indexOf(f.surface)<0) return 'Pick sand, grass or indoor.';
+    if(f.nets!==''&&f.nets!=null){ var k=Number(f.nets); if(!Number.isInteger(k)||k<1||k>20) return 'Nets must be a whole number from 1 to 20, or left blank.'; }
+    if(f.publicPlace!==true) return 'Check that this is a public place.';
+    return '';
+  }
+  // The add body: exactly the fields the worker reads. The pin is sent only when the
+  // player added one with "I'm at the court now".
+  function addReq(session, f, confirmDifferent){
+    var b={ sessionToken:session, name:clean(f.name), city:clean(f.city), state:clean(f.state).toUpperCase(), surface:f.surface,
+      nets:f.nets===''||f.nets==null?null:Number(f.nets), lights:f.lights==='yes'?true:f.lights==='no'?false:null, publicPlace:f.publicPlace===true };
+    if(f.pin&&typeof f.pin.lat==='number'&&typeof f.pin.lon==='number'){ b.lat=f.pin.lat; b.lon=f.pin.lon; }
+    if(confirmDifferent===true) b.confirmDifferent=true;
+    return { path:'/pickup/courts/add', body:b };
+  }
+  function addResult(res, city){
+    if(!res||res.status===0) return { kind:'error', text:OFFLINE };
+    var j=res.j||{};
+    if(j.ok===true&&j.court) return { kind:'added', text:'Added. It joins the '+clean(city)+' list once another player confirms it.' };
+    var s=j.suggestion&&typeof j.suggestion.name==='string'?j.suggestion.name:'';
+    if(j.code==='duplicate') return { kind:'duplicate', text:'Already listed as '+s+'.' };
+    if(j.code==='similar') return { kind:'similar', text:'Already listed as '+s+'.', canOverride:true };
+    if(j.code==='hidden_court') return { kind:'hidden', text:"That court can't be added right now." };
+    if(j.code==='adult_only') return { kind:'adult_only', text:'Court adding is for players 18 and older.' };
+    if(j.code==='unconfirmed') return { kind:'unconfirmed', text:'Confirm your email to add courts.' };
+    if(j.code==='rate_limited') return { kind:'rate_limited', text:j.error||'Too many tries. Try again tomorrow.' };
+    if(j.code==='unauthorized') return { kind:'signin', text:'Sign in again to add this court.' };
+    return { kind:'error', text:(j&&j.error)||'Something went wrong. Try again.' };
+  }
+  function confirmReq(session, courtId){ return { path:'/pickup/courts/confirm', body:{ sessionToken:session, courtId:courtId } }; }
+  function reportReq(session, courtId, reason){ return { path:'/pickup/courts/report', body:{ sessionToken:session, courtId:courtId, reason:clean(reason).slice(0,200) } }; }
+  // What a game's detail offers for its court: 'ask' (pending, not the player's own, not
+  // yet confirmed by them: Yes, people play here, plus Report), 'report' (a listed court,
+  // or one they already confirmed), or 'none' (signed out, their own pending court, or a
+  // preset the worker has not listed).
+  function courtAction(c, signedIn){
+    if(!c||!c.id||!signedIn) return 'none';
+    if(c.status==='pending'){ if(c.mine) return 'none'; return c.confirmed?'report':'ask'; }
+    return 'report';
+  }
+  return { STATES:STATES, SURFACES:SURFACES, AREA_KEY:AREA_KEY, SKIP_KEY:SKIP_KEY, PRESET_AREA:PRESET_AREA, norm:norm, slug:slug, titleCity:titleCity,
+    cityProblem:cityProblem, areaOf:areaOf, validArea:validArea, readArea:readArea, writeArea:writeArea, readFlag:readFlag, writeFlag:writeFlag,
+    promptKey:promptKey, areasPath:areasPath, courtsPath:courtsPath, areasList:areasList, suggestArea:suggestArea, cleanCourt:cleanCourt,
+    courtsList:courtsList, pickerCourts:pickerCourts, index:index, resolveCourt:resolveCourt, directionsUrl:directionsUrl, miles:miles,
+    milesLabel:milesLabel, orderGames:orderGames, canAddCourt:canAddCourt, addProblem:addProblem, addReq:addReq, addResult:addResult,
+    confirmReq:confirmReq, reportReq:reportReq, courtAction:courtAction, OFFLINE:OFFLINE, WORKER:WORKER, get:get };
+})();
+</script>
+
+<script>
 // Create a Pickup Poll and Your polls: page wiring for csPollPlanKit.
 let ppOptions = [];
 let ppSelected = [];
@@ -10970,8 +11220,13 @@ function renderPollEntry(){
 // in every location picker. Loaded when a form opens; without them a picker still has
 // the presets and Other.
 const _places = { list: [] };
+// The player's area courts for the pickers (csCourtPage), or null for today's preset
+// list: no area set, the worker not answered yet, or the worker down.
+function ppCourts(){
+  try { return (window.csCourtPage && window.csCourtPage.pickerCourts) ? window.csCourtPage.pickerCourts() : null; } catch(e){ return null; }
+}
 function ppLocSelectHTML(id, value){
-  const r = window.csPollPlanKit.locPicker(value, _places.list);
+  const r = window.csPollPlanKit.locPicker(value, _places.list, ppCourts());
   const other = r.selected === '__other__';
   return '<select class="inp" id="'+id+'" onchange="ppLocChanged(\''+id+'\')">'+r.html+'</select>'
     + '<input class="inp" id="'+id+'-other" placeholder="Enter location" maxlength="150" value="'+(other?escapeHTML(r.otherText):'')+'" style="margin-top:8px;'+(other?'':'display:none;')+'" oninput="ppReadOptions()">';
@@ -10979,7 +11234,7 @@ function ppLocSelectHTML(id, value){
 // The Post a Pickup Game picker (static markup, filled here).
 function fillLocSelect(id, value){
   const sel = $(id), other = $(id+'-other'); if(!sel) return;
-  const r = window.csPollPlanKit.locPicker(value, _places.list);
+  const r = window.csPollPlanKit.locPicker(value, _places.list, ppCourts());
   sel.innerHTML = r.html;
   sel.value = r.selected;
   if(other){ other.value = r.otherText; other.style.display = r.selected === '__other__' ? '' : 'none'; }
@@ -11004,6 +11259,9 @@ function setPlaces(list){
 }
 function loadPlaces(){
   const K = window.csPollPlanKit, session = ppSession();
+  // A form just opened: fetch the area's courts too (in the background; the pickers
+  // redraw when they arrive and stay on the presets if they never do).
+  if(window.csCourtPage && window.csCourtPage.formOpened) window.csCourtPage.formOpened();
   if(!session){ setPlaces([]); return Promise.resolve(); }
   return K.post(fetch, K.placesReq(session)).then(res => { if(res.j && res.j.ok) setPlaces(K.placesList(res)); });
 }
@@ -11012,6 +11270,8 @@ function loadPlaces(){
 function rememberPlace(loc){
   const K = window.csPollPlanKit, session = ppSession();
   if(!session || !K.rememberable(loc)) return;
+  // A listed court is already a choice for everyone, like a preset: never saved.
+  if(window.csCourtPage && window.csCourtPage.isListedName && window.csCourtPage.isListedName(loc)) return;
   K.post(fetch, K.rememberReq(session, loc)).then(res => { if(res.j && res.j.ok) _places.list = K.placesList(res); });
 }
 function drawPlaces(){
@@ -11348,6 +11608,277 @@ async function ppConfirm(pollId, optId){
   toast('Game made. Everyone on the poll is being told.');
   renderMyPolls(true);
 }
+</script>
+
+<script>
+// Community courts on the pickup page: Your area, list order and Near me, the location
+// pickers' area courts, the Add court card after a new game, and Directions, confirm and
+// report on a game's detail. Everything here is extra: when the worker is down, slow or
+// throttled the page behaves exactly as it did, and nothing waits on it to post a game or
+// create a poll. The device position (Near me, the Add court pin) is held in memory only:
+// never stored, and never sent anywhere except the pin a player submits with a new court.
+window.csCourtPage=(function(){
+  var CK=window.csCourtKit, K=window.csPollPlanKit;
+  var S={ lists:{}, loading:{}, failedAt:{}, areas:null, areasAsked:false, chooser:false, barSig:'', near:{ state:'off', lat:null, lon:null },
+    ui:{}, report:{}, prompt:null, boxFor:null, pin:null, diff:false };
+  var RETRY_MS=60000;
+  function store(){ try { return window.localStorage; } catch(e){ return null; } }
+  function esc(s){ return escapeHTML(s); }
+  function session(){ try { return ppSession(); } catch(e){ return null; } }
+  function area(){ return CK.readArea(store()); }
+  function key(a){ return a+'|'+(session()?'s':'a'); }
+  function listFor(a){ return a?(S.lists[key(a)]||null):null; }
+  // The area's courts, once per page session (signed in and out cached apart). A failure
+  // is not cached; it is tried again after a minute at the earliest.
+  function load(a){
+    if(!a) return Promise.resolve(null);
+    var k=key(a);
+    if(S.lists[k]) return Promise.resolve(S.lists[k]);
+    if(S.loading[k]) return S.loading[k];
+    if(S.failedAt[k]&&Date.now()-S.failedAt[k]<RETRY_MS) return Promise.resolve(null);
+    S.loading[k]=CK.get(fetch, CK.courtsPath(a), session()).then(function(res){
+      delete S.loading[k];
+      var l=CK.courtsList(res);
+      if(l) S.lists[k]=l; else S.failedAt[k]=Date.now();
+      return l;
+    });
+    return S.loading[k];
+  }
+  function forget(a){ Object.keys(S.lists).forEach(function(k){ if(k.indexOf(a+'|')===0) delete S.lists[k]; }); }
+  function allIndex(){
+    var a=area(), lists=[];
+    if(a&&listFor(a.areaKey)) lists.push(listFor(a.areaKey));
+    Object.keys(S.lists).forEach(function(k){ lists.push(S.lists[k]); });
+    return CK.index(lists);
+  }
+  function resolve(inv){ return CK.resolveCourt(inv, allIndex()); }
+  function pickerCourts(){ var a=area(); return a?CK.pickerCourts(a.areaKey, listFor(a.areaKey)):null; }
+  function isListedName(n){
+    var pc=pickerCourts(); if(!pc) return false;
+    return pc.listed.concat(pc.pending).some(function(c){ return !!c.id&&c.name===n; });
+  }
+  function formOpened(){
+    var a=area(); if(!a) return;
+    load(a.areaKey).then(function(l){ if(l&&typeof refreshLocPickers==='function') refreshLocPickers(); });
+  }
+  // The selected worker court in a picker, or null (presets the worker has not listed,
+  // saved places, Other).
+  function pickedCourtId(sel){
+    try {
+      if(!sel||sel.value==='__other__'||!sel.options||sel.selectedIndex<0) return null;
+      var o=sel.options[sel.selectedIndex];
+      var id=o&&o.getAttribute?o.getAttribute('data-court-id'):null;
+      return id&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)?id:null;
+    } catch(e){ return null; }
+  }
+
+  // ── Your area bar and chooser ──
+  function chip(){
+    var n=S.near.state;
+    if(n==='denied') return '<button type="button" class="chip" disabled>Location off</button>';
+    if(n==='asking') return '<button type="button" class="chip" disabled>Finding you...</button>';
+    return '<button type="button" class="chip"'+(n==='on'?' style="border-color:var(--primary);color:var(--primary);"':'')+' onclick="csCourtPage.nearMe()">Near me</button>';
+  }
+  function chooserHTML(){
+    var areas=S.areas||[];
+    var me=window.CourtSenseAuth&&CourtSenseAuth.currentPlayer?CourtSenseAuth.currentPlayer():null;
+    var sug=CK.suggestArea(areas, me&&me.city);
+    var opts='<option value="">Pick your area</option>'+areas.map(function(x){ return '<option value="'+esc(x.areaKey)+'"'+(sug&&sug.areaKey===x.areaKey?' selected':'')+'>'+esc(x.city+', '+x.state)+'</option>'; }).join('')+'<option value="__new__">My city isn\'t listed</option>';
+    var states='<option value="">State</option>'+CK.STATES.map(function(s){ return '<option value="'+s+'">'+s+'</option>'; }).join('');
+    return '<div class="card" style="padding:12px;">'
+      +'<div style="font-weight:700;margin-bottom:6px;">Where do you play?</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Games at courts in your area show first. You can change this any time.</div>'
+      +'<select class="inp" id="ar-pick" onchange="csCourtPage.pickChanged()">'+opts+'</select>'
+      +'<div id="ar-new" style="display:none;margin-top:8px;"><input class="inp" id="ar-city" maxlength="40" placeholder="City"><select class="inp" id="ar-state" style="margin-top:8px;">'+states+'</select></div>'
+      +'<div class="fld-err" id="ar-err" style="font-size:12px;color:#b91c1c;margin-top:6px;"></div>'
+      +'<div style="display:flex;gap:8px;margin-top:8px;"><button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.saveArea()">Save</button><button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.skipArea()">Not now</button></div>'
+      +'</div>';
+  }
+  function renderBar(){
+    var el=$('area-bar'); if(!el) return;
+    var a=area(), sig, html;
+    var showChooser=S.chooser||(!a&&!CK.readFlag(store(), CK.SKIP_KEY));
+    if(showChooser){
+      if(!S.areasAsked){ S.areasAsked=true; CK.get(fetch, CK.areasPath()).then(function(res){ S.areas=CK.areasList(res); S.barSig=''; renderBar(); }); }
+      sig='chooser|'+JSON.stringify(S.areas||[]);
+      html=chooserHTML();
+    } else if(a){
+      sig='area|'+a.areaKey+'|'+S.near.state;
+      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;">Your area: <b>'+esc(a.city+', '+a.state)+'</b> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Change</button>'+chip()+'</div>';
+    } else {
+      sig='none|'+S.near.state;
+      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;"><button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Set your area</button>'+chip()+'</div>';
+    }
+    // Drawn only when what it shows changed, so a list refresh never wipes a half-typed city.
+    if(sig===S.barSig) return;
+    S.barSig=sig; el.innerHTML=html;
+  }
+  function openChooser(){ S.chooser=true; S.barSig=''; renderBar(); }
+  function pickChanged(){ var n=$('ar-new'); if(n) n.style.display=$('ar-pick')&&$('ar-pick').value==='__new__'?'':'none'; }
+  function saveArea(){
+    var pick=$('ar-pick')?$('ar-pick').value:'', err=$('ar-err'), a=null;
+    if(pick==='__new__'){
+      var city=$('ar-city')?$('ar-city').value:'', st=$('ar-state')?$('ar-state').value:'';
+      var cp=CK.cityProblem(city);
+      if(cp){ if(err) err.textContent=cp; return; }
+      a=CK.areaOf(city, st);
+      if(!a){ if(err) err.textContent='Pick a state.'; return; }
+    } else {
+      a=(S.areas||[]).filter(function(x){ return x.areaKey===pick; })[0]||null;
+      if(!a){ if(err) err.textContent='Pick your area, or choose My city isn\'t listed.'; return; }
+    }
+    CK.writeArea(store(), a, Date.now());
+    S.chooser=false; S.barSig='';
+    load(a.areaKey).then(function(){ refreshList(); if(typeof refreshLocPickers==='function') refreshLocPickers(); });
+    refreshList();
+  }
+  function skipArea(){ if(!area()) CK.writeFlag(store(), CK.SKIP_KEY, Date.now()); S.chooser=false; S.barSig=''; renderBar(); }
+  function refreshList(){ renderBar(); if(typeof view!=='undefined'&&view==='list'&&typeof renderInviteList==='function') renderInviteList(); }
+
+  // ── Near me: one position, in memory only ──
+  function nearMe(){
+    if(S.near.state==='on'){ S.near={ state:'off', lat:null, lon:null }; refreshList(); return; }
+    if(!navigator.geolocation){ S.near.state='denied'; refreshList(); return; }
+    S.near.state='asking'; S.barSig=''; renderBar();
+    navigator.geolocation.getCurrentPosition(function(p){
+      S.near={ state:'on', lat:p.coords.latitude, lon:p.coords.longitude }; refreshList();
+    }, function(){ S.near={ state:'denied', lat:null, lon:null }; refreshList(); }, { enableHighAccuracy:false, timeout:10000, maximumAge:300000 });
+  }
+  function origin(){ return S.near.state==='on'?{ lat:S.near.lat, lon:S.near.lon }:null; }
+  // Called by renderInviteList AFTER it has decided which games the player may see.
+  function order(shown){
+    var a=area(), o=origin();
+    if(a&&!listFor(a.areaKey)&&!S.loading[key(a.areaKey)]) load(a.areaKey).then(function(l){ if(l) refreshList(); });
+    if(!a&&!o) return shown;
+    return CK.orderGames(shown, resolve, a?a.areaKey:null, o);
+  }
+  function distLabel(inv){
+    var o=origin(); if(!o) return '';
+    var c=resolve(inv);
+    return c&&typeof c.lat==='number'&&typeof c.lon==='number'?' · '+CK.milesLabel(CK.miles(o, c)):'';
+  }
+
+  // ── Game detail: Directions, Yes people play here, Report ──
+  function detailExtras(inv){
+    var c=resolve(inv); if(!c) return '';
+    var h=' <a href="'+esc(CK.directionsUrl(c))+'" target="_blank" rel="noopener" style="font-weight:600;">Directions</a>';
+    var act=CK.courtAction(c, !!session()), u=S.ui[c.id]||'', id=esc(c.id||'');
+    if(u==='confirmed') h+='<div style="font-size:12px;margin-top:4px;color:var(--gray);">Thanks, confirmed.</div>';
+    else if(act==='ask') h+='<div style="font-size:12px;margin-top:6px;">New court. Do people play here? <button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.confirmCourt(\''+id+'\')">Yes, people play here</button></div>';
+    if(u==='reported') h+='<div style="font-size:12px;margin-top:4px;color:var(--gray);">Thanks, we\'ll take a look.</div>';
+    else if(act==='ask'||act==='report'){
+      if(S.report[c.id]) h+='<div style="margin-top:6px;"><input class="inp" id="cr-reason" maxlength="200" placeholder="What is wrong? (optional)"><button type="button" class="btn btn-g btn-sm" style="margin-top:6px;" onclick="csCourtPage.sendReport(\''+id+'\')">Send report</button></div>';
+      else h+=' <button type="button" class="pl-manage" style="display:inline;font-size:11px;" onclick="csCourtPage.openReport(\''+id+'\')">Report</button>';
+    }
+    return h;
+  }
+  function rerenderDetail(){ if(typeof renderInviteDetail==='function') renderInviteDetail(); }
+  function confirmCourt(id){
+    var s=session(); if(!s){ toast('Sign in again to confirm this court'); return; }
+    K.post(fetch, CK.confirmReq(s, id)).then(function(res){
+      if(!res.j||!res.j.ok){ toast(K.errorText(res)); return; }
+      S.ui[id]='confirmed';
+      Object.keys(S.lists).forEach(function(k){ S.lists[k].forEach(function(c){ if(c.id===id){ c.confirmed=true; if(res.j.status==='live') c.status='live'; } }); });
+      rerenderDetail();
+    });
+  }
+  function openReport(id){ S.report[id]=true; rerenderDetail(); }
+  function sendReport(id){
+    var s=session(); if(!s){ toast('Sign in again to report this court'); return; }
+    var reason=$('cr-reason')?$('cr-reason').value:'';
+    K.post(fetch, CK.reportReq(s, id, reason)).then(function(res){
+      if(!res.j||!res.j.ok){ toast(K.errorText(res)); return; }
+      S.ui[id]='reported'; delete S.report[id]; rerenderDetail();
+    });
+  }
+
+  // ── Add court card: once, right after a NEW game posted with an Other location ──
+  function notePosted(inviteId, name, fromOther){ S.prompt=fromOther&&name?{ id:inviteId, name:String(name) }:null; S.boxFor=null; S.pin=null; S.diff=false; }
+  function cardWanted(inv){
+    var p=S.prompt;
+    if(!p||!inv||inv.id!==p.id||inv.postType==='partner') return false;
+    if(CK.readFlag(store(), CK.promptKey(p.id))) return false;
+    var me=window.CourtSenseAuth&&CourtSenseAuth.currentPlayer?CourtSenseAuth.currentPlayer():null;
+    return CK.canAddCourt(me)&&!!session();
+  }
+  function cardHTML(){
+    var p=S.prompt, a=area()||{ city:'', state:'' };
+    var states=CK.STATES.map(function(s){ return '<option value="'+s+'"'+(s===a.state?' selected':'')+'>'+s+'</option>'; }).join('');
+    return '<div class="card" id="ac-card">'
+      +'<div class="ctitle"><span class="bar"></span>Add '+esc(p.name)+' to the '+esc(a.city||'city')+' list?</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Then other players can pick it too. Public courts only.</div>'
+      +'<div class="fg"><label class="lbl">Court name</label><input class="inp" id="ac-name" maxlength="80" value="'+esc(p.name)+'"></div>'
+      +'<div class="fg"><label class="lbl">City</label><input class="inp" id="ac-city" maxlength="40" value="'+esc(a.city)+'"></div>'
+      +'<div class="fg"><label class="lbl">State</label><select class="inp" id="ac-state"><option value="">State</option>'+states+'</select></div>'
+      +'<div class="fg"><label class="lbl">Surface</label><select class="inp" id="ac-surface"><option value="sand">Sand</option><option value="grass">Grass</option><option value="indoor">Indoor</option></select></div>'
+      +'<div class="fg"><label class="lbl">Nets (optional)</label><input class="inp" id="ac-nets" inputmode="numeric" maxlength="2" placeholder="1 to 20"></div>'
+      +'<div class="fg"><label class="lbl">Lights</label><select class="inp" id="ac-lights"><option value="">Not sure</option><option value="yes">Yes</option><option value="no">No</option></select></div>'
+      +'<div class="fg"><label style="display:flex;gap:8px;align-items:center;font-size:13px;"><input type="checkbox" id="ac-public"> This is a public place</label></div>'
+      +'<div class="fg" id="ac-pin-row"></div>'
+      +'<div id="ac-msg" style="font-size:13px;margin:6px 0;"></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-p btn-sm" id="ac-send" onclick="csCourtPage.sendAdd(false)">Add court</button>'
+      +'<button type="button" class="btn btn-g btn-sm" id="ac-diff" style="display:none;" onclick="csCourtPage.sendAdd(true)">This is a different court</button>'
+      +'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.notNow()">Not now</button></div>'
+      +'</div>';
+  }
+  function drawPin(){
+    var row=$('ac-pin-row'); if(!row) return;
+    row.innerHTML=S.pin
+      ?'<span style="font-size:13px;">Pin added</span> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.removePin()">Remove</button>'
+      :'<button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.addPin()">I\'m at the court now</button>';
+  }
+  // Keeps the card out of the detail re-render, so typing survives a Firebase update.
+  function syncBox(inv){
+    var box=$('iv-court-box'); if(!box) return;
+    var want=cardWanted(inv);
+    if(!want){ if(S.boxFor!==null){ box.innerHTML=''; S.boxFor=null; } return; }
+    if(S.boxFor===inv.id) return;
+    S.boxFor=inv.id; box.innerHTML=cardHTML(); drawPin();
+  }
+  function addPin(){
+    if(!navigator.geolocation){ var m=$('ac-msg'); if(m) m.textContent='Location is not available on this device.'; return; }
+    navigator.geolocation.getCurrentPosition(function(p){
+      S.pin={ lat:Math.round(p.coords.latitude*1e5)/1e5, lon:Math.round(p.coords.longitude*1e5)/1e5 }; drawPin();
+    }, function(){ var m=$('ac-msg'); if(m) m.textContent='Location is off, so no pin. You can still add the court.'; }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+  }
+  function removePin(){ S.pin=null; drawPin(); }
+  function readForm(){
+    var v=function(id){ return $(id)?$(id).value:''; };
+    return { name:v('ac-name'), city:v('ac-city'), state:v('ac-state'), surface:v('ac-surface'), nets:v('ac-nets').trim(), lights:v('ac-lights'),
+      publicPlace:!!($('ac-public')&&$('ac-public').checked), pin:S.pin };
+  }
+  function sendAdd(different){
+    var f=readForm(), msg=$('ac-msg'), btn=$('ac-send'), diff=$('ac-diff');
+    var problem=CK.addProblem(f);
+    if(problem){ if(msg) msg.textContent=problem; return; }
+    var s=session(); if(!s){ if(msg) msg.textContent='Sign in again to add this court.'; return; }
+    if(different===true&&!S.diff) return;
+    if(btn) btn.disabled=true;
+    K.post(fetch, CK.addReq(s, f, different===true&&S.diff)).then(function(res){
+      if(btn) btn.disabled=false;
+      var r=CK.addResult(res, f.city);
+      if(msg) msg.textContent=r.text;
+      S.diff=r.canOverride===true;
+      if(diff) diff.style.display=S.diff?'':'none';
+      if(r.kind==='added'){
+        if(btn) btn.style.display='none';
+        if(S.prompt) CK.writeFlag(store(), CK.promptKey(S.prompt.id), Date.now());
+        var a=CK.areaOf(f.city, f.state); if(a) forget(a.areaKey);
+      }
+    });
+  }
+  function notNow(){
+    if(S.prompt) CK.writeFlag(store(), CK.promptKey(S.prompt.id), Date.now());
+    var box=$('iv-court-box'); if(box) box.innerHTML='';
+    S.prompt=null; S.boxFor=null; S.pin=null;
+  }
+  function detailOpened(){ var a=area(); if(a&&!listFor(a.areaKey)) load(a.areaKey).then(function(l){ if(l&&typeof view!=='undefined'&&view==='invite-detail') rerenderDetail(); }); }
+
+  return { pickerCourts:pickerCourts, isListedName:isListedName, formOpened:formOpened, pickedCourtId:pickedCourtId, renderBar:renderBar,
+    openChooser:openChooser, pickChanged:pickChanged, saveArea:saveArea, skipArea:skipArea, nearMe:nearMe, order:order, distLabel:distLabel,
+    detailExtras:detailExtras, confirmCourt:confirmCourt, openReport:openReport, sendReport:sendReport, notePosted:notePosted, syncBox:syncBox,
+    addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve };
+})();
 </script>
 </body>
 </html>

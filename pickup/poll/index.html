@@ -119,6 +119,7 @@
     <h2 id="poll-title"></h2>
     <p class="meta" id="poll-org"></p>
     <p class="meta" id="poll-where"></p>
+    <p class="meta hidden" id="poll-dir-row"><a id="poll-dir" target="_blank" rel="noopener">Directions</a></p>
     <p class="meta" id="poll-rule"></p>
     <p class="meta" id="poll-closes"></p>
     <p class="meta" id="poll-answers" style="font-weight:600;color:var(--ink);"></p>
@@ -727,6 +728,16 @@ window.csPollKit=(function(){
 </script>
 
 <script>
+// A Directions link for the poll's place, for a preset park only (they are all in
+// Tallahassee). Any other place, typed or saved, gets no link: this page has no court
+// list to check it against, and it makes no extra request to find one.
+window.csPollDirections=function(loc){
+  var K=window.csPollKit, l=String(loc||'');
+  if(!l||!K||!Array.isArray(K.PRESETS)||K.PRESETS.indexOf(l)<0) return '';
+  return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(l+', Tallahassee, FL');
+};
+</script>
+<script>
 (function(){
   var K=window.csPollKit;
   var $=function(id){ return document.getElementById(id); };
@@ -853,6 +864,8 @@ window.csPollKit=(function(){
     $('poll-title').textContent=view.title;
     $('poll-org').textContent='From '+view.organizerName;
     $('poll-where').textContent=view.locationMode==='fixed'?'Where: '+view.location:'Each time has its own location.';
+    var dir=window.csPollDirections?window.csPollDirections(view.locationMode==='fixed'?view.location:''):'';
+    if(dir){ $('poll-dir').setAttribute('href',dir); show('poll-dir-row'); } else hide('poll-dir-row');
     $('poll-rule').textContent=K.ruleLine(view);
     $('poll-closes').textContent=K.pollClosesLine(view, s==='open');
     // An ended poll (a game made or not) is read only: the heading says so and there is
