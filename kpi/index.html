@@ -74,6 +74,17 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
 .tbl tr.none td{color:var(--muted);}
 .foot{margin-top:28px;display:flex;justify-content:center;}
 @media (min-width:900px){ .grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));} }
+/* Court pins */
+.pin-row{padding:10px 0;border-bottom:1px solid var(--line);}
+.pin-row:last-child{border-bottom:0;}
+.pin-row a{color:var(--focus);font-size:14px;font-weight:600;}
+.pin-panel{margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+.chip{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-radius:999px;padding:2px 8px;border:1.5px solid var(--line);}
+.chip-live{background:var(--tag);color:var(--tagtext);border-color:var(--tag);}
+.chip-pending{border-color:var(--gold);}
+.chip-hidden{background:var(--errbg);color:var(--err);border-color:var(--errbg);}
+.warnbox{background:var(--errbg);color:var(--err);border-radius:8px;padding:8px 10px;font-size:15px;font-weight:600;}
+.okline{font-weight:700;color:var(--tagtext);}
 </style>
 </head>
 <body>
@@ -100,6 +111,7 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     </div>
     <div id="load-err" class="errbox" role="alert" hidden></div>
     <div id="dash"></div>
+    <div id="pins"></div>
     <div class="foot"><button class="b-link" id="forget-btn" type="button">Forget the admin key on this device</button></div>
   </div>
 </div>
@@ -150,7 +162,7 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     remember(typed); KEY = typed; $('key-input').value = '';
     open();
   });
-  $('forget-btn').addEventListener('click', function(){ forget(); $('dash').textContent = ''; showGate(''); });
+  $('forget-btn').addEventListener('click', function(){ forget(); $('dash').textContent = ''; $('pins').textContent = ''; PINS.courts = null; PINS.panel = {}; showGate(''); });
 
   // ── Load ──────────────────────────────────────────────────────────────────
   async function load(refresh){
@@ -168,6 +180,7 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
     const res = await load(false);
     if(!KEY) return;
     show(res);
+    loadPins();
   }
   function show(res){
     if(res.status !== 200 || !res.j || !res.j.ok){
@@ -340,6 +353,200 @@ label.f > input{margin-top:4px;text-transform:none;letter-spacing:0;font-weight:
       { label: 'City league', count: d.league || 0 }, { label: 'Pickup', count: d.pickup || 0 }
     ]);
   }
+
+  // ── Court pins ────────────────────────────────────────────────────────────
+  // Sets the map pin on pickup courts through the worker's admin court routes. Every court
+  // string is set with textContent. The device position is held in memory only and leaves
+  // the page only inside the admin/pin call.
+  const PIN_OK_M = 30, PIN_MAX_M = 100;
+  const HIDDEN_WORDS = { reported: 'Hidden after player reports', withdrawn_by_adder: 'Withdrawn by the player who added it' };
+  const PINS = { courts: null, loading: false, err: '', panel: {} };
+  function round5(n){ return Math.round(n * 1e5) / 1e5; }
+  function validPoint(lat, lon){ return typeof lat === 'number' && typeof lon === 'number' && isFinite(lat) && isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180; }
+  function pair(a, b){ const lat = parseFloat(a), lon = parseFloat(b); return validPoint(lat, lon) ? { lat: round5(lat), lon: round5(lon) } : null; }
+  const N = '(-?\\d{1,3}(?:\\.\\d+)?)';
+  const RE_PLACE = new RegExp('!3d' + N + '!4d' + N);
+  const RE_QUERY = new RegExp('[?&](?:q|query|destination|ll|sll)=\\s*' + N + '\\s*,\\s*' + N + '(?![\\d.])');
+  const RE_GEO = new RegExp('^geo:\\s*' + N + '\\s*,\\s*' + N, 'i');
+  const RE_PLAIN = new RegExp('^\\s*' + N + '\\s*,\\s*' + N + '\\s*$');
+  const RE_AT = new RegExp('@' + N + ',' + N);
+  // A lat, lon from a pasted link or text, or null. The place itself (!3d!4d) wins over the
+  // map's camera (@lat,lon), which can sit hundreds of meters away.
+  function parseLocation(text){
+    const raw = String(text == null ? '' : text).trim();
+    if(!raw) return null;
+    let s = raw;
+    try { s = decodeURIComponent(raw.replace(/\+/g, ' ')); } catch(e){ s = raw; }
+    for(const re of [RE_PLACE, RE_QUERY, RE_GEO, RE_PLAIN, RE_AT]){
+      const m = re.exec(s);
+      if(m){ const p = pair(m[1], m[2]); if(p) return p; }
+    }
+    return null;
+  }
+  // A Google Maps short link (what a phone's Share gives), which the worker expands.
+  function isShortLink(text){
+    try { const u = new URL(String(text).trim()); return u.protocol === 'https:' && (u.hostname === 'maps.app.goo.gl' || (u.hostname === 'goo.gl' && u.pathname.indexOf('/maps/') === 0)); } catch(e){ return false; }
+  }
+  function mapsLink(lat, lon){ return 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lon; }
+  // 'ok' at 30 m or better, 'low' up to 100 m (save only on Use anyway), 'none' beyond.
+  function accuracyVerdict(m){ if(typeof m !== 'number' || !isFinite(m) || m < 0) return 'none'; return m <= PIN_OK_M ? 'ok' : m <= PIN_MAX_M ? 'low' : 'none'; }
+  function statusLabel(c){ return c.status === 'live' ? 'Listed' : c.status === 'pending' ? 'New' : 'Hidden'; }
+  function hiddenWords(r){ return HIDDEN_WORDS[r] || 'Hidden'; }
+  function groupCourts(list){
+    const g = {};
+    (list || []).forEach(c => { const k = c.state + '|' + c.city; (g[k] = g[k] || { city: c.city, state: c.state, courts: [] }).courts.push(c); });
+    return Object.keys(g).map(k => g[k]).sort((a, b) => a.state.localeCompare(b.state) || a.city.localeCompare(b.city));
+  }
+  // Every court admin call: the key in the body, and a 401 sends the page back to the gate.
+  async function adminPost(path, body){
+    let r, j = null;
+    try { r = await fetch(WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ adminKey: KEY }, body || {})) }); }
+    catch(e){ return { status: 0, j: null }; }
+    try { j = await r.json(); } catch(e){}
+    if(r.status === 401){ forget(); showGate('That admin key no longer works. Enter it again.'); }
+    return { status: r.status, j };
+  }
+  function errText(res){ return res.status === 0 ? MSG_NET : ((res.j && res.j.error) || 'Something went wrong. Try again.'); }
+  async function loadPins(){
+    PINS.loading = true; PINS.err = ''; drawPins();
+    const res = await adminPost('/pickup/courts/admin/list', {});
+    PINS.loading = false;
+    if(!KEY) return;
+    if(res.status === 200 && res.j && res.j.ok && Array.isArray(res.j.courts)) PINS.courts = res.j.courts;
+    else PINS.err = 'Could not load the courts. ' + errText(res);
+    drawPins();
+  }
+  function setPanel(id, p){ PINS.panel[id] = p; drawPins(); }
+  function pinFromHere(id){
+    if(!navigator.geolocation){ setPanel(id, { mode: 'msg', msg: 'Location is not available on this device.' }); return; }
+    setPanel(id, { mode: 'finding' });
+    navigator.geolocation.getCurrentPosition(function(pos){
+      const acc = pos.coords.accuracy, p = pair(pos.coords.latitude, pos.coords.longitude);
+      if(!p){ setPanel(id, { mode: 'msg', msg: 'Could not read a location. Try again.' }); return; }
+      const v = accuracyVerdict(acc);
+      setPanel(id, v === 'ok' ? { mode: 'confirm', point: p, accuracy: acc } : { mode: 'gps', point: v === 'none' ? null : p, accuracy: acc, verdict: v });
+    }, function(){ setPanel(id, { mode: 'msg', msg: 'Location is off or unavailable. Allow location for this site and try again.' }); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+  async function findFromLink(id, text){
+    let t = String(text || '').trim();
+    if(!t){ setPanel(id, { mode: 'link', msg: 'Paste a Google Maps link or coordinates.' }); return; }
+    if(isShortLink(t)){
+      setPanel(id, { mode: 'link', msg: 'Opening the link...', text: t });
+      const res = await adminPost('/pickup/courts/admin/expand', { url: t });
+      if(!KEY) return;
+      if(!(res.status === 200 && res.j && res.j.ok && typeof res.j.url === 'string')){ setPanel(id, { mode: 'link', msg: errText(res), text: t }); return; }
+      t = res.j.url;
+    }
+    const p = parseLocation(t);
+    if(!p){ setPanel(id, { mode: 'link', text: String(text || ''), msg: "Couldn't find a location in that link. In Google Maps, long-press the court to drop a pin, then copy the coordinates and paste them here." }); return; }
+    setPanel(id, { mode: 'confirm', point: p });
+  }
+  async function savePin(id, point){
+    if(!point || !validPoint(point.lat, point.lon)){ setPanel(id, { mode: 'msg', msg: 'That location is not valid.' }); return; }
+    setPanel(id, { mode: 'saving', point });
+    const res = await adminPost('/pickup/courts/admin/pin', { courtId: id, lat: point.lat, lon: point.lon });
+    if(!KEY) return;
+    if(!(res.status === 200 && res.j && res.j.ok)){ setPanel(id, { mode: 'confirm', point, msg: errText(res) }); return; }
+    const c = (PINS.courts || []).find(x => x.id === id);
+    if(c && res.j.court){ c.lat = res.j.court.lat; c.lon = res.j.court.lon; }
+    setPanel(id, { mode: 'saved', warnings: Array.isArray(res.j.warnings) ? res.j.warnings : [], previous: res.j.previous || { lat: null, lon: null } });
+  }
+  async function undoPin(id, previous){
+    const prev = previous && validPoint(previous.lat, previous.lon) ? { lat: previous.lat, lon: previous.lon } : { lat: null, lon: null };
+    const res = await adminPost('/pickup/courts/admin/pin', { courtId: id, lat: prev.lat, lon: prev.lon });
+    if(!KEY) return;
+    if(!(res.status === 200 && res.j && res.j.ok)){ setPanel(id, Object.assign({}, PINS.panel[id], { msg: errText(res) })); return; }
+    PINS.panel[id] = { mode: 'msg', msg: 'Pin undone.' };
+    await loadPins();
+  }
+  async function restoreCourt(id){
+    const res = await adminPost('/pickup/courts/admin/restore', { courtId: id });
+    if(!KEY) return;
+    if(!(res.status === 200 && res.j && res.j.ok)){ setPanel(id, { mode: 'msg', msg: errText(res) }); return; }
+    PINS.panel[id] = { mode: 'msg', msg: 'Restored. It is listed again.' };
+    await loadPins();
+  }
+  function btn(text, cls, fn){ const b = el('button', cls || 'b-gold', text); b.type = 'button'; b.addEventListener('click', fn); return b; }
+  function link(text, href){ const a = el('a', null, text); a.href = href; a.target = '_blank'; a.rel = 'noopener'; return a; }
+  function pointLine(box, p){
+    const line = el('div', 'note');
+    line.appendChild(el('span', null, p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + ' '));
+    line.appendChild(link('Check in Maps', mapsLink(p.lat, p.lon)));
+    box.appendChild(line);
+  }
+  function drawPanel(row, c){
+    const p = PINS.panel[c.id]; if(!p) return;
+    const box = el('div', 'pin-panel');
+    if(p.mode === 'finding') box.appendChild(el('div', 'note', 'Finding you...'));
+    if(p.mode === 'saving') box.appendChild(el('div', 'note', 'Saving...'));
+    if(p.mode === 'gps'){
+      box.appendChild(el('div', null, '±' + Math.round(p.accuracy) + ' m'));
+      if(p.verdict === 'low'){
+        box.appendChild(el('div', 'warnbox', 'Accuracy is low. Move to the court and try again.'));
+        const r2 = el('div', 'bar-row'); r2.appendChild(btn('Try again', 'b-gold', () => pinFromHere(c.id))); r2.appendChild(btn('Use anyway', 'b-link', () => setPanel(c.id, { mode: 'confirm', point: p.point, accuracy: p.accuracy }))); box.appendChild(r2);
+      } else {
+        box.appendChild(el('div', 'warnbox', 'Accuracy is too low to save. Move to the court and try again.'));
+        const r2 = el('div', 'bar-row'); r2.appendChild(btn('Try again', 'b-gold', () => pinFromHere(c.id))); box.appendChild(r2);
+      }
+    }
+    if(p.mode === 'link'){
+      const inp = el('input'); inp.type = 'text'; inp.placeholder = 'Paste a Google Maps link or coordinates'; inp.value = p.text || ''; inp.setAttribute('autocomplete', 'off'); inp.setAttribute('spellcheck', 'false');
+      box.appendChild(inp);
+      const r2 = el('div', 'bar-row'); r2.appendChild(btn('Find', 'b-gold', () => findFromLink(c.id, inp.value))); r2.appendChild(btn('Cancel', 'b-link', () => setPanel(c.id, null))); box.appendChild(r2);
+    }
+    if(p.mode === 'confirm'){
+      if(typeof p.accuracy === 'number') box.appendChild(el('div', null, '±' + Math.round(p.accuracy) + ' m'));
+      pointLine(box, p.point);
+      const r2 = el('div', 'bar-row'); r2.appendChild(btn('Save', 'b-gold', () => savePin(c.id, p.point))); r2.appendChild(btn('Cancel', 'b-link', () => setPanel(c.id, null))); box.appendChild(r2);
+    }
+    if(p.mode === 'saved'){
+      box.appendChild(el('div', 'okline', 'Pinned'));
+      (p.warnings || []).forEach(w => box.appendChild(el('div', 'warnbox', 'Another court is ' + Math.round(Number(w.meters) || 0) + ' m away: ' + String(w.name || ''))));
+      const r2 = el('div', 'bar-row'); r2.appendChild(btn('Undo', 'b-link', () => undoPin(c.id, p.previous))); r2.appendChild(btn('Done', 'b-link', () => setPanel(c.id, null))); box.appendChild(r2);
+    }
+    if(p.mode === 'restore'){
+      box.appendChild(el('div', null, 'Restore ' + c.name + ' to the list?'));
+      const r2 = el('div', 'bar-row'); r2.appendChild(btn('Yes, restore', 'b-gold', () => restoreCourt(c.id))); r2.appendChild(btn('Cancel', 'b-link', () => setPanel(c.id, null))); box.appendChild(r2);
+    }
+    if(p.msg) box.appendChild(el('div', 'err', p.msg));
+    row.appendChild(box);
+  }
+  function drawCourt(list, c){
+    const row = el('div', 'pin-row');
+    const head = el('div', 'row2');
+    head.appendChild(el('strong', null, c.name));
+    head.appendChild(el('span', 'chip chip-' + c.status, statusLabel(c)));
+    head.appendChild(el('span', 'note', typeof c.nets === 'number' ? c.nets + (c.nets === 1 ? ' net' : ' nets') : 'Nets not set'));
+    const pinned = validPoint(c.lat, c.lon);
+    head.appendChild(el('span', 'note', pinned ? 'Pinned' : 'No pin'));
+    if(pinned) head.appendChild(link('Check in Maps', mapsLink(c.lat, c.lon)));
+    row.appendChild(head);
+    if(c.status === 'hidden') row.appendChild(el('div', 'note', hiddenWords(c.hiddenReason) + '. Reports: ' + (Number(c.reportCount) || 0) + '.'));
+    const acts = el('div', 'bar-row');
+    acts.appendChild(btn('Pin from here', 'b-gold', () => pinFromHere(c.id)));
+    acts.appendChild(btn('Paste a Maps link', 'b-link', () => setPanel(c.id, { mode: 'link' })));
+    if(c.status === 'hidden') acts.appendChild(btn('Restore', 'b-link', () => setPanel(c.id, { mode: 'restore' })));
+    row.appendChild(acts);
+    drawPanel(row, c);
+    list.appendChild(row);
+  }
+  function drawPins(){
+    const box = $('pins'); if(!box) return;
+    box.textContent = '';
+    section(box, 'Court pins');
+    const bar = el('div', 'bar-row'); bar.appendChild(btn('Reload courts', 'b-link', () => loadPins())); box.appendChild(bar);
+    if(PINS.loading && !PINS.courts){ box.appendChild(el('p', 'note', 'Loading courts...')); return; }
+    if(PINS.err) box.appendChild(el('div', 'errbox', PINS.err));
+    const courts = PINS.courts || [];
+    if(!courts.length){ if(!PINS.err) box.appendChild(el('p', 'note', 'No courts yet.')); return; }
+    groupCourts(courts).forEach(g => {
+      box.appendChild(el('h3', null, g.city + ', ' + g.state));
+      const list = el('div', 'list');
+      g.courts.forEach(c => drawCourt(list, c));
+      box.appendChild(list);
+    });
+  }
+  // ── end Court pins ────────────────────────────────────────────────────────
 
   // ── Start ─────────────────────────────────────────────────────────────────
   (async function(){

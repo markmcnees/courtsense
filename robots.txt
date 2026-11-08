@@ -25,6 +25,8 @@ Disallow: /community/profile/
 Disallow: /community/dashboard/
 Disallow: /community/feedback/
 Disallow: /kotb-pickup/
+Disallow: /kpi/
+Disallow: /bd/
 
 Allow: /
 Allow: /teams/
