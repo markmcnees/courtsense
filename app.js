@@ -153,8 +153,41 @@ function logoHTML(id,px,alt,extra){
   const emoji=`<span style="font-size:${px}px;line-height:1.2;${extra}">${SC.teamEmoji}</span>`;
   if(!LOGO_SRC && SC.logo!=='firebase') return emoji;
   const st=`height:${px}px;width:auto;${extra}`;
-  if(SC.logo==='firebase') return `<img id="${id}" src="${LOGO_BLANK}" style="display:none;${st}" alt="${alt}">${emoji}`;
+  if(SC.logo==='firebase') return _storedLogoUrl ? `<img id="${id}" src="${_storedLogoUrl}" style="${st}" alt="${alt}">` : `<img id="${id}" src="${LOGO_BLANK}" style="display:none;${st}" alt="${alt}">${emoji}`;
   return `<img id="${id}" src="${LOGO_SRC}" style="${st}" alt="${alt}" onerror="this.style.display='none';this.insertAdjacentHTML('afterend','${emoji.replace(/"/g,'&quot;')}')">`;
+}
+// Stored logo (logo:'firebase'): the PNG data URL in courtsense_school_logos/{slug}, read
+// ONCE per page load at boot (initFB), for every visitor: signed out, coach, player or
+// parent. That node is public in the live rules and stays public under the read lock, so
+// no pass is needed. The emoji logoHTML emits stays only when there is no stored logo or the
+// read fails. slug comes from DB_ROOT (provisioning set base = slug with dashes as
+// underscores). One read, no listener.
+var _storedLogoUrl='', _storedLogoAsked=false;
+function _storedLogoSlug(){
+  const base=(SC.dbRoots&&SC.dbRoots.matches)?SC.dbRoots.matches.replace(/_matches$/,''):'';
+  return base.replace(/_/g,'-');
+}
+function applyStoredLogo(url){
+  if(typeof url!=='string'||url.indexOf('data:image/png;base64,')!==0) return false;
+  _storedLogoUrl=url;
+  ['cs-logo-login','cs-logo-header','cs-logo-fans'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.src=url;
+      el.style.display='';
+      const nx=el.nextElementSibling;
+      if(nx&&nx.tagName==='SPAN') nx.remove();
+    }
+  });
+  return true;
+}
+function loadStoredLogo(){
+  if(_storedLogoAsked||!db||SC.demoMode||SC.logo!=='firebase') return false;
+  const slug=_storedLogoSlug();
+  if(!slug) return false;
+  _storedLogoAsked=true;
+  try{ db.ref('courtsense_school_logos/'+slug).once('value',function(s){ applyStoredLogo(s.val()); },function(){}); }catch(e){}
+  return true;
 }
 // Worker base for server-side coach auth (PIN verify, sessions, PIN change). The PIN
 // is never held or compared on the client; these endpoints do it against a bcrypt hash.
@@ -165,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.232';
+const APP_VERSION='1.1.233';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3259,7 +3292,7 @@ function initFB(){
     return;
   }
   try{if(!firebase.apps.length)firebase.initializeApp(FB_CONFIG);
-    db=firebase.database();setSS(true);if(HS_ACCOUNT_SIGNIN){ hsSignedOutBoot(); } else if(!(typeof fanPublicBoot==='function'&&fanPublicBoot()))listenData();
+    db=firebase.database();setSS(true);loadStoredLogo();if(HS_ACCOUNT_SIGNIN){ hsSignedOutBoot(); } else if(!(typeof fanPublicBoot==='function'&&fanPublicBoot()))listenData();
   }catch(e){console.error(e);setSS(false);}
   if(typeof csVersionStart==='function') csVersionStart(); // live apps only; the demo returned above
 }
@@ -4503,31 +4536,8 @@ function listenData(){if(!db||_schoolListening)return;
       SCHOOL_KEY_MAP = Object.assign({}, SCHOOL_KEY_MAP, m);
     }
   });
-  // Firebase-hosted logo: when the config flags logo:'firebase', read the actual PNG data
-  // URL from courtsense_school_logos/{slug} and swap it into the three logo imgs. slug is
-  // derived from DB_ROOT (provisioning set base = slug with dashes -> underscores). Setting
-  // src + clearing display undoes the placeholder hide logoHTML set; the emoji fallback
-  // span it emitted alongside is removed so only the real logo shows.
-  if(SC.logo === 'firebase'){
-    const _base = (SC.dbRoots && SC.dbRoots.matches) ? SC.dbRoots.matches.replace(/_matches$/,'') : '';
-    const _slug = _base.replace(/_/g,'-');
-    if(_slug){
-      db.ref('courtsense_school_logos/'+_slug).once('value', s => {
-        const url = s.val();
-        if(typeof url === 'string' && url.indexOf('data:image/png;base64,') === 0){
-          ['cs-logo-login','cs-logo-header','cs-logo-fans'].forEach(id => {
-            const el = document.getElementById(id);
-            if(el){
-              el.src = url;
-              el.style.display = '';
-              const nx = el.nextElementSibling;
-              if(nx && nx.tagName === 'SPAN') nx.remove();
-            }
-          });
-        }
-      });
-    }
-  }
+  // The stored logo is read once at boot now (loadStoredLogo), not here, so signed-out
+  // visitors, players and parents get it too.
   _hsWatch(DB_ROOT+'/live_scoring','school',_onLiveScoringSnap);
 }
 // The live scores listener, shared by the whole-school listeners and a player's own (P2.4).
