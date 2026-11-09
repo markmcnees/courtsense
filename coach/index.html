@@ -164,6 +164,7 @@
   footer{text-align:center;color:var(--slate);font-size:12.5px;margin-top:40px;}
   footer .logo-word{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--navy);}
 </style>
+<script src="/signup-source.js?v=a1f469b3"></script>
 </head>
 <body>
 <div class="page">
@@ -704,7 +705,8 @@ window.csOnboardLogo=(function(){
     fetch(WORKER_ONBOARD_URL,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload)
+      // The sign-up source (?src=..., kept by the sign-up source script), like every other sign-up.
+      body:JSON.stringify(Object.assign({}, payload, (window.csSignupSource && window.csSignupSource.get()) || {}))
     }).then(function(res){
       return res.json().catch(function(){ return {ok:res.ok}; }).then(function(data){
         return {status:res.status,data:data};

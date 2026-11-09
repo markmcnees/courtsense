@@ -100,6 +100,21 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 .unsub{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;}
 .unsub .badge{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:14px;background:var(--errbg);color:var(--err);font-weight:700;font-size:14px;}
 .unsub .why{flex:1 1 180px;font-size:14px;color:var(--muted);}
+.camp{background:var(--card);border:2px solid var(--navy, #082A4F);border-radius:12px;padding:12px;display:grid;gap:10px;margin-bottom:12px;}
+.camp h2{margin:0;font-size:18px;}
+.camp .subj{color:var(--muted);font-size:14px;}
+.camp .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.camp .checks{display:flex;gap:12px;flex-wrap:wrap;}
+.camp .checks label{display:inline-flex;gap:6px;align-items:center;font-weight:600;min-height:44px;}
+.camp .checks input{width:20px;height:20px;min-height:0;margin:0;}
+.camp .warn{background:var(--errbg);color:var(--err);border-radius:8px;padding:8px 10px;font-weight:600;font-size:14px;}
+.camp details{border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+.camp summary{cursor:pointer;font-weight:600;min-height:32px;}
+.camp ul{margin:6px 0 4px 18px;padding:0;font-size:14px;}
+.camp li{margin:2px 0;}
+.camp .muted{color:var(--muted);font-size:14px;}
+.camp iframe{width:100%;height:520px;border:1px solid var(--line);border-radius:10px;background:#fff;}
+.camp .prog{font-weight:600;}
 .addform{background:var(--card);border:2px solid var(--gold);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px;}
 .addform .wide,.addform .row{grid-column:1 / -1;}
 .addform .row{display:flex;gap:8px;flex-wrap:wrap;}
@@ -141,6 +156,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
         <button class="b-navy" id="bcc-btn" type="button">Copy emails for BCC</button>
         <button class="b-quiet" id="csv-btn" type="button">Export CSV</button>
         <button class="b-quiet" id="unsub-csv-btn" type="button">Export unsubscribe links</button>
+        <button class="b-navy" id="camp-btn" type="button">Email campaign</button>
         <span class="note" id="act-note" role="status" aria-live="polite"></span>
       </div>
       <div id="fallback" class="fallback" hidden>
@@ -589,6 +605,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   // ── Add a contact ─────────────────────────────────────────────────────────
   $('add-btn').addEventListener('click', function(){
     const slot = $('add-slot');
+    if(slot.firstChild && slot.firstChild.dataset && slot.firstChild.dataset.panel === 'campaign') slot.textContent = '';
     if(slot.firstChild){ slot.querySelector('input').focus(); return; }
     const f = el('form', 'addform');
     f.setAttribute('aria-label', 'Add a contact');
@@ -733,6 +750,183 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     }catch(e){
       showFallback('Download did not start. Copy the unsubscribe links below.', res.j.csv);
     }
+  });
+
+  // ── Email campaign ────────────────────────────────────────────────────────
+  // The worker decides who gets the email (/admin/bd/campaign/overview) and checks each lead
+  // again right before its send; this panel only shows it, previews it, and drives the send
+  // in batches of 5 (the worker spaces sends 2 per second; the page waits between batches).
+  const CAMP_BATCH = 5, CAMP_PAUSE_MS = 600;
+  const REASONS = { not_now: 'Not now', unsubscribed: 'Unsubscribed', no_email: 'No email', already_sent: 'Already sent this campaign', stuck: 'Stuck mid-send (check Resend before anything else)', status_changed: 'Status changed', in_progress: 'Another send has it', gone: 'Deleted', cap_reached: 'Daily cap reached', send_failed: 'Resend refused it', busy: 'Busy, try again', network: 'No answer from CourtSense', not_sent: 'Not sent (the run stopped)' };
+  function campDay(ms){ return typeof ms === 'number' ? dayOf(new Date(ms).toISOString()) : ''; }
+  function lastLine(r){ return r.lastCampaign ? 'Last campaign ' + campDay(r.lastCampaign.at) + ' (' + r.lastCampaign.campaignId + ')' : 'No campaign yet'; }
+  function campaignPanel(){
+    const slot = $('add-slot');
+    slot.textContent = '';
+    const box = el('section', 'camp');
+    box.dataset.panel = 'campaign';
+    box.setAttribute('aria-label', 'Email campaign');
+    slot.appendChild(box);
+    const st = { statuses: ['Contacted'], data: null, results: null, busy: false };
+
+    const head = el('div', 'row');
+    const title = el('h2', null, 'Email campaign');
+    const close = el('button', 'b-quiet', 'Close'); close.type = 'button';
+    head.appendChild(title); head.appendChild(close);
+    const subj = el('div', 'subj', 'Loading...');
+    const checks = el('div', 'checks');
+    checks.setAttribute('role', 'group'); checks.setAttribute('aria-label', 'Send to these statuses');
+    const warn = el('div', 'warn', ''); warn.hidden = true; warn.dataset.k = 'postal';
+    const today = el('div', 'muted', '');
+    const counts = el('div', 'row', '');
+    const recDetails = el('details'); const recSum = el('summary', null, 'Recipients'); const recList = el('ul');
+    recDetails.appendChild(recSum); recDetails.appendChild(recList);
+    const skDetails = el('details'); const skSum = el('summary', null, 'Skipped'); const skList = el('ul');
+    skDetails.appendChild(skSum); skDetails.appendChild(skList);
+    const pick = document.createElement('select'); pick.setAttribute('aria-label', 'Lead to preview');
+    const pvBtn = el('button', 'b-quiet', 'Preview'); pvBtn.type = 'button';
+    const testBtn = el('button', 'b-quiet', 'Send test to Mark'); testBtn.type = 'button';
+    const pvRow = el('div', 'row'); pvRow.appendChild(pick); pvRow.appendChild(pvBtn); pvRow.appendChild(testBtn);
+    const pvMeta = el('div', 'muted', ''); pvMeta.hidden = true;
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', '');
+    frame.setAttribute('title', 'Email preview');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.hidden = true;
+    const sendBtn = el('button', 'b-gold', 'Send to all'); sendBtn.type = 'button';
+    const sendRow = el('div', 'row'); sendRow.appendChild(sendBtn);
+    const prog = el('div', 'prog', ''); prog.setAttribute('role', 'status'); prog.setAttribute('aria-live', 'polite');
+    const err = el('div', 'errbox', ''); err.hidden = true; err.setAttribute('role', 'alert');
+    const failList = el('ul');
+    const retryBtn = el('button', 'b-quiet', 'Retry failed'); retryBtn.type = 'button'; retryBtn.hidden = true;
+    [head, subj, checks, warn, today, counts, recDetails, skDetails, pvRow, pvMeta, frame, sendRow, prog, failList, retryBtn, err].forEach(x => box.appendChild(x));
+    close.addEventListener('click', function(){ if(!st.busy) slot.textContent = ''; });
+
+    function showErr(msg){ err.hidden = !msg; err.textContent = msg || ''; }
+    function drawChecks(sendable){
+      checks.textContent = '';
+      sendable.forEach(v => {
+        const l = el('label', null, '');
+        const c = document.createElement('input'); c.type = 'checkbox'; c.value = v; c.checked = st.statuses.indexOf(v) !== -1;
+        c.addEventListener('change', function(){
+          const on = Array.from(checks.querySelectorAll('input')).filter(x => x.checked).map(x => x.value);
+          if(!on.length){ c.checked = true; return; }
+          st.statuses = on; load();
+        });
+        l.appendChild(c); l.appendChild(document.createTextNode(v));
+        checks.appendChild(l);
+      });
+    }
+    function draw(){
+      const d = st.data;
+      subj.textContent = d.campaign.name + ': ' + d.campaign.subject;
+      warn.hidden = d.postalAddressSet;
+      warn.textContent = d.postalAddressSet ? '' : 'No mailing address is set (BD_POSTAL_ADDRESS), so Send to all is locked. Preview and Send test to Mark still work.';
+      today.textContent = 'Sent today: ' + d.today.sent + ' of ' + d.today.cap + ' (' + d.today.remaining + ' left)';
+      counts.textContent = d.recipients.length + (d.recipients.length === 1 ? ' recipient' : ' recipients') + ', ' + d.skipped.length + ' skipped';
+      recSum.textContent = 'Recipients (' + d.recipients.length + ')';
+      recList.textContent = '';
+      d.recipients.forEach(r => recList.appendChild(el('li', null, (r.name || r.email) + (r.school ? ', ' + r.school : '') + '. ' + lastLine(r) + (r.retry ? '. Last try failed' : ''))));
+      skSum.textContent = 'Skipped (' + d.skipped.length + ')';
+      skList.textContent = '';
+      d.skipped.forEach(r => skList.appendChild(el('li', null, (r.name || r.email || r.school || 'Contact') + (r.school ? ', ' + r.school : '') + ': ' + (REASONS[r.reason] || r.reason) + '. ' + lastLine(r))));
+      const keep = pick.value;
+      pick.textContent = '';
+      d.recipients.concat(d.skipped).forEach(r => { const o = el('option', null, (r.name || r.email) + (r.school ? ' (' + r.school + ')' : '')); o.value = r.id; pick.appendChild(o); });
+      if(keep && Array.from(pick.children).some(o => o.value === keep)) pick.value = keep;
+      pvBtn.disabled = testBtn.disabled = !pick.children.length;
+      sendBtn.disabled = st.busy || !d.postalAddressSet || !d.recipients.length;
+      sendBtn.textContent = 'Send to all (' + d.recipients.length + ')';
+    }
+    async function load(keepErr){
+      if(!keepErr) showErr('');
+      const res = await post('/admin/bd/campaign/overview', { statuses: st.statuses });
+      if(res.status !== 200 || !res.j || !res.j.ok){ subj.textContent = ''; showErr('Could not load the campaign. ' + errText(res)); return; }
+      st.data = res.j;
+      st.statuses = res.j.statuses;
+      drawChecks(res.j.sendable);
+      draw();
+    }
+    pvBtn.addEventListener('click', async function(){
+      if(!pick.value) return;
+      pvBtn.disabled = true; showErr('');
+      const res = await post('/admin/bd/campaign/preview', { id: pick.value });
+      pvBtn.disabled = false;
+      if(res.status !== 200 || !res.j || !res.j.ok){ showErr('Could not preview. ' + errText(res)); return; }
+      pvMeta.hidden = false;
+      pvMeta.textContent = 'To ' + res.j.to + ', from ' + res.j.from + '. Subject: ' + res.j.subject + (res.j.excluded ? '. This lead is skipped: ' + (REASONS[res.j.excluded] || res.j.excluded) : '') + (res.j.warning ? '. ' + res.j.warning : '');
+      frame.hidden = false;
+      frame.srcdoc = res.j.html;
+    });
+    testBtn.addEventListener('click', async function(){
+      testBtn.disabled = true; showErr('');
+      const res = await post('/admin/bd/campaign/test', { id: pick.value || '' });
+      testBtn.disabled = false;
+      if(res.status === 200 && res.j && res.j.ok) note('Test sent to ' + res.j.to + '. Nothing was logged.');
+      else showErr('Test not sent. ' + errText(res));
+    });
+
+    async function run(ids){
+      st.busy = true; sendBtn.disabled = true; retryBtn.hidden = true; failList.textContent = ''; showErr('');
+      const all = [];
+      let stop = '';
+      for(let i = 0; i < ids.length && !stop; i += CAMP_BATCH){
+        const batch = ids.slice(i, i + CAMP_BATCH);
+        prog.textContent = 'Sending ' + Math.min(i + batch.length, ids.length) + ' of ' + ids.length + '...';
+        const res = await post('/admin/bd/campaign/send', { campaignId: st.data.campaign.id, statuses: st.statuses, ids: batch });
+        if(res.status === 200 && res.j && res.j.ok){
+          res.j.results.forEach(r => all.push(r));
+          if(res.j.capReached) stop = 'cap';
+        } else if(res.status === 0){
+          batch.forEach(id => all.push({ id, result: 'failed', reason: 'network' }));
+        } else {
+          stop = errText(res);
+          batch.forEach(id => all.push({ id, result: 'failed', reason: (res.j && res.j.code) || 'busy' }));
+        }
+        if(i + CAMP_BATCH < ids.length && !stop) await new Promise(r => setTimeout(r, CAMP_PAUSE_MS));
+      }
+      ids.forEach(id => { if(!all.some(r => r.id === id)) all.push({ id, result: stop === 'cap' ? 'cap_reached' : 'not_sent' }); });
+      const sent = all.filter(r => r.result === 'sent').length;
+      const failed = all.filter(r => r.result === 'failed' || r.result === 'stuck');
+      const skipped = all.length - sent - failed.length;
+      prog.textContent = 'Sent ' + sent + ', skipped ' + skipped + ', failed ' + failed.length + '.' + (stop === 'cap' ? ' Stopped at the daily cap.' : '');
+      const label = id => { const r = st.data.recipients.concat(st.data.skipped).find(x => x.id === id); return r ? (r.name || r.email) : 'A contact'; };
+      all.filter(r => r.result !== 'sent').forEach(r => failList.appendChild(el('li', null, label(r.id) + ': ' + (r.result === 'stuck' ? REASONS.stuck : (REASONS[r.reason] || REASONS[r.result] || r.result)))));
+      st.results = all;
+      const retry = all.filter(r => r.result === 'failed').map(r => r.id);
+      retryBtn.hidden = !retry.length;
+      retryBtn.dataset.ids = retry.join(',');
+      const stopped = stop && stop !== 'cap';
+      if(stopped) showErr('Sending stopped. ' + stop);
+      st.busy = false;
+      await load(stopped);
+    }
+    sendBtn.addEventListener('click', function(){
+      if(st.busy || !st.data || box.querySelector('.confirm')) return;
+      const n = st.data.recipients.length;
+      const row = el('div', 'confirm');
+      row.dataset.confirm = 'send';
+      row.appendChild(el('span', null, 'Send "' + st.data.campaign.subject + '" to ' + n + (n === 1 ? ' coach' : ' coaches') + ' now? This cannot be undone.'));
+      const yes = el('button', 'b-gold', 'Send ' + n); yes.type = 'button';
+      const no = el('button', 'b-quiet', 'Cancel'); no.type = 'button';
+      row.appendChild(yes); row.appendChild(no);
+      box.insertBefore(row, prog);
+      no.focus();
+      no.addEventListener('click', function(){ row.remove(); sendBtn.focus(); });
+      yes.addEventListener('click', function(){ row.remove(); run(st.data.recipients.map(r => r.id)); });
+    });
+    retryBtn.addEventListener('click', function(){
+      if(st.busy) return;
+      const ids = (retryBtn.dataset.ids || '').split(',').filter(Boolean);
+      if(ids.length) run(ids);
+    });
+    load();
+    return box;
+  }
+  $('camp-btn').addEventListener('click', function(){
+    const slot = $('add-slot');
+    if(slot.firstChild && slot.firstChild.dataset && slot.firstChild.dataset.panel === 'campaign') return;
+    campaignPanel();
   });
 
   // ── Start ─────────────────────────────────────────────────────────────────
