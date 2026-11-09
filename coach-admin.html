@@ -116,6 +116,10 @@
   .swatches{display:flex;gap:6px;margin-top:2px;}
   .sw{width:22px;height:22px;border-radius:5px;border:1px solid var(--line);}
   .color-edit{margin-top:8px;}
+  .tz-edit{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .tz-edit select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;}
+  .tz-edit .btn{padding:5px 12px;font-size:13px;}
+  .tz-edit .tz-msg{font-size:12.5px;width:100%;}
   .color-edit .btn{padding:5px 12px;font-size:13px;}
   .color-edit .color-panel{margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);max-width:420px;}
   .color-edit .c-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
@@ -600,6 +604,7 @@ window.csColorKit=(function(){
       fieldRow('Region', esc(s.region))+
       fieldRow('Home venue', esc(s.homeVenue))+
       fieldRow('Season', esc(s.seasonYear))+
+      fieldRow('Time zone', tzEditHtml(s.timeZone, s.status!=='approved'&&s.status!=='rejected'), true)+
       fieldRow('Colors', colorSw+(s.status==='rejected'?'':colorEditHtml(s.color1, s.color2)), true)+
       fieldRow('Logo', logoCell(s)+(s.status==='rejected'?'':logoEditHtml(s.hasLogo)), true)+
       fieldRow('Notes', esc(s.notes), true)+
@@ -699,11 +704,50 @@ window.csColorKit=(function(){
         if(res.target==='school') SCHOOLS=null; // the Schools tab reloads with the new state
         render();
       });
+      wireTzEdit(card.querySelector('.tz-edit'), id, function(tz){
+        if(sub) sub.timeZone=tz;
+        render();
+      });
       wireColorEdit(card.querySelector('.color-edit'), {id:id}, sub?sub.schoolName:'', function(res, sent){
         if(sub){ sub.color1=sent.primary; if(sent.accent) sub.color2=sent.accent; }
         if(res.target==='school') SCHOOLS=null; // the Schools tab reloads with the new state
         render();
       });
+    });
+  }
+
+  // ---- School time zone (lineup reveal times) ----
+  // Eastern or Central. Shown on every card; it can be changed while the submission is still
+  // pending, and provisioning copies it onto the school's config at Approve.
+  var TZ_LABELS={'America/New_York':'Eastern time','America/Chicago':'Central time'};
+  function tzEditHtml(tz, editable){
+    var cur=TZ_LABELS[tz]?tz:'America/New_York';
+    if(!editable) return '<span class="tz-now">'+esc(TZ_LABELS[cur])+'</span>';
+    var opts=Object.keys(TZ_LABELS).map(function(v){ return '<option value="'+v+'"'+(v===cur?' selected':'')+'>'+esc(TZ_LABELS[v])+'</option>'; }).join('');
+    return '<div class="tz-edit" data-tz="'+esc(cur)+'"><span class="tz-now">'+esc(TZ_LABELS[cur])+'</span>'+
+      '<select class="tz-pick" aria-label="School time zone">'+opts+'</select>'+
+      '<button class="btn save-tz" type="button" disabled>Save time zone</button>'+
+      '<div class="tz-msg" style="display:none;"></div></div>';
+  }
+  function wireTzEdit(box, id, onSaved){
+    if(!box) return;
+    var pick=box.querySelector('.tz-pick'), btn=box.querySelector('.save-tz'), msg=box.querySelector('.tz-msg');
+    var start=box.getAttribute('data-tz');
+    function say(t,good){ msg.textContent=t||''; msg.style.display=t?'block':'none'; msg.style.color=good?'#2e7d32':'var(--err)'; }
+    pick.addEventListener('change',function(){ btn.disabled=(pick.value===start); say(''); });
+    btn.addEventListener('click',function(){
+      var key=ensureAdminKey();
+      if(!key) return;
+      var tz=pick.value;
+      btn.disabled=true; pick.disabled=true; say('Saving...',true);
+      fetch(AUTH_WORKER+'/onboard/admin-set-timezone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminKey:key,id:id,timeZone:tz})})
+        .then(function(r){ return r.json().then(function(j){ return {status:r.status,j:j}; },function(){ return {status:r.status,j:null}; }); })
+        .then(function(o){
+          pick.disabled=false;
+          if(o.status===403&&o.j&&o.j.code==='forbidden'){ clearAdminKey(); btn.disabled=false; say('Admin key rejected. Click Refresh, then try again.'); return; }
+          if(!o.j||!o.j.ok){ btn.disabled=false; say((o.j&&o.j.error)||('Could not save the time zone (HTTP '+o.status+').')); return; }
+          onSaved(tz);
+        },function(){ pick.disabled=false; btn.disabled=false; say('Could not reach the worker. Try again.'); });
     });
   }
 

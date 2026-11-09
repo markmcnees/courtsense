@@ -346,6 +346,15 @@
           <input type="text" id="homeVenue" name="homeVenue" placeholder="Beachside Park">
         </div>
       </div>
+      <div class="field">
+        <label for="timeZone">School time zone <span class="req">*</span></label>
+        <select id="timeZone" name="timeZone">
+          <option value="" selected disabled>Select</option>
+          <option value="America/New_York">Eastern time (Tallahassee and east)</option>
+          <option value="America/Chicago">Central time (Panama City, Destin, Pensacola)</option>
+        </select>
+        <div class="field-err">Please choose your school's time zone.</div>
+      </div>
     </div>
 
     <!-- BRANDING -->
@@ -628,7 +637,8 @@ window.csOnboardLogo=(function(){
     {id:'coachRole',test:function(v){return v.trim().length>0;}},
     {id:'coachEmail',test:function(v){return emailValid(v.trim());}},
     {id:'coachCell',test:function(v){return v.trim().length>0;}},
-    {id:'gender',test:function(v){return v.trim().length>0;}}
+    {id:'gender',test:function(v){return v.trim().length>0;}},
+    {id:'timeZone',test:function(v){return v==='America/New_York'||v==='America/Chicago';}}
   ];
   function fieldWrap(el){ return el.closest('.field'); }
   function clearErr(el){ var w=fieldWrap(el); if(w){w.classList.remove('show-err');} el.classList.remove('invalid'); }
@@ -653,7 +663,7 @@ window.csOnboardLogo=(function(){
   function collectPayload(){
     var ids=['schoolName','address','city','addressState','zip','phone','website','mascot','state','govBody',
       'classification','division','district','region','maxPrepsUrl','coachFirstName','coachLastName','coachRole',
-      'coachEmail','coachCell','gender','seasonYear','homeVenue','color1','color2','notes'];
+      'coachEmail','coachCell','gender','seasonYear','homeVenue','timeZone','color1','color2','notes'];
     var p={};
     ids.forEach(function(id){ var el=$(id); if(el) p[id]=(el.value||'').trim(); });
     p.logoFilename=logoName||null;
