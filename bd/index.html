@@ -97,6 +97,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 .state.bad{color:var(--err);}
 .confirm{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--errbg);border-radius:10px;padding:8px 10px;}
 .confirm span{flex:1 1 160px;color:var(--err);font-weight:600;}
+.unsub{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;}
+.unsub .badge{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:14px;background:var(--errbg);color:var(--err);font-weight:700;font-size:14px;}
+.unsub .why{flex:1 1 180px;font-size:14px;color:var(--muted);}
 .addform{background:var(--card);border:2px solid var(--gold);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px;}
 .addform .wide,.addform .row{grid-column:1 / -1;}
 .addform .row{display:flex;gap:8px;flex-wrap:wrap;}
@@ -137,6 +140,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
         <button class="b-gold" id="add-btn" type="button">Add contact</button>
         <button class="b-navy" id="bcc-btn" type="button">Copy emails for BCC</button>
         <button class="b-quiet" id="csv-btn" type="button">Export CSV</button>
+        <button class="b-quiet" id="unsub-csv-btn" type="button">Export unsubscribe links</button>
         <span class="note" id="act-note" role="status" aria-live="polite"></span>
       </div>
       <div id="fallback" class="fallback" hidden>
@@ -176,7 +180,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   const $ = id => document.getElementById(id);
 
   let KEY = '';
-  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch }
+  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubUrl }
   let tab = 'All';      // 'All' or a category id
   let filter = 'All';   // status
   let query = '';
@@ -347,6 +351,16 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     STATUSES.forEach(v => { const o = el('option', null, v); o.value = v; if(v === value) o.selected = true; s.appendChild(o); });
     return s;
   }
+  // An unsubscribe time (ISO) as a date on this device.
+  function dayOf(iso){
+    const d = new Date(iso || '');
+    if(isNaN(d.getTime())) return '';
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  async function copyText(text){
+    try{ if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); return true; } }catch(e){}
+    return false;
+  }
   function fullName(first, last){ return ((first || '') + ' ' + (last || '')).trim(); }
   function nameOf(c){ return fullName(c.firstName, c.lastName) || c.name || ''; }
   // Phone box with a tap-to-call link beside it. The link follows the last saved
@@ -423,7 +437,29 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     const del = el('button', 'b-link', 'Delete');
     del.type = 'button';
     del.setAttribute('aria-label', 'Delete ' + (nameOf(c) || c.school || 'this contact'));
-    meta.appendChild(touch); meta.appendChild(state); meta.appendChild(del);
+    meta.appendChild(touch); meta.appendChild(state);
+    // The lead's own unsubscribe link, for a per-coach Gmail draft. None once they unsubscribed.
+    let copyLink = null;
+    if(c.unsubUrl && !c.doNotContact){
+      copyLink = el('button', 'b-link', 'Copy unsubscribe link');
+      copyLink.type = 'button';
+      copyLink.setAttribute('aria-label', 'Copy the unsubscribe link for ' + (nameOf(c) || c.school || 'this contact'));
+      meta.appendChild(copyLink);
+    }
+    meta.appendChild(del);
+    // Unsubscribed by the link in an outreach email: shown on the card, cleared only on purpose.
+    let clearBtn = null;
+    if(c.doNotContact){
+      const unsubRow = el('div', 'unsub');
+      unsubRow.dataset.unsub = '1';
+      const d = dayOf(c.unsubscribedAt);
+      unsubRow.appendChild(el('span', 'badge', 'Unsubscribed' + (d ? ' ' + d : '')));
+      unsubRow.appendChild(el('span', 'why', 'Used the unsubscribe link. Left out of Copy emails for BCC and the unsubscribe links export.'));
+      clearBtn = el('button', 'b-quiet', 'Clear unsubscribe');
+      clearBtn.type = 'button';
+      unsubRow.appendChild(clearBtn);
+      box.appendChild(unsubRow);
+    }
     box.appendChild(meta);
     const err = el('div', 'errbox wide', '');
     err.hidden = true; err.setAttribute('role', 'alert');
@@ -464,6 +500,10 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
         drawHead(c.firstName, c.lastName, c.school);
         state.textContent = 'Saved'; state.className = 'state ok';
         drawChips();
+      } else if(res.j && res.j.code === 'do_not_contact'){
+        // The worker keeps an unsubscribed lead on Not now; show that, not a stuck edit.
+        status.value = c.status;
+        fail(errText(res) + ' Use Clear unsubscribe first.');
       } else {
         dirty = true;
         const fld = res.j && res.j.field;
@@ -486,6 +526,37 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     // The header follows what is typed; the saved values win once a save lands.
     [firstName, lastName, school].forEach(i => i.addEventListener('input', function(){ drawHead(firstName.value.trim(), lastName.value.trim(), school.value.trim()); }));
 
+    if(copyLink) copyLink.addEventListener('click', async function(){
+      if(await copyText(c.unsubUrl)) note('Copied the unsubscribe link for ' + (nameOf(c) || c.school || c.email) + '.');
+      else { note(''); showFallback('Copy this unsubscribe link (select all, then copy).', c.unsubUrl); }
+    });
+    if(clearBtn) clearBtn.addEventListener('click', function(){
+      if(box.querySelector('.confirm')) return;
+      const who = nameOf(c) || c.school || c.email;
+      const row = el('div', 'confirm');
+      row.dataset.confirm = 'clear';
+      row.appendChild(el('span', null, 'Clear the unsubscribe for ' + who + '? Only do this if they asked to hear from you again. They will be back in Copy emails for BCC.'));
+      const yes = el('button', 'b-navy', 'Clear unsubscribe'); yes.type = 'button';
+      const no = el('button', 'b-quiet', 'Cancel'); no.type = 'button';
+      row.appendChild(yes); row.appendChild(no);
+      box.insertBefore(row, err);
+      no.focus();
+      no.addEventListener('click', function(){ row.remove(); clearBtn.focus(); });
+      yes.addEventListener('click', async function(){
+        yes.disabled = true; no.disabled = true;
+        clearTimeout(timer);
+        const res = await post('/admin/bd/save', { coach: Object.assign(read(), { clearDoNotContact: true }) });
+        if(res.status === 200 && res.j && res.j.ok){
+          Object.assign(c, res.j.coach);
+          box.replaceWith(card(c));
+          drawChips();
+          note('Cleared the unsubscribe for ' + who + '.');
+        } else {
+          row.remove();
+          fail('Not cleared. ' + errText(res));
+        }
+      });
+    });
     del.addEventListener('click', function(){
       if(box.querySelector('.confirm')) return;
       const who = nameOf(c) || c.school || c.email;
@@ -596,7 +667,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   }
   $('fallback-close').addEventListener('click', function(){ $('fallback').hidden = true; $('bcc-btn').focus(); });
   $('bcc-btn').addEventListener('click', async function(){
-    const list = visible().filter(c => c.status !== 'Not now').map(c => c.email).filter(Boolean);
+    const list = visible().filter(c => c.status !== 'Not now' && c.doNotContact !== true).map(c => c.email).filter(Boolean);
     if(!list.length){ note('No emails in this view.'); return; }
     const text = list.join(', ');
     const n = list.length + (list.length === 1 ? ' email' : ' emails');
@@ -633,6 +704,34 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       note('Exported ' + rows.length + (rows.length === 1 ? ' contact' : ' contacts') + '.');
     }catch(e){
       showFallback('Download did not start. Copy the CSV below.', csv);
+    }
+  });
+
+  // "email,unsubUrl" for every Contacted lead not unsubscribed, made by the worker
+  // (POST /admin/bd/unsub-links), for pasting each coach's own link into their Gmail draft.
+  $('unsub-csv-btn').addEventListener('click', async function(){
+    const btn = $('unsub-csv-btn');
+    btn.disabled = true;
+    const res = await post('/admin/bd/unsub-links');
+    btn.disabled = false;
+    if(res.status !== 200 || !res.j || !res.j.ok || typeof res.j.csv !== 'string'){
+      note('');
+      $('load-err').hidden = false;
+      $('load-err').textContent = 'Could not export the unsubscribe links. ' + errText(res);
+      return;
+    }
+    $('load-err').hidden = true;
+    const n = res.j.count || 0;
+    if(!n){ note('No Contacted leads to export.'); return; }
+    const name = 'bd-unsub-links-' + today() + '.csv';
+    try{
+      const url = URL.createObjectURL(new Blob([res.j.csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      note('Exported ' + n + (n === 1 ? ' unsubscribe link' : ' unsubscribe links') + '.');
+    }catch(e){
+      showFallback('Download did not start. Copy the unsubscribe links below.', res.j.csv);
     }
   });
 
