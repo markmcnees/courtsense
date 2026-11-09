@@ -165,7 +165,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.231';
+const APP_VERSION='1.1.232';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3259,7 +3259,7 @@ function initFB(){
     return;
   }
   try{if(!firebase.apps.length)firebase.initializeApp(FB_CONFIG);
-    db=firebase.database();setSS(true);if(!(typeof fanPublicBoot==='function'&&fanPublicBoot()))listenData();
+    db=firebase.database();setSS(true);if(HS_ACCOUNT_SIGNIN){ hsSignedOutBoot(); } else if(!(typeof fanPublicBoot==='function'&&fanPublicBoot()))listenData();
   }catch(e){console.error(e);setSS(false);}
   if(typeof csVersionStart==='function') csVersionStart(); // live apps only; the demo returned above
 }
@@ -3328,7 +3328,7 @@ function _fbPassSchedule(){
     _fbPass.timer=0;
     if(!early){ _fbPass.exp=0; fbPassEnsure(); return; }
     if(fbPassOff()) return;
-    _fbPassQueue(function(){ return _fbPassRun(true); }).then(function(){ if(!_fbPass.timer) _fbPassSchedule(); });
+    _fbPassQueue(function(){ return _fbPassRun(true); }).then(function(ok){ if(ok&&typeof hsListenReattach==='function') hsListenReattach(); if(!_fbPass.timer) _fbPassSchedule(); });
   },wait);
 }
 async function _fbPassRun(force){
@@ -3359,7 +3359,14 @@ async function _fbPassRun(force){
   }
 }
 // Resolves true when this tab holds a pass, false otherwise. Never throws, never toasts.
-function fbPassEnsure(){ return fbPassOff()?Promise.resolve(false):_fbPassQueue(_fbPassRun); }
+function fbPassEnsure(){
+  if(fbPassOff()) return Promise.resolve(false);
+  return _fbPassQueue(_fbPassRun).then(function(ok){
+    if(ok){ if(typeof hsListenReattach==='function') hsListenReattach(); }
+    else if(typeof hsPassLost==='function') hsPassLost();     // no pass now: open listeners end (L3)
+    return ok;
+  });
+}
 // Called right after a sign-in step; the session it just stored is read on the next tick.
 function fbPassSoon(){ if(!fbPassOff()) setTimeout(fbPassEnsure,0); }
 function fbPassSignOut(){
@@ -3688,9 +3695,170 @@ function hsShortLabel(s){ s=String(s==null?'':s); return s.indexOf('&')>=0?s.spl
 // listeners exactly as before, so a player never sees a blank screen. Signing out puts the
 // whole-school listeners back for the sign-in screen.
 var _hsPL={ on:false, subs:[], pid:'', sw:null, opp:null, notesRef:null, notesDate:'', renderT:0, ranks:null, teammates:null, reason:'', refreshT:0, visBound:false };
+// ===== READS WITH A PASS (HS data lockdown L3 prep) =====
+// At a live high school the browser reads school nodes only once it holds a pass, so the database
+// can later refuse every read without one. Signed out: no school listener at all (the sign-in
+// screen takes its season from the public copy). A coach: the pass, then the whole-school
+// listeners. A player: their roster id comes back with the pass (never from a signed-out roster
+// read), then their own listeners (the split above); a failure shows Retry, never the whole-school
+// fallback. Parents: worker routes only. Every school listener has an error handler: a refused or
+// cancelled read shows "Please sign in again", fetches a fresh pass, and the listeners that were
+// cancelled come back once it lands. The club and the demos never come here.
+var _hsLs=[];                 // { path, group, fn, cb, ref, onErr, cancelled, tries }
+var _hsSeasonFromSchool=false, _hsPlayerRec=null;
+function _hsWatch(path,group,fn,err){
+  var ref=db.ref(path);
+  if(!HS_ACCOUNT_SIGNIN){ ref.on('value',fn,err); return ref; }
+  var spec={ path:path, group:group, fn:fn, ref:ref, cancelled:false, tries:0, who:_hsWho() };
+  spec.cb=function(snap){ spec.tries=0; fn(snap); };
+  spec.onErr=function(e){ spec.cancelled=true; spec.tries++; if(err){ try{ err(e); }catch(x){} } _hsReadDenied(); };
+  _hsLs.push(spec);
+  ref.on('value',spec.cb,spec.onErr);
+  return ref;
+}
+function _hsUnwatch(group){
+  _hsLs=_hsLs.filter(function(x){ if(x.group!==group) return true; try{ x.ref.off('value',x.cb); }catch(e){} return false; });
+}
+function _hsUnwatchRef(ref){
+  _hsLs=_hsLs.filter(function(x){ if(x.ref!==ref) return true; try{ x.ref.off('value',x.cb); }catch(e){} return false; });
+}
+// The cancelled listeners, attached again (after a fresh pass). A path refused three times in a
+// row without a single answer is left alone, so a read the rules never allow cannot loop.
+function hsListenReattach(){
+  if(currentRole!=='coach'&&currentRole!=='player') return 0;
+  var n=0;
+  _hsLs.forEach(function(x){
+    if(!x.cancelled||x.tries>=3) return;
+    x.cancelled=false; n++;
+    try{ x.ref.on('value',x.cb,x.onErr); }catch(e){ x.cancelled=true; }
+  });
+  if(n&&_hsReadBar){ _hsReadBar=false; csBarHide(); }
+  return n;
+}
+// Session end. The database keeps an open listener running after the pass runs out, so the app
+// ends them itself. Pass expired and no fresh one: every school listener is detached at once and
+// "Please sign in again" shows; a fresh pass attaches them again (hsListenReattach). Sign-out or a
+// change of role or player: every school listener ends and is forgotten. (A different school is a
+// different page, so its listeners never carry over.)
+function _hsWho(){ return String(currentRole||'')+':'+String(currentPlayerId||''); }
+function hsPassLost(){
+  if(!HS_ACCOUNT_SIGNIN||(currentRole!=='coach'&&currentRole!=='player')) return 0;
+  if(_fbPass.exp>Date.now()) return 0;                       // this tab still holds a pass
+  var n=0;
+  _hsLs.forEach(function(x){ if(x.cancelled) return; try{ x.ref.off('value',x.cb); }catch(e){} x.cancelled=true; x.tries=0; n++; });
+  if(n) _hsSignInBar();
+  return n;
+}
+function hsListenDrop(){
+  if(!HS_ACCOUNT_SIGNIN) return 0;
+  var n=_hsLs.length;
+  if(typeof hsPlayerSplitStop==='function') hsPlayerSplitStop();
+  schoolListenOff();
+  _hsLs.forEach(function(x){ try{ x.ref.off('value',x.cb); }catch(e){} });
+  _hsLs=[];
+  return n;
+}
+// Right after the role (or the signed-in player) changes: listeners from before end.
+function hsListenRole(){
+  if(!HS_ACCOUNT_SIGNIN) return 0;
+  var w=_hsWho();
+  return _hsLs.some(function(x){ return x.who!==w; })?hsListenDrop():0;
+}
+var _hsReadBar=false, _hsReadBusy=false;
+function _hsSignInBar(){
+  if(!_hsReadBar){ _hsReadBar=true; _hsBar('Please sign in again to see the latest. What is on screen may be out of date.',[['Sign in','hsCoachSigninAgain()'],['Dismiss','csBarHide()']]); }
+}
+function _hsReadDenied(){
+  if(currentRole!=='coach'&&currentRole!=='player') return;   // signed out or a parent: nothing to say
+  _hsSignInBar();
+  if(_hsReadBusy) return;
+  _hsReadBusy=true;
+  setTimeout(function(){ _fbPass.key=''; fbPassEnsure().then(function(){ _hsReadBusy=false; },function(){ _hsReadBusy=false; }); },0);
+}
+// A short "Loading your team..." note while the pass and the first data come in.
+function hsLoadingShow(){
+  if(typeof document==='undefined'||!document.createElement) return;
+  var el=document.getElementById('hs-loading');
+  if(!el){ el=document.createElement('div'); el.id='hs-loading'; if(document.body&&document.body.appendChild) document.body.appendChild(el); }
+  if(el.setAttribute) el.setAttribute('role','status');
+  el.style.cssText='position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9500;background:#1f2a44;color:#fff;border-radius:20px;padding:8px 16px;font-size:14px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.3);';
+  el.textContent='Loading your team...';
+  el.hidden=false;
+}
+function hsLoadingHide(){ var el=document.getElementById('hs-loading'); if(el){ el.hidden=true; el.style.cssText='display:none;'; } }
+var _hsRetry=null;
+function hsLoadFail(retry){ _hsRetry=retry; _hsBar("Couldn't load your team. Try again.",[['Retry','hsLoadRetry()'],['Dismiss','csBarHide()']]); }
+function hsLoadRetry(){ var f=_hsRetry; _hsRetry=null; csBarHide(); if(f) f(); }
+// Signed out at a live high school: the sign-in screen, the season from the public copy, then the
+// saved sign-in (if any) is restored. No school node is read.
+function hsSignedOutBoot(){
+  if(typeof fanPublicBoot==='function') fanPublicBoot();
+  hsSeasonFromPublic();
+  if(!_autoLoginDone){ _autoLoginDone=true; autoLogin(); fansDeepLinkOpen(); }
+}
+function hsSeasonFromPublic(){
+  if(typeof fetch!=='function') return Promise.resolve(false);
+  var p;
+  try{ p=fetch(AUTH_WORKER+'/hs/public?n='+encodeURIComponent(DB_ROOT),{ cache:'no-cache' }); }catch(e){ return Promise.resolve(false); }
+  return Promise.resolve(p).then(function(r){ return r&&r.ok?r.json():null; }).then(function(j){
+    var v=j&&j.ok===true&&j.data&&j.data.meta?j.data.meta.season:null;
+    if(typeof v==='string'&&/^\d{4}$/.test(v)&&!_hsSeasonFromSchool){ _currentSeasonId=v; updateSeasonLabel(); return true; }
+    return false;
+  }).catch(function(){ return false; });
+}
+// A coach (PIN, admin entry or a restored session): the pass, then the whole-school listeners and
+// the season again. One retry of the pass; otherwise Retry.
+function hsCoachLoad(){
+  if(!HS_ACCOUNT_SIGNIN) return Promise.resolve(false);
+  hsLoadingShow();
+  return new Promise(function(r){ setTimeout(r,0); }).then(function(){
+    if(currentRole!=='coach'||!db||typeof fbPassEnsure!=='function'){ hsLoadingHide(); return false; }
+    return fbPassEnsure().then(function(ok){ return ok?true:fbPassEnsure(); }).then(function(ok){
+      if(currentRole!=='coach'){ hsLoadingHide(); return false; }
+      if(!ok){ hsLoadingHide(); hsLoadFail(hsCoachLoad); return false; }
+      schoolListenOff(); listenData();
+      return true;
+    });
+  });
+}
+// A player's account pass, asked for this school: Firebase is signed in with it and the answer
+// carries this account's own roster ids here (nothing else). null on any failure.
+function hsAccountPass(token){
+  if(fbPassOff()||!FB_PASS_TOKEN_RE.test(String(token||''))) return Promise.resolve(null);
+  return _fbPassQueue(function(){ return _fbPassAccount(token); });
+}
+async function _fbPassAccount(token){
+  try{
+    var r=await fetch(AUTH_WORKER+'/auth/firebase-pass',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'account',token:token,dbRoot:DB_ROOT})});
+    var j=await r.json().catch(function(){ return null; });
+    if(!j||j.ok!==true||typeof j.passToken!=='string') return null;
+    if(!(await _fbPassLoadAuth())) return null;
+    var auth=firebase.auth();
+    await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+    await auth.signInWithCustomToken(j.passToken);
+    _fbPass.key='account:'+token; _fbPass.exp=(typeof j.expiresAt==='number')?j.expiresAt:0;
+    _fbPassSchedule();
+    _fbPassReport(typeof j.role==='string'?j.role:'',true);
+    return Array.isArray(j.pids)?j.pids.filter(function(x){ return typeof x==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(x); }):[];
+  }catch(e){ return null; }
+}
+// The player's roster record at this school, from the pass: { pid, rec } for exactly one active
+// record, else { code: 'none' | 'many' | 'error' }. Reads only that player's own record(s).
+async function hsPlayerResolve(token){
+  var pids=await hsAccountPass(token);
+  if(pids===null) return { code:'error' };
+  var recs=[];
+  for(var i=0;i<pids.length&&i<5;i++){
+    var v=null;
+    try{ v=await db.ref(DB_ROOT+'/players/'+pids[i]).once('value').then(function(sn){ return sn.val(); }); }catch(e){ return { code:'error' }; }
+    if(v&&typeof v==='object'&&v.active!==false) recs.push(Object.assign({},v,{ id:v.id||pids[i] }));
+  }
+  if(recs.length===1){ _hsPlayerRec=recs[0]; return { pid:recs[0].id, rec:recs[0] }; }
+  return { code:recs.length?'many':'none' };
+}
 function hsPlayerSplitWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!!db&&currentRole==='player'&&!!currentPlayerId; }
-function _hsPLOn(path,fn){ var r=db.ref(path); r.on('value',fn,function(){}); _hsPL.subs.push(r); return r; }
-function _hsPLOff(r){ if(!r) return; try{ r.off('value'); }catch(e){} _hsPL.subs=_hsPL.subs.filter(function(x){ return x!==r; }); }
+function _hsPLOn(path,fn){ var r=_hsWatch(path,'player',fn,function(){}); _hsPL.subs.push(r); return r; }
+function _hsPLOff(r){ if(!r) return; _hsUnwatchRef(r); try{ r.off('value'); }catch(e){} _hsPL.subs=_hsPL.subs.filter(function(x){ return x!==r; }); }
 function _hsPLRender(){
   if(_hsPL.renderT) return;
   _hsPL.renderT=setTimeout(function(){ _hsPL.renderT=0; if(_hsPL.on&&currentRole==='player') refreshCurrent(); },50);
@@ -3859,12 +4027,20 @@ function hsPlayerSplitStart(){
     return true;
   });
 }
+// L3: on any failure the player sees "Couldn't load your team. Try again" with Retry. The page
+// never falls back to the whole-school listeners.
 function hsPlayerSplitSoon(){
   if(!hsPlayerSplitWanted()||typeof fbPassEnsure!=='function') return Promise.resolve(false);
+  if(_hsPL.on) return Promise.resolve(true);
+  hsLoadingShow();
   return fbPassEnsure().then(function(ok){
     if(!ok){ _hsPL.reason='pass'; return false; }
     return hsPlayerSplitStart();
-  });
+  }).then(function(ok){
+    hsLoadingHide();
+    if(!ok&&!_hsPL.on&&hsPlayerSplitWanted()) hsLoadFail(hsPlayerSplitSoon);
+    return ok;
+  },function(){ hsLoadingHide(); if(hsPlayerSplitWanted()) hsLoadFail(hsPlayerSplitSoon); return false; });
 }
 function hsPlayerSplitStop(){
   if(!_hsPL.on) return;
@@ -3872,7 +4048,7 @@ function hsPlayerSplitStop(){
   _hsPL.on=false; _hsPL.pid=''; _hsPL.sw=null; _hsPL.opp=null; _hsPL.notesRef=null; _hsPL.notesDate=''; _hsPL.ranks=null; _hsPL.teammates=null;
   if(_hsPL.refreshT){ clearInterval(_hsPL.refreshT); _hsPL.refreshT=0; }
   hsRenderRanks();
-  schoolListenOn();
+  // L3: signing out leaves no school listener (the sign-in screen needs none).
 }
 // ===== PRIVACY CARD (HS data lockdown P2.4) =====
 // Coaches turn switches 1 to 5 on and off under Manage, Communicate. Read and written through
@@ -4165,6 +4341,7 @@ function schoolListenOn(){ if(db&&!_schoolListening) listenData(); }
 function schoolListenOff(){
   if(!db||!_schoolListening) return;
   _schoolListening=false;
+  if(typeof _hsUnwatch==='function') _hsUnwatch('school');
   try{
     [DB_ROOT,DB_ROOT+'/player_notes',DB_ROOT+'/opponents',DB_ROOT+'/broadcasts',DB_ROOT+'/live_scoring',SC.dbRoots.profiles,SC.dbRoots.profiles+'/quizScores','.info/connected','school_key_map']
       .forEach(function(p){ db.ref(p).off('value'); });
@@ -4180,9 +4357,9 @@ function fanPublicBoot(){
 }
 function listenData(){if(!db||_schoolListening)return;
   _schoolListening=true;
-  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val())_currentSeasonId=snap.val();updateSeasonLabel();});
-  db.ref(SC.dbRoots.profiles+'/quizScores').on('value',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
-  db.ref(DB_ROOT).on('value',snap=>{
+  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val()){_currentSeasonId=snap.val();_hsSeasonFromSchool=true;}updateSeasonLabel();},function(){});
+  _hsWatch(SC.dbRoots.profiles+'/quizScores','school',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
+  _hsWatch(DB_ROOT,'school',snap=>{
     const val=snap.val();
     // Every node loads whether or not the roster is empty, so a school starting a new
     // season with no players still sees its schedule, standings and settings. Nothing is
@@ -4213,8 +4390,9 @@ function listenData(){if(!db||_schoolListening)return;
     refreshCurrent();
     if(typeof knRefreshPlayer==='function')knRefreshPlayer();
     if(!_autoLoginDone){_autoLoginDone=true;autoLogin();fansDeepLinkOpen();}
+    if(typeof hsLoadingHide==='function') hsLoadingHide();
   },err=>{console.error(err);setSS(false);});
-  db.ref(DB_ROOT+'/player_notes').on('value',s=>{
+  _hsWatch(DB_ROOT+'/player_notes','school',s=>{
     const all=s.val()||{};
     // Restructure from [date][pid] → pgdNotes[pid][date]
     pgdNotes={};
@@ -4225,12 +4403,12 @@ function listenData(){if(!db||_schoolListening)return;
       });
     });
   });
-  db.ref(DB_ROOT+'/opponents').on('value',s=>{
+  _hsWatch(DB_ROOT+'/opponents','school',s=>{
     D.opponents=s.val()||{};
     if(currentRole==='coach'){const t=document.querySelector('.tab.active');if(t&&t.dataset.tab==='scouts')renderScouts();}
     if(currentRole==='player')renderPlayerScouts();
   });
-  db.ref(DB_ROOT+'/broadcasts').on('value',s=>{
+  _hsWatch(DB_ROOT+'/broadcasts','school',s=>{
     D.broadcasts=s.val()||{};
     if(currentRole==='player')renderPlayerBroadcasts();
     if(currentRole==='coach'){const t=document.querySelector('.tab.active');if(t&&t.dataset.tab==='communicate')renderHsBroadcastList();}
@@ -4240,14 +4418,14 @@ function listenData(){if(!db||_schoolListening)return;
   // (club, FSU Grass, demo, pitch) attaches exactly the listeners it always did.
   if(!HS_ACCOUNT_SIGNIN){
   // Exec/member two-way messaging threads (club only). Re-render whichever view is showing.
-  db.ref(DB_ROOT+'/threads').on('value',s=>{
+  _hsWatch(DB_ROOT+'/threads','school',s=>{
     D.threads=s.val()||{};
     if(currentRole==='coach'){const t=document.querySelector('.tab.active');if(t&&t.dataset.tab==='inbox'&&typeof renderExecInbox==='function')renderExecInbox();}
     if(currentRole==='player'){if(typeof updateMemberMsgBadge==='function')updateMemberMsgBadge();const mp=document.getElementById('pp-panel-messages');if(mp&&mp.classList.contains('active')&&typeof renderMemberMessages==='function')renderMemberMessages();}
   });
   // Tryout sessions and attendance (recruiting). Live-update the exec view so a scanned door
   // check-in appears without a manual refresh; also drain any pending ?tryout once sessions load.
-  db.ref(DB_ROOT+'/tryoutSessions').on('value',s=>{
+  _hsWatch(DB_ROOT+'/tryoutSessions','school',s=>{
     D.tryoutSessions=s.val()||{};
     _tryoutSessionsLoaded=true;
     processPendingTryout();
@@ -4257,7 +4435,7 @@ function listenData(){if(!db||_schoolListening)return;
     if(typeof renderPracticeCheckin==='function')renderPracticeCheckin();
     if(currentRole==='player'&&typeof ptpSync==='function')ptpSync(); // today's Kings Night on the member's phone
   });
-  db.ref(DB_ROOT+'/tryoutAttendance').on('value',s=>{
+  _hsWatch(DB_ROOT+'/tryoutAttendance','school',s=>{
     D.tryoutAttendance=s.val()||{};
     // Door mode gets a count refresh only. Redrawing the QR under a phone that is mid scan
     // is what made the code unreadable during a rush, so the overlay itself is left alone.
@@ -4269,7 +4447,7 @@ function listenData(){if(!db||_schoolListening)return;
   // so no device downloads anyone's payment status.
   // Weekly practice schedule (club). Members see their own squad card; execs see both. Do not
   // clobber an exec who is mid-edit (any ps-* control focused).
-  db.ref(DB_ROOT+'/practiceSchedule').on('value',s=>{
+  _hsWatch(DB_ROOT+'/practiceSchedule','school',s=>{
     D.practiceSchedule=s.val()||{};
     if(currentRole==='player'){ renderPlayerPortal(); return; }
     if(currentRole==='coach'){
@@ -4280,7 +4458,7 @@ function listenData(){if(!db||_schoolListening)return;
   });
   // Travel tournaments (club). Loaded for members too (member side, pass 2). Re-render the exec
   // Travel tab live, but never while an exec is mid-edit (any tv-* field focused).
-  db.ref(DB_ROOT+'/travel').on('value',s=>{
+  _hsWatch(DB_ROOT+'/travel','school',s=>{
     D.travel=s.val()||{};
     if(currentRole==='player'){
       // Travel now lives inside the Club Life tab, so re-render live when that tab is showing,
@@ -4297,7 +4475,7 @@ function listenData(){if(!db||_schoolListening)return;
   });
   // Good standing (club). Exec-set at standing/{memberId}; absent = good standing. A member reads only
   // their own (shown in their Travel panel); the exec sees any member's in the coach player modal.
-  db.ref(DB_ROOT+'/standing').on('value',s=>{
+  _hsWatch(DB_ROOT+'/standing','school',s=>{
     D.standing=s.val()||{};
     if(currentRole==='player'){
       const cl=document.getElementById('pp-panel-clublife');
@@ -4306,13 +4484,13 @@ function listenData(){if(!db||_schoolListening)return;
   });
   // Pinned announcement (club). One exec-pinned message at DB_ROOT/pinned; absent = nothing pinned.
   // Shows above the tabs on every member portal; the exec pins/unpins it from the Broadcast tab.
-  db.ref(DB_ROOT+'/pinned').on('value',s=>{
+  _hsWatch(DB_ROOT+'/pinned','school',s=>{
     D.pinned=s.val()||null;
     if(currentRole==='player'){ if(typeof renderPlayerPinned==='function')renderPlayerPinned(); }
     if(currentRole==='coach'){ const t=document.querySelector('.tab.active'); if(t&&t.dataset.tab==='broadcast'&&typeof renderExecBroadcast==='function')renderExecBroadcast(); }
   });
   } // end club-only listeners
-  db.ref(SC.dbRoots.profiles).on('value',s=>{
+  _hsWatch(SC.dbRoots.profiles,'school',s=>{
     profilesData=s.val()||{};
     // Re-render player portal if active (to update rankings with skills/drills/verts)
     if(currentRole==='player')renderPlayerPortal();
@@ -4350,7 +4528,7 @@ function listenData(){if(!db||_schoolListening)return;
       });
     }
   }
-  db.ref(DB_ROOT+'/live_scoring').on('value',_onLiveScoringSnap);
+  _hsWatch(DB_ROOT+'/live_scoring','school',_onLiveScoringSnap);
 }
 // The live scores listener, shared by the whole-school listeners and a player's own (P2.4).
 function _onLiveScoringSnap(snap){
@@ -6327,8 +6505,10 @@ function updatePinDots(){document.querySelectorAll('.login-pin-dot').forEach((d,
 
 function loginAsCoach(){
   currentRole='coach';currentPlayerId=null;
+  if(typeof hsListenRole==='function')hsListenRole(); // listeners from another role end (HS lockdown L3)
   if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this coach or exec session (HS lockdown P1)
   if(typeof hsHeldOffer==='function')hsHeldOffer(); // changes held when the last sign-in ended (HS lockdown L2)
+  if(HS_ACCOUNT_SIGNIN&&typeof hsCoachLoad==='function')hsCoachLoad(); // the pass, then the school listeners (HS lockdown L3 prep)
   // Club tournament card: drafts kept when a save found the exec session ended (no-op otherwise).
   csRestoreExecDrafts();
   // An exec who scanned the door code lands here; say so rather than dropping it silently.
@@ -6455,14 +6635,18 @@ async function playerLoginEmail(){
   // A live high school opens a player only when the account matches exactly one active
   // roster record, the same rule as the device sign-in.
   if(HS_ACCOUNT_SIGNIN){
-    const _recs=accountId?D.players.filter(p=>p&&p.accountId===accountId&&p.active!==false):[];
-    if(_recs.length!==1){
+    // L3 prep: the roster record comes from the pass (this account's own roster ids here), never
+    // from a roster read while signed out.
+    const _res=await hsPlayerResolve(j.sessionToken);
+    if(!_res.pid){
+      if(typeof fbPassSignOut==='function')fbPassSignOut();
+      if(_res.code==='error'){ if(errEl)errEl.textContent="Couldn't load your team. Try again."; done(); return; }
       // No roster record: a parent or guardian of a player here is offered the parent view.
-      if(!_recs.length&&j.sessionToken&&typeof hsParentOffer==='function'){ done(); hsParentOffer(j.sessionToken,_hsKeep,errEl); return; }
-      if(errEl)errEl.textContent=_recs.length?'This account is on the roster more than once. Ask your coach.':hsNotOnRosterText();
+      if(_res.code==='none'&&j.sessionToken&&typeof hsParentOffer==='function'){ done(); hsParentOffer(j.sessionToken,_hsKeep,errEl); return; }
+      if(errEl)errEl.textContent=_res.code==='many'?'This account is on the roster more than once. Ask your coach.':hsNotOnRosterText();
       done();return;
     }
-    rec=_recs[0];
+    rec=_res.rec;
   }
   // Names the actual tenant rather than hardcoding one school, and points at whoever
   // runs that program: an exec at the club, a coach at a school.
@@ -6487,6 +6671,7 @@ async function playerLoginEmail(){
   done();
   // Session + portal entry mirror playerLogin. currentPlayerId is the CLUB record id, not the account id.
   currentRole='player';currentPlayerId=rec.id;
+  if(typeof hsListenRole==='function')hsListenRole(); // listeners from another role end (HS lockdown L3)
   sessionStorage.setItem('leonAuth',JSON.stringify({role:'player',pid:rec.id}));
   // The worker session this sign-in minted, kept so the member can score their own tournament
   // matches. A sign-in that came back without one clears any older token.
@@ -6552,7 +6737,8 @@ async function execLoginEmail(){
   loginAsCoach();
 }
 function logout(){
-  if(typeof hsPlayerSplitStop==='function')hsPlayerSplitStop(); // back to the whole-school listeners (HS lockdown P2.4)
+  if(typeof hsPlayerSplitStop==='function')hsPlayerSplitStop(); // the player's own listeners end (HS lockdown P2.4)
+  if(HS_ACCOUNT_SIGNIN){ if(typeof hsListenDrop==='function')hsListenDrop(); if(typeof hsLoadingHide==='function')hsLoadingHide(); _hsRetry=null; _hsReadBar=false; _hsPlayerRec=null; } // signed out: no school listener (L3 prep)
   const _wasHsPlayer=HS_ACCOUNT_SIGNIN&&currentRole==='player';
   currentRole=null;currentPlayerId=null;pinEntry='';
   if(typeof fbPassSignOut==='function')fbPassSignOut(); // the Firebase pass ends with the CourtSense sign-in (no-op in a demo)
@@ -6588,6 +6774,16 @@ function logout(){
 async function _leonAuthConfirmed(auth){
   if(!auth||auth.role!=='player'||!auth.pid)return false;
   if(SC.demoMode)return true;
+  // L3 prep: a live high school confirms the player through the pass (their own roster id here),
+  // with no roster read.
+  if(HS_ACCOUNT_SIGNIN){
+    let hs=null;
+    try{ hs=JSON.parse(sessionStorage.getItem(TN_PLAYER_SESSION_KEY)||'null'); }catch(e){ return false; }
+    if(!hs||typeof hs.token!=='string'||!TN_PLAYER_TOKEN_RE.test(hs.token)||hs.dbRoot!==DB_ROOT)return false;
+    if(hs.expiresAt&&hs.expiresAt<=Date.now())return false;
+    const res=await hsPlayerResolve(hs.token);
+    return !!res.pid&&res.pid===auth.pid;
+  }
   const rec=gP(auth.pid);
   if(!rec||!rec.accountId)return false;
   let s=null;
@@ -6632,13 +6828,14 @@ async function autoLogin(){
     if(!auth) auth=await clubAccountSession();
     if(!auth){ if(HS_ACCOUNT_SIGNIN&&_hsSigninParam) hsPlayerSigninShow(''); return; }
     if(auth.role==='player'&&auth.pid){currentPlayerId=auth.pid;currentRole='player';
+      if(typeof hsListenRole==='function')hsListenRole();
       document.getElementById('login-overlay').classList.add('hidden');
       document.getElementById('app-wrapper').style.display='block';
       document.getElementById('coach-content').style.display='none';
       document.getElementById('player-portal').style.display='block';
       document.getElementById('player-portal').classList.add('active');
       document.querySelector('.tabs').style.display='none';
-      const p=gP(auth.pid);
+      const p=gP(auth.pid)||(_hsPlayerRec&&_hsPlayerRec.id===auth.pid?_hsPlayerRec:null);
       document.getElementById('header-username').textContent=p?p.firstName+' '+p.lastName:'Player';
       renderPlayerPortal();
       ppAfterLogin();
@@ -6779,7 +6976,14 @@ async function clubAccountSession(){
   }catch(e){return null;}
   const aid=j&&j.ok===true&&j.player&&j.player.id;
   if(!aid)return null;
-  const recs=(D.players||[]).filter(p=>p&&p.accountId===aid&&p.active!==false);
+  let recs;
+  if(HS_ACCOUNT_SIGNIN){
+    // L3 prep: from the pass, never a roster read while signed out.
+    const res=await hsPlayerResolve(tok);
+    if(res.code==='error')return null;
+    recs=res.pid?[res.rec]:(res.code==='many'?[null,null]:[]);
+    if(!res.pid&&typeof fbPassSignOut==='function')fbPassSignOut();
+  } else recs=(D.players||[]).filter(p=>p&&p.accountId===aid&&p.active!==false);
   // A live high school says so when the signed-in account has no roster record here. The
   // note sits quietly on the Player side of the toggle, since a coach, parent or fan signed
   // in to CourtSense lands on this same screen, Coach side first, with the fan page below.
@@ -6942,6 +7146,7 @@ async function parentEnter(token,keep,opts){
     here:res.children.filter(function(c){ return c.dbRoot===DB_ROOT; }), others:res.children.filter(function(c){ return c.dbRoot!==DB_ROOT; }),
     active:route.active, view:route.view, team:null, child:{}, prefs:{}, prefMsg:{} };
   currentRole='parent';
+  if(typeof hsListenRole==='function')hsListenRole(); // a parent keeps no school listener (HS lockdown L3)
   if(typeof fbPassSoon==='function')fbPassSoon(); // quiet Firebase pass for this parent's account session (HS lockdown P1)
   _hsParentOffer=null;
   var ov=document.getElementById('login-overlay'); if(ov) ov.classList.add('hidden');
@@ -25746,7 +25951,7 @@ function hideFans(){
   // Stop auto-refresh
   if(_lfRefreshTimer){clearInterval(_lfRefreshTimer);_lfRefreshTimer=null;}
   // Leaving the public-copy fan page: the school data is needed again for sign-in.
-  if(typeof _fanPub!=='undefined'&&_fanPub.on){ _fanPubStop(); if(typeof schoolListenOn==='function')schoolListenOn(); }
+  if(typeof _fanPub!=='undefined'&&_fanPub.on){ _fanPubStop(); if(!HS_ACCOUNT_SIGNIN&&typeof schoolListenOn==='function')schoolListenOn(); }
   if(!currentRole){
     var loginOl=document.getElementById('login-overlay');
     if(loginOl)loginOl.classList.remove('hidden');
@@ -26268,7 +26473,9 @@ function _fanSavedSignIn(){
   });
   return saved;
 }
-function fanPublicWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!currentRole&&typeof fetch==='function'&&!_fanSavedSignIn(); }
+// L3 prep: everyone but a signed-in coach or player (signed out, a parent, a saved sign-in still
+// restoring) reads the public copy; coaches and players use the data their pass loaded.
+function fanPublicWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&typeof fetch==='function'&&currentRole!=='coach'&&currentRole!=='player'; }
 function _fanEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function _fanInitial(last){ var m=/[A-Za-zÀ-ɏ]/.exec(String(last==null?'':last)); return m?m[0].toUpperCase():''; }
 // "Jane S. #12": the only way a player name is ever built for the fan page.
