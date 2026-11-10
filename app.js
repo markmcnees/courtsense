@@ -198,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.233';
+const APP_VERSION='1.1.234';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -949,6 +949,51 @@ function _demoRateResults(data){
 // ============================================================
 // THIN SHELL INJECTION. Builds CSS and HTML from SCHOOL_CONFIG
 // ============================================================
+// ── Readable text on any school color ────────────────────────────────────────
+// The header, the sign-in backdrop and the fan page sit on the school's true colors (a
+// gradient of primaryDeeper, primary and primaryDark), which are never changed. Text on them
+// uses an ink picked from those colors: white or near-black (#13243A), whichever reads better
+// on the worst point of the gradient. Muted text is that ink at the faintest opacity that still
+// reaches 4.5:1 on every surface it sits on (the gradient, the darkened tab strip, the fan
+// page's tinted card and its fields). Soft text (lines that were 0.8 to 0.85 white) keeps at
+// least 0.85, so no line is fainter than before. The fan page's card and field tints are the
+// same ink, faint enough that full ink still reads 4.5:1 on them. Text in the school color on white
+// uses the color darkened step by step until it reaches 4.5:1 (unchanged when it already does).
+var CS_INK_DARK='#13243A';
+function csHex(h){ h=String(h||'').trim().replace('#',''); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; return /^[0-9a-fA-F]{6}$/.test(h)?'#'+h.toLowerCase():null; }
+function csRgb(h){ h=csHex(h)||'#000000'; return [1,3,5].map(function(i){ return parseInt(h.slice(i,i+2),16); }); }
+function csLum(h){ var c=csRgb(h).map(function(v){ v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); }); return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]; }
+function csContrast(a,b){ var x=csLum(a), y=csLum(b); return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05); }
+function csMix(fg,bg,a){ var f=csRgb(fg), b=csRgb(bg); return '#'+f.map(function(v,i){ return ('0'+Math.round(v*a+b[i]*(1-a)).toString(16)).slice(-2); }).join(''); }
+function csShade(h,k){ return '#'+csRgb(h).map(function(v){ return ('0'+Math.round(v*k).toString(16)).slice(-2); }).join(''); }
+function csDarkenUntil(h,on,need){ if(csHex(h)&&csContrast(h,on)>=need) return String(h).trim(); var x=csHex(h)||'#000000'; for(var i=0;i<80&&csContrast(x,on)<need;i++) x=csShade(x,0.94); return x; }
+function csSchoolInk(colors){
+  var c=colors||{};
+  var p=csHex(c.primary)||'#082a4f';
+  // White ink keeps the school's own gradient (primaryDeeper, primary, primaryDark). A school too
+  // bright for white gets near-black ink, and its gradient runs from the primary toward lighter
+  // tints instead of darker shades, so the background is never dimmed below its true color.
+  var dark=[String(csHex(c.primary)?c.primary:p).trim(), csHex(c.primaryDark)?String(c.primaryDark).trim():csShade(p,0.8), csHex(c.primaryDeeper)?String(c.primaryDeeper).trim():csShade(p,0.62)];
+  var light=[dark[0], csMix('#ffffff',p,0.12), csMix('#ffffff',p,0.24)];
+  var minC=function(ink,bgs){ return Math.min.apply(null,bgs.map(function(b){ return csContrast(ink,b); })); };
+  var useDark=minC(CS_INK_DARK,light)>minC('#ffffff',dark);
+  var ink=useDark?CS_INK_DARK:'#ffffff';
+  var stops=useDark?light:dark;
+  // Card and field tints (fan page): ink at 0.10 and 0.15, fainter when full ink would not read.
+  var cardA=0.10, fieldA=0.15;
+  var tintOk=function(ca,fa){ return stops.every(function(st){ var card=csMix(ink,st,ca); return csContrast(ink,card)>=4.5&&csContrast(ink,csMix(ink,card,fa))>=4.5; }); };
+  while((cardA>0||fieldA>0)&&!tintOk(cardA,fieldA)){ cardA=Math.max(0,Math.round((cardA-0.01)*100)/100); fieldA=Math.max(0,Math.round((fieldA-0.015)*1000)/1000); }
+  var surf=[];
+  stops.forEach(function(st){ var card=csMix(ink,st,cardA); surf.push(st, csMix('#000000',st,0.15), card, csMix(ink,card,fieldA)); });
+  var alpha=1;
+  for(var a=30;a<=100;a++){ var k=a/100; if(surf.every(function(b){ return csContrast(csMix(ink,b,k),b)>=4.5; })){ alpha=k; break; } }
+  var rgb=csRgb(ink).join(',');
+  var redText=csDarkenUntil(csHex(c.primary)?c.primary:p,'#ffffff',4.5);
+  var redTextDeep=csDarkenUntil(dark[2],'#ffffff',4.5);
+  var onInk=ink==='#ffffff'?redTextDeep:(csContrast(p,CS_INK_DARK)>=4.5?p:'#ffffff');
+  return { ink:ink, inkRgb:rgb, mutedAlpha:alpha, muted:'rgba('+rgb+','+alpha+')', soft:'rgba('+rgb+','+Math.max(0.85,alpha)+')', cardA:cardA, fieldA:fieldA, redText:redText, redTextDeep:redTextDeep, onInkText:onInk, stops:stops };
+}
+var CS_INK=csSchoolInk(SC&&SC.colors);
 (function injectApp(){
   var c=SC.colors;
   // Gold accent: config-driven via SC.colors.accent, falling back to the platform default so any school without an accent renders exactly as before.
@@ -962,8 +1007,8 @@ function _demoRateResults(data){
   }
 
   // ── Inject CSS ──────────────────────────────────────────────
-  var rootLine=':root{--red:'+c.primary+';--red-dark:'+c.primaryDark+';--red-deeper:'+c.primaryDeeper+';--red-light:'+c.primaryLight+';--red-bg:'+c.primaryBg+';--black:#1a1a1a;--charcoal:#2d2d2d;--white:#ffffff;--off-white:#fafafa;--cream:#f7f4f0;--gold:'+accent+';--gold-light:#f0d98a;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#e8eaed;--green:#16a34a;--green-bg:#dcfce7;--loss-red:#991b1b;--blue:#4338ca;--blue-bg:#e0e7ff;--purple:#7c3aed;--purple-bg:#f3e8ff;--radius:10px;--shadow:0 2px 10px rgba(0,0,0,0.06);--shadow-lg:0 8px 30px rgba(0,0,0,0.12);}';
-  var headerLine='.header{background:linear-gradient(135deg,var(--red-deeper) 0%,var(--red) 50%,var(--red-dark) 100%);padding:14px 20px 10px;position:relative;z-index:100;box-shadow:0 4px 24px rgba('+hexRgb(c.primary)+',0.3);}';
+  var rootLine=':root{--on-red:'+CS_INK.ink+';--on-red-rgb:'+CS_INK.inkRgb+';--on-red-muted:'+CS_INK.muted+';--on-red-soft:'+CS_INK.soft+';--on-red-card:'+CS_INK.cardA+';--on-red-field:'+CS_INK.fieldA+';--red-text:'+CS_INK.redText+';--red-text-deep:'+CS_INK.redTextDeep+';--on-ink-text:'+CS_INK.onInkText+';--grad-dark:'+CS_INK.stops[1]+';--grad-deep:'+CS_INK.stops[2]+';--red:'+c.primary+';--red-dark:'+c.primaryDark+';--red-deeper:'+c.primaryDeeper+';--red-light:'+c.primaryLight+';--red-bg:'+c.primaryBg+';--black:#1a1a1a;--charcoal:#2d2d2d;--white:#ffffff;--off-white:#fafafa;--cream:#f7f4f0;--gold:'+accent+';--gold-light:#f0d98a;--gray:#6b7280;--gray-light:#d1d5db;--gray-lighter:#e8eaed;--green:#16a34a;--green-bg:#dcfce7;--loss-red:#991b1b;--blue:#4338ca;--blue-bg:#e0e7ff;--purple:#7c3aed;--purple-bg:#f3e8ff;--radius:10px;--shadow:0 2px 10px rgba(0,0,0,0.06);--shadow-lg:0 8px 30px rgba(0,0,0,0.12);}';
+  var headerLine='.header{background:linear-gradient(135deg,var(--grad-deep) 0%,var(--red) 50%,var(--grad-dark) 100%);padding:14px 20px 10px;position:relative;z-index:100;box-shadow:0 4px 24px rgba('+hexRgb(c.primary)+',0.3);}';
   var staticCSS=`
 
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -971,7 +1016,7 @@ html,body{width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touc
 body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);min-height:100vh;-webkit-font-smoothing:antialiased;}
 
 .header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-.header h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:26px;color:var(--white);letter-spacing:3px;display:flex;align-items:center;gap:8px;text-shadow:0 2px 8px rgba(0,0,0,0.2);}
+.header h1{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:26px;color:var(--on-red);letter-spacing:3px;display:flex;align-items:center;gap:8px;text-shadow:0 2px 8px rgba(0,0,0,0.2);}
 .header h1 .crown{font-size:22px;}
 .sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:6px;}
 .sync-dot.online{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse 2s infinite;}
@@ -980,10 +1025,10 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .season-badge{background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);color:var(--white);font-family:'Bebas Neue',sans-serif;font-size:13px;padding:4px 14px;border-radius:20px;letter-spacing:2px;border:1px solid rgba(255,255,255,0.25);}
 .tabs{display:flex;flex-direction:column;gap:2px;background:rgba(0,0,0,0.15);border-radius:8px;padding:2px;}
 .tabs::-webkit-scrollbar{display:none;}
-.tab{flex:1;padding:8px 4px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:12px;color:rgba(255,255,255,0.55);letter-spacing:1px;cursor:pointer;border-radius:6px;transition:all 0.2s ease;border:none;background:transparent;white-space:nowrap;min-width:0;}
-.mode-bar{display:flex;gap:8px;padding:8px 12px 0;border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:4px;}
-.mode-btn{flex:1;padding:9px 12px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;border:none;border-radius:8px 8px 0 0;cursor:pointer;transition:all 0.2s;color:rgba(255,255,255,0.55);background:transparent;white-space:nowrap;min-width:0;}
-.mode-btn.active{background:rgba(255,255,255,0.18);color:#fff;}
+.tab{flex:1;padding:8px 4px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--on-red-muted);letter-spacing:1px;cursor:pointer;border-radius:6px;transition:all 0.2s ease;border:none;background:transparent;white-space:nowrap;min-width:0;}
+.mode-bar{display:flex;gap:8px;padding:8px 12px 0;border-bottom:1px solid rgba(var(--on-red-rgb),0.15);margin-bottom:4px;}
+.mode-btn{flex:1;padding:9px 12px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;border:none;border-radius:8px 8px 0 0;cursor:pointer;transition:all 0.2s;color:var(--on-red-muted);background:transparent;white-space:nowrap;min-width:0;}
+.mode-btn.active{background:rgba(var(--on-red-rgb),0.18);color:var(--on-red);}
 /* HS five-button nav only: shrink font, tracking, and side padding so all five labels fit a phone width without overflowing into the next tab. Club two-button nav is unaffected. */
 .mode-bar-hs .mode-btn{font-size:12px;letter-spacing:0.5px;padding:9px 6px;}
 /* HS four-tab nav active state: navy Team-pillar pill. Scoped to mode-bar-hs so the club two-button nav is unaffected. */
@@ -992,7 +1037,7 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 #ta-hs-toggle .filter-btn.active{background:#082A4F;color:#fff;}
 .sub-tabs{display:flex;padding:6px 12px 6px;gap:6px;}
 .sub-tabs .tab{flex:1;padding:9px 8px;font-size:13px;letter-spacing:1px;border-radius:8px;text-align:center;}
-.tab.active{background:rgba(255,255,255,0.2);color:var(--white);}.tab:hover{color:var(--white);}
+.tab.active{background:rgba(var(--on-red-rgb),0.2);color:var(--on-red);}.tab:hover{color:var(--on-red);}
 .content{padding:16px;max-width:840px;margin:0 auto;}
 .tab-content{display:none;}.tab-content.active{display:block;}
 .card{background:var(--white);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:var(--shadow);border:1px solid rgba(0,0,0,0.04);animation:fadeIn 0.25s ease;}
@@ -1102,7 +1147,7 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .notif-banner-title{font-family:'Bebas Neue',sans-serif;font-size:18px;margin-bottom:4px;}
 .notif-banner-detail{font-size:13px;font-weight:700;}
 .class-badge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.5px;}
-.class-SR{background:var(--black);color:var(--white);}.class-JR{background:var(--red);color:var(--white);}.class-SO{background:var(--gold);color:var(--black);}.class-FR{background:var(--gray-light);color:var(--charcoal);}
+.class-SR{background:var(--black);color:var(--white);}.class-JR{background:var(--red);color:var(--on-red);}.class-SO{background:var(--gold);color:var(--black);}.class-FR{background:var(--gray-light);color:var(--charcoal);}
 .tier-badge,.badge-exec,.badge-faculty{display:inline-block;font-family:'Bebas Neue',sans-serif;font-size:11px;padding:2px 8px;border-radius:4px;letter-spacing:1px;}
 .tier-garnet{background:#782F40;color:#ffffff;}.tier-gold{background:#CEB888;color:#2d2d2d;}.tier-unassigned{background:var(--gray-light);color:var(--charcoal);}
 .tier-roster{background:#082A4F;color:#fff;}.tier-development{background:#217F7F;color:#fff;}
@@ -1120,7 +1165,7 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .wl-record{font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--black);}
 .filter-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
 .filter-btn{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:0.8px;padding:6px 14px;border-radius:20px;border:2px solid var(--gray-light);background:var(--white);color:var(--gray);cursor:pointer;transition:all 0.15s;}
-.filter-btn.active{border-color:var(--red);background:var(--red);color:var(--white);}.filter-btn:hover{border-color:var(--red);}
+.filter-btn.active{border-color:var(--red);background:var(--red);color:var(--on-red);}.filter-btn:hover{border-color:var(--red);}
 .filter-btn.blue.active{border-color:var(--blue);background:var(--blue);color:var(--white);}.filter-btn.blue:hover{border-color:var(--blue);}
 .filter-btn.purple.active{border-color:var(--purple);background:var(--purple);color:var(--white);}.filter-btn.purple:hover{border-color:var(--purple);}
 .form-group{margin-bottom:14px;}
@@ -1147,7 +1192,7 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .score-input:focus{outline:none;border-color:var(--red);}
 .score-input-sm{padding:8px;font-size:22px;}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 28px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;cursor:pointer;border:none;transition:all 0.2s;width:100%;}
-.btn-primary{background:var(--red);color:var(--white);}.btn-primary:hover{background:var(--red-dark);}
+.btn-primary{background:var(--red);color:var(--on-red);}.btn-primary:hover{background:var(--red-dark);}
 .btn-blue{background:var(--blue);color:var(--white);}.btn-blue:hover{background:#3730a3;}
 .btn-purple{background:var(--purple);color:var(--white);}.btn-purple:hover{background:#6d28d9;}
 .btn-secondary{background:var(--off-white);color:var(--charcoal);border:2px solid var(--gray-lighter);}.btn-secondary:hover{background:var(--gray-lighter);}
@@ -1194,7 +1239,7 @@ body{font-family:'Barlow',sans-serif;background:var(--cream);color:var(--black);
 .demo-creds .sep{margin:0 12px;color:var(--gray);}
 .demo-creds-inline{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;margin:0 0 16px;font-size:13px;color:var(--charcoal);text-align:center;letter-spacing:0.3px;line-height:1.6;}
 body.demo{padding-top:32px;}
-.demo-guide-btn{position:fixed;bottom:20px;right:20px;z-index:99996;background:var(--red);color:var(--white);padding:12px 20px;border-radius:50px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;box-shadow:0 4px 16px rgba(0,0,0,0.2);cursor:pointer;border:none;display:flex;align-items:center;gap:8px;transition:transform 0.2s,box-shadow 0.2s;}
+.demo-guide-btn{position:fixed;bottom:20px;right:20px;z-index:99996;background:var(--red);color:var(--on-red);padding:12px 20px;border-radius:50px;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;box-shadow:0 4px 16px rgba(0,0,0,0.2);cursor:pointer;border:none;display:flex;align-items:center;gap:8px;transition:transform 0.2s,box-shadow 0.2s;}
 .demo-guide-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.25);}
 .demo-guide-btn .icon{font-size:18px;}
 .demo-guide-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99997;display:none;align-items:flex-end;justify-content:center;padding:20px;}
@@ -1211,7 +1256,7 @@ body.demo{padding-top:32px;}
 .demo-guide-list{padding:0 24px 24px;list-style:none;margin:0;}
 .demo-guide-list li{padding:14px 0;border-bottom:1px solid var(--gray-lighter);display:flex;gap:12px;align-items:flex-start;}
 .demo-guide-list li:last-child{border-bottom:none;}
-.demo-guide-num{flex-shrink:0;width:28px;height:28px;background:var(--red);color:var(--white);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:14px;}
+.demo-guide-num{flex-shrink:0;width:28px;height:28px;background:var(--red);color:var(--on-red);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:14px;}
 .demo-guide-content{flex:1;}
 .demo-guide-content h3{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;margin:0 0 4px;color:var(--charcoal);}
 .demo-guide-content p{font-size:14px;line-height:1.5;color:var(--gray-dark);margin:0;}
@@ -1279,7 +1324,7 @@ body.demo{padding-top:32px;}
    enlarged phone numpad, short windows) the auto margins collapse to zero and
    the overlay scrolls, so the bottom buttons are always reachable. Centering
    via align-items would instead clip a tall card off BOTH ends unreachably. */
-.login-overlay{position:fixed;top:0;left:0;width:100%;height:100%;min-height:100dvh;background:linear-gradient(135deg,var(--red-deeper) 0%,var(--red) 50%,var(--red-dark) 100%);z-index:9999;display:flex;overflow-y:auto;padding:20px;}
+.login-overlay{position:fixed;top:0;left:0;width:100%;height:100%;min-height:100dvh;background:linear-gradient(135deg,var(--grad-deep) 0%,var(--red) 50%,var(--grad-dark) 100%);z-index:9999;display:flex;overflow-y:auto;padding:20px;}
 body.demo .login-overlay{align-items:flex-start;padding-top:60px;padding-bottom:40px;overflow-y:auto;}
 /* Demo keeps its original top-aligned look: zero the vertical auto margins. */
 body.demo .login-box{padding:20px 28px;margin:0 auto;}
@@ -1294,13 +1339,13 @@ body.demo .login-pin-dots{margin:10px 0;}
 body.demo .login-error{margin-top:4px;min-height:14px;}
 .login-overlay.hidden{display:none;}
 .login-box{background:var(--white);border-radius:16px;padding:36px 28px;width:100%;max-width:380px;box-shadow:var(--shadow-lg);text-align:center;margin:auto;}
-.login-logo{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:4px;color:var(--red);margin-bottom:4px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.login-logo{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:4px;color:var(--red-text);margin-bottom:4px;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .login-logo > span[style*="font-size"]{margin-bottom:20px;}
 .login-logo .crown{font-size:30px;}
 .login-sub{font-size:13px;color:var(--gray);margin-bottom:24px;letter-spacing:0.5px;}
 .login-toggle{display:flex;gap:2px;background:var(--gray-lighter);border-radius:8px;padding:2px;margin-bottom:20px;}
 .login-toggle-btn{flex:1;padding:10px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;border:none;background:transparent;color:var(--gray);cursor:pointer;border-radius:6px;transition:all 0.2s;}
-.login-toggle-btn.active{background:var(--red);color:var(--white);}
+.login-toggle-btn.active{background:var(--red);color:var(--on-red);}
 /* Send link control (coach): a 44px button, a Teal Confirmed label, a muted no-email line. */
 .gl-box{margin:6px 0 10px;}
 .gl-btn{min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #082A4F;background:#082A4F;color:#fff;font-family:'Barlow',sans-serif;font-size:14px;font-weight:700;cursor:pointer;max-width:100%;}
@@ -1369,21 +1414,22 @@ body.demo .login-error{margin-top:4px;min-height:14px;}
 .login-numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:240px;margin:0 auto;}
 .login-numpad-btn{padding:14px;font-family:'Bebas Neue',sans-serif;font-size:22px;border:2px solid var(--gray-lighter);border-radius:10px;background:var(--white);color:var(--black);cursor:pointer;transition:all 0.15s;}
 .login-numpad-btn:hover{border-color:var(--red);background:var(--red-bg);}
-.login-numpad-btn:active{background:var(--red);color:var(--white);}
+.login-numpad-btn:active{background:var(--red);color:var(--on-red);}
 .login-numpad-btn.empty{visibility:hidden;border:none;}
 .login-numpad-btn.backspace{font-size:16px;}
 .login-error{color:var(--loss-red);font-size:13px;font-weight:700;margin-top:10px;min-height:20px;}
 .login-player-select{margin:16px 0;}
 .login-player-select select{width:100%;padding:12px 14px;border:2px solid var(--gray-lighter);border-radius:8px;font-family:'Barlow',sans-serif;font-size:15px;color:var(--black);background:var(--white);}
 .login-player-select select:focus{outline:none;border-color:var(--red);}
-.login-btn{width:100%;padding:14px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;border:none;background:var(--red);color:var(--white);transition:all 0.2s;margin-top:12px;}
+#school-fans-overlay input::placeholder{color:var(--on-red-muted);opacity:1;}
+.login-btn{width:100%;padding:14px;border-radius:8px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;cursor:pointer;border:none;background:var(--red);color:var(--on-red);transition:all 0.2s;margin-top:12px;}
 .login-btn:hover{background:var(--red-dark);}
 .login-btn:disabled{background:var(--gray-light);cursor:not-allowed;}
 /* HEADER USER INFO */
 .header-user{display:flex;align-items:center;gap:10px;}
-.header-username{font-family:'Bebas Neue',sans-serif;font-size:14px;color:rgba(255,255,255,0.9);letter-spacing:1px;}
-.logout-btn{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1px;padding:4px 12px;border-radius:4px;border:1px solid rgba(255,255,255,0.4);background:transparent;color:rgba(255,255,255,0.8);cursor:pointer;transition:all 0.15s;}
-.logout-btn:hover{background:rgba(255,255,255,0.15);color:var(--white);}
+.header-username{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--on-red);letter-spacing:1px;}
+.logout-btn{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1px;padding:4px 12px;border-radius:4px;border:1px solid rgba(var(--on-red-rgb),0.4);background:transparent;color:var(--on-red-soft);cursor:pointer;transition:all 0.15s;}
+.logout-btn:hover{background:rgba(var(--on-red-rgb),0.15);color:var(--on-red);}
 /* PLAYER PORTAL */
 .player-portal{display:none;padding:16px;max-width:840px;margin:0 auto;}
 .player-portal.active{display:block;}
@@ -1459,7 +1505,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
     <div class="login-logo" style="flex-direction:column;align-items:center;gap:6px;">${logoHTML('cs-logo-login',LOGO_H,SC.logoAlt,'')}<span>${SC.displayName}</span></div>
-    <div class="login-sub" id="login-season">${seasonLabelText(String(new Date().getFullYear()))}</div>
+    <div class="login-sub" id="login-season">${csSeasonLabel()}</div>
     ${SC.demoMode ? '<div class="demo-creds-inline">'+COACH_LABEL+' PIN: <strong>1234</strong><span class="sep"> · </span>Player password: <strong>'+SC.defaultPw+'</strong></div>' : ''}
     <!-- Door check-in prompt. Filled by tryoutLoginPrompt only when a scanned session id is
          being held; empty on every other visit and on every school shell. -->
@@ -1575,15 +1621,15 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       ${DEMO_CLUB ? `<div style="font-size:12px;color:var(--gray);line-height:1.5;">Sign in as an ${COACH_LABEL} to run the club, or pick any member to see their side. Tap Demo Guide for ideas.</div>` : SC.applyUrl ? `
       <!-- Apply path: shells that set applyUrl (e.g. FSU Grass, which has no fans or press) point this
            button at their application instead of the fan overlay. Label and subline come from config. -->
-      <button onclick="openApplyPage()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--white);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
+      <button onclick="openApplyPage()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--on-red);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
         ${SC.applyLabel || (SC.displayName + ' Application')}
       </button>
-      ${SC.applySubline ? `<div style="font-size:11px;color:var(--red);font-weight:700;margin-top:6px;">${SC.applySubline}</div>` : ''}
+      ${SC.applySubline ? `<div style="font-size:11px;color:var(--red-text);font-weight:700;margin-top:6px;">${SC.applySubline}</div>` : ''}
       ` : `
-      <button onclick="showLeonFans()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--white);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
+      <button onclick="showLeonFans()" style="display:inline-flex;align-items:center;gap:6px;font-family:'Bebas Neue';font-size:14px;letter-spacing:1.5px;color:var(--on-red);border:none;cursor:pointer;padding:9px 20px;border-radius:8px;background:var(--red);transition:background 0.2s;" onmouseover="this.style.background='var(--red-dark)';" onmouseout="this.style.background='var(--red)';">
         🏐 ${SC.displayName} Fan Page
       </button>
-      <div style="font-size:11px;color:var(--red);font-weight:700;margin-top:6px;">Parents · Fans · Press. No login required</div>
+      <div style="font-size:11px;color:var(--red-text);font-weight:700;margin-top:6px;">Parents · Fans · Press. No login required</div>
       `}
     </div>
   </div>
@@ -2406,7 +2452,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
 </div>
 <div class="modal-overlay" id="coach-player-overlay" onclick="if(event.target===this)coachClosePlayer()">
   <div id="coach-player-modal" style="background:var(--white);border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;padding:0;">
-    <div style="background:var(--primary, var(--red));color:#fff;padding:16px 20px;border-radius:16px 16px 0 0;display:flex;justify-content:space-between;align-items:center;">
+    <div style="background:var(--primary, var(--red));color:var(--on-red);padding:16px 20px;border-radius:16px 16px 0 0;display:flex;justify-content:space-between;align-items:center;">
       ${SC.tiersEnabled?`<div style="display:flex;align-items:center;gap:12px;">
         <div id="cpm-photo"></div>
         <div>
@@ -2417,7 +2463,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
         <div id="cpm-name" style="font-family:'Bebas Neue';font-size:22px;letter-spacing:1px;"></div>
         <div id="cpm-meta" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;"></div>
       </div>`}
-      <button onclick="coachClosePlayer()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:16px;">✕</button>
+      <button onclick="coachClosePlayer()" style="background:rgba(var(--on-red-rgb),0.2);border:none;color:var(--on-red);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:16px;">✕</button>
     </div>
     <div style="padding:16px 20px;display:flex;flex-direction:column;gap:20px;">
       <div style="border-top:1px solid var(--gray-lighter);padding-top:16px;"><div style="font-family:'Bebas Neue';font-size:16px;letter-spacing:1px;color:var(--gray);margin-bottom:8px;">📊 Team Rankings</div><div id="cpm-rankings"></div></div>
@@ -2550,16 +2596,16 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
     <div style="text-align:center;padding:24px 0 12px;">
       <!-- The school logo always sits in a white circle, so any logo reads on any school color. -->
       <div id="lf-logo-circle" style="width:104px;height:104px;margin:0 auto 10px;box-sizing:border-box;padding:12px;border-radius:50%;background:#ffffff;box-shadow:0 4px 14px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;">${logoHTML('cs-logo-fans',72,SC.logoAlt,'line-height:1;max-width:80px;object-fit:contain;')}</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:3px;color:#fff;">${SC.schoolName}</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.65);margin-top:2px;">Beach Volleyball &middot; <span id="lf-season">${String(new Date().getFullYear())}</span> Season</div>
-      <div id="lf-record" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:#ffffff;margin-top:8px;"></div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:3px;color:var(--on-red);">${SC.schoolName}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--on-red-muted);margin-top:2px;"><span id="lf-season">${csSeasonLabel()}</span></div>
+      <div id="lf-record" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--on-red);margin-top:8px;"></div>
       <div style="margin-top:12px;display:flex;justify-content:center;gap:8px;">
-        <button onclick="hideLeonFans()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 18px;border-radius:20px;cursor:pointer;">&#x2715; Close</button>
-        <button onclick="lfManualRefresh()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 14px;border-radius:20px;cursor:pointer;">&#x21BA; Refresh</button>
+        <button onclick="hideLeonFans()" style="background:rgba(var(--on-red-rgb),var(--on-red-field));border:1px solid rgba(var(--on-red-rgb),0.3);color:var(--on-red);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 18px;border-radius:20px;cursor:pointer;">&#x2715; Close</button>
+        <button onclick="lfManualRefresh()" style="background:rgba(var(--on-red-rgb),var(--on-red-field));border:1px solid rgba(var(--on-red-rgb),0.3);color:var(--on-red);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 14px;border-radius:20px;cursor:pointer;">&#x21BA; Refresh</button>
       </div>
       <div style="margin-top:10px;display:flex;align-items:center;justify-content:center;gap:6px;">
         <span id="lf-refresh-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4ade80;opacity:0.4;transition:opacity 0.3s;animation:pulse 2s infinite;"></span>
-        <span style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:1px;">LIVE &middot; AUTO-UPDATES EVERY 30s</span>
+        <span style="font-size:10px;color:var(--on-red-muted);letter-spacing:1px;">LIVE &middot; AUTO-UPDATES EVERY 30s</span>
       </div>
     </div>
     <div id="lf-banner" style="border-radius:12px;padding:14px;margin-bottom:14px;"></div>
@@ -2568,48 +2614,48 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
       <div id="lf-today-courts"></div>
     </div>
     <div id="lf-upcoming-section" style="display:none;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:14px;margin-bottom:14px;overflow:hidden;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${SC.colors.primaryDeeper};padding:12px 14px 8px;">Upcoming Games</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--red-text-deep);padding:12px 14px 8px;">Upcoming Games</div>
       <div id="lf-upcoming"></div>
     </div>
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin-bottom:8px;">Season Results</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--on-red);margin-bottom:8px;">Season Results</div>
     <div id="lf-results"></div>
     <div id="lf-standings-section" style="display:none;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:14px;margin:16px 0 0;overflow:hidden;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:${SC.colors.primaryDeeper};padding:12px 14px 8px;">Standings</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--red-text-deep);padding:12px 14px 8px;">Standings</div>
       <div id="lf-standings"></div>
     </div>
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:16px 0 8px;">Roster</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--on-red);margin:16px 0 8px;">Roster</div>
     <div id="lf-roster"></div>
 
     <!-- Stay Updated: fan alerts by email, text or both, through the worker (/fans/subscribe),
          which keeps fan contacts in a worker-only node. Live high schools only: the club and the
          demo never render it. Static markup only; the consent text is set with textContent. -->
     ${(HS_ACCOUNT_SIGNIN&&hsSignupSlug())?`
-    <div id="lf-alerts" style="margin-top:24px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.2);border-radius:14px;padding:18px;box-sizing:border-box;max-width:100%;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#fff;margin-bottom:4px;">Stay Updated</div>
-      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:14px;line-height:1.4;">Get final results and schedule changes by email. Text alerts are coming soon.</div>
-      <div id="lf-alerts-done" style="display:none;font-family:'Barlow',sans-serif;font-size:14px;color:#fff;line-height:1.5;text-align:center;padding:6px 0;"></div>
+    <div id="lf-alerts" style="margin-top:24px;background:rgba(var(--on-red-rgb),var(--on-red-card));border:1px solid rgba(var(--on-red-rgb),0.2);border-radius:14px;padding:18px;box-sizing:border-box;max-width:100%;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--on-red);margin-bottom:4px;">Stay Updated</div>
+      <div style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--on-red-soft);margin-bottom:14px;line-height:1.4;">Get final results and schedule changes by email. Text alerts are coming soon.</div>
+      <div id="lf-alerts-done" style="display:none;font-family:'Barlow',sans-serif;font-size:14px;color:var(--on-red);line-height:1.5;text-align:center;padding:6px 0;"></div>
       <form id="lf-alerts-form" onsubmit="return false;" novalidate>
-        <label for="lf-alerts-email" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:4px;">Email</label>
-        <input type="email" id="lf-alerts-email" maxlength="254" inputmode="email" autocomplete="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;font-family:'Barlow',sans-serif;font-size:16px;margin-bottom:10px;">
-        <label for="lf-alerts-phone" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:4px;">Mobile</label>
-        <input type="tel" id="lf-alerts-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="(850) 555-0123" oninput="fanFormPhoneChanged()" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;font-family:'Barlow',sans-serif;font-size:16px;">
+        <label for="lf-alerts-email" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:var(--on-red-soft);margin-bottom:4px;">Email</label>
+        <input type="email" id="lf-alerts-email" maxlength="254" inputmode="email" autocomplete="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(var(--on-red-rgb),var(--on-red-field));color:var(--on-red);font-family:'Barlow',sans-serif;font-size:16px;margin-bottom:10px;">
+        <label for="lf-alerts-phone" style="display:block;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;color:var(--on-red-soft);margin-bottom:4px;">Mobile</label>
+        <input type="tel" id="lf-alerts-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="(850) 555-0123" oninput="fanFormPhoneChanged()" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:none;background:rgba(var(--on-red-rgb),var(--on-red-field));color:var(--on-red);font-family:'Barlow',sans-serif;font-size:16px;">
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0;">
-          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:#fff;cursor:pointer;"><input type="checkbox" id="lf-alerts-results" checked style="width:16px;height:16px;accent-color:#ffffff;"> Game results</label>
-          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:#fff;cursor:pointer;"><input type="checkbox" id="lf-alerts-schedule" checked style="width:16px;height:16px;accent-color:#ffffff;"> Schedule changes</label>
+          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:var(--on-red);cursor:pointer;"><input type="checkbox" id="lf-alerts-results" checked style="width:16px;height:16px;accent-color:var(--on-red);"> Game results</label>
+          <label style="display:flex;align-items:center;gap:6px;font-family:'Barlow',sans-serif;font-size:13px;color:var(--on-red);cursor:pointer;"><input type="checkbox" id="lf-alerts-schedule" checked style="width:16px;height:16px;accent-color:var(--on-red);"> Schedule changes</label>
         </div>
-        <label id="lf-alerts-consent-row" style="display:none;align-items:flex-start;gap:8px;font-family:'Barlow',sans-serif;font-size:12px;color:#fff;line-height:1.45;margin:0 0 12px;cursor:pointer;"><input type="checkbox" id="lf-alerts-consent" style="width:18px;height:18px;margin-top:1px;flex:none;accent-color:#ffffff;"><span id="lf-alerts-consent-text"></span></label>
+        <label id="lf-alerts-consent-row" style="display:none;align-items:flex-start;gap:8px;font-family:'Barlow',sans-serif;font-size:12px;color:var(--on-red);line-height:1.45;margin:0 0 12px;cursor:pointer;"><input type="checkbox" id="lf-alerts-consent" style="width:18px;height:18px;margin-top:1px;flex:none;accent-color:var(--on-red);"><span id="lf-alerts-consent-text"></span></label>
         <div id="lf-alerts-ts" style="margin:4px 0 12px;min-height:65px;max-width:100%;overflow:hidden;"></div>
-        <button type="button" id="lf-alerts-send" onclick="fanFormSubmit()" style="width:100%;box-sizing:border-box;padding:12px;background:#ffffff;color:${SC.colors.primaryDeeper};font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;border:none;border-radius:10px;cursor:pointer;">Sign Me Up</button>
-        <div id="lf-alerts-msg" role="status" aria-live="polite" style="font-family:'Barlow',sans-serif;font-size:13px;color:#fff;margin-top:8px;text-align:center;min-height:1.2em;"></div>
+        <button type="button" id="lf-alerts-send" onclick="fanFormSubmit()" style="width:100%;box-sizing:border-box;padding:12px;background:var(--on-red);color:var(--on-ink-text);font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;border:none;border-radius:10px;cursor:pointer;">Sign Me Up</button>
+        <div id="lf-alerts-msg" role="status" aria-live="polite" style="font-family:'Barlow',sans-serif;font-size:13px;color:var(--on-red);margin-top:8px;text-align:center;min-height:1.2em;"></div>
       </form>
     </div>
     `:''}
   </div>
 </div>
-<div id="athlete-overlay" style="display:none;position:fixed;inset:0;background:linear-gradient(160deg,${SC.colors.primaryDeeper} 0%,${SC.colors.primary} 50%,${SC.colors.primaryDark} 100%);z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+<div id="athlete-overlay" style="display:none;position:fixed;inset:0;background:${fanHeaderBg()};z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
   <div style="max-width:480px;margin:0 auto;padding:12px 14px 40px;">
     <div style="text-align:right;padding:4px 0 8px;">
-      <button onclick="hideAthleteCard()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 18px;border-radius:20px;cursor:pointer;">&#x2715; Close</button>
+      <button onclick="hideAthleteCard()" style="background:rgba(var(--on-red-rgb),var(--on-red-field));border:1px solid rgba(var(--on-red-rgb),0.3);color:var(--on-red);font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:7px 18px;border-radius:20px;cursor:pointer;">&#x2715; Close</button>
     </div>
     <div id="ac-header"></div>
     <div id="ac-record"></div>
@@ -3835,6 +3881,9 @@ function hsSeasonFromPublic(){
   try{ p=fetch(AUTH_WORKER+'/hs/public?n='+encodeURIComponent(DB_ROOT),{ cache:'no-cache' }); }catch(e){ return Promise.resolve(false); }
   return Promise.resolve(p).then(function(r){ return r&&r.ok?r.json():null; }).then(function(j){
     var v=j&&j.ok===true&&j.data&&j.data.meta?j.data.meta.season:null;
+    // The school's own season for the label (an empty or missing one is read as empty), unless a
+    // coach's config read already gave it.
+    if(j&&j.ok===true&&!_hsSeasonFromSchool){ csSeasonOwnSet(v); updateSeasonLabel(); }
     if(typeof v==='string'&&/^\d{4}$/.test(v)&&!_hsSeasonFromSchool){ _currentSeasonId=v; updateSeasonLabel(); return true; }
     return false;
   }).catch(function(){ return false; });
@@ -4390,7 +4439,7 @@ function fanPublicBoot(){
 }
 function listenData(){if(!db||_schoolListening)return;
   _schoolListening=true;
-  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val()){_currentSeasonId=snap.val();_hsSeasonFromSchool=true;}updateSeasonLabel();},function(){});
+  db.ref(DB_ROOT+'/config/currentSeasonId').once('value',function(snap){if(snap.val()){_currentSeasonId=snap.val();_hsSeasonFromSchool=true;}csSeasonOwnSet(snap.val());updateSeasonLabel();},function(){});
   _hsWatch(SC.dbRoots.profiles+'/quizScores','school',snap=>{D.quizScores=snap.val()||{};if(currentRole==='player')renderPlayerPortal();});
   _hsWatch(DB_ROOT,'school',snap=>{
     const val=snap.val();
@@ -7519,8 +7568,9 @@ function hsSetParentSkills(on){
     return false;
   });
 }
-// Fan page colors. White text must read on the school's main color: at a contrast ratio below
-// 4.5 (WCAG AA), the deepest shade stands in behind white text and as the accent on white.
+// Fan page colors. The background is always the school's true gradient; text on it uses the
+// ink from csSchoolInk (white or near-black, whichever reads). The school color used as text or
+// an accent on white is the primary darkened until it reaches 4.5:1 (unchanged when it does).
 function fanContrastWithWhite(hex){
   var h=String(hex||'').replace('#','');
   if(!/^[0-9a-fA-F]{6}$/.test(h)) return 21;
@@ -7529,21 +7579,52 @@ function fanContrastWithWhite(hex){
   return 1.05/(L+0.05);
 }
 function fanMainColor(){
-  var col=SC.colors||{};
-  return fanContrastWithWhite(col.primary)>=4.5?col.primary:(col.primaryDeeper||col.primary);
+  return CS_INK.redText;
 }
 function fanHeaderBg(){
-  var col=SC.colors||{};
-  if(fanContrastWithWhite(col.primary)>=4.5) return 'linear-gradient(160deg,'+col.primaryDeeper+' 0%,'+col.primary+' 50%,'+col.primaryDark+' 100%)';
-  return 'linear-gradient(160deg,'+col.primaryDeeper+' 0%,'+col.primaryDeeper+' 100%)';
+  var st=CS_INK.stops;
+  return 'linear-gradient(160deg,'+st[2]+' 0%,'+st[0]+' 50%,'+st[1]+' 100%)';
 }
 function seasonLabelText(id){ return String(id||new Date().getFullYear())+' Beach Volleyball Season'; }
-// The login screen's season line, from {matches}/config/currentSeasonId once it arrives.
+// ── Season label (display only) ──────────────────────────────────────────────
+// At a high school the label shows the default season: from June 1 through December 31 that is
+// next calendar year, January 1 through May 31 the current year, by the school's time zone
+// (Eastern when it has none). The school's own season (a coach: config/currentSeasonId; everyone
+// else: the public copy's meta.season) wins only when it is the default year or later. Until the
+// school's season reaches the label year, the label adds "Starts in January" and the fan page's
+// empty results say the season starts in January. Nothing here is written, and _currentSeasonId
+// (result stamps and the season filter) is not changed. The club and the demos keep their label.
+var _schoolSeasonOwn=null, _schoolSeasonKnown=false;
+function csSeasonTz(){ var z=SC&&SC.timeZone; if(typeof z==='string'&&z){ try{ new Intl.DateTimeFormat('en-US',{timeZone:z}); return z; }catch(e){} } return 'America/New_York'; }
+function csSeasonDefault(now){
+  var d=now||new Date(), y=d.getFullYear(), m=d.getMonth()+1;
+  try{ new Intl.DateTimeFormat('en-US',{timeZone:csSeasonTz(),year:'numeric',month:'numeric'}).formatToParts(d).forEach(function(p){ if(p.type==='year') y=parseInt(p.value,10); if(p.type==='month') m=parseInt(p.value,10); }); }catch(e){}
+  return String(m>=6?y+1:y);
+}
+function csSeasonView(own,now){
+  var def=csSeasonDefault(now), o=/^\d{4}$/.test(String(own==null?'':own))?String(own):null;
+  if(o&&parseInt(o,10)>=parseInt(def,10)) return { year:o, pending:false };
+  return { year:def, pending:true };
+}
+function csSeasonOwnSet(v){ _schoolSeasonOwn=(typeof v==='string'||typeof v==='number')&&/^\d{4}$/.test(String(v))?String(v):null; _schoolSeasonKnown=true; }
+// The note shows only once the school's season has been read, so a season that is set never
+// flashes "Starts in January" while the read is on its way.
+function csSeasonPending(){ return HS_ACCOUNT_SIGNIN&&_schoolSeasonKnown&&csSeasonView(_schoolSeasonOwn).pending; }
+function csSeasonLabel(){
+  // The page is built before the season variable exists; the current year until it does.
+  if(!HS_ACCOUNT_SIGNIN){ var a; try{ a=_activeSeason(); }catch(e){ a=String(new Date().getFullYear()); } return seasonLabelText(a); }
+  var v=csSeasonView(_schoolSeasonOwn);
+  return seasonLabelText(v.year)+(_schoolSeasonKnown&&v.pending?' \xb7 Starts in January':'');
+}
+function csSeasonEmptyMsg(){ return csSeasonPending()?'Season starts in January.':'No results yet this season.'; }
+// The login screen's season line and the fan page's season line, once the school's season arrives.
 function updateSeasonLabel(){
-  var el=document.getElementById('login-season'); if(!el) return;
-  el.textContent=seasonLabelText(_activeSeason());
-  // The fan page's season line follows the same value.
-  var fan=document.getElementById('lf-season'); if(fan) fan.textContent=String(_activeSeason());
+  var t=csSeasonLabel();
+  var el=document.getElementById('login-season'); if(el) el.textContent=t;
+  var fan=document.getElementById('lf-season'); if(fan) fan.textContent=t;
+  // An empty results line already on the fan page follows the season too.
+  var r=document.getElementById('lf-results'), e=r&&r.children&&r.children.length===1?r.children[0]:null;
+  if(e&&(e.textContent==='No results yet this season.'||e.textContent==='Season starts in January.')) e.textContent=csSeasonEmptyMsg();
 }
 // ── Member scoring session ──────────────────────────────────────────────────
 // The signed-in member's worker session (kind 'player'), kept beside leonAuth in this tab the
@@ -12493,7 +12574,7 @@ function renderLiveScoringQueens(assignment, date, container){
           <div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Tap +/− to count stats (optional)</div>
           ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const po=gP(pid2);return lseStatBlock(pid2,po?po.firstName:'P',idx);}).join('')}
         </div>
-        <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--white);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
+        <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
       </div>`:''}
     </div>`;
   });
@@ -12574,7 +12655,7 @@ function refreshSingleQueensCard(idx, date){
         <div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Tap +/− to count stats (optional)</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const po=gP(pid2);return lseStatBlock(pid2,po?po.firstName:'P',idx);}).join('')}
       </div>
-      <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--white);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
+      <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
     </div>`;
   }
 
@@ -15648,7 +15729,7 @@ function renderInfo(){
       <div style="font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;color:var(--gray);margin:14px 0 2px;">OPTIONAL</div>
       ${group('optional')}
       <p style="font-size:12px;color:var(--gray);line-height:1.6;margin:14px 0 0;">Phone, email and emergency contact are not available here. They live on the private account record, which the app cannot read from a browser.</p>
-      <button class="btn btn-small btn-w" style="background:var(--primary, var(--red));color:#fff;border:none;margin-top:14px;" onclick="exportInfo()">📄 Download spreadsheet</button>
+      <button class="btn btn-small btn-w" style="background:var(--primary, var(--red));color:var(--on-red);border:none;margin-top:14px;" onclick="exportInfo()">📄 Download spreadsheet</button>
     </div>
     <div class="card">
       <div class="card-title"><span class="bar"></span> Shirt order</div>
@@ -17384,7 +17465,7 @@ function tnGdHtml(t,h){
   if(status==='setup'){
     var anyPools=ids.some(function(d){ return tnGdHasPools(t,d); });
     html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:6px 0;">Seed each division, save its pools, then start pool play. Starting freezes team changes for players.</div>'
-      +(anyPools?'<div style="margin:8px 0;">'+btn('Start pool play','tnGdStart()',true,'background:var(--red);color:#fff;')+'</div>':'');
+      +(anyPools?'<div style="margin:8px 0;">'+btn('Start pool play','tnGdStart()',true,'background:var(--red);color:var(--on-red);')+'</div>':'');
   } else {
     html+='<div style="font-size:13px;margin:6px 0;">Status: <strong>'+esc(tnStatusLabel(status))+'</strong></div>'+tnNotifyHtml(t,h);
   }
@@ -17393,7 +17474,7 @@ function tnGdHtml(t,h){
     html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">'+ids.map(function(d){
       var on=d===divId;
       return '<button class="btn btn-small" style="min-height:44px;padding:8px 12px;font-size:14px;border-radius:8px;font-weight:700;'
-        +(on?'background:var(--red);color:#fff;border:2px solid var(--red);':'background:#fff;color:var(--red);border:1px solid var(--red);')+'" onclick="tnGdSetDiv(\''+d+'\')">'+esc(tnDivs(t)[d].name||d)+'</button>';
+        +(on?'background:var(--red);color:var(--on-red);border:2px solid var(--red);':'background:#fff;color:var(--red);border:1px solid var(--red);')+'" onclick="tnGdSetDiv(\''+d+'\')">'+esc(tnDivs(t)[d].name||d)+'</button>';
     }).join('')+'</div>';
   }
 
@@ -17667,7 +17748,7 @@ function tnPoBracketHtml(t,divId,b,title,h,scoring,preview){
   var nm=function(id){ return id?esc((T[id]&&T[id].name)||'Team'):'<span style="color:var(--gray);">To be decided</span>'; };
   var v=tnBracketView(b,R,f), refs=preview?tnPoPreviewRefs(t,divId,b):tnPoRefs(t,divId)[b===tnPoSilver(t,divId)?'silver':'playoff'], ov=tnPoOverrides(t,divId);
   var html='<div style="font-weight:700;font-size:15px;margin-top:12px;">'+esc(title)+'</div>';
-  if(v.champion) html+='<div class="tn-champ" style="background:var(--red);color:#fff;opacity:1;border-radius:10px;padding:12px 14px;margin:8px 0 12px;font-weight:800;font-size:16px;">\u{1F3C6} '+(/Silver/.test(title)?'Silver champion':'Champion')+': <span style="color:#fff;">'+esc((tnTeams(t)[v.champion]||{}).name||'Team')+'</span></div>';
+  if(v.champion) html+='<div class="tn-champ" style="background:var(--red);color:var(--on-red);opacity:1;border-radius:10px;padding:12px 14px;margin:8px 0 12px;font-weight:800;font-size:16px;">\u{1F3C6} '+(/Silver/.test(title)?'Silver champion':'Champion')+': <span style="color:#fff;">'+esc((tnTeams(t)[v.champion]||{}).name||'Team')+'</span></div>';
   if(v.placements.length>1&&v.champion){
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:6px;">'+v.placements.map(function(p){ return '<strong>'+tnPoPlaceLabel(p.place)+'</strong> '+p.teamIds.map(nm).join(', '); }).join('<br>')+'</div>';
   }
@@ -17739,7 +17820,7 @@ function tnPoHtml(t,h){
   if(!locked){
     html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">'+btn(saved?'Preview new playoffs':'Preview playoffs','tnPoPreview()',!saved)
       +(pv?btn('Save playoffs','tnPoSave()',true):'')
-      +(status==='pools'&&saved?btn('Start playoffs','tnPoStart()',true,'background:var(--red);color:#fff;'):'')+'</div>';
+      +(status==='pools'&&saved?btn('Start playoffs','tnPoStart()',true,'background:var(--red);color:var(--on-red);'):'')+'</div>';
   } else {
     html+='<div style="font-size:12px;color:var(--gray);">Playoff scores are in, so this bracket is locked.</div>';
   }
@@ -18097,7 +18178,7 @@ function tnEndHtml(t,h){
     html+='<div style="font-size:12px;color:var(--gray);line-height:1.5;margin:4px 0 8px;">Closes scoring for everyone, shows final results on the live page, and rates every finished set. 3s count as half a game and 4s as a quarter. Exec only.</div>';
     var pv=_tnEnd.preview;
     // Primary once every bracket has a champion; before that it still works, with the strong confirm.
-    if(!pv) return html+btn('End tournament','tnEndStart()',true,tnEndOpenBrackets(t).length?'':'background:var(--red);color:#fff;')+'</div>';
+    if(!pv) return html+btn('End tournament','tnEndStart()',true,tnEndOpenBrackets(t).length?'':'background:var(--red);color:var(--on-red);')+'</div>';
     if(pv.loading) return html+'<div style="font-size:13px;">Checking the games...</div></div>';
     html+='<div style="background:var(--primary-bg,#f3e9eb);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.6;">';
     if(pv.open.length) html+='<div style="color:#8a4b08;font-weight:700;">Not finished: '+pv.open.map(esc).join('; ')+'</div>';
@@ -18181,7 +18262,7 @@ function tnWizNewDiv(preset){
 }
 // A filled garnet button that is never greyed: a busy card explains itself in a line instead.
 function tnFillBtn(label,onclick){
-  return '<button class="btn btn-small" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;background:var(--red);color:#fff;border:2px solid var(--red);font-weight:700;" onclick="'+onclick+'">'+label+'</button>';
+  return '<button class="btn btn-small" style="min-height:44px;padding:10px 14px;font-size:14px;border-radius:8px;background:var(--red);color:var(--on-red);border:2px solid var(--red);font-weight:700;" onclick="'+onclick+'">'+label+'</button>';
 }
 function tnWizOpen(){
   if(_tnUi.busy){ toast('Saving a change. Try again in a moment.'); return; }
@@ -18337,7 +18418,7 @@ function tnWizHtml(h){
   } else if(s===4){
     var d=w.divs[w.idx]||w.divs[0];
     if(w.divs.length>1) html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">'+w.divs.map(function(x,i){
-      return '<button type="button" onclick="tnWizPickDiv('+i+')" style="min-height:44px;padding:8px 12px;border-radius:8px;font-weight:700;'+(i===w.idx?'background:var(--red);color:#fff;border:2px solid var(--red);':'background:#fff;color:var(--red);border:1px solid var(--red);')+'">'+esc(x.name||'Division '+(i+1))+'</button>';
+      return '<button type="button" onclick="tnWizPickDiv('+i+')" style="min-height:44px;padding:8px 12px;border-radius:8px;font-weight:700;'+(i===w.idx?'background:var(--red);color:var(--on-red);border:2px solid var(--red);':'background:#fff;color:var(--red);border:1px solid var(--red);')+'">'+esc(x.name||'Division '+(i+1))+'</button>';
     }).join('')+'</div>';
     var yn=[['0','Off'],['1','On']];
     html+='<div style="font-weight:700;font-size:14px;">'+esc(d.name||'Division')+'</div>'
@@ -18879,7 +18960,7 @@ var TN_MC_CSS='.tn-mc{background:#fff;border:1px solid #cfcfcf;border-radius:12p
   +'.tn-br.fit{overflow-x:visible;flex-wrap:wrap;}.tn-br.fit .tn-br-col{flex:1 1 0;min-width:220px;}'
   +'@media (max-width:700px){.tn-br{flex-direction:column;overflow-x:visible;}.tn-br-col,.tn-br.fit .tn-br-col{flex:none;width:100%;min-width:0;}}'
   +'.tn-champ,.tn-mc-seed,.tn-live,.tn-mc-t.win,.tn-mc-s{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-  +'@media print{.tn-champ{background:var(--red)!important;color:#fff!important;}.tn-br{overflow:visible!important;flex-wrap:wrap;}}';
+  +'@media print{.tn-champ{background:var(--red)!important;color:var(--on-red)!important;}.tn-br{overflow:visible!important;flex-wrap:wrap;}}';
 // A result's score from the winner's side: "21-19, 18-21, 15-12".
 function tnScoreText(m,r){
   var sets=tnArr(r&&r.sets), winT1=r&&r.winner?(r.winner===(r.t1!=null?r.t1:m.t1)):true;
@@ -18958,7 +19039,7 @@ function tnGdEditorHtml(m,r,esc,nm,btn,e){
     }).join('')
     +'<div id="tn-gd-msg" style="font-size:13px;font-weight:700;min-height:20px;margin:4px 0 8px;"></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
-    +'<button id="tn-gd-save" class="btn btn-small" style="min-height:48px;padding:10px 16px;font-size:15px;border-radius:8px;background:var(--red);color:#fff;border:none;font-weight:700;opacity:.5;" disabled onclick="tnGdSaveScore()">Save score</button>'
+    +'<button id="tn-gd-save" class="btn btn-small" style="min-height:48px;padding:10px 16px;font-size:15px;border-radius:8px;background:var(--red);color:var(--on-red);border:none;font-weight:700;opacity:.5;" disabled onclick="tnGdSaveScore()">Save score</button>'
     +btn('Cancel','tnGdCancel()',false)
     +(r?btn('Clear score','tnGdClearScore()',false,'color:#b02a37;border-color:#b02a37;'):'')
     +'</div></div>';
@@ -20305,7 +20386,7 @@ function clTnRender(){
   };
   var wk=new Date(); wk.setDate(wk.getDate()-7);
   var weekAgo=wk.getFullYear()+'-'+String(wk.getMonth()+1).padStart(2,'0')+'-'+String(wk.getDate()).padStart(2,'0');
-  var bigBtn=function(href,label){ return '<a href="'+esc(href)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:15px;text-decoration:none;">'+label+'</a>'; };
+  var bigBtn=function(href,label){ return '<a href="'+esc(href)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:10px;background:var(--red);color:var(--on-red);font-weight:700;font-size:15px;text-decoration:none;">'+label+'</a>'; };
   var card=function(title,body){ return '<div class="card" style="border:2px solid var(--red);"><div class="card-title"><span class="bar"></span> \u{1F3C6} '+title+'</div>'+body+'</div>'; };
   var ids=Object.keys(T).filter(function(tid){ return T[tid]&&T[tid].meta&&/^[A-Za-z0-9_-]{1,64}$/.test(tid); })
     .sort(function(a,b){ return String(T[a].meta.date||'').localeCompare(String(T[b].meta.date||'')); });
@@ -20486,7 +20567,7 @@ function ppTnRender(){
   if(mm){
     var canScore=m.status==='pools'||m.status==='playoffs';
     h+='<div style="font-weight:700;font-size:14px;margin:6px 0;">'+(mm.waves?'Your day':'Matches')+': '+nm(mm.teamId)+(mm.pool?' <span style="font-weight:400;color:var(--gray);">(Pool '+esc(mm.pool)+')</span>':'')+'</div>'
-      +tnMemberMatchesHtml(t,mm,esc,canScore?function(x,lv){ return '<button class="btn btn-small" style="min-height:44px;background:var(--red);color:#fff;border:none;" onclick="ppTnScore(\''+esc(tid)+'\',\''+esc(x.mid)+'\')">'+(lv?'Resume live scoring':'Score this match')+'</button>'; }:null)
+      +tnMemberMatchesHtml(t,mm,esc,canScore?function(x,lv){ return '<button class="btn btn-small" style="min-height:44px;background:var(--red);color:var(--on-red);border:none;" onclick="ppTnScore(\''+esc(tid)+'\',\''+esc(x.mid)+'\')">'+(lv?'Resume live scoring':'Score this match')+'</button>'; }:null)
       +(_ppTnMsg[tid]&&_ppTnMsg[tid].signIn?'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">Sign in again to score this match '
           +'<button class="btn btn-small" style="min-height:44px;margin-left:6px;" onclick="ppTnSignIn()">Sign in</button></div>'
         :_ppTnMsg[tid]?'<div style="font-size:13px;font-weight:700;color:#1e7e34;margin-bottom:6px;">'+esc(_ppTnMsg[tid])+'</div>':'');
@@ -26053,7 +26134,9 @@ function renderAthleteCard(pid){
   csRankWarm(function(){ renderAthleteCard(pid); }); // account rating for the header; safe re-render, every block null-checks its container
   var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   var BN="font-family:'Bebas Neue',sans-serif", BODY="font-family:'Barlow',sans-serif";
-  var RED=SC.colors.primary, DARK=SC.colors.primaryDeeper, GOLD=SC.colors.gold||'#d4a843';
+  // Tints on the school gradient are the readable ink, never fainter-safe than csSchoolInk allows.
+  var AC_CARD=Math.min(0.08,CS_INK.cardA), AC_FIELD=CS_INK.fieldA;
+  var RED=CS_INK.redText, DARK=CS_INK.redTextDeep, GOLD=SC.colors.gold||'#d4a843';
   var rp=gP(pid)||{};                          // roster record: name, jersey, csRank, photo
   var pp=(profilesData&&profilesData.players&&profilesData.players[pid])||{}; // identity: height, reach, gradYear, position, side, hand
   var person=Object.assign({}, rp, pp);        // merged for avatar (name from roster, identity/photo layered on)
@@ -26067,10 +26150,10 @@ function renderAthleteCard(pid){
     hdr.innerHTML=
       '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 0 14px;">'
       +'<div style="margin-bottom:10px;">'+avatarHtml(person,96)+'</div>'
-      +'<div style="'+BN+';font-size:34px;letter-spacing:2px;color:#fff;line-height:1;">'+esc(name)+'</div>'
+      +'<div style="'+BN+';font-size:34px;letter-spacing:2px;color:var(--on-red);line-height:1;">'+esc(name)+'</div>'
       +(pp.gradYear?'<div style="'+BN+';font-size:14px;letter-spacing:2px;color:'+GOLD+';margin-top:4px;">CLASS OF '+esc(pp.gradYear)+'</div>':'')
-      +(glance?'<div style="'+BODY+';font-size:13px;color:rgba(255,255,255,0.85);margin-top:8px;">'+esc(glance)+'</div>':'')
-      +(rating!=null?'<div style="'+BN+';font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.6);margin-top:6px;">CS RATING '+esc(rating)+'</div>':'')
+      +(glance?'<div style="'+BODY+';font-size:13px;color:var(--on-red-soft);margin-top:8px;">'+esc(glance)+'</div>':'')
+      +(rating!=null?'<div style="'+BN+';font-size:13px;letter-spacing:2px;color:var(--on-red-muted);margin-top:6px;">CS RATING '+esc(rating)+'</div>':'')
       +'</div>';
   }
 
@@ -26125,16 +26208,16 @@ function renderAthleteCard(pid){
       var t=teamDualRec(S);
       var pcs=combinedStats(pid,{season:S});
       var detail=(pcs.qGP>0?('Q '+pcs.qWins+'-'+pcs.qLosses+'  '):'')+'Sets '+(pcs.gdSets||0);
-      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.15);">'
-        +'<div style="'+BN+';font-size:18px;letter-spacing:1px;color:#fff;">'+esc(S)+'</div>'
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(var(--on-red-rgb),0.15);">'
+        +'<div style="'+BN+';font-size:18px;letter-spacing:1px;color:var(--on-red);">'+esc(S)+'</div>'
         +'<div style="text-align:right;">'
-        +'<div style="'+BN+';font-size:18px;color:'+GOLD+';">'+t.w+'-'+t.l+' <span style="font-size:11px;color:rgba(255,255,255,0.6);">DUALS</span></div>'
-        +'<div style="'+BODY+';font-size:11px;color:rgba(255,255,255,0.7);">'+esc(detail)+'</div>'
+        +'<div style="'+BN+';font-size:18px;color:'+GOLD+';">'+t.w+'-'+t.l+' <span style="font-size:11px;color:var(--on-red-muted);">DUALS</span></div>'
+        +'<div style="'+BODY+';font-size:11px;color:var(--on-red-muted);">'+esc(detail)+'</div>'
         +'</div></div>';
     }).join('');
     seasBox.innerHTML=
-      '<div style="'+BN+';font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:4px 0 8px;">BY SEASON</div>'
-      +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;overflow:hidden;margin-bottom:14px;">'+rows+'</div>';
+      '<div style="'+BN+';font-size:13px;letter-spacing:2px;color:var(--on-red);margin:4px 0 8px;">BY SEASON</div>'
+      +'<div style="background:rgba(var(--on-red-rgb),'+AC_CARD+');border:1px solid rgba(var(--on-red-rgb),0.15);border-radius:12px;overflow:hidden;margin-bottom:14px;">'+rows+'</div>';
   }
 
   // ac-athletic: read the same underlying data the modal athletic blocks use (identity height/reach,
@@ -26156,14 +26239,14 @@ function renderAthleteCard(pid){
     if(aj)items.push(['Approach Jump',aj]);
     if(bestDrill!=null)items.push(['Best Star Drill',bestDrill.toFixed(1)+'s']);
     var rowsA=items.map(function(it){
-      return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.12);">'
-        +'<span style="'+BODY+';font-size:13px;color:rgba(255,255,255,0.7);">'+esc(it[0])+'</span>'
-        +'<span style="'+BN+';font-size:17px;color:#fff;">'+esc(it[1])+'</span></div>';
+      return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(var(--on-red-rgb),0.12);">'
+        +'<span style="'+BODY+';font-size:13px;color:var(--on-red-muted);">'+esc(it[0])+'</span>'
+        +'<span style="'+BN+';font-size:17px;color:var(--on-red);">'+esc(it[1])+'</span></div>';
     }).join('');
     ath.innerHTML=
-      '<div style="'+BN+';font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);margin:4px 0 8px;">ATHLETIC</div>'
-      +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:6px 14px;margin-bottom:14px;">'
-      +(rowsA||'<div style="'+BODY+';font-size:12px;color:rgba(255,255,255,0.6);text-align:center;padding:10px;">No measurements yet</div>')
+      '<div style="'+BN+';font-size:13px;letter-spacing:2px;color:var(--on-red);margin:4px 0 8px;">ATHLETIC</div>'
+      +'<div style="background:rgba(var(--on-red-rgb),'+AC_CARD+');border:1px solid rgba(var(--on-red-rgb),0.15);border-radius:12px;padding:6px 14px;margin-bottom:14px;">'
+      +(rowsA||'<div style="'+BODY+';font-size:12px;color:var(--on-red-muted);text-align:center;padding:10px;">No measurements yet</div>')
       +'</div>';
   }
 
@@ -26172,15 +26255,15 @@ function renderAthleteCard(pid){
   var csBadge='<span style="'+BN+';font-size:10px;letter-spacing:1px;color:'+GOLD+';padding:2px 8px;border:1px solid '+GOLD+';border-radius:10px;margin-left:8px;">COMING SOON</span>';
   function csRow(label,val){
     var has=(val!=null&&val!=='');
-    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.12);">'
-      +'<span style="'+BODY+';font-size:13px;color:rgba(255,255,255,0.7);">'+esc(label)+'</span>'
-      +'<span style="'+BN+';font-size:17px;color:rgba(255,255,255,'+(has?'0.9':'0.4')+');">'+(has?esc(val):'-')+'</span></div>';
+    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(var(--on-red-rgb),0.12);">'
+      +'<span style="'+BODY+';font-size:13px;color:var(--on-red-muted);">'+esc(label)+'</span>'
+      +'<span style="'+BN+';font-size:17px;color:'+(has?'var(--on-red)':'var(--on-red-muted)')+';">'+(has?esc(val):'-')+'</span></div>';
   }
   function csSection(title, bodyHtml, helper, live){
     return '<div style="opacity:'+(live?'1':'0.55')+';margin-bottom:14px;">'
-      +'<div style="display:flex;align-items:center;margin:4px 0 8px;"><span style="'+BN+';font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.9);">'+title+'</span>'+(live?'':csBadge)+'</div>'
-      +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:6px 14px;">'+bodyHtml+'</div>'
-      +'<div style="'+BODY+';font-size:11px;color:rgba(255,255,255,0.65);margin-top:6px;">'+esc(helper)+'</div>'
+      +'<div style="display:flex;align-items:center;margin:4px 0 8px;"><span style="'+BN+';font-size:13px;letter-spacing:2px;color:var(--on-red);">'+title+'</span>'+(live?'':csBadge)+'</div>'
+      +'<div style="background:rgba(var(--on-red-rgb),'+AC_CARD+');border:1px solid rgba(var(--on-red-rgb),0.15);border-radius:12px;padding:6px 14px;">'+bodyHtml+'</div>'
+      +'<div style="'+BODY+';font-size:11px;color:var(--on-red-muted);margin-top:6px;">'+esc(helper)+'</div>'
       +'</div>';
   }
 
@@ -26214,7 +26297,7 @@ function renderAthleteCard(pid){
 
   var hi=document.getElementById('ac-highlights');
   if(hi){
-    var hiBody='<div style="'+BODY+';font-size:13px;color:rgba(255,255,255,0.6);text-align:center;padding:14px;">Highlight reel and match photos will live here.</div>';
+    var hiBody='<div style="'+BODY+';font-size:13px;color:var(--on-red-muted);text-align:center;padding:14px;">Highlight reel and match photos will live here.</div>';
     hi.innerHTML=csSection('HIGHLIGHT VIDEO & PHOTOS', hiBody,
       'Video and photo highlights are coming with the full athlete profile, shared once a parent approves it.');
   }
@@ -26224,9 +26307,9 @@ function renderAthleteCard(pid){
   // athleteOptIn is intentionally NOT created or written here; it stays a future field for the parent-accounts step.
   var shareHtml=
     '<div style="opacity:0.55;margin-bottom:8px;">'
-    +'<button disabled style="width:100%;'+BN+';font-size:15px;letter-spacing:1.5px;padding:11px;border-radius:10px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.10);color:#fff;cursor:not-allowed;">MAKE PUBLIC</button>'
-    +'<div style="'+BODY+';font-size:11px;color:rgba(255,255,255,0.65);text-align:center;margin-top:6px;">Public sharing requires parent approval. Coming with parent accounts.</div>'
-    +'</div>';
+    +'<button disabled style="width:100%;'+BN+';font-size:15px;letter-spacing:1.5px;padding:11px;border-radius:10px;border:1px solid rgba(var(--on-red-rgb),0.3);background:rgba(var(--on-red-rgb),'+AC_FIELD+');color:var(--on-red);cursor:not-allowed;">MAKE PUBLIC</button>'
+    +'</div>'
+    +'<div style="'+BODY+';font-size:11px;color:var(--on-red-muted);text-align:center;margin:-2px 0 8px;">Public sharing requires parent approval. Coming with parent accounts.</div>';
   var share=document.getElementById('ac-share');
   if(share)share.innerHTML=shareHtml;
 }
@@ -26236,7 +26319,7 @@ function _renderFansLegacy(){
   var BN='font-family:"Bebas Neue",sans-serif';
   // School colors only: the main color (or its deepest shade when white text on it would be
   // hard to read), the deepest shade, and the school's own light background for chips.
-  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=SC.colors.primaryDeeper,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
+  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=CS_INK.redTextDeep,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
   var today=td();
   var TIER={1:'Top',2:'Mid',3:'Dev',4:'Court 4',5:'Court 5'};
 
@@ -26282,7 +26365,7 @@ function _renderFansLegacy(){
         var win2=lW>lL;
         bannerEl.innerHTML='<div style="text-align:center;">'
           +'<div style="'+BN+';font-size:11px;letter-spacing:3px;color:'+RED+';margin-bottom:4px;">TODAY\'S RESULT</div>'
-          +'<div style="'+BN+';font-size:22px;color:#fff;">vs '+schedToday.opponent+'</div>'
+          +'<div style="'+BN+';font-size:22px;color:var(--black);">vs '+schedToday.opponent+'</div>'
           +'<div style="'+BN+';font-size:38px;color:'+(win2?WIN_C:LOSS_C)+';">'+lW+'-'+lL+' '+(win2?'WIN':'LOSS')+'</div>'
           +(schedToday.location?'<div style="font-size:11px;color:#555;">\uD83D\uDCCD '+schedToday.location+'</div>':'')
           +'</div>';
@@ -26291,7 +26374,7 @@ function _renderFansLegacy(){
         bannerEl.innerHTML='<div style="display:flex;align-items:center;gap:12px;">'
           +'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#4ade80;animation:pulse 1.5s infinite;flex-shrink:0;"></span>'
           +'<div><div style="'+BN+';font-size:11px;letter-spacing:3px;color:#4ade80;margin-bottom:2px;">LIVE NOW</div>'
-          +'<div style="'+BN+';font-size:20px;color:#fff;">vs '+schedToday.opponent+'</div>'
+          +'<div style="'+BN+';font-size:20px;color:var(--on-red);">vs '+schedToday.opponent+'</div>'
           +(schedToday.location?'<div style="font-size:11px;color:#555;">\uD83D\uDCCD '+schedToday.location+'</div>':'')
           +'</div></div>';
         bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:rgba(10,158,92,0.2);border:1px solid rgba(74,222,128,0.4);';
@@ -26302,7 +26385,7 @@ function _renderFansLegacy(){
       var dStr=mon[parseInt(pts[1])-1]+' '+parseInt(pts[2]);
       bannerEl.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;">'
         +'<div><div style="'+BN+';font-size:11px;letter-spacing:2px;color:'+RED+';margin-bottom:4px;">NEXT GAME</div>'
-        +'<div style="'+BN+';font-size:20px;color:#fff;">'+(ng.location==='away'?'@ ':'vs ')+ng.opponent+'</div>'
+        +'<div style="'+BN+';font-size:20px;color:var(--black);">'+(ng.location==='away'?'@ ':'vs ')+ng.opponent+'</div>'
         +(ng.location?'<div style="font-size:12px;color:#555;">'+(ng.location==='away'?'Away':'Home')+(ng.time?' \xb7 '+ng.time:'')+'</div>':'')
         +'</div>'
         +'<div style="'+BN+';font-size:24px;color:'+RED+';">'+dStr+'</div>'
@@ -26421,7 +26504,7 @@ function _renderFansLegacy(){
   var resEl=document.getElementById('lf-results');
   if(resEl){
     if(PAST.length===0){
-      resEl.innerHTML='<div style="text-align:center;color:var(--gray);font-size:13px;padding:16px;">No results yet this season.</div>';
+      resEl.innerHTML='<div style="text-align:center;color:var(--on-red-muted);font-size:13px;padding:16px;">'+csSeasonEmptyMsg()+'</div>';
     } else {
       resEl.innerHTML=PAST.slice().reverse().map(function(d){
         var win=d.w>d.l;var rc=win?WIN_C:LOSS_C;
@@ -26582,7 +26665,7 @@ function renderFans(){
       :{ loading:true, unavailable:_fanPub.mode==='unavailable', schedule:[], results:{}, live:{}, standings:{}, roster:[] })
     :_fanModelFromD();
   var E=_fanEsc, BN='font-family:"Bebas Neue",sans-serif';
-  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=SC.colors.primaryDeeper,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
+  var WIN_C='#0a9e5c',LOSS_C='#e63946',RED=fanMainColor(),DARK_RED=CS_INK.redTextDeep,CHIP_BG=SC.colors.primaryBg||'#f2f2f2';
   var today=td(), mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var dShort=function(dt){ var p=String(dt||'').split('-'); return p.length>=3?mon[parseInt(p[1])-1]+' '+parseInt(p[2]):''; };
   var loading=!!m.loading;
@@ -26602,13 +26685,13 @@ function renderFans(){
       if(schedToday.us!=null&&schedToday.them!=null){
         var win=schedToday.us>schedToday.them;
         bannerEl.innerHTML='<div style="text-align:center;"><div style="'+BN+';font-size:11px;letter-spacing:3px;color:'+RED+';margin-bottom:4px;">TODAY\'S RESULT</div>'
-          +'<div style="'+BN+';font-size:22px;color:#fff;">vs '+E(schedToday.o)+'</div>'
+          +'<div style="'+BN+';font-size:22px;color:var(--black);">vs '+E(schedToday.o)+'</div>'
           +'<div style="'+BN+';font-size:38px;color:'+(win?WIN_C:LOSS_C)+';">'+schedToday.us+'-'+schedToday.them+' '+(win?'WIN':'LOSS')+'</div>'
           +(place(schedToday.h)?'<div style="font-size:11px;color:#555;">📍 '+place(schedToday.h)+'</div>':'')+'</div>';
         bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
       } else {
         bannerEl.innerHTML='<div style="display:flex;align-items:center;gap:12px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#4ade80;animation:pulse 1.5s infinite;flex-shrink:0;"></span>'
-          +'<div><div style="'+BN+';font-size:11px;letter-spacing:3px;color:#4ade80;margin-bottom:2px;">LIVE NOW</div><div style="'+BN+';font-size:20px;color:#fff;">vs '+E(schedToday.o)+'</div>'
+          +'<div><div style="'+BN+';font-size:11px;letter-spacing:3px;color:#4ade80;margin-bottom:2px;">LIVE NOW</div><div style="'+BN+';font-size:20px;color:var(--on-red);">vs '+E(schedToday.o)+'</div>'
           +(place(schedToday.h)?'<div style="font-size:11px;color:#555;">📍 '+place(schedToday.h)+'</div>':'')+'</div></div>';
         bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:rgba(10,158,92,0.2);border:1px solid rgba(74,222,128,0.4);';
       }
@@ -26616,7 +26699,7 @@ function renderFans(){
       var ng=upcoming[0];
       bannerEl.style.display='';
       bannerEl.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="'+BN+';font-size:11px;letter-spacing:2px;color:'+RED+';margin-bottom:4px;">NEXT GAME</div>'
-        +'<div style="'+BN+';font-size:20px;color:#fff;">'+(ng.h==='away'?'@ ':'vs ')+E(ng.o)+'</div>'
+        +'<div style="'+BN+';font-size:20px;color:var(--black);">'+(ng.h==='away'?'@ ':'vs ')+E(ng.o)+'</div>'
         +(place(ng.h)?'<div style="font-size:12px;color:#555;">'+place(ng.h)+(ng.t?' \xb7 '+E(ng.t):'')+'</div>':'')
         +'</div><div style="'+BN+';font-size:24px;color:'+RED+';">'+dShort(ng.dt)+'</div></div>';
       bannerEl.style.cssText='border-radius:12px;padding:14px;margin-bottom:14px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);';
@@ -26675,8 +26758,8 @@ function renderFans(){
   // kills, aces and blocks (when the coach shows set scores to fans).
   var resEl=document.getElementById('lf-results');
   if(resEl){
-    if(loading){ resEl.innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.7);font-size:13px;padding:16px;">'+(m.unavailable?'Results are taking a moment, try again shortly.':'Loading...')+'</div>'; }
-    else if(!past.length){ resEl.innerHTML='<div style="text-align:center;color:var(--gray);font-size:13px;padding:16px;">No results yet this season.</div>'; }
+    if(loading){ resEl.innerHTML='<div style="text-align:center;color:var(--on-red-muted);font-size:13px;padding:16px;">'+(m.unavailable?'Results are taking a moment, try again shortly.':'Loading...')+'</div>'; }
+    else if(!past.length){ resEl.innerHTML='<div style="text-align:center;color:var(--on-red-muted);font-size:13px;padding:16px;">'+csSeasonEmptyMsg()+'</div>'; }
     else {
       resEl.innerHTML=past.slice().reverse().map(function(g,gi){
         var win=g.us>g.them, rc=win?WIN_C:LOSS_C, uid='lfc'+gi+String(g.dt).replace(/[^0-9]/g,'');
