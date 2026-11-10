@@ -293,7 +293,8 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     if(filter !== 'All' && c.status !== filter) return false;
     if(!query) return true;
     const phoneDigits = (c.phone || '').replace(/\D/g, '');
-    const hay = [c.firstName, c.lastName, c.name, c.role, c.school, c.city, c.county, c.email, c.phone, phoneDigits, c.notes].join(' ').toLowerCase();
+    // Assistant coach and athletic director names and emails are searchable too.
+    const hay = [c.firstName, c.lastName, c.name, c.role, c.school, c.city, c.county, c.email, c.phone, phoneDigits, c.notes, c.assistantName, c.assistantEmail, c.adName, c.adEmail].join(' ').toLowerCase();
     return query.split(/\s+/).every(w => hay.indexOf(w) !== -1);
   }
   function visible(){
@@ -775,8 +776,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   $('csv-btn').addEventListener('click', function(){
     const rows = visible();
     if(!rows.length){ note('Nothing to export in this view.'); return; }
-    const cols = ['category', 'firstName', 'lastName', 'role', 'school', 'city', 'county', 'email', 'phone', 'status', 'nextStep', 'notes', 'lastTouch'];
-    const head = ['Category', 'First name', 'Last name', 'Role', 'Organization', 'City', 'County', 'Email', 'Phone', 'Status', 'Next step', 'Notes', 'Last touch'];
+    // The six staff columns follow the head coach's Email and Phone.
+    const cols = ['category', 'firstName', 'lastName', 'role', 'school', 'city', 'county', 'email', 'phone', 'assistantName', 'assistantEmail', 'assistantPhone', 'adName', 'adEmail', 'adPhone', 'status', 'nextStep', 'notes', 'lastTouch'];
+    const head = ['Category', 'First name', 'Last name', 'Role', 'Organization', 'City', 'County', 'Email', 'Phone', 'Assistant name', 'Assistant email', 'Assistant phone', 'AD name', 'AD email', 'AD phone', 'Status', 'Next step', 'Notes', 'Last touch'];
     const cell = (c, k) => csvCell(k === 'category' ? catName(catOf(c)) : c[k]);
     const csv = [head.join(',')].concat(rows.map(c => cols.map(k => cell(c, k)).join(','))).join('\r\n') + '\r\n';
     const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
