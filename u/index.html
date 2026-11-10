@@ -26,6 +26,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.2px;line-
 p{margin:0 0 10px;}
 .btn{display:block;width:100%;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;padding:12px;border:none;border-radius:12px;background:var(--navy);color:#fff;cursor:pointer;margin-top:14px;}
 .btn:disabled{opacity:.55;cursor:default;}
+.note{font-size:14px;color:var(--slate);margin:12px 0 0;}
 .msg{font-size:15px;margin-top:12px;min-height:1.2em;color:var(--slate);}
 .msg.err{color:var(--red);font-weight:600;}
 .hidden{display:none;}
@@ -35,26 +36,25 @@ p{margin:0 0 10px;}
 <div class="hdr"><img src="/logo.png" alt="" width="32" height="32"><span>CourtSense</span></div>
 <main>
   <div class="card" aria-live="polite">
-    <h1 id="u-title">One moment...</h1>
-    <p id="u-text">We're taking you off Mark's CourtSense emails.</p>
-    <button type="button" class="btn" id="u-btn">Unsubscribe</button>
+    <h1 id="u-title">Stop emails from Mark?</h1>
+    <button type="button" class="btn" id="u-btn">Yes, stop emails</button>
+    <p class="note" id="u-text">Changed your mind? Just close this page.</p>
     <p class="msg" id="u-msg" role="status"></p>
   </div>
 </main>
 <script>
 (function(){
   // The unsubscribe link in one of Mark's outreach emails: /u/?t={token}. Opening the page
-  // does nothing on its own server side; the worker acts only on the POST below, sent once
-  // after a short pause (the button is the fallback). A mail scanner that only fetches the
-  // link changes nothing.
+  // sends nothing, ever: the worker acts only on the POST below, and only a tap on
+  // "Yes, stop emails" sends it. Mail security scanners open links and run the page's
+  // script, so nothing may post on load or on a timer.
   var ENDPOINT = 'https://courtsense-email-worker.markmcnees-479.workers.dev/bd/unsubscribe';
   var TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
-  var DELAY_MS = 1200;
   var COPY = {
     ok: "You're unsubscribed. You won't get more emails from Mark about CourtSense. If you change your mind, just reply to any earlier email.",
     bad: "This link isn't working. Reply to the email and we'll take care of it.",
-    throttled: 'Too many tries just now. Wait a few minutes, then tap Unsubscribe again.',
-    network: "We couldn't reach CourtSense just now. Check your connection, then tap Unsubscribe again."
+    throttled: 'Too many tries just now. Wait a few minutes, then tap Yes, stop emails again.',
+    network: "We couldn't reach CourtSense just now. Check your connection, then tap Yes, stop emails again."
   };
   var title = document.getElementById('u-title');
   var text = document.getElementById('u-text');
@@ -66,11 +66,12 @@ p{margin:0 0 10px;}
   // Keep the token out of the address bar and history once it is read.
   try { if (location.search && history.replaceState) history.replaceState(null, '', location.pathname); } catch (e) {}
 
-  var busy = false, done = false, timer = 0;
+  var busy = false, done = false;
   function finish(head, body){
     done = true;
     title.textContent = head;
     text.textContent = body;
+    text.className = '';
     btn.classList.add('hidden');
     btn.disabled = true;
     msg.textContent = '';
@@ -89,7 +90,6 @@ p{margin:0 0 10px;}
   function send(){
     if (busy || done) return;     // one request at a time, and never after an answer
     busy = true;
-    if (timer) { clearTimeout(timer); timer = 0; }
     btn.disabled = true;
     msg.className = 'msg';
     msg.textContent = 'Unsubscribing...';
@@ -109,7 +109,6 @@ p{margin:0 0 10px;}
   }
 
   btn.addEventListener('click', send);
-  timer = setTimeout(send, DELAY_MS);
 })();
 </script>
 </body>

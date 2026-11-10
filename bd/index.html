@@ -100,6 +100,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 .unsub{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;}
 .unsub .badge{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:14px;background:var(--errbg);color:var(--err);font-weight:700;font-size:14px;}
 .unsub .why{flex:1 1 180px;font-size:14px;color:var(--muted);}
+.unsub .via{flex:0 0 auto;font-weight:600;}
 .camp{background:var(--card);border:2px solid var(--navy, #082A4F);border-radius:12px;padding:12px;display:grid;gap:10px;margin-bottom:12px;}
 .camp h2{margin:0;font-size:18px;}
 .camp .subj{color:var(--muted);font-size:14px;}
@@ -196,7 +197,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   const $ = id => document.getElementById(id);
 
   let KEY = '';
-  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubUrl }
+  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubVia, unsubAgent, unsubUrl }
   let tab = 'All';      // 'All' or a category id
   let filter = 'All';   // status
   let query = '';
@@ -470,6 +471,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       unsubRow.dataset.unsub = '1';
       const d = dayOf(c.unsubscribedAt);
       unsubRow.appendChild(el('span', 'badge', 'Unsubscribed' + (d ? ' ' + d : '')));
+      // How it arrived (worker unsubVia): the page button, or a mail app's one-click.
+      const via = c.unsubVia === 'page' ? 'via page button' : c.unsubVia === 'one_click' ? 'via mail app' : '';
+      if(via) unsubRow.appendChild(el('span', 'why via', via));
       unsubRow.appendChild(el('span', 'why', 'Used the unsubscribe link. Left out of Copy emails for BCC and the unsubscribe links export.'));
       clearBtn = el('button', 'b-quiet', 'Clear unsubscribe');
       clearBtn.type = 'button';
