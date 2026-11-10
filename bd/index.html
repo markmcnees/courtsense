@@ -64,9 +64,18 @@ label.f > input,label.f > select,label.f > textarea{margin-top:4px;text-transfor
 .tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--gold);background:var(--card);}
 .tab .n{opacity:.75;font-weight:500;margin-left:4px;}
 .card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--slate);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;
-  grid-template-areas:"head head" "cat status" "first last" "role role" "org org" "city county" "email email" "phone phone" "next next" "notes notes";}
+  grid-template-areas:"head head" "cat status" "first last" "role role" "org org" "city county" "email email" "phone phone" "staff staff" "next next" "notes notes";}
 .card .chead{grid-area:head;font-weight:700;font-size:18px;line-height:1.25;overflow-wrap:anywhere;}
 .card .chead .org{display:block;font-weight:500;font-size:14px;color:var(--muted);}
+.card .chead .staffsum{display:flex;flex-direction:column;gap:2px;margin-top:4px;font-weight:500;font-size:14px;color:var(--muted);}
+.card .chead .staffsum[hidden]{display:none;}
+.sline{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;}
+.sline b{font-weight:700;color:var(--text);}
+.sline a{color:var(--teal);font-weight:600;text-decoration:underline;overflow-wrap:anywhere;}
+.card .staff{grid-area:staff;display:grid;gap:10px;}
+.sgrp{border:1px solid var(--line);border-radius:10px;padding:6px 10px 10px;margin:0;display:grid;gap:8px;min-width:0;}
+.sgrp legend{padding:0 4px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+.addform .staff{grid-column:1 / -1;display:grid;gap:10px;}
 .card [data-k="category"]{grid-area:cat;}
 .card [data-k="status"]{grid-area:status;}
 .card [data-k="firstName"]{grid-area:first;}
@@ -124,7 +133,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 @media (min-width:900px){
   .tools{position:sticky;top:0;z-index:5;}
   .card{grid-template-columns:repeat(6,1fr);align-items:end;
-    grid-template-areas:"head head head head head head" "cat first first last last status" "role role org org city county" "email email email phone phone phone" "next next next notes notes notes";}
+    grid-template-areas:"head head head head head head" "cat first first last last status" "role role org org city county" "email email email phone phone phone" "staff staff staff staff staff staff" "next next next notes notes notes";}
+  .card .staff,.addform .staff{grid-template-columns:1fr 1fr;}
+  .sgrp{grid-template-columns:1fr 1fr 1fr;}
   .addform{grid-template-columns:repeat(4,1fr);}
   .addform .wide{grid-column:span 2;}
 }
@@ -197,7 +208,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   const $ = id => document.getElementById(id);
 
   let KEY = '';
-  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubVia, unsubAgent, unsubUrl }
+  let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubVia, unsubAgent, unsubUrl, assistantName, assistantEmail, assistantPhone, adName, adEmail, adPhone }
   let tab = 'All';      // 'All' or a category id
   let filter = 'All';   // status
   let query = '';
@@ -400,6 +411,49 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     setCall(value);
     return { label: l, input, setCall };
   }
+  // Assistant coach and athletic director: contacts on the lead only. Their emails are never
+  // campaign recipients and never in Copy emails for BCC (the worker sends to email only).
+  const STAFF = [['assistant', 'Assistant coach', 'Asst'], ['ad', 'Athletic director', 'AD']];
+  function staffInputs(c){
+    const o = {};
+    STAFF.forEach(([p]) => {
+      const n = textInput(c && c[p + 'Name'], 80), e = textInput(c && c[p + 'Email'], 200, 'email'), t = textInput(c && c[p + 'Phone'], 30, 'tel');
+      n.placeholder = 'Name'; e.placeholder = 'Email'; t.placeholder = 'Phone'; t.inputMode = 'tel';
+      o[p + 'Name'] = n; o[p + 'Email'] = e; o[p + 'Phone'] = t;
+    });
+    return o;
+  }
+  function staffBlock(inp){
+    const wrap = el('div', 'staff');
+    STAFF.forEach(([p, title]) => {
+      const g = el('fieldset', 'sgrp');
+      g.dataset.staff = p;
+      g.appendChild(el('legend', null, title));
+      g.appendChild(field('Name', '', inp[p + 'Name'], p + 'Name'));
+      g.appendChild(field('Email', '', inp[p + 'Email'], p + 'Email'));
+      g.appendChild(field('Phone', '', inp[p + 'Phone'], p + 'Phone'));
+      wrap.appendChild(g);
+    });
+    return wrap;
+  }
+  // The compact lines under the card header ("Asst: Danny Meinecke", then email and phone
+  // links), drawn from the last saved values so a link never points at a refused value.
+  function drawStaff(box, c){
+    box.textContent = '';
+    STAFF.forEach(([p, , short]) => {
+      const name = (c[p + 'Name'] || '').trim(), mail = (c[p + 'Email'] || '').trim(), tel = (c[p + 'Phone'] || '').trim();
+      if(!name && !mail && !tel) return;
+      const line = el('span', 'sline');
+      line.dataset.staff = p;
+      line.appendChild(el('b', null, short + ':'));
+      if(name) line.appendChild(el('span', 'sname', name));
+      if(mail){ const a = el('a', 'smail', mail); a.href = 'mailto:' + mail; line.appendChild(a); }
+      const digits = tel.replace(/[^\d+]/g, '');
+      if(tel){ const a = el('a', 'stel', tel); if(digits) a.href = 'tel:' + digits; line.appendChild(a); }
+      box.appendChild(line);
+    });
+    box.hidden = !box.children.length;
+  }
   function card(c){
     const box = el('div', 'card');
     box.dataset.id = c.id;
@@ -408,7 +462,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     const head = el('div', 'chead');
     const headName = el('span', null, '');
     const headOrg = el('span', 'org', '');
-    head.appendChild(headName); head.appendChild(headOrg);
+    const headStaff = el('span', 'staffsum', '');
+    head.appendChild(headName); head.appendChild(headOrg); head.appendChild(headStaff);
+    drawStaff(headStaff, c);
     function drawHead(first, last, org){
       headName.textContent = fullName(first, last) || 'No name yet';
       headOrg.textContent = org || '';
@@ -445,6 +501,8 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     box.appendChild(field('Status', '', status, 'status'));
     box.appendChild(field('Email', '', email, 'email'));
     box.appendChild(ph.label);
+    const staffIn = staffInputs(c);
+    box.appendChild(staffBlock(staffIn));
     box.appendChild(field('Next step', '', nextStep, 'nextStep'));
     box.appendChild(field('Notes', '', notes, 'notes'));
     const meta = el('div', 'meta');
@@ -485,7 +543,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     err.hidden = true; err.setAttribute('role', 'alert');
     box.appendChild(err);
 
-    const inputs = { category, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes };
+    const inputs = Object.assign({ category, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes }, staffIn);
     const SELECTS = { category: 1, status: 1 };
     let timer = 0, busy = false, again = false, dirty = false;
     function read(){
@@ -517,7 +575,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
         if(document.activeElement !== email) email.value = c.email;
         if(document.activeElement !== phone) phone.value = c.phone || '';
         ph.setCall(c.phone);
+        for(const k in staffIn){ staffIn[k].removeAttribute('aria-invalid'); if(document.activeElement !== staffIn[k]) staffIn[k].value = c[k] || ''; }
         drawHead(c.firstName, c.lastName, c.school);
+        drawStaff(headStaff, c);
         state.textContent = 'Saved'; state.className = 'state ok';
         drawChips();
       } else if(res.j && res.j.code === 'do_not_contact'){
@@ -527,7 +587,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       } else {
         dirty = true;
         const fld = res.j && res.j.field;
-        fail(errText(res) + (res.status === 0 ? ' Your change is still here.' : ''), fld === 'email' ? email : fld === 'phone' ? phone : null);
+        fail(errText(res) + (res.status === 0 ? ' Your change is still here.' : ''), fld === 'email' ? email : fld === 'phone' ? phone : staffIn[fld] || null);
       }
       if(again){ again = false; save(); }
     }
@@ -634,6 +694,8 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     f.appendChild(field('City', '', city, 'city'));
     f.appendChild(field('County', '', county, 'county'));
     f.appendChild(field('Status', '', status, 'status'));
+    const staffIn = staffInputs(null);
+    f.appendChild(staffBlock(staffIn));
     f.appendChild(field('Next step', 'wide', nextStep, 'nextStep'));
     f.appendChild(field('Notes', 'wide', notes, 'notes'));
     const err = el('div', 'errbox row', ''); err.hidden = true; err.setAttribute('role', 'alert');
@@ -651,7 +713,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       if(!email.value.trim()){ err.hidden = false; err.textContent = 'Email is required.'; email.focus(); return; }
       go.disabled = true;
       email.removeAttribute('aria-invalid'); phone.removeAttribute('aria-invalid');
-      const res = await post('/admin/bd/save', { coach: { category: category.value, email: email.value, firstName: firstName.value, lastName: lastName.value, phone: phone.value, role: role.value, school: school.value, city: city.value, county: county.value, status: status.value, nextStep: nextStep.value, notes: notes.value } });
+      const staffVals = {};
+      for(const k in staffIn){ staffIn[k].removeAttribute('aria-invalid'); staffVals[k] = staffIn[k].value; }
+      const res = await post('/admin/bd/save', { coach: Object.assign({ category: category.value, email: email.value, firstName: firstName.value, lastName: lastName.value, phone: phone.value, role: role.value, school: school.value, city: city.value, county: county.value, status: status.value, nextStep: nextStep.value, notes: notes.value }, staffVals) });
       go.disabled = false;
       if(res.status === 200 && res.j && res.j.ok){
         coaches.push(res.j.coach);
@@ -666,7 +730,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       } else {
         err.hidden = false; err.textContent = errText(res, 'Not saved. Try again.');
         const fld = res.j && res.j.field;
-        const badInput = fld === 'email' ? email : fld === 'phone' ? phone : null;
+        const badInput = fld === 'email' ? email : fld === 'phone' ? phone : staffIn[fld] || null;
         if(badInput){ badInput.setAttribute('aria-invalid', 'true'); badInput.focus(); }
       }
     });
