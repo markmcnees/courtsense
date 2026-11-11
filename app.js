@@ -198,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.235';
+const APP_VERSION='1.1.236';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -5330,13 +5330,31 @@ let _schedTimeOpenId=null;
 function schedEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function schedTimeOpen(id){ _schedTimeOpenId=id; renderSchedule(); const i=document.getElementById('sched-time-edit'); if(i&&i.focus)i.focus(); }
 function schedTimeClose(){ _schedTimeOpenId=null; renderSchedule(); }
+// An older game's free-text time as "HH:MM", read the way the worker reads it: a bare 1 to 7
+// ("4", "4:30") is PM, a leading zero or 13 and up is 24-hour, am and pm as written. Null when
+// it does not read.
+function schedLegacyHHMM(t){
+  t=String(t||'').trim().toLowerCase().replace(/\s+/g,'').replace(/\./g,'');
+  let m=/^(\d{1,2})(?::(\d{2}))?$/.exec(t);
+  if(m){ let h=+m[1]; const mi=m[2]?+m[2]:0; if(h>23||mi>59)return null; if(!((m[1].length===2&&m[1][0]==='0')||h>=13)&&h>=1&&h<=7)h+=12; return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'); }
+  m=/^(\d{1,2})(?::(\d{2}))?(am|pm|a|p)$/.exec(t);
+  if(m){ let h=+m[1]; const mi=m[2]?+m[2]:0; if(h<1||h>12||mi>59)return null; const pm=m[3][0]==='p'; if(h===12)h=pm?12:0; else if(pm)h+=12; return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'); }
+  return null;
+}
 function schedTimeSave(id){
   if(currentRole!=='coach')return;
   const g=(D.schedule||[]).find(x=>x&&x.id===id); if(!g){ schedTimeClose(); return; }
   const inp=document.getElementById('sched-time-edit');
   const startTime=schedStartTime(inp&&inp.value);
   if(!startTime){ toast('Pick a start time'); return; }
-  fbSetResult('schedule',g.id,Object.assign({},g,{startTime,time:schedTimeLabel(startTime)}));
+  const label=schedTimeLabel(startTime);
+  const rec=Object.assign({},g,{startTime,time:label});
+  fbSetResult('schedule',g.id,rec);
+  // Fans hear about it once per save, only when the start actually moved (the worker words
+  // a 'time' change as "Time update: vs X on Nov 10 now starts at 4:30 PM").
+  const before=schedStartTime(g.startTime)||schedLegacyHHMM(g.time);
+  const changed=startTime!==before;
+  if(changed&&g.date>=td())fanNotifySchedule('time',rec);
   _schedTimeOpenId=null;
   toast('Start time saved');
   renderSchedule();
