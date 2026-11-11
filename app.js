@@ -198,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.234';
+const APP_VERSION='1.1.235';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -1719,7 +1719,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
         <div class="form-row" style="margin-bottom:8px;">
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Location</label>
             <select class="form-select" id="sched-loc" style="padding:8px;font-size:13px;"><option value="home">Home</option><option value="away">Away</option><option value="neutral">Neutral</option></select></div>
-          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Time</label><input type="text" class="form-input" id="sched-time" placeholder="3:00pm" style="padding:8px;font-size:13px;"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Start Time</label><input type="time" class="form-input" id="sched-time" style="padding:8px;font-size:13px;"></div>
         </div>
         <div class="form-row" style="margin-bottom:8px;">
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">SW Score</label><input type="number" class="form-input" id="sched-us" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
@@ -2788,16 +2788,36 @@ let SCHOOL_KEY_MAP={
 // locked. Live court opponent names and the dual sheet use the revealed courts only (or a
 // sheet scanned on this device this session, which is never saved to the team's data).
 // Club, FSU Grass, the demo and the pitch never reach any of this.
-let _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:''};
+// v2: every lineup call sends guest:true, so an opponent that is not on CourtSense becomes a
+// guest dual (the worker emails their coach a private link). Each side can attach one photo
+// or PDF of the FHSAA lineup form; the other side sees it only after the reveal. The poster
+// alone sees how far ahead of the start they posted.
+let _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:'',inviteDraft:'',inviteOpen:false};
 let _lineupPrompt=null, _lineupPromptBusy=false;
 let _scannedOppLineup={};
+let _lineupForms={};
 const LINEUP_POLL_MS=45000;
+const LINEUP_FORM_MAX=600*1024;
 const LINEUP_ERR={
   locked:'Lineups are revealed and locked.',
   not_on_roster:"A player in this lineup isn't on your roster.",
   unknown_opponent:"That opponent isn't on CourtSense, so lineups can't be swapped.",
-  not_available:"Lineup swap isn't available for this team."
+  not_available:"Lineup swap isn't available for this team.",
+  bad_type:'Attach a photo or a PDF.',
+  too_large:'That file is too large. Keep it under 600 KB.',
+  bad_form:"That file couldn't be read. Try another photo.",
+  bad_email:"That email doesn't look right.",
+  not_coach_email:"Use the other team's coach email.",
+  invite_limit:"That's the most invites for one dual.",
+  email_failed:"Couldn't send the email. Try again.",
+  dual_over:'That dual is over.',
+  post_first:'Post your lineup first, then send the link.',
+  no_start_time:'Add a start time to this game first.'
 };
+// The dual the panel is on, for every lineup route.
+function lineupDual(extra){ return Object.assign({opponent:_lineup.opp,date:_lineup.date,guest:true},extra||{}); }
+// True while the coach is typing the invite email, so a poll does not wipe what they typed.
+function lineupTyping(){ const a=document.activeElement; return !!(a&&a.id==='lineup-invite-email'); }
 function lineupEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function lineupErrMsg(code){ return Object.prototype.hasOwnProperty.call(LINEUP_ERR,code)?LINEUP_ERR[code]:"Couldn't save right now. Try again."; }
 function lineupMaps(opp){ return !!(opp&&Object.prototype.hasOwnProperty.call(SCHOOL_KEY_MAP,opp)); }
@@ -2828,7 +2848,8 @@ function lineupViewOpen(){ const t=document.getElementById('tab-duals'); return 
 // On Load of an assignment: check the lineup for a dual against a mapped opponent.
 function lineupStart(a){
   lineupStop();
-  _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:''};
+  _lineup={aid:null,date:null,opp:null,state:null,err:null,timer:null,busy:false,msg:'',inviteDraft:'',inviteOpen:false};
+  _lineupForms={};
   if(HS_ACCOUNT_SIGNIN&&a&&(!a.type||a.type==='gameday')&&String(a.opponent||'').trim()&&/^\d{4}-\d{2}-\d{2}$/.test(a.date||'')){
     _lineup.aid=a.id; _lineup.date=a.date; _lineup.opp=a.opponent;
   }
@@ -2838,16 +2859,16 @@ function lineupStart(a){
 async function lineupRefresh(){
   const aid=_lineup.aid; if(!aid)return;
   const was=!!(_lineup.state&&_lineup.state.revealed);
-  const j=await lineupCall('/lineup/get',{opponent:_lineup.opp,date:_lineup.date});
+  const j=await lineupCall('/lineup/get',lineupDual());
   if(_lineup.aid!==aid)return;
   if(j.ok){ _lineup.state=j; _lineup.err=null; }
   else{
     _lineup.err=j.code;
-    // Not a CourtSense opponent (or no swap for this team): hide the panel quietly; scoring is unchanged.
+    // The club, a demo or no swap for this team: hide the panel quietly; scoring is unchanged.
     if(j.code==='unknown_opponent'||j.code==='not_available'){ lineupStop(); _lineup.aid=null; lineupRender(); return; }
     if(j.code==='forbidden'){ lineupStop(); lineupRender(); return; }
   }
-  lineupRender();
+  if(!lineupTyping())lineupRender();
   if(_lineup.state&&_lineup.state.revealed){ lineupStop(); if(!was)lineupRevealed(); return; }
   if(!_lineup.timer)_lineup.timer=setInterval(lineupTick,LINEUP_POLL_MS);
 }
@@ -2867,7 +2888,7 @@ async function lineupPost(release){
   if(!courts.length){ _lineup.msg='Add players to at least one court first.'; lineupRender(); return; }
   _lineup.busy=true; _lineup.msg=''; lineupRender();
   const aid=_lineup.aid, was=!!(_lineup.state&&_lineup.state.revealed);
-  const j=await lineupCall('/lineup/submit',{opponent:_lineup.opp,date:_lineup.date,courts,release:!!release});
+  const j=await lineupCall('/lineup/submit',lineupDual({courts,release:!!release}));
   _lineup.busy=false;
   if(_lineup.aid!==aid)return;
   if(j.ok){
@@ -2928,11 +2949,168 @@ function lineupRender(){
       h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">${lineupBtn('lineupPost(false)','Save Draft','var(--charcoal)')}${lineupBtn('lineupPost(true)','Post Lineup to '+O,'var(--green)')}</div>`;
     }
     h+=`<div style="font-size:13px;color:var(--charcoal);margin-top:10px;word-break:break-word;">${O}: ${st.opponentStatus==='posted'?'posted':'not posted'}</div>`;
-    h+=`<div style="font-size:12px;color:var(--gray);margin-top:4px;">Hidden until both lineups are posted.</div>`;
+    h+=`<div style="font-size:12px;color:var(--gray);margin-top:4px;">${st.kind==='guest'?'Hidden until both lineups are posted or the dual starts.':'Hidden until both lineups are posted.'}</div>`;
+    if(st.kind==='guest')h+=lineupInviteHtml(st);
+  }
+  if(st){
+    const ot=lineupOnTimeText(st);
+    if(ot)h+=`<div style="font-size:12px;color:${st.late?'var(--red)':'var(--gray)'};margin-top:8px;">${lineupEsc(ot)}</div>`;
+    h+=lineupFormsHtml(st);
   }
   if(_lineup.msg)h+=`<div style="font-size:13px;color:var(--red);margin-top:8px;">${lineupEsc(_lineup.msg)}</div>`;
   el.innerHTML=h;
   renderDualSheet();
+  if(st)lineupFormsSync(st);
+}
+// The poster's own on-time line, from the worker's postedMinutesBeforeStart and late. Never
+// anything about the other side.
+function lineupOnTimeText(st){
+  if(!st||!st.mine||!st.mine.released||typeof st.postedMinutesBeforeStart!=='number')return '';
+  const m=st.postedMinutesBeforeStart;
+  if(m<0)return 'Posted after the start time';
+  const hrs=Math.floor(m/60);
+  const amt=hrs>=1?(hrs+' hour'+(hrs===1?'':'s')):(m+' minute'+(m===1?'':'s'));
+  return 'Posted '+amt+' before start'+(st.late?', under 24 hours':'');
+}
+// Guest duals: the invite card. No address on file yet shows the email box; after a send it
+// shows the masked address the worker returns, with Send again.
+function lineupInviteHtml(st){
+  const inv=st.invite;
+  let h=`<div style="margin-top:12px;padding:10px;background:var(--off-white);border-radius:8px;">`;
+  // The worker sends the link only after this side has posted, and only for a game with a start time.
+  if(!st.mine||!st.mine.released){
+    h+=`<div style="font-size:13px;color:var(--charcoal);">Opponent isn't on CourtSense yet. Post your lineup first, then send the link.</div>`;
+  }else if(st.hasStartTime===false){
+    h+=`<div style="font-size:13px;color:var(--charcoal);">Add a start time to this game first.</div>`;
+    h+=`<button class="btn btn-small" style="min-height:44px;margin-top:8px;background:none;border:1px solid var(--gray-lighter);color:var(--charcoal);" onclick="lineupGoSetTime()">Set the start time</button>`;
+  }else if(inv&&!_lineup.inviteOpen){
+    h+=`<div style="font-size:13px;color:var(--charcoal);word-break:break-word;">Private link sent to ${lineupEsc(inv.email||'their coach')}. Both lineups unlock together.</div>`;
+    h+=`<button class="btn btn-small" style="min-height:44px;margin-top:8px;background:none;border:1px solid var(--gray-lighter);color:var(--charcoal);" onclick="lineupInviteAgain()"${_lineup.busy?' disabled':''}>Send again</button>`;
+  }else{
+    h+=`<div style="font-size:13px;color:var(--charcoal);margin-bottom:8px;">Opponent isn't on CourtSense yet. Enter their coach's email and we'll send them a private link to post their lineup. Both lineups unlock together.</div>`;
+    h+=`<input type="email" id="lineup-invite-email" class="form-input" autocomplete="off" placeholder="Their coach's email" value="${lineupEsc(_lineup.inviteDraft)}" oninput="_lineup.inviteDraft=this.value" style="padding:10px;font-size:16px;margin-bottom:8px;">`;
+    h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">${lineupBtn('lineupInvite()','Send Private Link','var(--blue)')}</div>`;
+  }
+  return h+`</div>`;
+}
+function lineupGoSetTime(){ if(typeof schedGoSetTime==='function')schedGoSetTime(_lineup.date,_lineup.opp); }
+function lineupInviteAgain(){ _lineup.inviteOpen=true; lineupRender(); const i=document.getElementById('lineup-invite-email'); if(i)i.focus(); }
+async function lineupInvite(){
+  if(_lineup.busy||!_lineup.aid)return;
+  const inp=document.getElementById('lineup-invite-email');
+  const email=String((inp&&inp.value)||_lineup.inviteDraft||'').trim();
+  if(!email||email.length>200||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ _lineup.msg=LINEUP_ERR.bad_email; lineupRender(); return; }
+  _lineup.busy=true; _lineup.msg=''; lineupRender();
+  const aid=_lineup.aid;
+  const j=await lineupCall('/lineup/invite',lineupDual({email}));
+  _lineup.busy=false;
+  if(_lineup.aid!==aid)return;
+  if(j.ok){ _lineup.state=j; _lineup.inviteDraft=''; _lineup.inviteOpen=false; toast('Private link sent ✓'); lineupRender(); if(!_lineup.timer&&!j.revealed)_lineup.timer=setInterval(lineupTick,LINEUP_POLL_MS); return; }
+  _lineup.msg=lineupErrMsg(j.code);
+  lineupRender();
+  if(j.code==='locked')lineupRefresh();
+}
+// The FHSAA form row: attach (until the reveal), the poster's own form, and the opponent's
+// form after the reveal. The bytes are fetched once per upload and kept for this dual only.
+function lineupFormsHtml(st){
+  const f=st.forms||{};
+  let h=`<div style="margin-top:12px;">`;
+  if(!st.revealed){
+    h+=`<input type="file" id="lineup-form-file" accept="image/*,application/pdf" style="display:none;" onchange="lineupFormFile(this)">`;
+    h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">${lineupBtn("document.getElementById('lineup-form-file').click()",f.mine?'Replace FHSAA form':'Attach FHSAA form (photo or PDF)','var(--charcoal)')}</div>`;
+  }
+  h+=lineupFormThumb('mine',f.mine,'Your form');
+  if(st.revealed)h+=lineupFormThumb('opponent',f.opponent,lineupEsc(_lineup.opp)+' form');
+  return h+`</div>`;
+}
+// label is already escaped.
+function lineupFormThumb(whose,meta,label){
+  if(!meta)return '';
+  const c=_lineupForms[whose];
+  const head=`<div style="font-size:12px;color:var(--gray);margin:10px 0 4px;word-break:break-word;">${label}</div>`;
+  if(!c||c.at!==meta.uploadedAt||!c.data)return head+`<div style="font-size:12px;color:var(--gray);">${c&&c.err?"Couldn't load the form.":'Loading form...'}</div>`;
+  if(c.ct==='application/pdf')return head+`<button class="btn btn-small" style="min-height:44px;background:none;border:1px solid var(--gray-lighter);color:var(--charcoal);" onclick="lineupFormOpen('${whose}')">Open PDF</button>`;
+  return head+`<img src="data:${c.ct};base64,${c.data}" alt="${label}" onclick="lineupFormOpen('${whose}')" style="display:block;max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--gray-lighter);cursor:pointer;">`;
+}
+// Fetch any form whose meta is newer than what this device holds, then draw once.
+function lineupFormsSync(st){
+  const f=st.forms||{}, aid=_lineup.aid;
+  ['mine','opponent'].forEach(whose=>{
+    const meta=f[whose]; if(!meta||(whose==='opponent'&&!st.revealed))return;
+    const c=_lineupForms[whose];
+    if(c&&(c.at===meta.uploadedAt||c.loading===meta.uploadedAt))return;
+    _lineupForms[whose]={at:null,loading:meta.uploadedAt};
+    lineupCall('/lineup/form/get',lineupDual({whose})).then(j=>{
+      if(_lineup.aid!==aid)return;
+      _lineupForms[whose]=j.ok&&/^(image\/jpeg|image\/png|application\/pdf)$/.test(j.contentType)&&/^[A-Za-z0-9+/]+={0,2}$/.test(j.data||'')
+        ?{at:meta.uploadedAt,ct:j.contentType,data:j.data}:{at:meta.uploadedAt,err:true};
+      if(!lineupTyping())lineupRender();
+    });
+  });
+}
+function lineupFormOpen(whose){
+  const c=_lineupForms[whose]; if(!c||!c.data)return;
+  try{
+    const bin=atob(c.data), a=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);
+    window.open(URL.createObjectURL(new Blob([a],{type:c.ct})),'_blank','noopener');
+  }catch(e){ toast("Couldn't open the form"); }
+}
+// A photo is redrawn at most 1600 px on its long side as a JPEG at about 0.7 quality (lower
+// if needed to fit 600 KB). A PDF goes as it is, if it fits.
+function lineupShrinkImage(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const w=img.naturalWidth||img.width, ht=img.naturalHeight||img.height;
+      if(!w||!ht){ reject(new Error('size')); return; }
+      const s=Math.min(1,1600/Math.max(w,ht)), cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(w*s)); cv.height=Math.max(1,Math.round(ht*s));
+      const cx=cv.getContext('2d'); cx.fillStyle='#ffffff'; cx.fillRect(0,0,cv.width,cv.height); cx.drawImage(img,0,0,cv.width,cv.height);
+      let q=0.7, d=cv.toDataURL('image/jpeg',q);
+      while(d.length*0.75>LINEUP_FORM_MAX&&q>0.35){ q-=0.15; d=cv.toDataURL('image/jpeg',q); }
+      resolve(d.slice(d.indexOf(',')+1));
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('read')); };
+    img.src=url;
+  });
+}
+function lineupReadBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>{ const s=String(r.result||''); resolve(s.slice(s.indexOf(',')+1)); };
+    r.onerror=()=>reject(new Error('read'));
+    r.readAsDataURL(file);
+  });
+}
+async function lineupFormFile(input){
+  const file=input&&input.files&&input.files[0];
+  if(input)input.value='';
+  if(!file||_lineup.busy||!_lineup.aid)return;
+  const isPdf=file.type==='application/pdf'||/\.pdf$/i.test(file.name||'');
+  if(!isPdf&&!/^image\//.test(file.type||'')){ _lineup.msg=LINEUP_ERR.bad_type; lineupRender(); return; }
+  if(isPdf&&file.size>LINEUP_FORM_MAX){ _lineup.msg='That PDF is over 600 KB. Try a photo of the form instead.'; lineupRender(); return; }
+  _lineup.busy=true; _lineup.msg=''; lineupRender();
+  const aid=_lineup.aid;
+  let data='';
+  try{ data=isPdf?await lineupReadBase64(file):await lineupShrinkImage(file); }
+  catch(e){ _lineup.busy=false; _lineup.msg=LINEUP_ERR.bad_form; lineupRender(); return; }
+  if(data.length*0.75>LINEUP_FORM_MAX){ _lineup.busy=false; _lineup.msg=LINEUP_ERR.too_large; lineupRender(); return; }
+  const contentType=isPdf?'application/pdf':'image/jpeg';
+  const j=await lineupCall('/lineup/form/upload',lineupDual({contentType,data}));
+  _lineup.busy=false;
+  if(_lineup.aid!==aid)return;
+  if(j.ok&&j.form){
+    _lineupForms.mine={at:j.form.uploadedAt,ct:contentType,data};
+    if(_lineup.state){ _lineup.state.forms=Object.assign({},_lineup.state.forms||{},{mine:j.form}); }
+    toast('Form attached ✓');
+    lineupRender();
+    return;
+  }
+  _lineup.msg=lineupErrMsg(j.code);
+  lineupRender();
+  if(j.code==='locked')lineupRefresh();
 }
 // Both lineups by court, full names, no buttons.
 function lineupTable(st){
@@ -2963,7 +3141,7 @@ function renderDualSheet(){
 }
 // After saving a dual assignment against a mapped opponent: offer to post it now.
 function promptLineupRelease(date, oppName, courts){
-  if(!HS_ACCOUNT_SIGNIN||!oppName||!date||!lineupMaps(oppName))return;
+  if(!HS_ACCOUNT_SIGNIN||!oppName||!date)return;
   _lineupPrompt={date,opp:oppName,courts:courts||[]};
   const old=document.getElementById('lineup-release-modal'); if(old)old.remove();
   const modal=document.createElement('div');
@@ -2971,7 +3149,7 @@ function promptLineupRelease(date, oppName, courts){
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
   modal.innerHTML=`<div style="background:var(--white);border-radius:12px;padding:20px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);">
     <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1px;color:var(--blue);margin-bottom:8px;">📋 LINEUP READY</div>
-    <div style="font-size:13px;color:var(--charcoal);margin-bottom:12px;word-break:break-word;">Post your lineup to <strong>${lineupEsc(oppName)}</strong>? It's revealed to both coaches once they post too.</div>
+    <div style="font-size:13px;color:var(--charcoal);margin-bottom:12px;word-break:break-word;">${lineupMaps(oppName)?`Post your lineup to <strong>${lineupEsc(oppName)}</strong>? It's revealed to both coaches once they post too.`:`Post your lineup for <strong>${lineupEsc(oppName)}</strong>? They aren't on CourtSense yet, so send their coach a private link from Live Scoring. Both lineups unlock together.`}</div>
     <div id="lineup-release-msg" style="font-size:13px;color:var(--red);margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary" style="flex:1;min-height:44px;background:var(--green);border-color:var(--green);" onclick="lineupPromptPost()">Post Lineup</button>
@@ -2987,7 +3165,7 @@ async function lineupPromptPost(){
   const courts=lineupCourtsFrom(p.courts);
   if(!courts.length){ if(msg)msg.textContent='Add players to at least one court first.'; return; }
   _lineupPromptBusy=true;
-  const j=await lineupCall('/lineup/submit',{opponent:p.opp,date:p.date,courts,release:true});
+  const j=await lineupCall('/lineup/submit',{opponent:p.opp,date:p.date,guest:true,courts,release:true});
   _lineupPromptBusy=false;
   if(j.ok){
     lineupPromptClose();
@@ -5111,7 +5289,7 @@ function renderSchedule(){
     const loss=played&&g.scoreUs<g.scoreThem;
     const upcoming=!played&&g.date>=today;
     const loc=g.location==='away'?'@':'vs';
-    h+=`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.04);">
+    h+=`<div id="sched-row-${schedEsc(g.id)}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.04);">
       <div style="min-width:60px;font-size:12px;color:var(--gray);font-weight:600;">${fD(g.date)}</div>
       <div style="flex:1;">
         <span style="font-size:11px;color:var(--gray);">${loc}</span>
@@ -5129,24 +5307,71 @@ function renderSchedule(){
     }
     h+=`</div>`;
     if(currentRole==='coach'){
+      if(upcoming)h+=`<button style="background:none;border:1px solid var(--gray-lighter);border-radius:6px;color:var(--charcoal);cursor:pointer;font-size:12px;padding:6px 8px;min-height:32px;" onclick="schedTimeOpen('${schedEsc(g.id)}')">${g.startTime?'Change time':'Set time'}</button>`;
       h+=`<button style="background:none;border:none;color:var(--gray-light);cursor:pointer;font-size:12px;padding:2px 4px;" onclick="delSchedule('${g.id}')" title="Delete">✕</button>`;
     }
     h+='</div>';
+    if(currentRole==='coach'&&upcoming&&_schedTimeOpenId===g.id){
+      h+=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0 12px;border-bottom:1px solid rgba(0,0,0,0.04);">
+        <label for="sched-time-edit" style="font-size:12px;color:var(--gray);">Start time</label>
+        <input type="time" class="form-input" id="sched-time-edit" value="${schedEsc(g.startTime||'')}" style="padding:8px;font-size:16px;max-width:140px;">
+        <button class="btn btn-primary btn-small" style="min-height:40px;" onclick="schedTimeSave('${schedEsc(g.id)}')">Save</button>
+        <button class="btn btn-secondary btn-small" style="min-height:40px;" onclick="schedTimeClose()">Cancel</button>
+      </div>`;
+    }
   });
   document.getElementById('dash-schedule').innerHTML=h;
 }
+// ── Set time on one existing game ────────────────────────────────────────────
+// A coach sets (or changes) the start time of one game from its schedule row. It saves
+// startTime (HH:MM, for the lineup reminder, the on-time record and guest invites) and the
+// readable time label for that one record, through the same schedule write Add Game uses.
+let _schedTimeOpenId=null;
+function schedEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function schedTimeOpen(id){ _schedTimeOpenId=id; renderSchedule(); const i=document.getElementById('sched-time-edit'); if(i&&i.focus)i.focus(); }
+function schedTimeClose(){ _schedTimeOpenId=null; renderSchedule(); }
+function schedTimeSave(id){
+  if(currentRole!=='coach')return;
+  const g=(D.schedule||[]).find(x=>x&&x.id===id); if(!g){ schedTimeClose(); return; }
+  const inp=document.getElementById('sched-time-edit');
+  const startTime=schedStartTime(inp&&inp.value);
+  if(!startTime){ toast('Pick a start time'); return; }
+  fbSetResult('schedule',g.id,Object.assign({},g,{startTime,time:schedTimeLabel(startTime)}));
+  _schedTimeOpenId=null;
+  toast('Start time saved');
+  renderSchedule();
+}
+// From the lineup panel: open the schedule row for this dual with the time editor showing.
+function schedNormOpp(v){ return String(v||'').toLowerCase().replace(/[.,]/g,' ').replace(/\s+/g,' ').trim().replace(/\s+(high school|high|hs|h s)$/,'').trim(); }
+function schedGoSetTime(date,opp){
+  const want=schedNormOpp(opp);
+  const g=(D.schedule||[]).find(x=>x&&x.date===date&&x.type!=='scrimmage'&&schedNormOpp(x.opponent)===want);
+  const btn=document.querySelector('#mode-bar .mode-btn[onclick*="\'duals\'"]');
+  if(typeof hsNav==='function')hsNav('duals',btn);
+  const t=document.querySelector('.tab[data-tab="dashboard"]'); if(t)t.click();
+  if(!g){ toast('Add this game to the schedule first'); return; }
+  schedTimeOpen(g.id);
+  const row=document.getElementById('sched-row-'+g.id); if(row&&row.scrollIntoView)row.scrollIntoView({block:'center'});
+}
 
+// "16:00" from the time picker, or null when empty or malformed.
+function schedStartTime(v){ v=String(v||'').trim().slice(0,5); return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)?v:null; }
+// "16:00" as "4:00 PM".
+function schedTimeLabel(hhmm){ const h=+hhmm.slice(0,2); return ((h%12)||12)+':'+hhmm.slice(3,5)+(h<12?' AM':' PM'); }
 function addScheduleGame(){
   const date=document.getElementById('sched-date').value;
   const opp=document.getElementById('sched-opp').value.trim();
   if(!date||!opp){toast('Enter date and opponent');return;}
   const loc=document.getElementById('sched-loc').value;
-  const time=document.getElementById('sched-time').value.trim();
+  // The time picker gives 24-hour HH:MM (startTime, used for the lineup reminder and the
+  // on-time record). time keeps a readable label so every older display still shows it.
+  const startTime=schedStartTime(document.getElementById('sched-time').value);
   const us=document.getElementById('sched-us').value;
   const them=document.getElementById('sched-them').value;
   const id=gi('sch');
   const scrim=!!document.getElementById('sched-scrimmage')?.checked;
-  const entry={id,date,opponent:opp,location:loc,time:time||null};
+  const entry={id,date,opponent:opp,location:loc,time:startTime?schedTimeLabel(startTime):null};
+  if(startTime)entry.startTime=startTime;
   if(scrim)entry.type='scrimmage';
   if(us!==''&&them!==''){entry.scoreUs=parseInt(us);entry.scoreThem=parseInt(them);}
   fbSetResult('schedule',id,entry);
