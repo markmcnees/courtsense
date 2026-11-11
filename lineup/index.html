@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Post Your Lineup | CourtSense</title>
+<meta name="description" content="Post your beach volleyball dual lineup on CourtSense. Both lineups unlock together.">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#082A4F;--blue:#0081AB;--gold:#F2B22E;--teal:#217F7F;--red:#B3261E;
+  --paper:#FBF7F0;--ink:#13243A;--slate:#5C6B7A;--line:#E6DDCC;--white:#ffffff;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,'Segoe UI',sans-serif;font-size:16px;line-height:1.55;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;}
+.hdr{background:var(--navy);padding:12px 16px;}
+.hdr a{display:inline-flex;align-items:center;gap:10px;text-decoration:none;}
+.hdr img{height:32px;width:32px;display:block;}
+.hdr span{color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;line-height:1;}
+main{max-width:560px;margin:0 auto;padding:22px 16px 48px;}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+h1{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.2px;line-height:1.1;color:var(--navy);margin-bottom:6px;overflow-wrap:anywhere;}
+h2{font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:1.2px;color:var(--navy);margin-bottom:8px;}
+.kicker{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--teal);}
+.sub{color:var(--slate);font-size:15px;}
+p+p{margin-top:10px;}
+label{display:block;font-size:13px;font-weight:600;color:var(--slate);margin:0 0 4px;}
+input[type=text]{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid #CFC6B4;border-radius:10px;background:#fff;color:var(--ink);}
+input:focus{outline:2px solid var(--blue);outline-offset:1px;}
+.court{border-top:1px solid var(--line);padding:12px 0 4px;}
+.court:first-of-type{border-top:none;padding-top:4px;}
+.court-n{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.2px;color:var(--blue);margin-bottom:6px;}
+.row{display:flex;gap:10px;}
+.row>div{flex:1;min-width:0;}
+.btn{display:block;width:100%;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;padding:12px;border:none;border-radius:12px;background:var(--navy);color:#fff;cursor:pointer;margin-top:12px;min-height:48px;}
+.btn.post{background:var(--teal);}
+.btn.alt{background:#fff;color:var(--navy);border:2px solid var(--navy);padding:10px;}
+.btn:disabled{opacity:.55;cursor:default;}
+a.btn{text-align:center;text-decoration:none;}
+.link-btn{background:none;border:none;color:var(--blue);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;padding:6px 0;min-height:44px;}
+.msg{font-size:15px;margin-top:10px;min-height:1.2em;}
+.msg.err{color:var(--red);font-weight:600;}
+.msg.ok{color:var(--teal);font-weight:600;}
+.pill{display:inline-block;font-size:13px;font-weight:700;padding:2px 10px;border-radius:999px;background:#EEF6F9;color:var(--blue);}
+.pill.done{background:#E7F3F3;color:var(--teal);}
+table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px;}
+th{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:15px;letter-spacing:1px;color:var(--slate);text-align:left;padding:4px 6px;overflow-wrap:anywhere;}
+td{padding:8px 6px;border-top:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top;}
+td.n{width:44px;font-family:'Bebas Neue',sans-serif;font-size:17px;color:var(--blue);}
+th.n{width:44px;}
+.thumb{display:block;max-width:100%;max-height:260px;border-radius:10px;border:1px solid var(--line);margin-top:6px;cursor:pointer;}
+.note{font-size:14px;color:var(--slate);margin-top:8px;}
+a{color:var(--blue);font-weight:600;}
+.hidden{display:none;}
+footer{text-align:center;font-size:14px;color:var(--slate);padding:20px 16px 32px;border-top:1px solid var(--line);}
+footer a{margin:0 6px;text-decoration:none;}
+@media (max-width:420px){.row{flex-direction:column;gap:8px;}}
+</style>
+</head>
+<body>
+
+<div class="hdr"><a href="https://courtsense.app/" id="brand-home"><img src="/logo.png" alt="" width="32" height="32"><span>CourtSense</span></a></div>
+
+<main>
+  <div id="loading" class="card"><p>Loading...</p></div>
+
+  <div id="refused" class="card hidden">
+    <h2 id="refused-title">This link isn't working</h2>
+    <p id="refused-text"></p>
+    <a class="btn alt" href="https://courtsense.app/">Home</a>
+  </div>
+
+  <div id="busy" class="card hidden">
+    <h2>We're busy right now</h2>
+    <p>Please try again in a few minutes.</p>
+    <button type="button" class="btn" id="busy-retry">Try again</button>
+  </div>
+
+  <div id="main" class="hidden">
+    <section class="card">
+      <div class="kicker">Lineup swap</div>
+      <h1 id="title"></h1>
+      <p class="sub" id="when"></p>
+      <p class="sub" id="where"></p>
+      <p style="margin-top:10px;"><span class="pill" id="host-status"></span></p>
+    </section>
+
+    <section class="card hidden" id="revealed-card">
+      <h2>Both lineups are unlocked</h2>
+      <table id="both-table"></table>
+      <div id="forms-both"></div>
+    </section>
+
+    <section class="card hidden" id="edit-card">
+      <h2>Your lineup</h2>
+      <p class="note" id="how"></p>
+      <div id="courts"></div>
+      <button type="button" class="link-btn" id="add-court">Add a court</button>
+      <button type="button" class="btn post" id="post-btn">Post Lineup</button>
+      <button type="button" class="btn alt" id="draft-btn">Save Draft</button>
+      <p class="msg" id="lineup-msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card hidden" id="form-card">
+      <h2>FHSAA lineup form</h2>
+      <p class="note">Optional. Attach a photo or PDF of your signed form. The other coach sees it only once both lineups unlock.</p>
+      <input type="file" id="form-file" accept="image/*,application/pdf" class="hidden">
+      <button type="button" class="btn alt" id="form-btn">Attach form (photo or PDF)</button>
+      <div id="form-mine"></div>
+      <p class="msg" id="form-msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <p class="sub">CourtSense is free for coaches, and you don't need an account to use this link. Questions? Email <a href="mailto:hello@courtsense.app">hello@courtsense.app</a>. Read our <a href="/privacy/">Privacy Policy</a>.</p>
+  </div>
+</main>
+
+<footer>
+  CourtSense, LLC
+  <br><a href="/">Home</a><a href="/privacy/">Privacy</a>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var WORKER='https://courtsense-email-worker.markmcnees-479.workers.dev';
+  var TOKEN_RE=/^[0-9a-f]{64}$/;
+  var MAX_COURTS=8, MIN_COURTS=5, FORM_MAX=600*1024, POLL_MS=60000;
+
+  // Pure helpers, kept apart from the page so the pages check can run them.
+  var K={
+    FORM_MAX:FORM_MAX,
+    token:function(search){ var m=/[?&]t=([^&#]*)/.exec(search||''); var t=m?decodeURIComponent(m[1]).trim().toLowerCase():''; return TOKEN_RE.test(t)?t:''; },
+    refusal:function(code){
+      if(code==='expired') return { title:'This link has expired', text:'Lineup links stop working a week after the dual. Ask the other coach to send a new one if you still need it.' };
+      return { title:"This link isn't working", text:'Check that you opened the whole link from the email. If it still does not work, ask the other coach to send it again.' };
+    },
+    isBusy:function(status,j){ return status===429||(j&&j.code==='rate_limited')||status>=500; },
+    title:function(d){ return (d.school||'Your opponent')+' vs '+(d.opponent||'your team'); },
+    when:function(d){ return (d.dayLabel||'')+(d.time?' at '+d.time:''); },
+    where:function(d){ return d.location==='home'?'At '+(d.school||'their school'):d.location==='away'?'At your school':d.location==='neutral'?'Neutral site':''; },
+    // Courts to send: typed names, court 1 to 8, courts with no names left out.
+    courtsBody:function(rows){
+      var out=[];
+      for(var i=0;i<rows.length;i++){
+        var a=String(rows[i].name1||'').replace(/\s+/g,' ').trim().slice(0,80), b=String(rows[i].name2||'').replace(/\s+/g,' ').trim().slice(0,80);
+        if(a||b) out.push({ court:i+1, name1:a, name2:b });
+      }
+      return out;
+    },
+    // Both lineups by court: [court, ours, theirs].
+    pairs:function(mine,opp){
+      var m={}, o={}, ks={};
+      (mine||[]).forEach(function(c){ m[c.court]=[c.name1,c.name2].filter(Boolean).join(' & '); ks[c.court]=1; });
+      (opp||[]).forEach(function(c){ o[c.court]=[c.name1,c.name2].filter(Boolean).join(' & '); ks[c.court]=1; });
+      return Object.keys(ks).map(Number).sort(function(a,b){ return a-b; }).map(function(n){ return [n, m[n]||'Not set', o[n]||'Not set']; });
+    },
+    statusText:function(j){
+      if(j.revealed) return 'Unlocked';
+      return (j.dual&&j.dual.school||'They')+': '+(j.hostStatus==='posted'?'posted':'not posted yet');
+    },
+    errText:function(code){
+      return ({ locked:'Both lineups are unlocked, so they are locked now.', bad_courts:'Add at least one court, with each court used once.', bad_type:'Attach a photo or a PDF.', too_large:'That file is too large. Keep it under 600 KB.', bad_form:"That file couldn't be read. Try another photo." })[code]||"Couldn't save right now. Try again.";
+    }
+  };
+  window.__lineupK=K;
+
+  function $(id){ return document.getElementById(id); }
+  function show(id){ $(id).classList.remove('hidden'); }
+  function hide(id){ $(id).classList.add('hidden'); }
+  function el(tag,attrs,text){ var e=document.createElement(tag); if(attrs) for(var k in attrs) e.setAttribute(k,attrs[k]); if(text!=null) e.textContent=text; return e; }
+  function post(path,body){
+    return fetch(WORKER+path,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+      .then(function(r){ return r.json().catch(function(){ return null; }).then(function(j){ return { status:r.status, j:j }; }); });
+  }
+
+  var t=K.token(location.search), state=null, courtCount=MIN_COURTS, busy=false, forms={}, pollTimer=null;
+
+  function refused(code){ var r=K.refusal(code); $('refused-title').textContent=r.title; $('refused-text').textContent=r.text; hide('loading'); hide('main'); hide('busy'); show('refused'); stopPoll(); }
+  function busyCard(){ hide('loading'); show('busy'); stopPoll(); }
+  function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+  function typing(){ var a=document.activeElement; return !!(a&&a.tagName==='INPUT'&&a.type==='text'); }
+
+  function rows(){
+    var out=[];
+    for(var i=0;i<courtCount;i++){ var a=$('c'+i+'a'), b=$('c'+i+'b'); out.push({ name1:a?a.value:'', name2:b?b.value:'' }); }
+    return out;
+  }
+  function drawCourts(prefill){
+    var box=$('courts'); box.textContent='';
+    for(var i=0;i<courtCount;i++){
+      var p=prefill[i]||{}, wrap=el('div',{'class':'court'});
+      wrap.appendChild(el('div',{'class':'court-n'},'Pair '+(i+1)));
+      var row=el('div',{'class':'row'});
+      [['a','name1','Player 1'],['b','name2','Player 2']].forEach(function(f){
+        var d=el('div'), id='c'+i+f[0];
+        d.appendChild(el('label',{'for':id},f[2]));
+        var inp=el('input',{type:'text',id:id,maxlength:'80',autocomplete:'off'}); inp.value=p[f[1]]||'';
+        d.appendChild(inp); row.appendChild(d);
+      });
+      wrap.appendChild(row); box.appendChild(wrap);
+    }
+    $('add-court').classList.toggle('hidden',courtCount>=MAX_COURTS);
+  }
+  function prefillFrom(mine){
+    var list=[]; ((mine&&mine.courts)||[]).forEach(function(c){ if(c.court>=1&&c.court<=MAX_COURTS) list[c.court-1]={ name1:c.name1, name2:c.name2 }; });
+    courtCount=Math.max(MIN_COURTS,Math.min(MAX_COURTS,list.length||0));
+    return list;
+  }
+  function thumb(box,whose,meta,label){
+    if(!meta) return;
+    box.appendChild(el('div',{'class':'note'},label));
+    var c=forms[whose];
+    if(!c||c.at!==meta.uploadedAt){ box.appendChild(el('div',{'class':'note'},'Loading form...')); loadForm(whose,meta); return; }
+    if(c.err){ box.appendChild(el('div',{'class':'note'},"Couldn't load the form.")); return; }
+    if(c.ct==='application/pdf'){ var b=el('button',{type:'button','class':'btn alt'},'Open PDF'); b.addEventListener('click',function(){ openForm(whose); }); box.appendChild(b); return; }
+    var img=el('img',{'class':'thumb',alt:label,src:'data:'+c.ct+';base64,'+c.data}); img.addEventListener('click',function(){ openForm(whose); }); box.appendChild(img);
+  }
+  function loadForm(whose,meta){
+    var c=forms[whose]; if(c&&c.loading===meta.uploadedAt) return;
+    forms[whose]={ loading:meta.uploadedAt };
+    post('/lineup/guest/form/get',{ t:t, whose:whose }).then(function(res){
+      var j=res.j;
+      forms[whose]=(j&&j.ok===true&&/^(image\/jpeg|image\/png|application\/pdf)$/.test(j.contentType)&&/^[A-Za-z0-9+/]+={0,2}$/.test(j.data||''))?{ at:meta.uploadedAt, ct:j.contentType, data:j.data }:{ at:meta.uploadedAt, err:true };
+      drawForms();
+    }).catch(function(){ forms[whose]={ at:meta.uploadedAt, err:true }; drawForms(); });
+  }
+  function openForm(whose){
+    var c=forms[whose]; if(!c||!c.data) return;
+    try{ var bin=atob(c.data), a=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([a],{type:c.ct})),'_blank','noopener'); }catch(e){}
+  }
+  function drawForms(){
+    if(!state) return;
+    var f=state.forms||{}, school=(state.dual&&state.dual.school)||'Their';
+    var mine=$('form-mine'); mine.textContent=''; thumb(mine,'mine',f.mine,'Your form');
+    $('form-btn').textContent=f.mine?'Replace form':'Attach form (photo or PDF)';
+    var both=$('forms-both'); both.textContent='';
+    if(state.revealed){ thumb(both,'mine',f.mine,'Your form'); thumb(both,'opponent',f.opponent,school+' form'); }
+  }
+  function render(j,redrawCourts){
+    state=j;
+    var d=j.dual||{};
+    $('title').textContent=K.title(d);
+    $('when').textContent=K.when(d);
+    var w=K.where(d); $('where').textContent=w; $('where').classList.toggle('hidden',!w);
+    var pill=$('host-status'); pill.textContent=K.statusText(j); pill.className='pill'+(j.revealed||j.hostStatus==='posted'?' done':'');
+    if(j.revealed){
+      hide('edit-card'); hide('form-card'); show('revealed-card'); stopPoll();
+      var tb=$('both-table'); tb.textContent='';
+      var hr=el('tr'); hr.appendChild(el('th',{'class':'n'},'')); hr.appendChild(el('th',null,'You')); hr.appendChild(el('th',null,d.school||'Them')); tb.appendChild(hr);
+      K.pairs(j.mine&&j.mine.courts,j.opponent&&j.opponent.courts).forEach(function(p){ var tr=el('tr'); tr.appendChild(el('td',{'class':'n'},'P'+p[0])); tr.appendChild(el('td',null,p[1])); tr.appendChild(el('td',null,p[2])); tb.appendChild(tr); });
+    }else{
+      hide('revealed-card'); show('edit-card'); show('form-card');
+      $('how').textContent=(j.mine&&j.mine.released)
+        ?'Posted. You can still change it until both lineups unlock. Neither team sees the other until you have both posted, or the dual starts.'
+        :"Type each pair's names. Neither team sees the other's lineup until you've both posted. Then both unlock together, or at the start time.";
+      $('post-btn').textContent=(j.mine&&j.mine.released)?'Update Posted Lineup':'Post Lineup';
+      $('draft-btn').classList.toggle('hidden',!!(j.mine&&j.mine.released));
+      if(redrawCourts) drawCourts(prefillFrom(j.mine));
+      if(!pollTimer) pollTimer=setInterval(refresh,POLL_MS);
+    }
+    drawForms();
+  }
+  function load(){
+    hide('busy'); hide('refused'); show('loading');
+    if(!t){ refused('invalid'); return; }
+    post('/lineup/guest/get',{ t:t }).then(function(res){
+      if(K.isBusy(res.status,res.j)){ busyCard(); return; }
+      if(!res.j||res.j.ok!==true){ refused(res.j&&res.j.code); return; }
+      hide('loading'); show('main'); render(res.j,true);
+    }).catch(busyCard);
+  }
+  function refresh(){
+    if(busy||document.hidden) return;
+    post('/lineup/guest/get',{ t:t }).then(function(res){
+      if(res.j&&res.j.ok===true){ if(res.j.revealed||!typing()) render(res.j,false); }
+      else if(res.j&&(res.j.code==='expired'||res.j.code==='invalid')) refused(res.j.code);
+    }).catch(function(){});
+  }
+  function submit(release){
+    if(busy) return;
+    var courts=K.courtsBody(rows()), m=$('lineup-msg');
+    if(!courts.length){ m.className='msg err'; m.textContent='Add at least one pair first.'; return; }
+    busy=true; $('post-btn').disabled=true; $('draft-btn').disabled=true; m.className='msg'; m.textContent='Saving...';
+    post('/lineup/guest/submit',{ t:t, courts:courts, release:!!release }).then(function(res){
+      busy=false; $('post-btn').disabled=false; $('draft-btn').disabled=false;
+      var j=res.j;
+      if(j&&j.ok===true){ m.className='msg ok'; m.textContent=j.revealed?'Posted. Both lineups are unlocked.':release?'Posted. Waiting for '+((j.dual&&j.dual.school)||'the other team')+'.':'Draft saved.'; render(j,false); return; }
+      if(K.isBusy(res.status,j)){ m.className='msg err'; m.textContent="We're busy right now. Try again in a few minutes."; return; }
+      if(j&&(j.code==='expired'||j.code==='invalid')){ refused(j.code); return; }
+      m.className='msg err'; m.textContent=K.errText(j&&j.code);
+      if(j&&j.code==='locked') refresh();
+    }).catch(function(){ busy=false; $('post-btn').disabled=false; $('draft-btn').disabled=false; m.className='msg err'; m.textContent='Could not reach CourtSense. Check your connection and try again.'; });
+  }
+  // A photo is redrawn at most 1600 px on its long side as a JPEG at about 0.7 quality. A PDF goes as it is.
+  function shrink(file){
+    return new Promise(function(resolve,reject){
+      var url=URL.createObjectURL(file), img=new Image();
+      img.onload=function(){
+        URL.revokeObjectURL(url);
+        var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; if(!w||!h){ reject(new Error('size')); return; }
+        var s=Math.min(1,1600/Math.max(w,h)), cv=document.createElement('canvas');
+        cv.width=Math.max(1,Math.round(w*s)); cv.height=Math.max(1,Math.round(h*s));
+        var cx=cv.getContext('2d'); cx.fillStyle='#ffffff'; cx.fillRect(0,0,cv.width,cv.height); cx.drawImage(img,0,0,cv.width,cv.height);
+        var q=0.7, d=cv.toDataURL('image/jpeg',q);
+        while(d.length*0.75>FORM_MAX&&q>0.35){ q-=0.15; d=cv.toDataURL('image/jpeg',q); }
+        resolve(d.slice(d.indexOf(',')+1));
+      };
+      img.onerror=function(){ URL.revokeObjectURL(url); reject(new Error('read')); };
+      img.src=url;
+    });
+  }
+  function readB64(file){ return new Promise(function(resolve,reject){ var r=new FileReader(); r.onload=function(){ var s=String(r.result||''); resolve(s.slice(s.indexOf(',')+1)); }; r.onerror=function(){ reject(new Error('read')); }; r.readAsDataURL(file); }); }
+  function attach(file){
+    var m=$('form-msg');
+    var isPdf=file.type==='application/pdf'||/\.pdf$/i.test(file.name||'');
+    if(!isPdf&&!/^image\//.test(file.type||'')){ m.className='msg err'; m.textContent=K.errText('bad_type'); return; }
+    if(isPdf&&file.size>FORM_MAX){ m.className='msg err'; m.textContent='That PDF is over 600 KB. Try a photo of the form instead.'; return; }
+    $('form-btn').disabled=true; m.className='msg'; m.textContent='Attaching...';
+    (isPdf?readB64(file):shrink(file)).then(function(data){
+      if(data.length*0.75>FORM_MAX) throw { code:'too_large' };
+      var ct=isPdf?'application/pdf':'image/jpeg';
+      return post('/lineup/guest/form/upload',{ t:t, contentType:ct, data:data }).then(function(res){
+        var j=res.j;
+        if(j&&j.ok===true&&j.form){ forms.mine={ at:j.form.uploadedAt, ct:ct, data:data }; state.forms=Object.assign({},state.forms||{},{ mine:j.form }); m.className='msg ok'; m.textContent='Form attached.'; drawForms(); return; }
+        if(j&&(j.code==='expired'||j.code==='invalid')){ refused(j.code); return; }
+        m.className='msg err'; m.textContent=K.isBusy(res.status,j)?"We're busy right now. Try again in a few minutes.":K.errText(j&&j.code);
+      });
+    }).catch(function(e){ m.className='msg err'; m.textContent=K.errText(e&&e.code?e.code:'bad_form'); })
+      .then(function(){ $('form-btn').disabled=false; });
+  }
+
+  $('post-btn').addEventListener('click',function(){ submit(true); });
+  $('draft-btn').addEventListener('click',function(){ submit(false); });
+  $('add-court').addEventListener('click',function(){ var keep=rows(); if(courtCount<MAX_COURTS){ courtCount++; drawCourts(keep); } });
+  $('form-btn').addEventListener('click',function(){ $('form-file').click(); });
+  $('form-file').addEventListener('change',function(){ var f=this.files&&this.files[0]; this.value=''; if(f) attach(f); });
+  $('busy-retry').addEventListener('click',load);
+  load();
+})();
+</script>
+</body>
+</html>
