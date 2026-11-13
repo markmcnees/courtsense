@@ -1086,6 +1086,19 @@ function trnRegOf(d){
   const r = d && d.regStatus;
   return TRN_REG_STATUSES.indexOf(r) === -1 ? 'open' : r;
 }
+// ── DRAFT LISTINGS ────────────────────────────────────────────────────────
+// status 'draft' is a listing loaded ahead of time and not published yet. It is
+// dropped where the tournaments node arrives, so every by-id read in this file
+// (detail, ?trn= deep link, partner picker, pool, edit) finds nothing and takes
+// its existing not-found path. No screen here creates, edits or publishes one.
+// The node is world readable, so this keeps a draft off screen, not secret. The
+// worker does the same for /partners (partner-board-core.ts isHiddenTournament).
+function trnIsDraft(t){ return !!t && t.status === 'draft'; }
+function trnWithoutDrafts(all){
+  const out = {};
+  Object.keys(all || {}).forEach(k => { if(!trnIsDraft(all[k])) out[k] = all[k]; });
+  return out;
+}
 // ── SIGN-UP TIMES ─────────────────────────────────────────────────────────
 // Optional, per division: when sign-ups open and when they close, as epoch ms,
 // entered and shown in Eastern time. Stored BESIDE the divisions, never inside
@@ -1939,7 +1952,7 @@ function initFB(){
     // that is unavailable, not an offline app. A denial here leaves every other
     // listener's state untouched and surfaces in the tournament list instead.
     db.ref(DB_ROOT+'/tournaments').on('value', s=>{
-      D.tournaments = s.val()||{};
+      D.tournaments = trnWithoutDrafts(s.val()||{});
       trnLoadFailed = false;
       refreshAll();
       openPendingTrn(true);
@@ -4206,7 +4219,7 @@ function startNewPartnerPost(){
 function trnUpcoming(){
   const today = td();
   return Object.values(D.tournaments || {})
-    .filter(t => t && t.id && t.status !== 'cancelled' && (!t.endDate || t.endDate >= today))
+    .filter(t => t && t.id && t.status !== 'cancelled' && !trnIsDraft(t) && (!t.endDate || t.endDate >= today))
     .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
 }
 function ppUpcomingTournaments(){ return trnUpcoming(); }
