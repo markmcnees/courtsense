@@ -9072,6 +9072,11 @@ async function saveInvite(){
   const me = window.Identity ? Identity.getCurrent() : null;
   const hostRsvpName = ((me && me.name) || hostAuth.displayName || hostAuth.name || 'Host').trim();
   const hostRsvpKey = gameplayKey() || ((window.Identity && Identity.nameKey) ? Identity.nameKey(hostRsvpName) : '') || hostAuth.id;
+  // Per-date titles for a repeating series. When the host left the automatic title alone
+  // (or typed exactly what it would say for the first date), each copy is titled from its
+  // OWN date, so week five does not read "Pickup, <week one>". A title the host typed is
+  // kept on every copy. A single game keeps whatever the form holds, exactly as before.
+  const seriesAutoTitle = recurring && (!_userEditedTitle || base.name === autoTitle(base.date));
   for(let n=0; n<occurrences; n++){
     const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
     const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -9087,6 +9092,7 @@ async function saveInvite(){
       ...base,
       id,
       date: iso,
+      ...(seriesAutoTitle ? { name: autoTitle(iso) } : {}),
       rsvpDeadline: n===0 ? base.rsvpDeadline : dl,
       // Overrides the spread base value. Omitted (and the base value deleted below) when
       // the instant is not finite, so the record never carries a wrong or unparseable one.
