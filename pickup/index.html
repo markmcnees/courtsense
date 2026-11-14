@@ -133,6 +133,85 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pk-empty h3{font-family:'Bebas Neue';font-weight:400;font-size:22px;letter-spacing:1px;color:var(--navy);margin:0 0 4px;}
 .pk-empty p{font-size:14px;color:var(--slate);margin:0 0 12px;}
 .pk-empty .btn{margin-top:8px;}
+/* ── Weekly game: a mode of Post a Pickup Game (#view-invite-setup.wk) ── */
+#view-invite-setup:not(.wk) .wk-only{display:none!important;}
+#view-invite-setup.wk .wk-hide{display:none!important;}
+#view-invite-setup.wk:not(.wk-open) .wk-more{display:none!important;}
+#view-invite-setup.wk.on{display:flex;flex-direction:column;}
+#view-invite-setup.wk > button:first-child{order:0;align-self:flex-start;}
+#view-invite-setup.wk #iv-card-basic{order:1;} #view-invite-setup.wk #iv-card-rec{order:2;} #view-invite-setup.wk #iv-card-elig{order:3;}
+#view-invite-setup.wk #iv-wk-more{order:4;margin:0 0 12px;text-align:left;} #view-invite-setup.wk #iv-card-type{order:5;} #view-invite-setup.wk #iv-card-opts{order:6;}
+#view-invite-setup.wk #iv-card-widen{order:7;} #view-invite-setup.wk #iv-save-btn{order:8;}
+.wk-days{display:flex;gap:6px;flex-wrap:wrap;}
+.wk-day{min-width:44px;min-height:44px;border-radius:12px;border:1.5px solid var(--gray-light);background:#fff;font-family:'Barlow';font-weight:700;font-size:14px;color:var(--primary);cursor:pointer;}
+.wk-day.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+.wk-freq,.wk-who{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:15px;}
+.wk-freq label,.wk-who label{display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer;}
+/* ── The pickup home (redesign) ── */
+.home-h{font-family:'Bebas Neue';font-weight:400;font-size:28px;letter-spacing:.5px;color:var(--primary);margin:18px 2px 10px;}
+.start-cta{margin:6px 0 4px;}
+.btn-start{width:100%;min-height:64px;border:none;border-radius:16px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;gap:10px;font-family:'Barlow';font-weight:800;font-size:20px;cursor:pointer;}
+.start-sub{font-size:14px;font-weight:600;color:var(--slate);text-align:center;margin-top:8px;}
+.gcard{background:#fff;border-radius:16px;padding:16px;box-shadow:0 1px 0 #E6DFD3;margin-bottom:12px;}
+.gcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.gname{font-weight:800;font-size:18px;color:var(--primary);}
+.gwhen{margin-top:4px;font-size:15px;font-weight:600;color:var(--ink);}
+.gplace{margin-top:2px;font-size:14px;color:var(--slate);}
+.gcard-foot{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.gspots{font-size:14px;font-weight:700;color:var(--teal);}
+.btn-join{font-family:'Barlow';font-weight:800;font-size:16px;color:#fff;background:var(--primary);border:none;border-radius:12px;padding:0 20px;min-height:44px;display:inline-flex;align-items:center;text-decoration:none;cursor:pointer;white-space:nowrap;}
+.btn-join.teal{background:var(--teal);}
+.tag-weekly{flex:none;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--primary);background:#F7C880;border-radius:10px;padding:4px 8px;vertical-align:1px;}
+.see-all{font-family:'Barlow';font-weight:700;font-size:15px;color:#0081AB;background:transparent;border:none;min-height:44px;width:100%;cursor:pointer;}
+.ycard{background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 0 #E6DFD3;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+.ycard-tx{min-width:0;}
+.ycard-btns{display:flex;flex-direction:column;gap:6px;flex:none;}
+.ylabel{font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--primary);}
+.ylabel.poll{color:var(--teal);}
+.yname{margin-top:2px;font-weight:800;font-size:17px;color:var(--primary);}
+.yline{margin-top:2px;font-size:14px;color:var(--slate);}
+.btn-manage{font-family:'Barlow';font-weight:800;font-size:15px;color:var(--primary);background:#fff;border:2px solid var(--primary);border-radius:12px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;cursor:pointer;}
+.more-list{background:#fff;border-radius:16px;box-shadow:0 1px 0 #E6DFD3;display:flex;flex-direction:column;margin-bottom:14px;}
+.more-row{text-decoration:none;color:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:14px 16px;min-height:44px;border-bottom:1px solid #F0EADF;}
+.more-row:last-child{border-bottom:none;}
+.more-row b{font-weight:800;color:var(--primary);}
+.more-row span span{font-size:14px;color:var(--slate);}
+.more-ch{color:var(--slate);font-size:20px;}
+.area-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:14px;}
+.sheet-back{position:fixed;inset:0;background:rgba(8,42,79,.55);z-index:9000;display:flex;align-items:flex-end;justify-content:center;}
+.sheet{background:#fff;border-radius:24px 24px 0 0;padding:12px 18px 28px;width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px;max-height:92vh;overflow-y:auto;}
+.sheet-grab{align-self:center;width:44px;height:5px;border-radius:3px;background:#D5DCE3;}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;}
+.sheet-head h2{margin:0;font-family:'Bebas Neue';font-weight:400;font-size:34px;letter-spacing:.5px;color:var(--primary);}
+.sheet-x{width:44px;height:44px;border-radius:22px;border:none;background:#F0EADF;color:var(--primary);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.sheet-sub{font-size:15px;color:var(--slate);margin:-6px 0 0;}
+.sheet-opt{font-family:'Barlow';text-align:left;width:100%;background:#FBF7F0;border:2px solid #E6DFD3;border-radius:18px;padding:16px;display:flex;gap:14px;align-items:center;min-height:88px;cursor:pointer;color:var(--ink);}
+.sheet-opt.weekly{background:#FFF8EA;border-color:#F2B22E;}
+.sheet-opt.poll{background:#F1F8F8;border-color:var(--teal);}
+.sheet-ic{flex:none;width:52px;height:52px;border-radius:26px;display:flex;align-items:center;justify-content:center;}
+.sheet-ic.navy{background:var(--primary);} .sheet-ic.gold{background:#F2B22E;} .sheet-ic.teal{background:var(--teal);}
+.sheet-tx{flex:1;display:flex;flex-direction:column;}
+.sheet-tx b{font-weight:800;font-size:19px;color:var(--primary);}
+.sheet-tx > span{margin-top:2px;font-size:15px;color:var(--slate);}
+.sheet-ch{font-size:26px;color:var(--slate);}
+.tag-new{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--primary);background:#F7C880;border-radius:8px;padding:2px 6px;margin-left:6px;vertical-align:2px;}
+.sheet-link{font-family:'Barlow';background:none;border:none;text-align:center;font-weight:700;font-size:15px;color:#0081AB;min-height:44px;cursor:pointer;}
+.out-hero{background:var(--primary);color:#fff;border-radius:18px;padding:22px 18px 18px;margin:4px 0 14px;}
+.out-hero h1{font-family:'Bebas Neue';font-weight:400;font-size:36px;letter-spacing:.5px;line-height:1.05;margin:0 0 8px;color:#fff;}
+.out-hero h1 span{color:var(--gold);}
+.out-hero p{font-size:15px;color:#DDE6F0;margin:0 0 12px;}
+.out-hero .area-row{color:#fff;margin:0;}
+.out-hero .area-row b{color:#fff;}
+.out-hero .pl-manage{color:var(--gold);}
+.out-start{text-align:center;padding:16px;}
+.out-start-h{font-family:'Bebas Neue';font-size:24px;letter-spacing:.5px;color:var(--primary);}
+.out-start p{font-size:14px;color:var(--slate);margin:4px 0 10px;}
+.how{list-style:none;padding:0;margin:0 0 14px;display:flex;flex-direction:column;gap:10px;}
+.how li{display:flex;gap:12px;align-items:center;background:#fff;border-radius:14px;padding:12px 14px;font-size:15px;}
+.how-n{flex:none;width:30px;height:30px;border-radius:15px;background:var(--teal);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.out-bar{position:fixed;left:0;right:0;bottom:0;z-index:8000;background:#fff;border-top:1px solid #E6DFD3;padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;}
+.out-bar .btn{flex:1;max-width:280px;min-height:48px;}
+body.has-out-bar .content{padding-bottom:90px;}
 /* Signed out: the sign-in line above Open games. */
 .pk-signin{text-align:center;padding:10px 12px;}
 .pk-signin p{font-size:14px;color:var(--slate);margin:0 0 8px;}
@@ -323,6 +402,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div style="display:flex;gap:12px;align-items:center;">
       <span id="cs-nav" style="color:#fff;"></span>
       <button id="profile-btn" onclick="location.href='/community/profile/'" title="My Profile" style="background:rgba(0,0,0,.25);border:none;color:#fff;width:36px;height:36px;border-radius:18px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#F2B22E" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm6.5-6V11a6.5 6.5 0 0 0-5-6.32V4a1.5 1.5 0 0 0-3 0v.68A6.5 6.5 0 0 0 5.5 11v5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L18.5 16z"/></svg></button>
+      <button id="signin-btn" onclick="homeSignIn(false)" title="Sign in" style="display:none;background:#fff;border:none;color:var(--primary);height:36px;padding:0 14px;border-radius:18px;cursor:pointer;font-family:'Barlow';font-weight:700;font-size:14px;">Sign in</button>
       <button id="logout-btn" onclick="doLogout()" title="Log Out" style="display:none;background:rgba(0,0,0,.25);border:none;color:#fff;height:36px;padding:0 12px;border-radius:18px;cursor:pointer;font-family:'Bebas Neue';font-size:12px;letter-spacing:1.2px;">Log Out</button>
     </div>
   </div>
@@ -333,85 +413,66 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <button class="tab" data-tab="ratings">Ratings</button>
   </div>
 </div>
-<!-- Page band, list view only (showView toggles it). -->
-<div class="pk-band" id="pk-band">
-  <div class="pk-band-in">
-    <h2>Pickup</h2>
-    <p>Find a game, start one, or let players pick the time.</p>
-  </div>
-</div>
-
 <div class="content">
 
-  <!-- LIST VIEW -->
+  <!-- LIST VIEW: the pickup home.
+       Signed in, top to bottom: the area chip, Needs you (only when something waits for an
+       answer), Start a game, the poll just sent, Open games near you, Ranked Nights nearby,
+       Your games and polls, then More ways to play.
+       Signed out: the welcome hero with the area chip, Open games near the area, Don't see
+       your game, How it works, the Tournaments link, and a fixed Sign in bar.
+       renderHome draws the parts that depend on being signed in; every list keeps its own
+       renderer (renderNeedsYou, renderInviteList, renderEventList, ppDrawSent, renderMyPolls). -->
   <div class="pane" id="view-list">
-    <!-- CONTENT FIRST, ACTIONS AFTER. This used to open with three cards and six
-         buttons of things you COULD do, with your own games fourth and anything
-         needing an answer buried in a badge. The order is now: what wants an
-         answer, your games, the tournament directory, the ranked nights you are
-         running, then the create cards, then the archive.
-
-         The directory absorbed the partner-post list. One card per real event,
-         carrying how many people are looking and how many are in the pool, so an
-         event can no longer appear twice on one screen under two headings that
-         both said "Tournaments".
-
-         The directory itself then moved OUT, into view-tournaments, and the
-         partner action followed it. The site nav carries two links to this page,
-         Pickup and Tournaments, and while both lived here they landed within a
-         screen of each other and read as the same destination. They are now
-         genuinely different: this is pickup games and ranked nights, and
-         Tournaments is the directory plus the two things you do to it. -->
-    <div id="needs-you"></div>
+    <div class="out-hero" id="out-hero" style="display:none;">
+      <h1>Find a game near you.<br><span>Or start one.</span></h1>
+      <p>Beach and grass pickup at your level. Free for players.</p>
+      <div id="hero-area-slot"></div>
+    </div>
     <div id="area-bar"></div>
-    <div id="invite-list"></div>
+    <div id="needs-you"></div>
+    <div id="home-top"></div>
     <div id="pp-sent"></div>
-    <div id="my-polls"></div>
-    <!-- Discovery only: one line pointing at the directory, which lives in its
-         own view now. Below what needs the player, above what they could start. -->
-    <div id="trn-pointer"></div>
+    <div id="invite-list"></div>
     <div id="event-list-active"></div>
-    <!-- Action tiles. Inline SVG icons, not emoji, so no phone shows an empty box. -->
-    <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Create a game</div>
-      <button class="tile" onclick="startNewInvite()">
-        <span class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>
-        <span class="tile-tx"><span class="tile-nm">Post a Pickup Game</span><span class="tile-ex">You already know the place, day and time. Post it and players sign up.</span></span>
-        <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
-      </button>
-      <!-- A second line under the tile (a button inside a button is not allowed): the same
-           form with Repeat ticked and Weekly chosen. -->
-      <button type="button" class="tile-weekly" onclick="startNewInvite({ weekly: true })">Running a weekly game? Set it up once. &rsaquo;</button>
-      <!-- Pickup poll: shown to everyone; signed out, a tap asks them to sign in first. -->
-      <div id="poll-entry">
-        <button class="tile" onclick="startPollPlan()">
-          <span class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-6M2 20h20"/></svg></span>
-          <span class="tile-tx"><span class="tile-nm">Create a Pickup Poll</span><span class="tile-ex">Not sure when works? Offer a few times, let players vote, and the winning time becomes the game.</span></span>
-          <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
-        </button>
-      </div>
-      <button class="tile" onclick="startNewEvent()">
-        <span class="tile-ic gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5L3 8z"/></svg></span>
-        <span class="tile-tx"><span class="tile-nm">King/Queen of the Beach<span class="rank-badge">Ranked</span></span><span class="tile-ex">One night, rotating partners, live scoring. Counts toward your rating.</span></span>
-        <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
-      </button>
+    <div id="yours-sec">
+      <div id="your-games"></div>
+      <div id="my-polls"></div>
     </div>
-    <!-- Find a Tournament Partner moved to the Tournaments view. A partner post
-         is made AGAINST a tournament and its first question is "which one?", so
-         the action belongs on the surface holding the objects it acts on. This
-         screen is pickup games and ranked nights. -->
-    <div class="card" style="padding:14px;">
-      <div class="ctitle"><span class="bar"></span>Community</div>
-      <div style="margin-bottom:10px;">
-        <button class="btn btn-g btn-w" onclick="openGroupsModal()">👥 Groups</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Save a crew to invite just them.</div>
+    <div id="home-more"></div>
+    <div id="event-list-past" style="display:none;"></div>
+  </div>
+
+  <!-- Start a game: a bottom sheet with the three ways to set up a game and the ranked
+       night link. Each choice runs the existing entry point (startNewInvite, the weekly mode,
+       startPollPlan, startNewEvent), which signs a visitor in first where it always has. -->
+  <div class="sheet-back" id="start-sheet" style="display:none;" onclick="if(event.target===this) closeStartSheet()">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="start-sheet-title">
+      <div class="sheet-grab" aria-hidden="true"></div>
+      <div class="sheet-head">
+        <h2 id="start-sheet-title">Start a game</h2>
+        <button type="button" class="sheet-x" aria-label="Close" onclick="closeStartSheet()"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
       </div>
-      <div>
-        <button class="btn btn-g btn-w" onclick="shareJoinLink()">🔗 Invite a friend to CourtSense</button>
-        <div style="font-size:12px;color:var(--gray);text-align:center;margin-top:4px;">Share a link to bring someone new.</div>
-      </div>
+      <p class="sheet-sub">Pick what you're setting up. You can share the link with your crew after.</p>
+      <button type="button" class="sheet-opt" id="start-one" onclick="startSheetPick('one')">
+        <span class="sheet-ic navy"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg></span>
+        <span class="sheet-tx"><b>One game</b><span>You know the day, time and place.</span></span><span class="sheet-ch" aria-hidden="true">&rsaquo;</span>
+      </button>
+      <button type="button" class="sheet-opt weekly" id="start-weekly" onclick="startSheetPick('weekly')">
+        <span class="sheet-ic gold"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#082A4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg></span>
+        <span class="sheet-tx"><b>Weekly game <span class="tag-new">New</span></b><span>Same time every week. Set it up once.</span></span><span class="sheet-ch" aria-hidden="true">&rsaquo;</span>
+      </button>
+      <button type="button" class="sheet-opt poll" id="start-poll" onclick="startSheetPick('poll')">
+        <span class="sheet-ic teal"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V12"/><path d="M12 20V5"/><path d="M19 20v-9"/></svg></span>
+        <span class="sheet-tx"><b>Poll for a time</b><span>Offer a few times. Players vote and the winner becomes the game.</span></span><span class="sheet-ch" aria-hidden="true">&rsaquo;</span>
+      </button>
+      <button type="button" class="sheet-link" id="start-ranked" onclick="startSheetPick('ranked')">Running a ranked King/Queen of the Beach night?</button>
     </div>
-    <div id="event-list-past"></div>
+  </div>
+  <!-- Signed out, home only: Sign in and Create free account stay in reach. -->
+  <div class="out-bar" id="out-bar" style="display:none;">
+    <button type="button" class="btn btn-o" onclick="homeSignIn(false)">Sign in</button>
+    <button type="button" class="btn btn-p" onclick="homeSignIn(true)">Create free account</button>
   </div>
 
   <!-- TOURNAMENTS VIEW: the directory and nothing else. Reached from the site
@@ -429,15 +490,34 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   <!-- INVITE SETUP VIEW -->
   <div class="pane" id="view-invite-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
-    <div class="card">
+    <div class="card" id="iv-card-basic">
       <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Post a Pickup Game</span></div>
       <div class="fg">
-        <label class="lbl">Event Name</label>
+        <label class="lbl">Event Name<span class="wk-only" style="font-weight:400;"> (optional)</span></label>
         <input class="inp" id="iv-name" placeholder="Saturday Pickup">
       </div>
-      <div class="fg">
+      <div class="fg wk-hide">
         <label class="lbl">Date</label>
         <input class="inp" id="iv-date" type="date">
+      </div>
+      <!-- Weekly game: the day of the week picks the first date (wkFirstDate), and every
+           week or every other week sets the repeat. -->
+      <div class="fg wk-only" id="iv-wk-days-fg">
+        <label class="lbl">Every</label>
+        <div class="wk-days" id="iv-wk-days" role="group" aria-label="Day of the week">
+          <button type="button" class="wk-day" data-wd="1" aria-pressed="false" onclick="wkPickDay(1)">Mon</button>
+          <button type="button" class="wk-day" data-wd="2" aria-pressed="false" onclick="wkPickDay(2)">Tue</button>
+          <button type="button" class="wk-day" data-wd="3" aria-pressed="false" onclick="wkPickDay(3)">Wed</button>
+          <button type="button" class="wk-day" data-wd="4" aria-pressed="false" onclick="wkPickDay(4)">Thu</button>
+          <button type="button" class="wk-day" data-wd="5" aria-pressed="false" onclick="wkPickDay(5)">Fri</button>
+          <button type="button" class="wk-day" data-wd="6" aria-pressed="false" onclick="wkPickDay(6)">Sat</button>
+          <button type="button" class="wk-day" data-wd="0" aria-pressed="false" onclick="wkPickDay(0)">Sun</button>
+        </div>
+        <div class="wk-freq">
+          <label><input type="radio" name="iv-wk-freq" id="iv-wk-freq-weekly" value="weekly" checked onchange="wkFreq('weekly')"> Every week</label>
+          <label><input type="radio" name="iv-wk-freq" id="iv-wk-freq-biweekly" value="biweekly" onchange="wkFreq('biweekly')"> Every other week</label>
+        </div>
+        <div class="evmeta" id="iv-wk-first" style="margin-top:6px;"></div>
       </div>
       <div class="row2">
         <div>
@@ -456,17 +536,17 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <button type="button" class="pl-manage" id="iv-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
       <div class="fg" id="iv-city-fg" style="display:none;"></div>
-      <div class="fg" id="iv-court-fg" style="display:none;">
+      <div class="fg wk-more" id="iv-court-fg" style="display:none;">
         <label class="lbl">Court (optional)</label>
         <select class="inp" id="iv-court" onchange="onCourtPick()"></select>
         <div id="iv-court-hint" style="font-size:11px;color:var(--gray);margin-top:4px;"></div>
       </div>
-      <div class="fg">
+      <div class="fg wk-more">
         <label class="lbl">Court numbers</label>
         <input class="inp" id="iv-courts" type="text" value="1" placeholder="1" maxlength="40" oninput="onCourtsInput()">
         <div id="iv-courts-hint" style="font-size:11px;color:var(--gray);margin-top:4px;min-height:14px;">Which courts you are on, not how many. Comma separated, for example 3, 4.</div>
       </div>
-      <div class="fg">
+      <div class="fg wk-more">
         <label class="lbl">Notes (optional)</label>
         <textarea class="inp" id="iv-desc" rows="3" placeholder="Bring water and sunscreen"></textarea>
       </div>
@@ -482,14 +562,14 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <div id="iv-min-slots-err" style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px;min-height:14px;"></div>
         </div>
       </div>
-      <div class="fg">
+      <div class="fg wk-more">
         <label class="lbl">RSVP Deadline</label>
         <input class="inp" id="iv-deadline" type="datetime-local">
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card wk-more" id="iv-card-type">
       <div class="ctitle"><span class="bar"></span>Game Type</div>
       <div class="row2">
         <div>
@@ -511,15 +591,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle"><span class="bar"></span>Recurring</div>
-      <label style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
+    <div class="card" id="iv-card-rec">
+      <div class="ctitle"><span class="bar"></span><span class="wk-hide">Recurring</span><span class="wk-only">How long</span></div>
+      <label class="wk-hide" style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
         <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
         <span style="font-size:14px;font-weight:600;">Repeat this event</span>
       </label>
       <div id="iv-rec-fields" style="display:none;margin-top:10px;">
         <div class="row2">
-          <div>
+          <div class="wk-hide">
             <label class="lbl">Frequency</label>
             <select class="inp" id="iv-rec-freq" onchange="updateSeriesPreview()">
               <option value="weekly">Weekly</option>
@@ -543,12 +623,18 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <input class="inp" id="iv-rec-end" type="date" oninput="updateSeriesPreview()" onchange="updateSeriesPreview()">
         </div>
         <div class="evmeta" id="iv-rec-preview" style="margin-top:8px;font-weight:600;color:var(--primary);"></div>
+        <div class="evmeta wk-only" id="iv-wk-remind" style="margin-top:4px;"></div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="ctitle"><span class="bar"></span>Eligibility</div>
-      <div class="fg">
+    <div class="card" id="iv-card-elig">
+      <div class="ctitle"><span class="bar"></span><span class="wk-hide">Eligibility</span><span class="wk-only">Who can join</span></div>
+      <div class="fg wk-only wk-who">
+        <label><input type="radio" name="iv-wk-who" id="iv-wk-who-open" value="open" checked onchange="wkWho('open')"> Anyone nearby</label>
+        <label><input type="radio" name="iv-wk-who" id="iv-wk-who-group" value="group" onchange="wkWho('group')"> My group only</label>
+        <div class="evmeta" id="iv-wk-group-note" style="margin-top:6px;"></div>
+      </div>
+      <div class="fg wk-more">
         <label class="lbl">Who's invited?</label>
         <select class="inp" id="iv-elig-mode" onchange="renderEligibilityFields()">
           <option value="open">Open to all</option>
@@ -560,7 +646,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <div id="iv-elig-fields"></div>
 
-      <div class="fg" style="margin-top:14px;">
+      <div class="fg wk-more" style="margin-top:14px;">
         <label class="lbl">Invite</label>
         <div style="display:flex;gap:8px;margin-bottom:6px;">
           <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
@@ -569,7 +655,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div style="font-size:11px;color:var(--gray);margin-top:4px;">Checked players will be emailed an invite. Turn on phone alerts and text alerts in your <a href="/community/profile/" style="color:inherit;font-weight:700;text-decoration:underline;">Profile settings</a>.</div>
       </div>
 
-      <div class="fg" style="margin-top:14px;">
+      <div class="fg wk-more" style="margin-top:14px;">
         <label class="lbl">Do not include in widening if applicable.</label>
         <div style="display:flex;gap:8px;margin-bottom:6px;">
           <input class="inp" id="iv-exc-search" placeholder="Search players..." oninput="renderExclude()" style="flex:1;">
@@ -577,10 +663,10 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div id="iv-exc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
       </div>
 
-      <div id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
+      <div class="wk-more" id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
     </div>
 
-    <div class="card">
+    <div class="card wk-hide" id="iv-card-widen">
       <div class="ctitle"><span class="bar"></span>Widening Schedule</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it.</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">These are your first invites. Add a widening tier below to automatically open the game to more players if it doesn't fill.</div>
@@ -588,7 +674,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
     </div>
 
-    <div class="card">
+    <div class="card wk-more" id="iv-card-opts">
       <div class="ctitle"><span class="bar"></span>Game Options</div>
       <div class="fg">
         <label class="lbl">Auto-cancel if minimum not met</label>
@@ -605,7 +691,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
     </div>
 
-    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="saveInvite()">Post Game</button>
+    <button type="button" class="pl-manage wk-only" id="iv-wk-more" onclick="wkToggleMore()">More options (description, courts, game type, invite list, skill range, sign-up deadline, auto-cancel)</button>
+    <button class="btn btn-p btn-w" id="iv-save-btn" onclick="ivSubmit()">Post Game</button>
   </div>
 
   <!-- PARTNER POST SETUP VIEW: a tournament partner post, not a game. No courts,
@@ -2046,7 +2133,8 @@ function showView(v){
   $('view-tournament-detail').classList.toggle('on', v==='tournament-detail');
   $('view-invite-detail').classList.toggle('on', v==='invite-detail');
   $('view-poll-setup').classList.toggle('on', v==='poll-setup');
-  const band = $('pk-band'); if(band) band.style.display = v==='list' ? '' : 'none';
+  // The signed-out Sign in bar and the Start a game sheet belong to the home only.
+  if(v!=='list'){ const ob = $('out-bar'); if(ob) ob.style.display = 'none'; if(document.body && document.body.classList) document.body.classList.remove('has-out-bar'); closeStartSheet(); }
   $('hdr-tabs').style.display = v==='event' ? 'flex' : 'none';
   $('event-title').style.display = v==='event' ? 'inline' : 'none';
   refreshAll();
@@ -2098,7 +2186,7 @@ function pickTab(t){
   refreshTab(t);
 }
 function refreshAll(){
-  if(view==='list'){ renderNeedsYou(); if(window.csCourtPage) csCourtPage.renderBar(); renderInviteList(); renderTrnPointer(); renderEventList(); renderPollEntry(); renderMyPolls(false); }
+  if(view==='list'){ renderNeedsYou(); if(window.csCourtPage) csCourtPage.renderBar(); renderInviteList(); renderTrnPointer(); renderEventList(); renderPollEntry(); renderMyPolls(false); renderHome(); }
   else if(view==='tournaments'){ renderTournamentList(); }
   else if(view==='setup')  renderSetup();
   else if(view==='event'){ updateEventTitle(); refreshTab(tab); }
@@ -2159,14 +2247,13 @@ function renderEventList(){
     }).join('');
   }
   // Nothing active and nothing archived renders nothing at all, so an empty
-  // state never reads as a contradiction next to the lists around it. The
-  // King/Queen of the Beach button in the create card stays for discoverability.
+  // state never reads as a contradiction next to the lists around it.
   //
-  // Two containers, not one. Active nights are CONTENT and sit near the top with
-  // the rest of what exists; past nights are an archive and sit below the create
-  // cards. One container could not straddle that.
+  // Two containers, not one. Active nights are CONTENT and sit under Open games; past
+  // nights are an archive behind "Past ranked nights" in More ways to play (renderHome).
   const elA = $('event-list-active'); if(elA) elA.innerHTML = h;
   const elP = $('event-list-past');   if(elP) elP.innerHTML = hPast;
+  if(typeof _hasPastNights !== 'undefined') _hasPastNights = !!hPast;
 }
 // Games a past night recorded: its results. None, or an empty set, is 0.
 function archiveGameCount(e){
@@ -4074,24 +4161,31 @@ function renderInviteList(){
   const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible, skipPolls) : { mine: signedOut ? [] : upcoming.filter(isMine), open: [], items: [], hasRef: false, city: '' };
   const yours = parts.mine, openGames = parts.items || (parts.open || []).map(g => ({ kind: 'game', g }));
 
-  let h = '';
-  if(signedOut){
-    // Reuses the existing auth overlay trigger (login plus create-account).
-    h += '<div class="card pk-signin"><p>Sign in or create a free account to join.</p>'
-      + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Sign in or create an account</button></div>';
-  } else {
-    h += `<div class="ctitle"><span class="bar"></span>Your games (${yours.length})</div>`;
-    h += yours.length ? yours.map(i => inviteCardHTML(i, myKey)).join('')
-      : '<div class="evmeta" style="padding:4px 2px 12px;color:var(--gray);">No games yet. Post one or start a poll.</div>';
-  }
-  // No area and Near me off: the area bar holds the one prompt to set an area (this list
-  // never draws its own), and Open games is everything in Florida, soonest first.
-  const openTitle = parts.statewide ? 'Open games in Florida' : 'Open games';
-  h += `<div class="ctitle" style="margin-top:16px;"><span class="bar"></span>${openTitle} (${openGames.length})</div>`;
-  h += openGames.length ? openGames.map(x => x.kind === 'poll' ? pollCardHTML(x.p, signedOut)
-    : signedOut ? signedOutCardHTML(x.g) : inviteCardHTML(x.g, myKey)).join('') : openGamesEmptyHTML(parts.city || 'Florida');
+  // Open games: near the player (or Florida with no area), up to OPEN_SHOW_FIRST, then See
+  // all opens the rest in place. The empty state is unchanged.
+  const city = parts.city || 'Florida';
+  const openTitle = parts.statewide ? 'Open games in Florida'
+    : signedOut ? (parts.city ? 'Open games near ' + parts.city : 'Open games near you') : 'Open games near you';
+  const shown = _openShowAll ? openGames : openGames.slice(0, OPEN_SHOW_FIRST);
+  let h = '<h2 class="home-h">' + escapeHTML(openTitle) + '</h2>';
+  h += openGames.length ? shown.map(x => x.kind === 'poll' ? pollCardHTML(x.p, signedOut)
+    : signedOut ? signedOutCardHTML(x.g) : inviteCardHTML(x.g, myKey)).join('') : openGamesEmptyHTML(city);
+  if(openGames.length > shown.length) h += '<button type="button" class="see-all" onclick="openSeeAll()">See all ' + openGames.length + ' open games</button>';
   cont.innerHTML = h;
+  // Your games and polls (signed in): one short card per game here, the polls below them
+  // (ppDrawMyPolls). The empty line shows only when there are neither.
+  const yb = $('your-games');
+  if(yb){
+    _yoursGames = signedOut ? 0 : yours.length;
+    yb.innerHTML = signedOut ? '' : '<h2 class="home-h">Your games and polls</h2>' + yours.map(i => yourGameCardHTML(i, myKey)).join('')
+      + '<div class="evmeta" id="yours-empty" style="padding:4px 2px 12px;color:var(--gray);' + (yours.length || ppPollCount() ? 'display:none;' : '') + '">No games yet. Post one or start a poll.</div>';
+  }
 }
+// Open games show this many before See all.
+const OPEN_SHOW_FIRST = 5;
+let _openShowAll = false;
+let _yoursGames = 0;
+function openSeeAll(){ _openShowAll = true; renderInviteList(); }
 
 // A game a signed-out visitor may see in Open games: open to anyone. A rating, group,
 // club or invite circle needs to know who is asking, so those games wait for sign in.
@@ -4101,19 +4195,36 @@ function isPublicGame(inv){
   return !e.baseMode || e.baseMode === 'open';
 }
 
-// One game card for a signed-out visitor: title, place, date and time, spots filled, and
-// Sign in to join, which opens this game once they are signed in. No player names.
-function signedOutCardHTML(i){
-  const filled = Object.values(i.rsvps || {}).filter(r => r && r.status === 'confirmed').length;
+// The day and time of a game, "Tue, Nov 17 · 6:00 PM to 8:00 PM".
+function gameWhenLine(i){
   const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
   const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-  return `<div class="evcard pk-out">
-    <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-    <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
-    <div class="evmeta" style="margin-top:2px;">${filled} of ${i.slots||6} spots filled</div>
-    <button type="button" class="btn btn-p btn-w btn-sm" style="margin-top:8px;" onclick="csSignInToJoin('${escapeHTML(i.id).replace(/'/g,"\\'")}')">Sign in to join</button>
-  </div>`;
+  return dateStr + ' · ' + fmtTime(i.startTime) + (i.endTime ? ' to ' + fmtTime(i.endTime) : '');
 }
+// The place of a game with its court and distance, "Four Oaks Park · Court 2 · 1.2 mi".
+function gamePlaceLine(i){
+  const parts = [];
+  if(i.location) parts.push(escapeHTML(i.location));
+  if(courtLabel(i)) parts.push(courtLabel(i));
+  return parts.join(' · ') + (window.csCourtPage ? csCourtPage.distLabel(i) : '');
+}
+function gameFilled(i){ return Object.values(i.rsvps || {}).filter(r => r && r.status === 'confirmed').length; }
+const WEEKLY_TAG = '<span class="tag-weekly">Weekly</span>';
+// One open game card. signedOut: Sign in to join (no player names, as always); signed in:
+// Join, which opens the game to take a spot.
+function openGameCardHTML(i, signedOut){
+  const id = escapeHTML(i.id).replace(/'/g,"\\'");
+  const btn = signedOut
+    ? '<button type="button" class="btn-join" onclick="csSignInToJoin(\'' + id + '\')">Sign in to join</button>'
+    : '<button type="button" class="btn-join" onclick="openInviteDetail(\'' + id + '\')">Join</button>';
+  return '<div class="gcard' + (signedOut ? ' pk-out' : '') + '">'
+    + '<div class="gcard-top"><div><div class="gname">' + escapeHTML(i.name||'Pickup') + '</div>'
+    + '<div class="gwhen">' + gameWhenLine(i) + '</div>'
+    + '<div class="gplace">' + gamePlaceLine(i) + '</div></div>'
+    + (i.recurringGroupId ? WEEKLY_TAG : '') + '</div>'
+    + '<div class="gcard-foot"><span class="gspots">' + gameFilled(i) + ' of ' + (i.slots||6) + ' spots filled</span>' + btn + '</div></div>';
+}
+function signedOutCardHTML(i){ return openGameCardHTML(i, true); }
 // Sign in to join: the sign-in box, then this game's page on /pickup/ once signed in
 // (askSignIn runs it from onLogin, for a new account too).
 function csSignInToJoin(id){
@@ -4121,23 +4232,36 @@ function csSignInToJoin(id){
   askSignIn('Sign in to join this game.', () => openInviteDetail(id));
 }
 
-// One open poll in Open games, signed in or out: its title, where, each nearby time with
-// its count against the spots and a Full tag, when each time closes, and the way to vote
-// (the poll page signs a visitor in and comes back). Counts only, never names.
+// The times a home poll card shows: the two with the most votes (ties by start), in start
+// order, and the earliest close among the poll's listed times.
+function pollTopTimes(p){
+  return p.times.slice().sort((a, b) => (b.count - a.count) || (a.startMs - b.startMs)).slice(0, 2).sort((a, b) => a.startMs - b.startMs);
+}
+function pollEarliestClose(p){
+  const t = p.times.slice().sort((a, b) => a.startMs - b.startMs)[0];
+  return t ? t.closesLabel : '';
+}
+// One open poll in Open games, signed in or out: a Poll tag, its title, where, its top two
+// times with a count bar each (count against the spots, Full when full), when voting closes,
+// and Vote (signed in) or Sign in to vote (the poll page signs a visitor in and comes back).
+// Counts only, never names.
 function pollCardHTML(p, signedOut){
   const labels = [];
   p.times.forEach(t => { if(labels.indexOf(t.locationLabel) < 0) labels.push(t.locationLabel); });
   const one = labels.length === 1;
-  const rows = p.times.map(t => '<div class="pk-poll-row"><span>' + escapeHTML(t.label)
-    + (one ? '' : '<span class="pp-close">' + escapeHTML(t.locationLabel) + '</span>')
-    + '<span class="pp-close">Closes ' + escapeHTML(t.closesLabel) + '</span></span>'
-    + '<span class="pk-poll-n">' + t.count + ' of ' + t.max + (t.full ? '<span class="pp-tag full">Full</span>' : '') + '</span></div>').join('');
+  const rows = pollTopTimes(p).map(t => '<div class="pk-poll-row"><span>' + escapeHTML(t.label)
+    + (one ? '' : '<span class="pp-close">' + escapeHTML(t.locationLabel) + '</span>') + '</span>'
+    + '<span class="pk-poll-n">' + t.count + ' of ' + t.max + (t.full ? '<span class="pp-tag full">Full</span>' : '') + '</span></div>'
+    + '<div class="pp-bar"><span style="width:' + Math.min(100, Math.round(100 * t.count / Math.max(1, t.max))) + '%"></span></div>').join('');
   const dist = window.csCourtPage ? csCourtPage.pollDistLabel(p) : '';
-  return '<div class="evcard pk-poll"><span class="pk-poll-tag">Poll: vote on times</span>'
-    + '<div class="evname">' + escapeHTML(p.title) + '</div>'
-    + '<div class="evmeta">' + (one ? escapeHTML(labels[0]) : 'Several places') + dist + '</div>'
-    + rows
-    + '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="' + csPollPlanKit.voteUrl(p.id) + '">' + (signedOut ? 'Sign in to vote' : 'Vote on times') + '</a></div>';
+  const more = p.times.length > 2 ? '<div class="gplace">' + (p.times.length - 2) + ' more time' + (p.times.length === 3 ? '' : 's') + ' on the poll</div>' : '';
+  return '<div class="gcard pk-poll"><div class="gcard-top"><div><div class="gname">' + escapeHTML(p.title) + '</div>'
+    + '<div class="gwhen">Players are voting on a time</div>'
+    + '<div class="gplace">' + (one ? escapeHTML(labels[0]) : 'Several places') + dist + '</div></div>'
+    + '<span class="pk-poll-tag">Poll</span></div>'
+    + rows + more
+    + '<div class="gcard-foot"><span class="gplace">Voting closes ' + escapeHTML(pollEarliestClose(p)) + '</span>'
+    + '<a class="btn-join teal" href="' + csPollPlanKit.voteUrl(p.id) + '">' + (signedOut ? 'Sign in to vote' : 'Vote') + '</a></div></div>';
 }
 
 // Your games: the player is the host, has a confirmed or waitlist RSVP, or is named in the
@@ -4150,6 +4274,25 @@ function isMyGame(inv, myKey){
   const inc = (inv.eligibility && inv.eligibility.includeList) || [];
   return inc.some(n => Identity.nameKey(n) === myKey);
 }
+// The label on a Your games card: Hosting, You're in, You're on the waitlist (#N), or
+// Invited (named in the include list, no answer yet).
+function yourGameLabel(i, myKey){
+  if(isLoggedInHost(i)) return 'Hosting';
+  const r = (i.rsvps || {})[myKey];
+  if(r && r.status === 'confirmed') return "You're in";
+  if(r && r.status === 'waitlist') return "You're on the waitlist (#" + (r.position || '?') + ')';
+  return 'Invited';
+}
+// One short Your games card: label, title, one line (day and time, place, spots), Open.
+function yourGameCardHTML(i, myKey){
+  const id = escapeHTML(i.id).replace(/'/g,"\\'");
+  const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
+  const when = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + ' ' + fmtTime(i.startTime);
+  const line = [when, i.location ? escapeHTML(i.location) : '', gameFilled(i) + ' of ' + (i.slots||6)].filter(Boolean).join(' · ');
+  return '<div class="ycard"><div class="ycard-tx"><div class="ylabel">' + escapeHTML(yourGameLabel(i, myKey)) + (i.recurringGroupId ? ' ' + WEEKLY_TAG : '') + '</div>'
+    + '<div class="yname">' + escapeHTML(i.name||'Pickup') + '</div><div class="yline">' + line + '</div></div>'
+    + '<button type="button" class="btn-manage" onclick="openInviteDetail(\'' + id + '\')">Open</button></div>';
+}
 
 // No open games near the player yet: an invitation to start the first one. city is the
 // player's area city ("your area" with Near me and no area).
@@ -4161,34 +4304,84 @@ function openGamesEmptyHTML(city){
     + '<button class="btn btn-g btn-w" onclick="if(typeof startPollPlan===\'function\') startPollPlan()">Create a Pickup Poll</button></div>';
 }
 
-// One game card in Your games or Open games.
-function inviteCardHTML(i, myKey){
-  const rsvps = i.rsvps || {};
-  const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
-  const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
-  const myRsvp = myKey ? rsvps[myKey] : null;
-  const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
-  const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-  let badge = '';
-  if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
-  else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
-  // Reuses the RSVP state the badge above already resolved, so a game the
-  // viewer is in says so and one they have not joined names the thing they
-  // came to do.
-  const gameAction = (myRsvp && myRsvp.status === 'confirmed') ? 'See who else is in'
-    : (myRsvp && myRsvp.status === 'waitlist') ? 'See your spot'
-    : 'Open to RSVP';
-  return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-      <div style="flex:1;">
-        <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-        <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
-        <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||6} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
-      </div>
-      ${badge}
-    </div>
-    ${evcardAction(gameAction)}
-  </div>`;
+// One open game card for a signed-in player (the Open games list).
+function inviteCardHTML(i, myKey){ return openGameCardHTML(i, false); }
+
+// ── HOME: the parts that depend on being signed in ──
+// Signed in: the Start a game button and More ways to play. Signed out: the hero (holding
+// the area chip), Don't see your game, How it works, the Tournaments link and the fixed
+// Sign in bar. Called after the lists (refreshAll), so it knows whether past nights exist.
+let _pastOpen = false, _hasPastNights = false;
+function renderHome(){
+  const signedOut = !gameplayKey();
+  const hero = $('out-hero'), ab = $('area-bar'), slot = $('hero-area-slot'), list = $('view-list');
+  if(hero) hero.style.display = signedOut ? '' : 'none';
+  if(ab && slot && list){
+    if(signedOut){ if(ab.parentNode !== slot) slot.appendChild(ab); }
+    else if(ab.parentNode === slot) list.insertBefore(ab, $('needs-you'));
+  }
+  const sb = $('signin-btn'); if(sb) sb.style.display = signedOut ? 'inline-flex' : 'none';
+  const top = $('home-top'); if(top) top.innerHTML = signedOut ? '' : startCtaHTML();
+  const more = $('home-more'); if(more) more.innerHTML = signedOut ? outMoreHTML() : moreWaysHTML();
+  const past = $('event-list-past'); if(past) past.style.display = (!signedOut && _pastOpen && _hasPastNights) ? '' : 'none';
+  const bar = $('out-bar'); if(bar) bar.style.display = (signedOut && view === 'list') ? '' : 'none';
+  if(document.body && document.body.classList) document.body.classList.toggle('has-out-bar', signedOut && view === 'list');
+}
+function startCtaHTML(){
+  return '<div class="start-cta"><button type="button" class="btn-start" onclick="openStartSheet()">'
+    + '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Start a game</button>'
+    + '<div class="start-sub">One game, a weekly game, or a poll for the time</div></div>';
+}
+function moreRow(attr, title, sub){
+  return '<a ' + attr + ' class="more-row"><span><b>' + title + '</b><br><span>' + sub + '</span></span><span class="more-ch" aria-hidden="true">&rsaquo;</span></a>';
+}
+// More ways to play (signed in), each on its existing handler.
+function moreWaysHTML(){
+  const n = (typeof trnLoadFailed !== 'undefined' && trnLoadFailed) ? 0 : trnUpcoming().length;
+  return '<h2 class="home-h">More ways to play</h2><div class="more-list">'
+    + moreRow('href="#" onclick="showView(\'tournaments\');return false;"', 'Tournaments', n ? n + ' coming up' : 'See the tournament directory')
+    + moreRow('href="/partners/"', 'Find a tournament partner', "See who's looking for a team")
+    + moreRow('href="#" onclick="startNewEvent();return false;"', 'King/Queen of the Beach night', 'Ranked, live scoring, counts toward your rating')
+    + (_hasPastNights ? moreRow('href="#" onclick="togglePastNights();return false;"', 'Past ranked nights', _pastOpen ? 'Hide the results' : 'Results from earlier nights') : '')
+    + moreRow('href="#" onclick="openGroupsModal();return false;"', 'Your groups', 'Save a crew to invite just them')
+    + moreRow('href="#" onclick="shareJoinLink();return false;"', 'Invite a friend', 'Share a link to CourtSense')
+    + '</div>';
+}
+function togglePastNights(){
+  _pastOpen = !_pastOpen;
+  renderHome();
+  const p = $('event-list-past'); if(_pastOpen && p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Signed out, under Open games: Don't see your game, How it works, the Tournaments link.
+function outMoreHTML(){
+  return '<div class="card out-start"><div class="out-start-h">Don\'t see your game?</div>'
+    + '<p>Post it in a minute and share one link with your crew.</p>'
+    + '<button type="button" class="btn btn-p btn-w" onclick="openStartSheet()">Start a game</button></div>'
+    + '<h2 class="home-h">How it works</h2><ol class="how">'
+    + '<li><span class="how-n">1</span><span>Find a game near you, or start one.</span></li>'
+    + '<li><span class="how-n">2</span><span>Share one link. Players tap to join or vote.</span></li>'
+    + '<li><span class="how-n">3</span><span>Show up and play. Dropouts fill from the waitlist.</span></li></ol>'
+    + '<div class="more-list">' + moreRow('href="#" onclick="showView(\'tournaments\');return false;"', 'Tournaments', 'Find a tournament near you') + '</div>';
+}
+// The Start a game sheet.
+function openStartSheet(){
+  const s = $('start-sheet'); if(!s) return;
+  s.style.display = '';
+  const b = $('start-one'); if(b && b.focus) b.focus();
+}
+function closeStartSheet(){ const s = $('start-sheet'); if(s) s.style.display = 'none'; }
+function startSheetPick(kind){
+  closeStartSheet();
+  if(kind === 'one') startNewInvite();
+  else if(kind === 'weekly') startNewInvite({ weekly: true });
+  else if(kind === 'poll') startPollPlan();
+  else if(kind === 'ranked') startNewEvent();
+}
+// Sign in, or Create free account (the same box, opened on its create view).
+function homeSignIn(create){
+  if(!(window.CourtSenseAuth && CourtSenseAuth.showLogin)) return;
+  CourtSenseAuth.showLogin();
+  if(create){ const t = document.getElementById('cs-auth-show-register'); if(t) t.click(); }
 }
 
 
@@ -8598,8 +8791,10 @@ function startNewInvite(opts){
       $('iv-rec-freq').value = 'weekly';
       if($('iv-rec-ends')) $('iv-rec-ends').value = 'count';
       if($('iv-rec-end')) $('iv-rec-end').value = '';
+      setWeeklyMode(weekly);
       toggleRecurring();
-      $('iv-elig-mode').value = 'inviteOnly';
+      // A weekly game starts open to anyone nearby; a one-off game keeps Initial invites.
+      $('iv-elig-mode').value = weekly ? 'open' : 'inviteOnly';
       wireSetupListeners();
       if($('iv-court')) $('iv-court').value = '';
       if($('iv-courts')) $('iv-courts').value = '1';
@@ -8609,6 +8804,13 @@ function startNewInvite(opts){
       renderInclude(); renderExclude();
       updateInvitePreview();
       renderWideningTiers();
+      if(weekly){
+        $('iv-su-title').textContent = 'Weekly game';
+        if($('iv-wk-who-open')) $('iv-wk-who-open').checked = true;
+        if($('iv-wk-freq-weekly')) $('iv-wk-freq-weekly').checked = true;
+        wkGroupNote();
+        wkPickDay(new Date().getDay());
+      }
     }, 0);
   });
 }
@@ -8657,6 +8859,7 @@ function startEditInvite(id){
       if($('iv-game-vibe')) $('iv-game-vibe').value = inviteGameType.vibe || 'fun';
       if($('iv-game-format')) $('iv-game-format').value = inviteGameType.format || '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = (inviteCancelDeadlineOffsetMins == null) ? '' : String(inviteCancelDeadlineOffsetMins);
+      setWeeklyMode(false);
       $('iv-rec').checked = false; // editing one occurrence does not re-generate the series
       toggleRecurring();
       const e = i.eligibility || {};
@@ -8677,6 +8880,103 @@ function startEditInvite(id){
   });
 }
 
+// The form's submit: a weekly game first adds "My group only" members to the invite list
+// (wkSubmit), then both go through the unchanged saveInvite.
+function ivSubmit(){ return weeklyOn() ? wkSubmit() : saveInvite(); }
+
+// ── Weekly game: a mode of Post a Pickup Game ──
+// The same form and element ids, so saveInvite, the series write and every check on it are
+// unchanged. The mode hides the one-off date and the fields a weekly game rarely needs
+// (folded under More options), picks the first date from a day of the week, and offers
+// Anyone nearby or My group only.
+let _wkDay = null, _wkStartHooked = false;
+function weeklyOn(){ const p = $('view-invite-setup'); return !!(p && p.classList && p.classList.contains('wk')); }
+function setWeeklyMode(on){
+  const p = $('view-invite-setup'); if(!p || !p.classList) return;
+  p.classList.toggle('wk', !!on);
+  p.classList.remove('wk-open');
+  _wkDay = null;
+  if(on && !_wkStartHooked && $('iv-start') && $('iv-start').addEventListener){
+    // A later start time can move today's game to today (or back to next week).
+    _wkStartHooked = true;
+    $('iv-start').addEventListener('change', () => { if(weeklyOn()) wkApplyDate(); });
+  }
+}
+function wkISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// The first game's date for a day of the week (0 Sunday to 6 Saturday): today when today is
+// that day and the start time is more than 2 hours away, else that day's next date.
+function wkFirstDate(weekday, startTime, now){
+  const today = new Date(now);
+  let delta = (weekday - today.getDay() + 7) % 7;
+  if(delta === 0){
+    const start = computeStartMs(wkISO(today), startTime || '00:00');
+    if(start === null || start - now <= 2*60*60*1000) delta = 7;
+  }
+  const d = new Date(wkISO(today)+'T12:00:00'); d.setDate(d.getDate() + delta);
+  return wkISO(d);
+}
+function wkPickDay(wd){ _wkDay = wd; wkApplyDate(); }
+function wkApplyDate(){
+  if(_wkDay === null) return;
+  const iso = wkFirstDate(_wkDay, $('iv-start').value, Date.now());
+  $('iv-date').value = iso;
+  if(typeof $('iv-date').onchange === 'function') $('iv-date').onchange();
+  wkDrawDays();
+  updateSeriesPreview();
+}
+function wkDrawDays(){
+  const box = $('iv-wk-days');
+  if(box && box.querySelectorAll) box.querySelectorAll('.wk-day').forEach(b => {
+    const on = String(_wkDay) === b.getAttribute('data-wd');
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const first = $('iv-wk-first');
+  if(first) first.textContent = (_wkDay === null || !$('iv-date').value) ? 'Pick a day.' : 'First game: ' + new Date($('iv-date').value+'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function wkFreq(v){ $('iv-rec-freq').value = v === 'biweekly' ? 'biweekly' : 'weekly'; updateSeriesPreview(); }
+function wkWho(v){
+  $('iv-elig-mode').value = v === 'group' ? 'group' : 'open';
+  renderEligibilityFields();
+  wkGroupNote();
+  updateSeriesPreview();
+}
+// The selected group's members, for My group only.
+function wkGroupMembers(){
+  if(!$('iv-elig-mode') || $('iv-elig-mode').value !== 'group') return [];
+  const gid = $('iv-r-group') ? $('iv-r-group').value : '';
+  const g = gid && (D.groups || {})[gid];
+  return g && Array.isArray(g.members) ? g.members.filter(n => typeof n === 'string' && n.trim()) : [];
+}
+// My group only: whom the invite email goes to, by name, so the host sees it before posting.
+function wkGroupNote(){
+  const el = $('iv-wk-group-note'); if(!el) return;
+  if(!$('iv-elig-mode') || $('iv-elig-mode').value !== 'group'){ el.textContent = ''; return; }
+  const m = wkGroupMembers();
+  el.textContent = m.length ? 'The invite goes to ' + m.length + ' player' + (m.length === 1 ? '' : 's') + ' in this group: ' + m.join(', ') + '.' : 'Pick a group with players in it.';
+}
+// The reminder line, only where it is true (worker: pickup-series.ts). Week one is emailed
+// when the series is posted; each later game sends a reminder 3 days before it.
+function wkRemindText(mode, picks, groupCount){
+  if(mode === 'group') return groupCount ? 'Your group gets the invite now and a reminder 3 days before each later game.' : '';
+  if(mode === 'open' || !mode) return picks ? 'Players you invite get the invite now. They, and anyone who joins a game, get a reminder 3 days before each later one.' : 'Anyone who joins a game gets a reminder 3 days before each later one.';
+  return picks ? 'Players you invite get the invite now and a reminder 3 days before each later game.' : '';
+}
+function wkToggleMore(){
+  const p = $('view-invite-setup'); if(!p || !p.classList) return;
+  p.classList.toggle('wk-open');
+  const b = $('iv-wk-more'); if(b) b.textContent = p.classList.contains('wk-open') ? 'Fewer options' : 'More options (description, courts, game type, invite list, skill range, sign-up deadline, auto-cancel)';
+}
+// Post a weekly game: a day is required; My group only adds the group's members to the
+// invite list (the week-one email and the reminders go to them), then saveInvite.
+function wkSubmit(){
+  if(_wkDay === null){ toast('Pick a day of the week.'); return; }
+  if($('iv-elig-mode').value === 'group'){
+    const m = wkGroupMembers();
+    if(!m.length){ toast('Pick a group with players in it.'); return; }
+    m.forEach(n => inviteIncSelected.add(n));
+  }
+  return saveInvite();
+}
 function toggleRecurring(){
   const on = $('iv-rec').checked;
   $('iv-rec-fields').style.display = on ? 'block' : 'none';
@@ -8739,6 +9039,10 @@ function updateSeriesPreview(){
   const plan = seriesPlan();
   el.textContent = seriesPreviewText($('iv-date').value, plan);
   el.style.color = plan.err ? '#b91c1c' : 'var(--primary)';
+  if(weeklyOn()){
+    const btn = $('iv-save-btn'); if(btn) btn.textContent = plan.err ? 'Post weekly games' : 'Post ' + plan.count + ' weekly game' + (plan.count === 1 ? '' : 's');
+    const r = $('iv-wk-remind'); if(r) r.textContent = wkRemindText($('iv-elig-mode').value, inviteIncSelected.size, wkGroupMembers().length);
+  }
 }
 
 // A2 game-type sync: keep module state aligned with the two selects. buildInviteRecord
@@ -8949,6 +9253,8 @@ function getCurrentEligibilitySpec(){
 }
 
 function updateInvitePreview(){
+  // Weekly game: the group note and the reminder line follow the group picker too.
+  if(typeof weeklyOn === 'function' && weeklyOn()){ wkGroupNote(); updateSeriesPreview(); }
   const e = getCurrentEligibilitySpec();
   const eligible = computeEligible(e);
   const count = eligible.length;
@@ -9946,7 +10252,10 @@ function optInInvite(){
   });
   renderInviteDetail();
 
-  fbSet('invites/'+activeInvite+'/rsvps/'+meKey, newRsvp);
+  const _joinedId = activeInvite;
+  fbSet('invites/'+activeInvite+'/rsvps/'+meKey, newRsvp).then(ok => {
+    if(ok && status === 'confirmed' && i.recurringGroupId) notifyWorker('/pickup/series/joined', withNotifySession({ inviteId: _joinedId }));
+  });
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
 }
 
@@ -10643,6 +10952,8 @@ function cancelLaterGames(){
 
 // BOOT
 document.addEventListener('DOMContentLoaded', ()=>{
+  // Escape closes the Start a game sheet.
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') closeStartSheet(); });
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click', ()=>pickTab(b.dataset.tab)));
   document.querySelectorAll('#stbl th[data-sort]').forEach(th=>{
     th.style.cursor = 'pointer';
@@ -11062,6 +11373,16 @@ window.csPollPlanKit=(function(){
     });
     return out;
   }
+  // The one line on a Your games and polls card: while voting is open, the time with the
+  // most votes ("Leading: Sat, Oct 25, 9:00 AM, 3 of 4", ties to the earliest), else the
+  // poll's status line.
+  function pollCardLine(v, now){
+    if(v&&v.open&&!becameGame(v)&&Array.isArray(v.options)&&v.options.length){
+      var best=byStart(v.options).reduce(function(m, o){ return (!m||(o.count||0)>(m.count||0))?o:m; }, null);
+      if(best&&(best.count||0)>0) return 'Leading: '+best.label+', '+(best.count||0)+' of '+v.minPlayers;
+    }
+    return statusLine(v);
+  }
   function minePolls(res, max){
     var list=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls.filter(function(v){ return v&&POLL_RE.test(v.id)&&Array.isArray(v.options)&&!becameGame(v); }):[];
     var open=list.filter(function(v){ return v.open; }), shut=list.filter(function(v){ return !v.open; });
@@ -11284,7 +11605,7 @@ window.csPollPlanKit=(function(){
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, OTHER:OTHER, isPreset:isPreset, savedChoices:savedChoices, locPicker:locPicker, locProblem:locProblem,
     rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
-    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, pollSkipIds:pollSkipIds, becameGame:becameGame,
+    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, pollCardLine:pollCardLine, pollSkipIds:pollSkipIds, becameGame:becameGame,
     statusLine:statusLine, canConfirm:canConfirm, timeFlags:timeFlags, clock12:clock12, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
     suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, progressPct:progressPct,
@@ -12121,47 +12442,25 @@ function ppPollSkip(){
   if(!ppSession()) return {};
   return _myPolls.skip;
 }
+// Your games and polls, the polls part: one short card per poll (label, title, one line),
+// with Manage (the organizer) or Open (a player on it) going to the poll page, which holds
+// every poll action: voting, Change my picks, Make this the game, Edit times, suggested
+// times, Copy link, Cancel and the game links. A poll that made its game links to it here.
 function ppDrawMyPolls(){
   const box = $('my-polls'); if(!box) return;
   const K = window.csPollPlanKit;
+  const empty = $('yours-empty'); if(empty) empty.style.display = (_myPolls.list.length || (typeof _yoursGames !== 'undefined' && _yoursGames)) ? 'none' : '';
   if(!_myPolls.list.length){ box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="ctitle"><span class="bar"></span>Your polls</div>' + _myPolls.list.map(v => {
-    // Each time: label, count against the minimum with a bar, and Ready or Full tags. On a
-    // per-time poll an open time shows its own close, and a closed one is grayed out with
-    // the poll page's tag instead.
-    const now = Date.now();
-    // Times by date, then start time (the row carries both from the worker).
-    const rows = K.byStart(v.options).map(o => {
-      const shut = K.closedTag(v, o, now), cl = K.closeLine(v, o, now);
-      return '<div class="pp-orow'+(shut ? ' shut' : '')+'" style="display:block;"><div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHTML(o.label)
-      + (shut ? '<span class="pp-tag shut">'+escapeHTML(shut)+'</span>'
-        : (o.ready ? '<span class="pp-tag ready">Ready</span>' : '') + (v.full && o.ready ? '<span class="pp-tag full">Full</span>' : ''))
-      + (cl ? '<span class="pp-close">'+escapeHTML(cl)+'</span>' : '')
-      + '</span><span>'+o.count+' / '+v.minPlayers+'</span></div>'
-      + '<div class="pp-bar"><span style="width:'+K.progressPct(o.count, v.minPlayers)+'%"></span></div>'+ppNames(v, o)+'</div>'
-      + (K.canConfirm(v, o, now) ? '<button class="btn btn-p btn-w btn-sm" style="margin:4px 0 8px;" onclick="ppConfirm(\''+v.id+'\',\''+o.id+'\')">Make this the game</button>' : '');
-    }).join('');
-    // One game per day: a line per date.
-    const days = Array.isArray(v.days) ? v.days.map(d => '<div class="pp-day">'+escapeHTML(d.line || '')+'</div>').join('') : '';
-    // Organizer only: suggested times waiting, with who suggested each.
-    const sugs = v.role === 'organizer' && Array.isArray(v.pendingSuggestions) ? v.pendingSuggestions.map(g =>
-      '<div class="pp-sug"><b>'+escapeHTML(g.suggestedBy || 'A player')+'</b> suggested '+escapeHTML(g.label || '')
-      + '<div class="pp-row2"><button class="btn btn-p btn-sm" onclick="ppDecide(\''+v.id+'\',\''+g.id+'\',\'add\')">Add to poll</button>'
-      + '<button class="btn btn-g btn-sm" onclick="ppDecide(\''+v.id+'\',\''+g.id+'\',\'dismiss\')">Dismiss</button></div></div>').join('') : '';
-    const picks = K.picksLine(v);
-    const dayGames = Array.isArray(v.days) ? v.days.filter(d => d.inviteId) : [];
-    const links = (v.inviteId ? '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(v.inviteId)+'">Open the game</a>' : '')
-      + dayGames.map(d => '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.gameUrl(d.inviteId)+'">Open '+escapeHTML(d.day || '')+' game</a>').join('')
-      + (v.isRecipient && v.open && !v.full ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">'+(picks ? 'Change my picks' : 'Vote')+'</a>' : '')
-      + (v.role === 'organizer' && v.open && v.closeRule === 'perOption' ? '<a class="btn btn-g btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="'+K.voteUrl(v.id)+'">Edit times</a>' : '')
-      + (v.role === 'organizer' ? '<button class="btn btn-g btn-w btn-sm" style="margin-top:8px;" onclick="ppCopyLink(\''+v.id+'\')">Copy link</button><div class="evmeta" id="pp-link-'+v.id+'" style="display:none;word-break:break-all;white-space:pre-line;"></div>' : '');
-    return '<div class="card pp-poll"><div class="evname">'+escapeHTML(v.title)+'</div>'
-      + '<div class="evmeta" style="margin-bottom:8px;">'+escapeHTML(K.statusLine(v))+(v.role === 'organizer' ? ' &middot; you organized' : '')
-      + (K.summaryLine(v) ? '<br>'+escapeHTML(K.summaryLine(v)) : '')
-      + (K.noneLine(v) ? '<br>'+escapeHTML(K.noneLine(v)) : '')+'</div>'
-      + days + rows + sugs + (picks ? '<div class="evmeta" style="margin-top:6px;">'+escapeHTML(picks)+'</div>' : '') + links + '</div>';
+  box.innerHTML = _myPolls.list.map(v => {
+    const org = v.role === 'organizer';
+    const game = v.inviteId ? '<a class="btn-manage" href="' + K.gameUrl(v.inviteId) + '">Open game</a>' : '';
+    return '<div class="ycard"><div class="ycard-tx"><div class="ylabel poll">' + (org ? 'Your poll' : 'Poll') + '</div>'
+      + '<div class="yname">' + escapeHTML(v.title) + '</div><div class="yline">' + escapeHTML(K.pollCardLine(v, Date.now())) + '</div></div>'
+      + '<div class="ycard-btns">' + game + '<a class="btn-manage" href="' + K.voteUrl(v.id) + '">' + (org ? 'Manage' : 'Open') + '</a></div></div>';
   }).join('');
 }
+// How many polls Your games and polls has (0 before Your polls answers).
+function ppPollCount(){ return (typeof _myPolls !== 'undefined' && _myPolls && Array.isArray(_myPolls.list)) ? _myPolls.list.length : 0; }
 // The names under a time's bar: the organizer first, "(pending)" muted, "+N more" past 6
 // opening the rest in place (a redraw, no new request). '' when nobody picked it.
 function ppNames(v, o){
@@ -12313,25 +12612,42 @@ window.csCourtPage=(function(){
       +'<div id="ar-new" style="display:none;margin-top:8px;"><input class="inp" id="ar-city" maxlength="40" placeholder="City"><select class="inp" id="ar-state" style="margin-top:8px;">'+states+'</select></div>'
       +'<div class="fld-err" id="ar-err" style="font-size:12px;color:#b91c1c;margin-top:6px;"></div>'
       +'<div style="display:flex;gap:8px;margin-top:8px;"><button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.saveArea()">Save</button><button type="button" class="btn btn-o btn-sm" onclick="csCourtPage.skipArea()">Not now</button></div>'
+      +nearOption()
       +'</div>';
+  }
+  // Near me, offered inside the chooser: measure from where the player is right now. The
+  // position stays in memory only, as before.
+  function nearOption(){
+    var n=S.near.state;
+    if(n==='denied') return '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Location is off for this site.</div>';
+    if(n==='asking') return '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Finding you...</div>';
+    return '<button type="button" class="pl-manage" id="ar-near" style="display:block;margin-top:10px;" onclick="csCourtPage.nearMe()">'+(n==='on'?'Stop using my location':'Use my location instead (Near me)')+'</button>';
+  }
+  var PIN='<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+  // With Near me on, the chip says so and offers to turn it off.
+  function nearLine(){
+    if(S.near.state==='denied') return ' <span class="near-on">Location off</span>';
+    return S.near.state==='on'?' <span class="near-on">Near me is on</span> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.nearMe()">Turn off</button>':'';
   }
   // The area bar holds the page's only area card: the chooser, or after Not now a short
   // card with the same prompt and a Set your area button. renderInviteList never draws one.
   function renderBar(){
     var el=$('area-bar'); if(!el) return;
     var a=area(), sig, html;
-    var showChooser=S.chooser||(!a&&!CK.readFlag(store(), CK.SKIP_KEY));
+    // With Near me on (chosen inside the chooser), the list measures from the position, so
+    // the first-visit chooser steps aside.
+    var showChooser=S.chooser||(!a&&!CK.readFlag(store(), CK.SKIP_KEY)&&S.near.state!=='on');
     if(showChooser){
       ensureAreas();
       sig='chooser|'+(a?a.areaKey:'')+'|'+JSON.stringify(S.areas||[]);
       html=chooserHTML();
     } else if(a){
       sig='area|'+a.areaKey+'|'+S.near.state+'|'+(S.fromSrc?'src':'');
-      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;">'+(S.fromSrc?'Showing':'Your area:')+' <b>'+esc(a.city+', '+a.state)+'</b>'+(S.fromSrc?' &middot;':'')+' <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Change</button>'+chip()+'</div>';
+      html='<div class="area-row">'+PIN+(S.fromSrc?'Showing':'Your area:')+' <b>'+esc(a.city+', '+a.state)+'</b>'+(S.fromSrc?' &middot;':'')+' <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Change</button>'+nearLine()+'</div>';
     } else {
       sig='none|'+S.near.state;
       html='<div class="card pk-area-prompt"><p>Set your area to see what\'s near you.</p><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;">'
-        +'<button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.openChooser()">Set your area</button>'+chip()+'</div></div>';
+        +'<button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.openChooser()">Set your area</button></div>'+nearLine()+'</div>';
     }
     // Drawn only when what it shows changed, so a list refresh never wipes a half-typed city.
     if(sig===S.barSig) return;
@@ -12370,7 +12686,7 @@ window.csCourtPage=(function(){
     if(!navigator.geolocation){ S.near.state='denied'; refreshList(); return; }
     S.near.state='asking'; S.barSig=''; renderBar();
     navigator.geolocation.getCurrentPosition(function(p){
-      S.near={ state:'on', lat:p.coords.latitude, lon:p.coords.longitude }; refreshList();
+      S.near={ state:'on', lat:p.coords.latitude, lon:p.coords.longitude }; S.chooser=false; S.barSig=''; refreshList();
     }, function(){ S.near={ state:'denied', lat:null, lon:null }; refreshList(); }, { enableHighAccuracy:false, timeout:10000, maximumAge:300000 });
   }
   function origin(){ return S.near.state==='on'?{ lat:S.near.lat, lon:S.near.lon }:null; }

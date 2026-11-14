@@ -125,6 +125,7 @@
     <p class="meta" id="poll-answers" style="font-weight:600;color:var(--ink);"></p>
     <p class="meta" id="poll-none"></p>
     <div id="poll-days"></div>
+    <div id="poll-day-games"></div>
   </div>
 
   <div class="card hidden" id="vote-card">
@@ -161,6 +162,7 @@
     <button class="btn btn-navy" id="copy-btn" type="button">Copy link</button>
     <p class="msg ok" id="copy-msg" role="status"></p>
     <p class="note" id="copy-url" style="word-break:break-all;white-space:pre-line;"></p>
+    <div id="org-confirm"></div>
     <div id="org-sugs"></div>
     <div id="org-times"></div>
     <div id="org-cancel"></div>
@@ -584,6 +586,14 @@ window.csPollKit=(function(){
   }
   function cancelLine(view){ return 'Cancel '+(view&&view.title||'this poll')+'? Everyone who picked a time will be told.'; }
   function decideReq(session, p, sugId, action){ return {path:'/pickup/poll/suggestion',body:{sessionToken:session,p:p,sugId:sugId,action:action}}; }
+  // The organizer makes a ready time the game (a poll where they confirm it themselves).
+  function confirmReq(session, p, optId){ return {path:'/pickup/poll/confirm',body:{sessionToken:session,p:p,optId:optId}}; }
+  // Whether "Make this the game" shows for a time: the organizer only, a poll they confirm
+  // themselves (mode manual), still open, the time reached the minimum (ready) and has not
+  // closed. The same rule as the pickup page's Your polls (csPollPlanKit.canConfirm).
+  function canConfirm(view, o){
+    return !!(view&&o&&view.isOrganizer===true&&view.mode==='manual'&&view.status==='open'&&view.open!==false&&o.ready===true&&o.closed!==true);
+  }
   // The share link: no personal token, so it is safe to post anywhere.
   function shareUrl(origin, id){ return String(origin||'')+'/pickup/poll/?p='+encodeURIComponent(id); }
   // ── wrong-time check (identical in the pickup page kit and the poll page kit) ──
@@ -723,7 +733,7 @@ window.csPollKit=(function(){
     whenWhere:whenWhere, previewView:previewView, spotsText:spotsText,
     PRESETS:PRESETS, SITE_KEY:SITE_KEY, TURNSTILE_SCRIPT:TURNSTILE_SCRIPT, autoEnd:autoEnd, optionState:optionState, frozenLabel:frozenLabel, closedState:closedState, closesLine:closesLine, pollClosesLine:pollClosesLine, noneMsg:noneMsg,
     dayLines:dayLines, dayGames:dayGames, sugLeftLine:sugLeftLine, canSuggest:canSuggest, canVote:canVote, sugProblem:sugProblem,
-    suggestReq:suggestReq, decideReq:decideReq, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, timeFlags:timeFlags, clock12:clock12, optionReq:optionReq, cancelReq:cancelReq, canChange:canChange, othersOn:othersOn, removeLine:removeLine, cancelLine:cancelLine, signInUrl:signInUrl, quickProblem:quickProblem };
+    suggestReq:suggestReq, decideReq:decideReq, confirmReq:confirmReq, canConfirm:canConfirm, sugLocGroups:sugLocGroups, placesReq:placesReq, placesList:placesList, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, timeFlags:timeFlags, clock12:clock12, optionReq:optionReq, cancelReq:cancelReq, canChange:canChange, othersOn:othersOn, removeLine:removeLine, cancelLine:cancelLine, signInUrl:signInUrl, quickProblem:quickProblem };
 })();
 </script>
 
@@ -872,6 +882,7 @@ window.csPollDirections=function(loc){
     // nothing to vote on or decide.
     if(view.ended===true) $('hero-title').textContent='This poll has ended';
     drawDays();
+    drawDayGames(s);
     show('poll-card');
     if(view.ended===true) hide('org-card'); else drawOrganizer();
     if(s==='game'||s==='days_done'){
@@ -909,6 +920,17 @@ window.csPollDirections=function(loc){
   function drawDays(){
     var box=$('poll-days'); box.textContent='';
     K.dayLines(view).forEach(function(line){ var p=document.createElement('p'); p.className='meta day'; p.textContent=line; box.appendChild(p); });
+  }
+  // One game per day, while other days still vote: "Open the Sat game" for each day that
+  // already has its game. Once every day is done the game card lists them instead.
+  function drawDayGames(s){
+    var box=$('poll-day-games'); box.textContent='';
+    if(s==='game'||s==='days_done') return;
+    K.dayGames(view).forEach(function(d){
+      var a=document.createElement('a'); a.className='btn btn-teal'; a.style.marginTop='8px';
+      a.href=K.gameUrl(d.inviteId); a.textContent='Open the '+(d.day||'')+' game';
+      box.appendChild(a);
+    });
   }
   // The poll's game, or each day's game for a poll that makes one per day.
   function drawGame(s){
@@ -1003,6 +1025,7 @@ window.csPollDirections=function(loc){
   function drawOrganizer(){
     if(!view.isOrganizer){ hide('org-card'); return; }
     show('org-card');
+    drawConfirm();
     var box=$('org-sugs'); box.textContent='';
     (view.pendingSuggestions||[]).forEach(function(g){
       var d=document.createElement('div'); d.className='sug';
@@ -1118,6 +1141,31 @@ window.csPollDirections=function(loc){
       if(!res.j||res.j.ok===false){ $('org-msg').className='msg err'; $('org-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
       orgEdit=null;
       render(res);
+    });
+  }
+  // "Make this the game" for each ready time on a poll the organizer confirms themselves
+  // (K.canConfirm), the same action as Your polls on the pickup page.
+  function drawConfirm(){
+    var box=$('org-confirm'); box.textContent='';
+    (view.options||[]).filter(function(o){ return K.canConfirm(view, o); }).forEach(function(o){
+      var b=document.createElement('button'); b.type='button'; b.className='btn btn-teal'; b.style.marginTop='10px';
+      b.textContent='Make this the game: '+(o.label||'');
+      b.addEventListener('click',function(){ confirmTime(o.id); });
+      box.appendChild(b);
+    });
+  }
+  var confirming=false;
+  function confirmTime(optId){
+    if(confirming) return;
+    var ses=K.storedSession([localStorage,sessionStorage],Date.now());
+    if(!ses){ $('org-msg').className='msg err'; $('org-msg').textContent='Sign in on the pickup page to make this the game.'; return; }
+    confirming=true;
+    $('org-msg').className='msg'; $('org-msg').textContent='Making the game...';
+    K.post(fetch,K.confirmReq(ses,view.pollId,optId)).then(function(res){
+      confirming=false;
+      if(!res.j||res.j.ok===false){ $('org-msg').className='msg err'; $('org-msg').textContent=(res.j&&res.j.error)||K.MSG.offline; return; }
+      $('org-msg').className='msg ok'; $('org-msg').textContent='Game made. Everyone on the poll is being told.';
+      K.post(fetch,K.infoReq(auth)).then(render);
     });
   }
   function decide(sugId, action){
