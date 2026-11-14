@@ -125,6 +125,7 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .tile-tx{flex:1;min-width:0;}
 .tile-nm{display:block;font-weight:700;font-size:16px;color:var(--ink);}
 .tile-ex{display:block;font-size:13px;color:var(--slate);line-height:1.35;margin-top:2px;}
+.tile-weekly{display:block;width:100%;text-align:left;background:none;border:none;font-family:'Barlow';font-size:13px;font-weight:700;color:var(--primary);padding:0 12px 12px;margin-top:-4px;cursor:pointer;}
 .tile-ch{flex:none;color:var(--slate);font-size:22px;line-height:1;}
 .rank-badge{display:inline-block;background:var(--gold);color:#3D2A00;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;padding:2px 7px;border-radius:5px;margin-left:6px;vertical-align:2px;}
 /* Empty state for Your games. */
@@ -378,6 +379,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <span class="tile-tx"><span class="tile-nm">Post a Pickup Game</span><span class="tile-ex">You already know the place, day and time. Post it and players sign up.</span></span>
         <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
       </button>
+      <!-- A second line under the tile (a button inside a button is not allowed): the same
+           form with Repeat ticked and Weekly chosen. -->
+      <button type="button" class="tile-weekly" onclick="startNewInvite({ weekly: true })">Running a weekly game? Set it up once. &rsaquo;</button>
       <!-- Pickup poll: shown to everyone; signed out, a tap asks them to sign in first. -->
       <div id="poll-entry">
         <button class="tile" onclick="startPollPlan()">
@@ -517,16 +521,28 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div class="row2">
           <div>
             <label class="lbl">Frequency</label>
-            <select class="inp" id="iv-rec-freq">
+            <select class="inp" id="iv-rec-freq" onchange="updateSeriesPreview()">
               <option value="weekly">Weekly</option>
               <option value="biweekly">Biweekly</option>
             </select>
           </div>
           <div>
-            <label class="lbl">Total occurrences</label>
-            <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4">
+            <label class="lbl">Ends</label>
+            <select class="inp" id="iv-rec-ends" onchange="toggleRecurring()">
+              <option value="count">After a number of games</option>
+              <option value="date">On a date</option>
+            </select>
           </div>
         </div>
+        <div class="fg" id="iv-rec-count-fg" style="margin-top:10px;">
+          <label class="lbl">Number of games</label>
+          <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4" oninput="updateSeriesPreview()">
+        </div>
+        <div class="fg" id="iv-rec-end-fg" style="margin-top:10px;display:none;">
+          <label class="lbl">Last game on or before</label>
+          <input class="inp" id="iv-rec-end" type="date" oninput="updateSeriesPreview()" onchange="updateSeriesPreview()">
+        </div>
+        <div class="evmeta" id="iv-rec-preview" style="margin-top:8px;font-weight:600;color:var(--primary);"></div>
       </div>
     </div>
 
@@ -8341,6 +8357,7 @@ function wireSetupListeners(){
     $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value);
     if(!_userEditedTitle) $('iv-name').value = autoTitle($('iv-date').value);
     rebuildCourtPicker();
+    updateSeriesPreview();
   };
   $('iv-date').onchange = onDateOrStart;
   $('iv-start').onchange = ()=>{
@@ -8536,7 +8553,10 @@ function onCourtPick(){
   updateSitHint();
 }
 
-function startNewInvite(){
+// opts.weekly (the "Running a weekly game?" line): the same form with Repeat ticked and
+// Weekly chosen, ending after a number of games.
+function startNewInvite(opts){
+  const weekly = !!(opts && opts.weekly);
   // Create gate: any logged-in CourtSense account may create; a picked name or
   // anonymous visitor may not (a null hostId/accountId yields a half-broken game
   // and no host controls). Closes the deep-link-then-Back hole where the login
@@ -8574,7 +8594,10 @@ function startNewInvite(){
       if($('iv-game-vibe')) $('iv-game-vibe').value = 'fun';
       if($('iv-game-format')) $('iv-game-format').value = '2s';
       if($('iv-cancel-offset')) $('iv-cancel-offset').value = '';
-      $('iv-rec').checked = false;
+      $('iv-rec').checked = weekly;
+      $('iv-rec-freq').value = 'weekly';
+      if($('iv-rec-ends')) $('iv-rec-ends').value = 'count';
+      if($('iv-rec-end')) $('iv-rec-end').value = '';
       toggleRecurring();
       $('iv-elig-mode').value = 'inviteOnly';
       wireSetupListeners();
@@ -8657,6 +8680,65 @@ function startEditInvite(id){
 function toggleRecurring(){
   const on = $('iv-rec').checked;
   $('iv-rec-fields').style.display = on ? 'block' : 'none';
+  const byDate = !!$('iv-rec-ends') && $('iv-rec-ends').value === 'date';
+  if($('iv-rec-count-fg')) $('iv-rec-count-fg').style.display = byDate ? 'none' : '';
+  if($('iv-rec-end-fg')) $('iv-rec-end-fg').style.display = byDate ? '' : 'none';
+  updateSeriesPreview();
+}
+
+// ── A repeating series: how many games, and the line that says so ──
+// SERIES_MAX games at most. The dates step from local noon, exactly as saveInvite writes
+// them, so a DST change never moves a game to another day.
+const SERIES_MAX = 20;
+function seriesISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function seriesDates(firstISO, count, stepDays){
+  const out = [];
+  const start = new Date(firstISO+'T12:00:00');
+  if(!Number.isFinite(start.getTime())) return out;
+  for(let n=0; n<count; n++){ const d = new Date(start); d.setDate(d.getDate() + n*stepDays); out.push(seriesISO(d)); }
+  return out;
+}
+// The count for "Ends on <date>": every game on or before the end date, at most SERIES_MAX.
+// An end date on or before the first game is refused.
+function seriesCountToDate(firstISO, endISO, stepDays){
+  const a = new Date(firstISO+'T12:00:00').getTime(), b = new Date(endISO+'T12:00:00').getTime();
+  if(!Number.isFinite(a) || !Number.isFinite(b)) return { count: 0, capped: false, err: 'Pick an end date.' };
+  // Whole days between the two noons; rounding absorbs the hour a DST change adds or takes.
+  const days = Math.round((b - a) / 86400000);
+  if(days <= 0) return { count: 0, capped: false, err: 'Pick an end date after the first game.' };
+  const n = Math.floor(days / stepDays) + 1;
+  return n > SERIES_MAX ? { count: SERIES_MAX, capped: true, err: '' } : { count: n, capped: false, err: '' };
+}
+// The series the form describes: { count, capped, err, stepDays }. "After N games" keeps the
+// old 2 to 20 clamp; "On a date" converts the date to a count.
+function seriesPlan(){
+  const stepDays = $('iv-rec-freq').value === 'biweekly' ? 14 : 7;
+  const byDate = !!$('iv-rec-ends') && $('iv-rec-ends').value === 'date';
+  if(byDate){
+    const first = $('iv-date').value, end = ($('iv-rec-end') || {}).value || '';
+    if(!end) return { count: 0, capped: false, err: 'Pick an end date.', stepDays };
+    return { ...seriesCountToDate(first, end, stepDays), stepDays };
+  }
+  return { count: Math.max(2, Math.min(SERIES_MAX, parseInt($('iv-rec-count').value)||4)), capped: false, err: '', stepDays };
+}
+// "8 games: Tuesdays, Nov 17 to Jan 5", "8 games: every other Tuesday, ...", or past the cap
+// "20 games, last on Mar 31. A series can have at most 20 games."
+function seriesPreviewText(firstISO, plan){
+  if(plan.err) return plan.err;
+  const dates = seriesDates(firstISO, plan.count, plan.stepDays);
+  if(!dates.length) return '';
+  const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const last = dates[dates.length-1];
+  if(plan.capped) return SERIES_MAX + ' games, last on ' + fmt(last) + '. A series can have at most ' + SERIES_MAX + ' games.';
+  const day = new Date(firstISO+'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+  return dates.length + ' games: ' + (plan.stepDays === 14 ? 'every other ' + day : day + 's') + ', ' + fmt(dates[0]) + ' to ' + fmt(last);
+}
+function updateSeriesPreview(){
+  const el = $('iv-rec-preview'); if(!el) return;
+  if(!$('iv-rec') || !$('iv-rec').checked || !$('iv-date').value){ el.textContent = ''; return; }
+  const plan = seriesPlan();
+  el.textContent = seriesPreviewText($('iv-date').value, plan);
+  el.style.color = plan.err ? '#b91c1c' : 'var(--primary)';
 }
 
 // A2 game-type sync: keep module state aligned with the two selects. buildInviteRecord
@@ -9065,6 +9147,10 @@ async function saveInvite(){
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
   const tierCheck = validateWideningTiers();
   if(!tierCheck.ok){ toast(tierCheck.msg); return; }
+  // A new repeating series: how many games ("After N games", or "On a date" turned into a
+  // count, at most 20). An end date on or before the first game is refused before any write.
+  const recPlan = (!inviteEditId && $('iv-rec').checked) ? seriesPlan() : null;
+  if(recPlan && recPlan.err){ toast(recPlan.err); return; }
 
   // Step 3c: a new game that will email invites needs a verified worker session. Check
   // before anything is written; a host who is not verified signs in again and the post
@@ -9091,7 +9177,7 @@ async function saveInvite(){
 
   const recurring = $('iv-rec').checked;
   const recFreq   = $('iv-rec-freq').value;
-  const recCount  = Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
+  const recCount  = recPlan ? recPlan.count : Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
 
   if(inviteEditId){
     const _id = inviteEditId;
@@ -9198,17 +9284,23 @@ async function saveInvite(){
   // OWN date, so week five does not read "Pickup, <week one>". A title the host typed is
   // kept on every copy. A single game keeps whatever the form holds, exactly as before.
   const seriesAutoTitle = recurring && (!_userEditedTitle || base.name === autoTitle(base.date));
+  // Later weeks close sign-ups as long before their start as the host chose for week one
+  // (week one's start minus its deadline). With no readable week-one deadline, or one after
+  // the start, they fall back to 2 hours before.
+  const firstStart = computeStartMs(base.date, base.startTime);
+  const chosenLead = (typeof base.rsvpDeadline === 'number' && firstStart !== null) ? firstStart - base.rsvpDeadline : NaN;
+  const deadlineLead = Number.isFinite(chosenLead) && chosenLead >= 0 ? chosenLead : 2*60*60*1000;
   for(let n=0; n<occurrences; n++){
     const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
     const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const id = gi('inv');
     if(!firstId) firstId = id;
-    const dl = base.startTime ? new Date(iso+'T'+base.startTime+':00').getTime() - 2*60*60*1000 : null;
     // Per-occurrence start instant, from THIS occurrence's own date. A recurring game
     // spreads one base record across N dates, so the base's startMs is right only for
     // occurrence 1. Every later week would inherit week one's instant if this were not
     // recomputed and overridden below, exactly as date and rsvpDeadline already are.
     const occStartMs = computeStartMs(iso, base.startTime);
+    const dl = (base.startTime && occStartMs !== null) ? occStartMs - deadlineLead : null;
     const rec = {
       ...base,
       id,
@@ -9538,6 +9630,7 @@ function renderInviteDetail(){
       <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
       ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
     </div>
+    ${!isCancelled && laterSeriesIds(D.invites || {}, i).length > 1 ? '<button class="btn btn-d btn-w" style="margin-top:8px;" onclick="cancelLaterGames()">Cancel this and all later games</button>' : ''}
   </div>` : ''}`;
 
   // Per-game chat (coordination, not confidentiality). Visible and postable only
@@ -10512,6 +10605,40 @@ function cancelInvite(){
   renderInviteDetail();
   fbSet('invites/'+activeInvite+'/status', 'cancelled');
   toast('Cancelled');
+}
+
+// The games "Cancel this and all later games" cancels: this game and every later one in the
+// same repeating series (same recurringGroupId) with the same host, not already cancelled,
+// in start order. Empty for a game with no series or no host on record.
+function laterSeriesIds(invites, inv){
+  if(!inv || !inv.recurringGroupId || !inv.hostId) return [];
+  const startOf = x => (typeof x.startMs === 'number' && Number.isFinite(x.startMs)) ? x.startMs : computeStartMs(x.date, x.startTime);
+  const from = startOf(inv);
+  if(from === null) return [];
+  return Object.keys(invites || {}).filter(id => {
+    const x = invites[id];
+    if(!x || x.recurringGroupId !== inv.recurringGroupId || x.hostId !== inv.hostId) return false;
+    if(x.status === 'cancelled' || x.postType === 'partner') return false;
+    const s = startOf(x);
+    return s !== null && s >= from;
+  }).sort((a, b) => startOf(invites[a]) - startOf(invites[b]));
+}
+// Host only. One status write per game, each at that game's own path (never a parent node).
+// No email, the same as cancelling one game.
+function cancelLaterGames(){
+  const inv = (D.invites||{})[activeInvite];
+  if(!isLoggedInHost(inv)){ toast('Only the host can cancel this game'); return; }
+  const ids = laterSeriesIds(D.invites || {}, inv);
+  if(ids.length < 2){ cancelInvite(); return; }
+  const later = ids.length - 1;
+  if(!confirm('Cancel this game and the ' + later + ' later game' + (later === 1 ? '' : 's') + ' in this series? Everyone confirmed or waitlisted will see them as cancelled.')) return;
+  ids.forEach(id => {
+    D.invites[id].status = 'cancelled';
+    pendInviteOverride(id, x => { x.status = 'cancelled'; });
+    fbSet('invites/'+id+'/status', 'cancelled');
+  });
+  renderInviteDetail();
+  toast('Cancelled ' + ids.length + ' games');
 }
 
 // BOOT
