@@ -11,7 +11,7 @@
 <script src="/signup-source.js?v=a1f469b3"></script>
 <script>try{localStorage.setItem('cs_last_door','/pickup/');}catch(e){}</script>
 <meta name="robots" content="noindex, follow">
-<title>Tallahassee Beach Volleyball</title>
+<title>CourtSense Pickup</title>
 <meta name="description" content="Pickup games, King of the Beach nights and sanctioned tournament listings for beach volleyball in Tallahassee. Run by CourtSense.">
 <link rel="canonical" href="https://courtsense.app/pickup/">
 <meta name="author" content="CourtSense">
@@ -135,6 +135,10 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 /* Signed out: the sign-in line above Open games. */
 .pk-signin{text-align:center;padding:10px 12px;}
 .pk-signin p{font-size:14px;color:var(--slate);margin:0 0 8px;}
+/* The area prompt after Not now, and a secondary button with readable contrast. */
+.pk-area-prompt{text-align:center;padding:10px 12px;}
+.pk-area-prompt p{font-size:14px;font-weight:700;color:var(--navy);margin:0 0 8px;}
+.btn-o{background:var(--white);border:1.5px solid var(--primary);color:var(--primary);}
 /* An open poll in Open games: a teal edge and a label so it never reads as a game. */
 .pk-out,.pk-poll{cursor:default;}
 .pk-poll{border-left:4px solid var(--teal);}
@@ -310,8 +314,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="hdr-left">
     <a href="/" class="cs-home" aria-label="CourtSense home"><img src="/logo.png" alt=""></a>
     <h1 class="brand" onclick="goHome()" style="font-weight:normal;">
-      <span>👑</span>
-      <span id="app-name">Tallahassee Beach</span>
+      <span id="app-name">CourtSense Pickup</span>
       <span class="sync off" id="sync" title="Connecting..."></span>
     </h1>
     </div>
@@ -375,8 +378,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <span class="tile-tx"><span class="tile-nm">Post a Pickup Game</span><span class="tile-ex">You already know the place, day and time. Post it and players sign up.</span></span>
         <span class="tile-ch" aria-hidden="true">&rsaquo;</span>
       </button>
-      <!-- Pickup poll: signed-in players only (renderPollEntry shows it). -->
-      <div id="poll-entry" style="display:none;">
+      <!-- Pickup poll: shown to everyone; signed out, a tap asks them to sign in first. -->
+      <div id="poll-entry">
         <button class="tile" onclick="startPollPlan()">
           <span class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V11M10 20V5M16 20v-6M2 20h20"/></svg></span>
           <span class="tile-tx"><span class="tile-nm">Create a Pickup Poll</span><span class="tile-ex">Not sure when works? Offer a few times, let players vote, and the winning time becomes the game.</span></span>
@@ -1429,13 +1432,12 @@ const PARTNER_NOTIFY_MAX = 10;
 // place.
 //
 // Two values because a 20px Bebas header with 3px tracking and a browser tab
-// have different length budgets. The header is a brand mark sitting beside a
-// crown, a sync dot and two buttons, so it stays roughly as wide as the name it
-// replaces; the title is what shows in a tab, a bookmark and a search result,
-// where "Tallahassee Beach" alone would read oddly for a landlocked city.
-// A future city instance changes only these two lines.
-const APP_NAME  = 'Tallahassee Beach';
-const APP_TITLE = 'Tallahassee Beach Volleyball';
+// have different length budgets. The header is a brand mark beside a sync dot and
+// two buttons; "CourtSense Pickup" is as wide as the city name it replaced. The
+// page now serves players statewide, so neither value names one city, and
+// the King of the Beach crown is gone from this header.
+const APP_NAME  = 'CourtSense Pickup';
+const APP_TITLE = 'CourtSense Pickup';
 const LEAGUE_KINGS_PATH  = 'tally_kotb/kings/players';
 const LEAGUE_QUEENS_PATH = 'tally_kotb/queens/players';
 // Club roster feeding Quick Add. One club hardcoded into a city-wide pickup app is a
@@ -2101,8 +2103,15 @@ function refreshTab(t){
 
 // LIST VIEW
 function renderEventList(){
-  const events   = Object.values(D.events ||{}).filter(e=>e&&e.meta).sort((a,b)=>(b.meta.createdAt||0)-(a.meta.createdAt||0));
-  const archives = Object.values(D.archive||{}).filter(e=>e&&(e.meta||e.name)).sort((a,b)=>{
+  // Ranked Nights run in Tallahassee. Active nights show near Tallahassee (Near me, else
+  // the saved area's center, within 30 miles), and a night's own host always sees it
+  // (meta.hostId, recorded on nights made since; older nights have none). Past nights
+  // show only to a signed-in player, and never a night that recorded no games.
+  const nearTlh = !!(window.csCourtPage && csCourtPage.nearTallahassee && csCourtPage.nearTallahassee());
+  const signedIn = !!gameplayKey();
+  const meId = currentAccountId();
+  const events   = Object.values(D.events ||{}).filter(e=>e&&e.meta&&(nearTlh||(!!meId&&e.meta.hostId===meId))).sort((a,b)=>(b.meta.createdAt||0)-(a.meta.createdAt||0));
+  const archives = !signedIn ? [] : Object.values(D.archive||{}).filter(e=>e&&(e.meta||e.name)&&archiveGameCount(e)>0).sort((a,b)=>{
     const am = a.meta||a, bm = b.meta||b;
     return (bm.closedAt||bm.createdAt||0)-(am.closedAt||am.createdAt||0);
   });
@@ -2125,7 +2134,7 @@ function renderEventList(){
     hPast += archives.map(e=>{
       const m = e.meta||e;
       const playerCount = Object.keys(e.players||{}).length;
-      const gameCount   = Object.keys(e.results||{}).length;
+      const gameCount   = archiveGameCount(e);
       return `<div class="evcard ar" onclick="viewArchive('${m.id}')">
         <div class="evname">${escapeHTML(m.name||'Event')}</div>
         <div class="evmeta">${fD(m.date)} · ${playerCount} player${playerCount===1?'':'s'} · ${gameCount} game${gameCount===1?'':'s'}</div>
@@ -2142,6 +2151,11 @@ function renderEventList(){
   // cards. One container could not straddle that.
   const elA = $('event-list-active'); if(elA) elA.innerHTML = h;
   const elP = $('event-list-past');   if(elP) elP.innerHTML = hPast;
+}
+// Games a past night recorded: its results. None, or an empty set, is 0.
+function archiveGameCount(e){
+  const r = e && e.results;
+  return r && typeof r === 'object' ? Object.keys(r).length : 0;
 }
 
 // SETUP VIEW
@@ -2246,6 +2260,10 @@ async function generateSetsFromSetup(){
     createdAt: Date.now(),
     status: 'active'
   };
+  // The host's account id, so the night always shows to them in Active Ranked Nights
+  // wherever their area is. It decides only what that list shows, never who may edit.
+  const hostId = currentAccountId();
+  if(hostId) meta.hostId = hostId;
   const playersObj = {};
   setupState.roster.forEach(p=>{
     const pid = gi('p');
@@ -4038,7 +4056,7 @@ function renderInviteList(){
   const isOpenEligible = signedOut ? isPublicGame : (i => isChatEligible(i, myKey));
   const skipPolls = signedOut ? {} : ppPollSkip();
   const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible, skipPolls) : { mine: signedOut ? [] : upcoming.filter(isMine), open: [], items: [], hasRef: false, city: '' };
-  const yours = parts.mine, openGames = parts.items || parts.open.map(g => ({ kind: 'game', g }));
+  const yours = parts.mine, openGames = parts.items || (parts.open || []).map(g => ({ kind: 'game', g }));
 
   let h = '';
   if(signedOut){
@@ -4050,15 +4068,12 @@ function renderInviteList(){
     h += yours.length ? yours.map(i => inviteCardHTML(i, myKey)).join('')
       : '<div class="evmeta" style="padding:4px 2px 12px;color:var(--gray);">No games yet. Post one or start a poll.</div>';
   }
-  if(!parts.hasRef){
-    // No area and Near me off: nothing to measure from, so no open games. Ask for an area.
-    h += '<div class="card pk-empty"><p>Set your area to see open games near you.</p>'
-      + '<button class="btn btn-p btn-w" onclick="if(window.csCourtPage) csCourtPage.openChooser()">Set your area</button></div>';
-  } else {
-    h += `<div class="ctitle" style="margin-top:16px;"><span class="bar"></span>Open games (${openGames.length})</div>`;
-    h += openGames.length ? openGames.map(x => x.kind === 'poll' ? pollCardHTML(x.p, signedOut)
-      : signedOut ? signedOutCardHTML(x.g) : inviteCardHTML(x.g, myKey)).join('') : openGamesEmptyHTML(parts.city);
-  }
+  // No area and Near me off: the area bar holds the one prompt to set an area (this list
+  // never draws its own), and Open games is everything in Florida, soonest first.
+  const openTitle = parts.statewide ? 'Open games in Florida' : 'Open games';
+  h += `<div class="ctitle" style="margin-top:16px;"><span class="bar"></span>${openTitle} (${openGames.length})</div>`;
+  h += openGames.length ? openGames.map(x => x.kind === 'poll' ? pollCardHTML(x.p, signedOut)
+    : signedOut ? signedOutCardHTML(x.g) : inviteCardHTML(x.g, myKey)).join('') : openGamesEmptyHTML(parts.city || 'Florida');
   cont.innerHTML = h;
 }
 
@@ -11402,9 +11417,12 @@ window.csCourtKit=(function(){
     if(c.status==='pending'){ if(c.mine) return 'none'; return c.confirmed?'report':'ask'; }
     return 'report';
   }
-  // ── Open games: within 30 miles, never more ──
+  // ── Open games: within 30 miles once there is a reference point ──
   // Open games are the games a player may join but is not in, at most OPEN_MILES from
-  // their reference point. The cap is fixed here and nothing widens it.
+  // their reference point (a saved area or Near me). The cap is fixed and never widens.
+  // The one exception is having no reference point at all: then Open games lists every
+  // game and open poll in Florida, soonest first (o.region, regionPolls), until the
+  // player sets an area.
   var OPEN_MILES=30, GAME_AREA_MAX=60, INVITE_ID_RE=/^[A-Za-z0-9_-]{1,80}$/;
   function isNum(v){ return typeof v==='number'&&isFinite(v); }
   function validCenter(c){ return !!c&&typeof c==='object'&&isNum(c.lat)&&isNum(c.lng)&&Math.abs(c.lat)<=90&&Math.abs(c.lng)<=180; }
@@ -11422,6 +11440,8 @@ window.csCourtKit=(function(){
   //         else to the record's area center, and must be OPEN_MILES or less. A record
   //         with no center (and no pin) shows only when its area is the player's own.
   //         No record: never open. Nearest first, then date.
+  //         o.region (no reference point): every recorded game in Florida instead, with
+  //         no distance, in date order (soonest first).
   // Never geocodes: a game's place comes only from its record and its listed court.
   function splitGames(games, o){
     var mine=[], rows=[], dist={};
@@ -11431,6 +11451,7 @@ window.csCourtKit=(function(){
       if(!o.isOpenEligible(g)) return;
       var rec=o.records&&typeof o.records==='object'?o.records[g.id]:null;
       if(!rec||typeof rec!=='object'||typeof rec.areaKey!=='string') return;
+      if(o.region){ if(inRegion(rec.areaKey)) rows.push({ g:g, i:i, d:null }); return; }
       var c=o.resolve?o.resolve(g):null;
       var to=c&&isNum(c.lat)&&isNum(c.lon)?{ lat:c.lat, lon:c.lon }:validCenter(rec.center)?{ lat:rec.center.lat, lon:rec.center.lng }:null;
       var d=null;
@@ -11524,6 +11545,43 @@ window.csCourtKit=(function(){
     });
     return rows.map(function(r){ return r.kind==='game'?{ kind:'game', g:r.x }:{ kind:'poll', p:r.x }; });
   }
+  // ── No reference point: Open games in Florida ──
+  var REGION_SUFFIX='-fl';
+  function inRegion(areaKey){ return typeof areaKey==='string'&&AREA_RE.test(areaKey)&&areaKey.slice(-REGION_SUFFIX.length)===REGION_SUFFIX; }
+  // The open polls with a time in Florida, each keeping only those times, minus skip. No
+  // distance (d null), so mergeOpen puts them in start order with the games.
+  function regionPolls(polls, skip){
+    var out=[];
+    (polls||[]).forEach(function(p){
+      if(!p||!Array.isArray(p.times)||(skip&&skip[p.id])) return;
+      var times=p.times.filter(function(t){ return t&&inRegion(t.areaKey); });
+      if(times.length) out.push({ id:p.id, title:p.title, times:times, d:null });
+    });
+    return out;
+  }
+  // ── The area from a link's src tag (window.csSignupSource) ──
+  // A Facebook group link carries its group's tag; a group's own city becomes the
+  // visitor's area when they have none saved. -sat and -sun mark the weekend posts of
+  // one group. Statewide and national tags are not listed, so they name no area.
+  var SRC_AREAS={
+    'fb-tallahassee':['tallahassee-fl','Tallahassee','FL'], 'fb-ftlaud':['fort-lauderdale-fl','Fort Lauderdale','FL'],
+    'fb-tampabums':['tampa-fl','Tampa','FL'], 'fb-vbparadise':['st-petersburg-fl','St. Petersburg','FL'], 'fb-northshore':['st-petersburg-fl','St. Petersburg','FL'],
+    'fb-swfl':['fort-myers-fl','Fort Myers','FL'], 'fb-destin':['destin-fl','Destin','FL'], 'fb-westpalm':['west-palm-beach-fl','West Palm Beach','FL'],
+    'fb-panamacity':['panama-city-fl','Panama City','FL'], 'fb-pcb':['panama-city-beach-fl','Panama City Beach','FL'], 'fb-southbeach':['miami-beach-fl','Miami Beach','FL'],
+    'fb-orlando':['orlando-fl','Orlando','FL'], 'fb-orlandobeach':['orlando-fl','Orlando','FL'], 'fb-centralfl':['orlando-fl','Orlando','FL'],
+    'fb-gainesville':['gainesville-fl','Gainesville','FL'], 'fb-lakeland':['lakeland-fl','Lakeland','FL'], 'fb-ocala':['ocala-fl','Ocala','FL']
+  };
+  function srcBase(src){ return String(src||'').replace(/-(sat|sun)$/, ''); }
+  function areaFromSrc(src){
+    var b=srcBase(src);
+    if(!Object.prototype.hasOwnProperty.call(SRC_AREAS, b)) return null;
+    var m=SRC_AREAS[b], a={ areaKey:m[0], city:m[1], state:m[2] };
+    return validArea(a)?a:null;
+  }
+  // Ranked Nights run in Tallahassee: shown only with a reference point within 30 miles
+  // of its center (the Census center the worker uses).
+  var TLH_CENTER={ lat:30.4535, lng:-84.2523 };
+  function nearTallahassee(ref){ return !!ref&&isNum(ref.lat)&&isNum(ref.lon)&&miles(ref, { lat:TLH_CENTER.lat, lon:TLH_CENTER.lng })<=OPEN_MILES; }
   // GET /pickup/area-center?area=<areaKey>: only ever a well formed area key, never text.
   function areaCenterPath(areaKey){ return AREA_RE.test(String(areaKey||''))?'/pickup/area-center?area='+encodeURIComponent(areaKey):''; }
   function areaCenterOf(res){ var c=res&&res.j&&res.j.ok?res.j.center:null; return validCenter(c)?{ lat:c.lat, lng:c.lng }:null; }
@@ -11561,6 +11619,7 @@ window.csCourtKit=(function(){
   return { STATES:STATES, SURFACES:SURFACES, AREA_KEY:AREA_KEY, SKIP_KEY:SKIP_KEY, PRESET_AREA:PRESET_AREA, norm:norm, slug:slug, titleCity:titleCity,
     OPEN_MILES:OPEN_MILES, GAME_AREA_MAX:GAME_AREA_MAX, validCenter:validCenter, refPoint:refPoint, splitGames:splitGames, gameAreasPath:gameAreasPath, gameAreasList:gameAreasList,
     openListPath:openListPath, openPollsList:openPollsList, nearPolls:nearPolls, mergeOpen:mergeOpen,
+    inRegion:inRegion, regionPolls:regionPolls, SRC_AREAS:SRC_AREAS, srcBase:srcBase, areaFromSrc:areaFromSrc, TLH_CENTER:TLH_CENTER, nearTallahassee:nearTallahassee,
     areaCenterPath:areaCenterPath, areaCenterOf:areaCenterOf, gameAreaReqs:gameAreaReqs, locKind:locKind, presetArea:presetArea,
     cityProblem:cityProblem, areaOf:areaOf, validArea:validArea, readArea:readArea, writeArea:writeArea, readFlag:readFlag, writeFlag:writeFlag,
     promptKey:promptKey, areasPath:areasPath, courtsPath:courtsPath, areasList:areasList, suggestArea:suggestArea, cleanCourt:cleanCourt,
@@ -11584,8 +11643,9 @@ const _ppNamesOpen = {};
 function ppSession(){
   try { return (window.CourtSenseAuth && CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null; } catch(e){ return null; }
 }
+// The Create a Pickup Poll tile shows to everyone; startPollPlan handles signing in.
 function renderPollEntry(){
-  const el = $('poll-entry'); if(el) el.style.display = ppSession() ? '' : 'none';
+  const el = $('poll-entry'); if(el) el.style.display = '';
 }
 // Saved places: the signed-in organizer's own custom places, offered under "Your places"
 // in every location picker. Loaded when a form opens; without them a picker still has
@@ -11708,7 +11768,15 @@ function ppLocMode(){
   ppDrawOptions();
 }
 async function startPollPlan(){
-  if(!ppSession()){ toast('Sign in to plan a poll'); if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin(); return; }
+  // A poll needs a worker session. Signed out: sign in, then the poll form opens. Signed
+  // in without one (an older sign-in, or the check has not finished): confirm it once
+  // more, and only if that fails ask them to sign in again, then open the form.
+  if(!ppSession()){
+    const A = window.CourtSenseAuth;
+    const signedIn = !!(A && A.currentPlayer && A.currentPlayer());
+    if(!signedIn){ askSignIn('Sign in to start a poll.', startPollPlan); return; }
+    if(!(await ensureNotifySession()) || !ppSession()){ askSignIn('Sign in again to start a poll.', startPollPlan); return; }
+  }
   const K = window.csPollPlanKit;
   ppOptions = [K.newRow({ startTime:'09:00' }, ''), K.newRow({ startTime:'17:00' }, '')];
   ppSelected = []; _ppKeptTimes = {};
@@ -12044,7 +12112,7 @@ window.csCourtPage=(function(){
   var CK=window.csCourtKit, K=window.csPollPlanKit;
   var S={ lists:{}, loading:{}, failedAt:{}, areas:null, areasAsked:false, chooser:false, barSig:'', near:{ state:'off', lat:null, lon:null },
     ui:{}, report:{}, prompt:null, boxFor:null, boxState:'', pin:{}, diff:{}, place:null,
-    ga:{ list:null, at:0, loading:false }, op:{ list:null, at:0, loading:false }, centers:{}, openDist:{}, city:{} };
+    ga:{ list:null, at:0, loading:false }, op:{ list:null, at:0, loading:false }, centers:{}, openDist:{}, city:{}, fromSrc:false };
   var RETRY_MS=60000;
   function store(){ try { return window.localStorage; } catch(e){ return null; } }
   function esc(s){ return escapeHTML(s); }
@@ -12109,35 +12177,40 @@ window.csCourtPage=(function(){
     var sug=CK.suggestArea(areas, me&&me.city);
     var opts='<option value="">Pick your area</option>'+areas.map(function(x){ return '<option value="'+esc(x.areaKey)+'"'+(sug&&sug.areaKey===x.areaKey?' selected':'')+'>'+esc(x.city+', '+x.state)+'</option>'; }).join('')+'<option value="__new__">My city isn\'t listed</option>';
     var states='<option value="">State</option>'+CK.STATES.map(function(s){ return '<option value="'+s+'">'+s+'</option>'; }).join('');
+    // The one area card. With no area saved it is also the prompt above Open games in Florida.
+    var has=!!area();
     return '<div class="card" style="padding:12px;">'
-      +'<div style="font-weight:700;margin-bottom:6px;">Where do you play?</div>'
-      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Open games within 30 miles of your area show here. You can change this any time.</div>'
+      +'<div style="font-weight:700;margin-bottom:6px;">'+(has?'Change your area':'Set your area to see what\'s near you.')+'</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">'+(has?'Open games within 30 miles of your area show here.':'Pick your city and open games within 30 miles show here. Until then, here is everything in Florida.')+' You can change this any time.</div>'
       +'<select class="inp" id="ar-pick" onchange="csCourtPage.pickChanged()">'+opts+'</select>'
       +'<div id="ar-new" style="display:none;margin-top:8px;"><input class="inp" id="ar-city" maxlength="40" placeholder="City"><select class="inp" id="ar-state" style="margin-top:8px;">'+states+'</select></div>'
       +'<div class="fld-err" id="ar-err" style="font-size:12px;color:#b91c1c;margin-top:6px;"></div>'
-      +'<div style="display:flex;gap:8px;margin-top:8px;"><button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.saveArea()">Save</button><button type="button" class="btn btn-g btn-sm" onclick="csCourtPage.skipArea()">Not now</button></div>'
+      +'<div style="display:flex;gap:8px;margin-top:8px;"><button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.saveArea()">Save</button><button type="button" class="btn btn-o btn-sm" onclick="csCourtPage.skipArea()">Not now</button></div>'
       +'</div>';
   }
+  // The area bar holds the page's only area card: the chooser, or after Not now a short
+  // card with the same prompt and a Set your area button. renderInviteList never draws one.
   function renderBar(){
     var el=$('area-bar'); if(!el) return;
     var a=area(), sig, html;
     var showChooser=S.chooser||(!a&&!CK.readFlag(store(), CK.SKIP_KEY));
     if(showChooser){
       ensureAreas();
-      sig='chooser|'+JSON.stringify(S.areas||[]);
+      sig='chooser|'+(a?a.areaKey:'')+'|'+JSON.stringify(S.areas||[]);
       html=chooserHTML();
     } else if(a){
-      sig='area|'+a.areaKey+'|'+S.near.state;
-      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;">Your area: <b>'+esc(a.city+', '+a.state)+'</b> <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Change</button>'+chip()+'</div>';
+      sig='area|'+a.areaKey+'|'+S.near.state+'|'+(S.fromSrc?'src':'');
+      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;">'+(S.fromSrc?'Showing':'Your area:')+' <b>'+esc(a.city+', '+a.state)+'</b>'+(S.fromSrc?' &middot;':'')+' <button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Change</button>'+chip()+'</div>';
     } else {
       sig='none|'+S.near.state;
-      html='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 2px 10px;font-size:13px;"><button type="button" class="pl-manage" style="display:inline;" onclick="csCourtPage.openChooser()">Set your area</button>'+chip()+'</div>';
+      html='<div class="card pk-area-prompt"><p>Set your area to see what\'s near you.</p><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;">'
+        +'<button type="button" class="btn btn-p btn-sm" onclick="csCourtPage.openChooser()">Set your area</button>'+chip()+'</div></div>';
     }
     // Drawn only when what it shows changed, so a list refresh never wipes a half-typed city.
     if(sig===S.barSig) return;
     S.barSig=sig; el.innerHTML=html;
   }
-  function openChooser(){ S.chooser=true; S.barSig=''; renderBar(); }
+  function openChooser(){ S.chooser=true; S.fromSrc=false; S.barSig=''; renderBar(); }
   function pickChanged(){ var n=$('ar-new'); if(n) n.style.display=$('ar-pick')&&$('ar-pick').value==='__new__'?'':'none'; }
   function saveArea(){
     var pick=$('ar-pick')?$('ar-pick').value:'', err=$('ar-err'), a=null;
@@ -12152,12 +12225,17 @@ window.csCourtPage=(function(){
       if(!a){ if(err) err.textContent='Pick your area, or choose My city isn\'t listed.'; return; }
     }
     CK.writeArea(store(), a, Date.now());
-    S.chooser=false; S.barSig='';
+    S.chooser=false; S.fromSrc=false; S.barSig='';
     load(a.areaKey).then(function(){ refreshList(); if(typeof refreshLocPickers==='function') refreshLocPickers(); });
     refreshList();
   }
   function skipArea(){ if(!area()) CK.writeFlag(store(), CK.SKIP_KEY, Date.now()); S.chooser=false; S.barSig=''; renderBar(); }
-  function refreshList(){ renderBar(); if(typeof view!=='undefined'&&view==='list'&&typeof renderInviteList==='function') renderInviteList(); }
+  // The list, and the Ranked Nights that depend on the area too.
+  function refreshList(){
+    renderBar();
+    if(typeof view!=='undefined'&&view==='list'&&typeof renderInviteList==='function') renderInviteList();
+    if(typeof view!=='undefined'&&view==='list'&&typeof renderEventList==='function') renderEventList();
+  }
 
   // ── Near me: one position, in memory only ──
   function nearMe(){
@@ -12235,15 +12313,29 @@ window.csCourtPage=(function(){
   }
   function startOf(g){ var t=g&&g.date?new Date(g.date+'T'+(g.startTime||'00:00')+':00').getTime():0; return isFinite(t)?t:0; }
   function pollDistLabel(p){ return p&&typeof p.d==='number'?' · '+CK.milesLabel(p.d):''; }
+  // Active Ranked Nights show only when the visitor's reference point (Near me, else
+  // their area's center) is within 30 miles of Tallahassee.
+  function nearTallahassee(){
+    var a=area();
+    return CK.nearTallahassee(CK.refPoint(origin(), a?areaCenter(a.areaKey):null));
+  }
   // Called by renderInviteList with the upcoming games in date order. Your games come back
   // untouched by distance; Open games are capped at 30 miles (csCourtKit.splitGames), and
   // so are open polls, time by time (csCourtKit.nearPolls). items is both, nearest first.
   // skipPolls: the polls to leave out (the viewer's own or answered), or null while that
   // is not known yet, which holds every poll back so an own poll never flashes in.
-  // hasRef false (no area and Near me off): no open games, and the page asks for an area.
+  // hasRef false (no area and Near me off): nothing to measure from, so Open games is
+  // every recorded game and open poll in Florida, soonest first (statewide true), under
+  // the area bar's prompt to set an area.
   function split(games, isMine, isOpenEligible, skipPolls){
     var a=area(), near=origin();
     var hasRef=!!(a||near);
+    if(!hasRef){
+      var sr=CK.splitGames(games, { isMine:isMine, isOpenEligible:isOpenEligible, records:gameAreas(), resolve:resolve, origin:null, areaKey:null, region:true });
+      S.openDist={};
+      var sp=skipPolls!==null?CK.regionPolls(openPolls(), skipPolls||{}):(openPolls(), []);
+      return { mine:sr.mine, open:sr.open, polls:sp, items:CK.mergeOpen(sr.open, {}, sp, startOf), hasRef:false, statewide:true, city:'Florida' };
+    }
     if(a&&!listFor(a.areaKey)&&!S.loading[key(a.areaKey)]) load(a.areaKey).then(function(l){ if(l) refreshList(); });
     var ref=hasRef?CK.refPoint(near, a?areaCenter(a.areaKey):null):null;
     var r=CK.splitGames(games, { isMine:isMine, isOpenEligible:isOpenEligible, records:hasRef?gameAreas():{}, resolve:resolve, origin:ref, areaKey:a?a.areaKey:null });
@@ -12529,6 +12621,17 @@ window.csCourtPage=(function(){
   }
   function detailOpened(){ var a=area(); if(a&&!listFor(a.areaKey)) load(a.areaKey).then(function(l){ if(l&&typeof view!=='undefined'&&view==='invite-detail') rerenderDetail(); }); }
 
+  // A link's src tag names the group the visitor came from. With no area saved, that
+  // group's city becomes their area, saved now, and the bar reads "Showing <City>"
+  // until they change it. A saved area is never replaced; an unmapped tag does nothing.
+  function applySrcArea(){
+    if(area()) return;
+    var v=null;
+    try { v=window.csSignupSource&&csSignupSource.get?csSignupSource.get():null; } catch(e){ v=null; }
+    var a=v?CK.areaFromSrc(v.signupSource):null;
+    if(a&&CK.writeArea(store(), a, Date.now())) S.fromSrc=true;
+  }
+  applySrcArea();
   restorePending();
   return { pickerCourts:pickerCourts, isListedName:isListedName, formOpened:formOpened, pickedCourtId:pickedCourtId, renderBar:renderBar,
     openChooser:openChooser, pickChanged:pickChanged, saveArea:saveArea, skipArea:skipArea, nearMe:nearMe, order:order, distLabel:distLabel,
@@ -12536,7 +12639,7 @@ window.csCourtPage=(function(){
     promptSource:promptSource, ageTick:ageTick, signInToAdd:signInToAdd, placeButton:placeButton, addFromPlace:addFromPlace,
     addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve,
     split:split, gameAreaKey:gameAreaKey, needsCity:needsCity, areaForSelect:areaForSelect, syncCity:syncCity, resetCity:resetCity, cityChanged:cityChanged,
-    sendGameArea:sendGameArea, pollDistLabel:pollDistLabel };
+    sendGameArea:sendGameArea, pollDistLabel:pollDistLabel, nearTallahassee:nearTallahassee };
 })();
 </script>
 </body>
