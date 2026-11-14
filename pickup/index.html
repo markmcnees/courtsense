@@ -4088,7 +4088,8 @@ function activeEligibleNames(invite, now){
 // Use this for EVERY client-side notification gate; never scatter the logic.
 const NOTIFY_FIELD = {
   invited:'notifyInvited', reminder:'notifyReminder', waitlist:'notifyWaitlist',
-  confirmed:'notifyConfirmed', canceled:'notifyCanceled', changed:'notifyChanged'
+  confirmed:'notifyConfirmed', canceled:'notifyCanceled', changed:'notifyChanged',
+  weather:'notifyWeather'
 };
 function shouldNotify(p, kind, now){
   now = now || Date.now();
@@ -10255,6 +10256,9 @@ function optInInvite(){
   const _joinedId = activeInvite;
   fbSet('invites/'+activeInvite+'/rsvps/'+meKey, newRsvp).then(ok => {
     if(ok && status === 'confirmed' && i.recurringGroupId) notifyWorker('/pickup/series/joined', withNotifySession({ inviteId: _joinedId }));
+    // Any spot or waitlist place: the worker records this player (their own session) so
+    // weather emails for this game can reach them. Fire and forget.
+    if(ok && (status === 'confirmed' || status === 'waitlist')) notifyWorker('/pickup/game/joined', withNotifySession({ inviteId: _joinedId }));
   });
   toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
 }
