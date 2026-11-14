@@ -132,6 +132,16 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 .pk-empty h3{font-family:'Bebas Neue';font-weight:400;font-size:22px;letter-spacing:1px;color:var(--navy);margin:0 0 4px;}
 .pk-empty p{font-size:14px;color:var(--slate);margin:0 0 12px;}
 .pk-empty .btn{margin-top:8px;}
+/* Signed out: the sign-in line above Open games. */
+.pk-signin{text-align:center;padding:10px 12px;}
+.pk-signin p{font-size:14px;color:var(--slate);margin:0 0 8px;}
+/* An open poll in Open games: a teal edge and a label so it never reads as a game. */
+.pk-out,.pk-poll{cursor:default;}
+.pk-poll{border-left:4px solid var(--teal);}
+.pk-poll-tag{display:inline-block;font-family:'Bebas Neue';font-size:12px;letter-spacing:1px;padding:1px 7px;border-radius:5px;background:var(--teal);color:#fff;margin-bottom:4px;}
+.pk-poll-row{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:5px 0;border-top:1px solid var(--gray-lighter);}
+.pk-poll-row:first-of-type{margin-top:6px;}
+.pk-poll-n{white-space:nowrap;font-weight:700;}
 /* Create a Pickup Poll (view-poll-setup) and Your polls. Community teal for poll accents. */
 .pp-bar{height:6px;border-radius:3px;background:#EFE8DA;overflow:hidden;margin:4px 0 2px;}
 .pp-bar span{display:block;height:100%;background:var(--teal);border-radius:3px;}
@@ -4011,41 +4021,92 @@ function renderInviteList(){
   // match the keys RSVPs are stored under, not the login id.
   const myKey = gameplayKey();
 
-  // No identity yet: prompt to log in or register first, before the zero-games
-  // guard, so a logged-out visitor always sees this even when no games exist.
-  // Reuses the existing auth overlay trigger (login plus create-account).
-  if(!myKey){
-    cont.innerHTML = `<div class="ctitle"><span class="bar"></span>Your games</div>`
-      + '<div class="evmeta" style="padding:8px 2px;color:var(--gray);">Log in or register to see your games.</div>'
-      + '<button class="btn btn-p btn-w" style="margin-top:10px;" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Log in or register</button>';
-    return;
-  }
-
-  // Two lists, never overlapping:
+  // Signed in, two lists, never overlapping:
   //   Your games: games the player is in (host, a confirmed or waitlist RSVP, or named in
   //     the include list). No distance rule of any kind; date order. A game they joined
   //     stays here even when it is far away or they fell out of its circle.
   //   Open games: games they may join (isChatEligible) but are not in, with a recorded
   //     area, within 30 miles of Near me or their area's center (csCourtPage.split and
-  //     csCourtKit.splitGames). Nearest first, then date.
+  //     csCourtKit.splitGames), plus open polls (anyone with the link may vote) with a time
+  //     within 30 miles, minus polls they organized or answered. Nearest first, then date.
+  // Signed out (no identity): a line asking them to sign in, no Your games, and Open games
+  //   for their chosen area: only games open to anyone (isPublicGame), on cards with no
+  //   player names (signedOutCardHTML), plus every nearby open poll.
   // A direct link to one game or poll opens it wherever it is; these lists never gate that.
-  const isMine = i => isMyGame(i, myKey);
-  const isOpenEligible = i => isChatEligible(i, myKey);
-  const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible) : { mine: upcoming.filter(isMine), open: [], hasRef: false, city: '' };
-  const yours = parts.mine, openGames = parts.open;
+  const signedOut = !myKey;
+  const isMine = signedOut ? (() => false) : (i => isMyGame(i, myKey));
+  const isOpenEligible = signedOut ? isPublicGame : (i => isChatEligible(i, myKey));
+  const skipPolls = signedOut ? {} : ppPollSkip();
+  const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible, skipPolls) : { mine: signedOut ? [] : upcoming.filter(isMine), open: [], items: [], hasRef: false, city: '' };
+  const yours = parts.mine, openGames = parts.items || parts.open.map(g => ({ kind: 'game', g }));
 
-  let h = `<div class="ctitle"><span class="bar"></span>Your games (${yours.length})</div>`;
-  h += yours.length ? yours.map(i => inviteCardHTML(i, myKey)).join('')
-    : '<div class="evmeta" style="padding:4px 2px 12px;color:var(--gray);">No games yet. Post one or start a poll.</div>';
+  let h = '';
+  if(signedOut){
+    // Reuses the existing auth overlay trigger (login plus create-account).
+    h += '<div class="card pk-signin"><p>Sign in or create a free account to join.</p>'
+      + '<button class="btn btn-p btn-w" onclick="if(window.CourtSenseAuth && CourtSenseAuth.showLogin) CourtSenseAuth.showLogin()">Sign in or create an account</button></div>';
+  } else {
+    h += `<div class="ctitle"><span class="bar"></span>Your games (${yours.length})</div>`;
+    h += yours.length ? yours.map(i => inviteCardHTML(i, myKey)).join('')
+      : '<div class="evmeta" style="padding:4px 2px 12px;color:var(--gray);">No games yet. Post one or start a poll.</div>';
+  }
   if(!parts.hasRef){
     // No area and Near me off: nothing to measure from, so no open games. Ask for an area.
     h += '<div class="card pk-empty"><p>Set your area to see open games near you.</p>'
       + '<button class="btn btn-p btn-w" onclick="if(window.csCourtPage) csCourtPage.openChooser()">Set your area</button></div>';
   } else {
     h += `<div class="ctitle" style="margin-top:16px;"><span class="bar"></span>Open games (${openGames.length})</div>`;
-    h += openGames.length ? openGames.map(i => inviteCardHTML(i, myKey)).join('') : openGamesEmptyHTML(parts.city);
+    h += openGames.length ? openGames.map(x => x.kind === 'poll' ? pollCardHTML(x.p, signedOut)
+      : signedOut ? signedOutCardHTML(x.g) : inviteCardHTML(x.g, myKey)).join('') : openGamesEmptyHTML(parts.city);
   }
   cont.innerHTML = h;
+}
+
+// A game a signed-out visitor may see in Open games: open to anyone. A rating, group,
+// club or invite circle needs to know who is asking, so those games wait for sign in.
+function isPublicGame(inv){
+  if(!inv) return false;
+  const e = inv.eligibility || {};
+  return !e.baseMode || e.baseMode === 'open';
+}
+
+// One game card for a signed-out visitor: title, place, date and time, spots filled, and
+// Sign in to join, which opens this game once they are signed in. No player names.
+function signedOutCardHTML(i){
+  const filled = Object.values(i.rsvps || {}).filter(r => r && r.status === 'confirmed').length;
+  const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
+  const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  return `<div class="evcard pk-out">
+    <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
+    <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
+    <div class="evmeta" style="margin-top:2px;">${filled} of ${i.slots||6} spots filled</div>
+    <button type="button" class="btn btn-p btn-w btn-sm" style="margin-top:8px;" onclick="csSignInToJoin('${escapeHTML(i.id).replace(/'/g,"\\'")}')">Sign in to join</button>
+  </div>`;
+}
+// Sign in to join: the sign-in box, then this game's page on /pickup/ once signed in
+// (askSignIn runs it from onLogin, for a new account too).
+function csSignInToJoin(id){
+  if(!id || !(D.invites||{})[id]) return;
+  askSignIn('Sign in to join this game.', () => openInviteDetail(id));
+}
+
+// One open poll in Open games, signed in or out: its title, where, each nearby time with
+// its count against the spots and a Full tag, when each time closes, and the way to vote
+// (the poll page signs a visitor in and comes back). Counts only, never names.
+function pollCardHTML(p, signedOut){
+  const labels = [];
+  p.times.forEach(t => { if(labels.indexOf(t.locationLabel) < 0) labels.push(t.locationLabel); });
+  const one = labels.length === 1;
+  const rows = p.times.map(t => '<div class="pk-poll-row"><span>' + escapeHTML(t.label)
+    + (one ? '' : '<span class="pp-close">' + escapeHTML(t.locationLabel) + '</span>')
+    + '<span class="pp-close">Closes ' + escapeHTML(t.closesLabel) + '</span></span>'
+    + '<span class="pk-poll-n">' + t.count + ' of ' + t.max + (t.full ? '<span class="pp-tag full">Full</span>' : '') + '</span></div>').join('');
+  const dist = window.csCourtPage ? csCourtPage.pollDistLabel(p) : '';
+  return '<div class="evcard pk-poll"><span class="pk-poll-tag">Poll: vote on times</span>'
+    + '<div class="evname">' + escapeHTML(p.title) + '</div>'
+    + '<div class="evmeta">' + (one ? escapeHTML(labels[0]) : 'Several places') + dist + '</div>'
+    + rows
+    + '<a class="btn btn-p btn-w btn-sm" style="margin-top:8px;text-decoration:none;" href="' + csPollPlanKit.voteUrl(p.id) + '">' + (signedOut ? 'Sign in to vote' : 'Vote on times') + '</a></div>';
 }
 
 // Your games: the player is the host, has a confirmed or waitlist RSVP, or is named in the
@@ -10527,12 +10588,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // tally_kotb_pickup/players/{key} record (set by admin-players Approve
   // or Reset Password). The overlay blocks the UI until login succeeds;
   // after login, the existing identity.js still drives in-app identity.
-  // Deep-link case passes autoShowLogin:false so the game stays viewable
-  // without login; the normal (no ?game=) path keeps the overlay gating as is.
+  // The overlay no longer opens by itself on any path: a signed-out visitor sees the
+  // open games and open polls near their area (renderInviteList) with a line to sign
+  // in, and a deep-linked game stays viewable without login as before. Every action
+  // that needs an account still opens the overlay (showLogin) when tapped.
   CourtSenseAuth.init({
     firebaseDb: db,
     rosterPath: 'tally_kotb_pickup/players',
-    autoShowLogin: !_deepLinkGame,
+    autoShowLogin: false,
     onLogin: (player) => {
       $('logout-btn').style.display = 'inline-flex';
       // Sync identity.js to the authenticated player so RSVPs land on
@@ -10563,6 +10626,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(window.Identity && Identity.clear) Identity.clear();
     }
   });
+  // init builds the sign-in box before it checks a stored session, so it is there now.
+  csAddNotNow();
 
   if(/[?&]debug=1/.test(location.search)){
     $('dbg-panel').style.display = 'block';
@@ -10574,6 +10639,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }, true);
   }
 });
+
+// Not now on the sign-in box (pickup only; the shared auth.js box is unchanged): closes
+// it, drops the action that was waiting on the sign-in, and goes back to the list. Added
+// once, below both the log in and the create account views.
+function csAddNotNow(){
+  const box = document.querySelector('#cs-auth-overlay .cs-auth-box');
+  if(!box || document.getElementById('cs-auth-notnow')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.id = 'cs-auth-notnow';
+  b.className = 'cs-auth-toggle';
+  b.textContent = 'Not now';
+  b.addEventListener('click', csNotNow);
+  box.appendChild(b);
+}
+function csNotNow(){
+  _afterSignIn = null;
+  if(window.CourtSenseAuth && CourtSenseAuth.hideLogin) CourtSenseAuth.hideLogin();
+  if(typeof showView === 'function') showView('list');
+}
 
 // The query string without the email-link action and u parameters; everything else kept.
 function csStripEmailParams(search){
@@ -10823,6 +10908,18 @@ window.csPollPlanKit=(function(){
   // The rows of /pickup/poll/mine worth showing: every open poll, then the most recent
   // closed ones, at most max in all, in the worker's newest-first order. The worker has
   // already left out ended polls; one that became a game is dropped here.
+  // The polls Open games leaves out for this viewer: the ones they organized or already
+  // answered (a pick, or none of these times work), from the raw /pickup/poll/mine rows,
+  // as games they are in never show there. null when mine did not answer.
+  function pollSkipIds(res){
+    if(!res||!res.j||!res.j.ok||!Array.isArray(res.j.polls)) return null;
+    var out={};
+    res.j.polls.forEach(function(v){
+      if(!v||!POLL_RE.test(String(v.id))) return;
+      if(v.role==='organizer'||(Array.isArray(v.myPicks)&&v.myPicks.length>0)||v.myNone===true) out[v.id]=true;
+    });
+    return out;
+  }
   function minePolls(res, max){
     var list=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls.filter(function(v){ return v&&POLL_RE.test(v.id)&&Array.isArray(v.options)&&!becameGame(v); }):[];
     var open=list.filter(function(v){ return v.open; }), shut=list.filter(function(v){ return !v.open; });
@@ -11045,7 +11142,7 @@ window.csPollPlanKit=(function(){
   return { WORKER:WORKER, PRESETS:PRESETS, L:L, OTHER:OTHER, isPreset:isPreset, savedChoices:savedChoices, locPicker:locPicker, locProblem:locProblem,
     rememberable:rememberable, placesList:placesList, placesReq:placesReq, rememberReq:rememberReq, forgetReq:forgetReq, startMs:startMs, earliestStart:earliestStart, toLocalInput:toLocalInput,
     fromLocalInput:fromLocalInput, validate:validate, createBody:createBody, recipientPool:recipientPool, filterPool:filterPool, selectAllShown:selectAllShown,
-    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, becameGame:becameGame,
+    mineReq:mineReq, confirmReq:confirmReq, createReq:createReq, post:post, errorText:errorText, minePolls:minePolls, pollSkipIds:pollSkipIds, becameGame:becameGame,
     statusLine:statusLine, canConfirm:canConfirm, timeFlags:timeFlags, clock12:clock12, timeClosed:timeClosed, closedTag:closedTag, closeLine:closeLine, picksLine:picksLine, summaryLine:summaryLine, voteUrl:voteUrl, gameUrl:gameUrl,
     autoEnd:autoEnd, rowAfterStart:rowAfterStart, rowAfterEnd:rowAfterEnd, newRow:newRow,
     suggestionReq:suggestionReq, shareUrl:shareUrl, shareLink:shareLink, shareDates:shareDates, shareMessage:shareMessage, isPhone:isPhone, byStart:byStart, COPIED_MSG:COPIED_MSG, progressPct:progressPct,
@@ -11369,6 +11466,64 @@ window.csCourtKit=(function(){
     });
     return out;
   }
+  // ── Open polls: GET /pickup/poll/open-list ──
+  // Polls anyone with the link may vote on, each with its still-votable times. The worker
+  // sends counts and place labels only, never people; the page keeps only well formed
+  // rows, and only the fields a card shows. null when the worker did not answer.
+  var POLL_ID_RE=/^pp[a-z0-9]{8,24}$/, OPT_ID_RE=/^o[1-9]\d?$/;
+  function openListPath(){ return '/pickup/poll/open-list'; }
+  function shortStr(v, max){ return typeof v==='string'&&v.length>0&&v.length<=max; }
+  function openPollsList(res){
+    var l=res&&res.j&&res.j.ok&&Array.isArray(res.j.polls)?res.j.polls:null;
+    if(!l) return null;
+    var out=[];
+    l.forEach(function(p){
+      if(!p||typeof p!=='object'||!POLL_ID_RE.test(String(p.id))||!shortStr(p.title, 100)||!Array.isArray(p.times)) return;
+      var times=[];
+      p.times.forEach(function(t){
+        if(!t||typeof t!=='object'||!OPT_ID_RE.test(String(t.optionId))||!shortStr(t.label, 120)||!isNum(t.startMs)) return;
+        if(typeof t.areaKey!=='string'||!AREA_RE.test(t.areaKey)||!validCenter(t.center)) return;
+        if(!shortStr(t.locationLabel, 150)||!isNum(t.count)||!isNum(t.max)||!shortStr(t.closesLabel, 60)) return;
+        times.push({ optionId:t.optionId, label:t.label, startMs:t.startMs, areaKey:t.areaKey, center:{ lat:t.center.lat, lng:t.center.lng },
+          locationLabel:t.locationLabel, count:Math.max(0, Math.floor(t.count)), max:Math.max(1, Math.floor(t.max)), full:t.full===true, closesLabel:t.closesLabel });
+      });
+      if(times.length) out.push({ id:p.id, title:p.title, times:times });
+    });
+    return out;
+  }
+  // The open polls with a time within OPEN_MILES of origin, each keeping only those times,
+  // minus the polls in skip (the viewer's own or answered). d is the nearest time's distance.
+  function nearPolls(polls, origin, skip){
+    if(!origin||!Array.isArray(polls)) return [];
+    var out=[];
+    polls.forEach(function(p){
+      if(!p||(skip&&skip[p.id])) return;
+      var best=null, times=[];
+      p.times.forEach(function(t){
+        var d=miles(origin, { lat:t.center.lat, lon:t.center.lng });
+        if(!(d<=OPEN_MILES)) return;
+        times.push(t);
+        if(best===null||d<best) best=d;
+      });
+      if(times.length) out.push({ id:p.id, title:p.title, times:times, d:best });
+    });
+    return out;
+  }
+  // Open games and open polls as one list: nearest first (no distance last), then the
+  // earliest start, then arrival order. Items are { kind:'game', g } or { kind:'poll', p }.
+  function mergeOpen(games, dist, polls, startOf){
+    var rows=[], n=0;
+    (games||[]).forEach(function(g){ rows.push({ kind:'game', x:g, d:dist&&isNum(dist[g.id])?dist[g.id]:null, t:startOf?startOf(g):0, i:n++ }); });
+    (polls||[]).forEach(function(p){ rows.push({ kind:'poll', x:p, d:isNum(p.d)?p.d:null, t:p.times[0].startMs, i:n++ }); });
+    rows.sort(function(a, b){
+      var an=a.d==null, bn=b.d==null;
+      if(an!==bn) return an?1:-1;
+      if(!an&&a.d!==b.d) return a.d-b.d;
+      if((a.t||0)!==(b.t||0)) return (a.t||0)-(b.t||0);
+      return a.i-b.i;
+    });
+    return rows.map(function(r){ return r.kind==='game'?{ kind:'game', g:r.x }:{ kind:'poll', p:r.x }; });
+  }
   // GET /pickup/area-center?area=<areaKey>: only ever a well formed area key, never text.
   function areaCenterPath(areaKey){ return AREA_RE.test(String(areaKey||''))?'/pickup/area-center?area='+encodeURIComponent(areaKey):''; }
   function areaCenterOf(res){ var c=res&&res.j&&res.j.ok?res.j.center:null; return validCenter(c)?{ lat:c.lat, lng:c.lng }:null; }
@@ -11405,6 +11560,7 @@ window.csCourtKit=(function(){
 
   return { STATES:STATES, SURFACES:SURFACES, AREA_KEY:AREA_KEY, SKIP_KEY:SKIP_KEY, PRESET_AREA:PRESET_AREA, norm:norm, slug:slug, titleCity:titleCity,
     OPEN_MILES:OPEN_MILES, GAME_AREA_MAX:GAME_AREA_MAX, validCenter:validCenter, refPoint:refPoint, splitGames:splitGames, gameAreasPath:gameAreasPath, gameAreasList:gameAreasList,
+    openListPath:openListPath, openPollsList:openPollsList, nearPolls:nearPolls, mergeOpen:mergeOpen,
     areaCenterPath:areaCenterPath, areaCenterOf:areaCenterOf, gameAreaReqs:gameAreaReqs, locKind:locKind, presetArea:presetArea,
     cityProblem:cityProblem, areaOf:areaOf, validArea:validArea, readArea:readArea, writeArea:writeArea, readFlag:readFlag, writeFlag:writeFlag,
     promptKey:promptKey, areasPath:areasPath, courtsPath:courtsPath, areasList:areasList, suggestArea:suggestArea, cleanCourt:cleanCourt,
@@ -11420,7 +11576,8 @@ window.csCourtKit=(function(){
 let ppOptions = [];
 let ppSelected = [];
 let ppPool = [];
-let _myPolls = { at: 0, list: [], busy: false };
+// skip: the poll ids Open games leaves out (K.pollSkipIds), null until mine has answered.
+let _myPolls = { at: 0, list: [], busy: false, skip: null };
 // Your polls times whose names were opened with "+N more", by poll id and option id.
 const _ppNamesOpen = {};
 
@@ -11745,15 +11902,29 @@ async function renderMyPolls(force){
   const box = $('my-polls'); if(!box) return;
   const session = ppSession();
   const K = window.csPollPlanKit;
-  if(!session){ _myPolls.list = []; box.innerHTML = ''; return; }
+  if(!session){ _myPolls.list = []; _myPolls.skip = null; box.innerHTML = ''; return; }
   if(force || (!_myPolls.busy && Date.now() - _myPolls.at > 60000)){
     _myPolls.busy = true;
     const res = await K.post(fetch, K.mineReq(session));
     _myPolls.busy = false;
     _myPolls.at = Date.now();
     _myPolls.list = K.minePolls(res, 10);
+    // Open games leaves out the polls this player organized or answered; redrawn when
+    // that set changes (the first answer included, which lets open polls show at all).
+    const skip = K.pollSkipIds(res);
+    if(skip && JSON.stringify(skip) !== JSON.stringify(_myPolls.skip)){
+      _myPolls.skip = skip;
+      if(typeof view !== 'undefined' && view === 'list') renderInviteList();
+    }
   }
   ppDrawMyPolls();
+}
+// The polls Open games leaves out for this viewer, or null while not known (every open
+// poll waits). Signed in with no worker session, mine cannot be asked, so nothing is
+// left out.
+function ppPollSkip(){
+  if(!ppSession()) return {};
+  return _myPolls.skip;
 }
 function ppDrawMyPolls(){
   const box = $('my-polls'); if(!box) return;
@@ -11873,7 +12044,7 @@ window.csCourtPage=(function(){
   var CK=window.csCourtKit, K=window.csPollPlanKit;
   var S={ lists:{}, loading:{}, failedAt:{}, areas:null, areasAsked:false, chooser:false, barSig:'', near:{ state:'off', lat:null, lon:null },
     ui:{}, report:{}, prompt:null, boxFor:null, boxState:'', pin:{}, diff:{}, place:null,
-    ga:{ list:null, at:0, loading:false }, centers:{}, openDist:{}, city:{} };
+    ga:{ list:null, at:0, loading:false }, op:{ list:null, at:0, loading:false }, centers:{}, openDist:{}, city:{} };
   var RETRY_MS=60000;
   function store(){ try { return window.localStorage; } catch(e){ return null; } }
   function esc(s){ return escapeHTML(s); }
@@ -12049,17 +12220,38 @@ window.csCourtPage=(function(){
     return S.ga.list||{};
   }
   function gameAreaKey(id){ var r=S.ga.list&&S.ga.list[id]; return r?r.areaKey:''; }
+  // The open polls (anyone with the link may vote), on the same two minute refresh as the
+  // game areas. An anonymous read: who is asking is never sent.
+  function openPolls(){
+    if(!S.op.loading&&(!S.op.at||Date.now()-S.op.at>GAME_AREAS_MS)){
+      S.op.loading=true;
+      CK.get(fetch, CK.openListPath()).then(function(res){
+        S.op.loading=false; S.op.at=Date.now();
+        var l=CK.openPollsList(res);
+        if(l){ S.op.list=l; refreshList(); }
+      });
+    }
+    return S.op.list||[];
+  }
+  function startOf(g){ var t=g&&g.date?new Date(g.date+'T'+(g.startTime||'00:00')+':00').getTime():0; return isFinite(t)?t:0; }
+  function pollDistLabel(p){ return p&&typeof p.d==='number'?' · '+CK.milesLabel(p.d):''; }
   // Called by renderInviteList with the upcoming games in date order. Your games come back
-  // untouched by distance; Open games are capped at 30 miles (csCourtKit.splitGames).
+  // untouched by distance; Open games are capped at 30 miles (csCourtKit.splitGames), and
+  // so are open polls, time by time (csCourtKit.nearPolls). items is both, nearest first.
+  // skipPolls: the polls to leave out (the viewer's own or answered), or null while that
+  // is not known yet, which holds every poll back so an own poll never flashes in.
   // hasRef false (no area and Near me off): no open games, and the page asks for an area.
-  function split(games, isMine, isOpenEligible){
+  function split(games, isMine, isOpenEligible, skipPolls){
     var a=area(), near=origin();
     var hasRef=!!(a||near);
     if(a&&!listFor(a.areaKey)&&!S.loading[key(a.areaKey)]) load(a.areaKey).then(function(l){ if(l) refreshList(); });
     var ref=hasRef?CK.refPoint(near, a?areaCenter(a.areaKey):null):null;
     var r=CK.splitGames(games, { isMine:isMine, isOpenEligible:isOpenEligible, records:hasRef?gameAreas():{}, resolve:resolve, origin:ref, areaKey:a?a.areaKey:null });
     S.openDist=r.dist;
-    return { mine:r.mine, open:hasRef?r.open:[], hasRef:hasRef, city:a?a.city:'' };
+    var op=hasRef?openPolls():[];
+    var polls=ref&&skipPolls!==null?CK.nearPolls(op, ref, skipPolls||{}):[];
+    var open=hasRef?r.open:[];
+    return { mine:r.mine, open:open, polls:polls, items:CK.mergeOpen(open, r.dist, polls, startOf), hasRef:hasRef, city:a?a.city:'' };
   }
 
   // ── The City field: where a game at Other text or a saved place is ──
@@ -12344,7 +12536,7 @@ window.csCourtPage=(function(){
     promptSource:promptSource, ageTick:ageTick, signInToAdd:signInToAdd, placeButton:placeButton, addFromPlace:addFromPlace,
     addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve,
     split:split, gameAreaKey:gameAreaKey, needsCity:needsCity, areaForSelect:areaForSelect, syncCity:syncCity, resetCity:resetCity, cityChanged:cityChanged,
-    sendGameArea:sendGameArea };
+    sendGameArea:sendGameArea, pollDistLabel:pollDistLabel };
 })();
 </script>
 </body>
