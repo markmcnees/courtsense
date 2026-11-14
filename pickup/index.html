@@ -438,6 +438,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <input class="inp" id="iv-loc-other" placeholder="Enter location" maxlength="150" style="display:none;margin-top:8px;">
         <button type="button" class="pl-manage" id="iv-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
+      <div class="fg" id="iv-city-fg" style="display:none;"></div>
       <div class="fg" id="iv-court-fg" style="display:none;">
         <label class="lbl">Court (optional)</label>
         <select class="inp" id="iv-court" onchange="onCourtPick()"></select>
@@ -706,6 +707,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <div id="pp-loc-fixed" style="margin-top:8px;"></div>
         <button type="button" class="pl-manage" id="pp-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
+      <div class="fg" id="pp-city-fg" style="display:none;"></div>
     </div>
     <div class="card">
       <div class="ctitle"><span class="bar"></span>Times to offer</div>
@@ -4019,57 +4021,82 @@ function renderInviteList(){
     return;
   }
 
-  // Show games the player is IN or can join: a non-declined RSVP OR eligibility, the same
-  // union as isChatEligible (host OR non-declined RSVP OR activeEligibleNames). This keeps a
-  // game the player already joined from vanishing when they fall out of the eligibility circle
-  // (invited-in games, or a filled game that re-ranked a widening tier). No blank-return for
-  // zero games: that falls through to the shared empty-state below, never a blank screen.
-  const shown = upcoming.filter(i => isChatEligible(i, myKey));
-  // Community courts: reorder only (area first, Near me by distance), after the filter
-  // above has decided which games this player may see. The count and the set stay the same.
-  const ordered = window.csCourtPage ? csCourtPage.order(shown) : shown;
+  // Two lists, never overlapping:
+  //   Your games: games the player is in (host, a confirmed or waitlist RSVP, or named in
+  //     the include list). No distance rule of any kind; date order. A game they joined
+  //     stays here even when it is far away or they fell out of its circle.
+  //   Open games: games they may join (isChatEligible) but are not in, with a recorded
+  //     area, within 30 miles of Near me or their area's center (csCourtPage.split and
+  //     csCourtKit.splitGames). Nearest first, then date.
+  // A direct link to one game or poll opens it wherever it is; these lists never gate that.
+  const isMine = i => isMyGame(i, myKey);
+  const isOpenEligible = i => isChatEligible(i, myKey);
+  const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible) : { mine: upcoming.filter(isMine), open: [], hasRef: false, city: '' };
+  const yours = parts.mine, openGames = parts.open;
 
-  let h = `<div class="ctitle"><span class="bar"></span>Your games (${shown.length})</div>`;
-  if(!shown.length){
-    // Shared empty state for a logged-in user with nothing to RSVP, whether no games
-    // exist at all or none they are eligible for. Both actions, the same calls as the
-    // Post a Pickup Game and Create a Pickup Poll tiles (each has its own login gate).
-    h = '<div class="card pk-empty"><h3>No games you can join yet</h3>'
-      + '<p>Post a game if you already have a time, or let players vote on one.</p>'
-      + '<button class="btn btn-p btn-w" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">Post a Pickup Game</button>'
-      + '<button class="btn btn-g btn-w" onclick="if(typeof startPollPlan===\'function\') startPollPlan()">Create a Pickup Poll</button></div>';
-    cont.innerHTML = h;
-    return;
+  let h = `<div class="ctitle"><span class="bar"></span>Your games (${yours.length})</div>`;
+  h += yours.length ? yours.map(i => inviteCardHTML(i, myKey)).join('')
+    : '<div class="evmeta" style="padding:4px 2px 12px;color:var(--gray);">No games yet. Post one or start a poll.</div>';
+  if(!parts.hasRef){
+    // No area and Near me off: nothing to measure from, so no open games. Ask for an area.
+    h += '<div class="card pk-empty"><p>Set your area to see open games near you.</p>'
+      + '<button class="btn btn-p btn-w" onclick="if(window.csCourtPage) csCourtPage.openChooser()">Set your area</button></div>';
+  } else {
+    h += `<div class="ctitle" style="margin-top:16px;"><span class="bar"></span>Open games (${openGames.length})</div>`;
+    h += openGames.length ? openGames.map(i => inviteCardHTML(i, myKey)).join('') : openGamesEmptyHTML(parts.city);
   }
-  h += ordered.map(i => {
-    const rsvps = i.rsvps || {};
-    const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
-    const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
-    const myRsvp = myKey ? rsvps[myKey] : null;
-    const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
-    const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-    let badge = '';
-    if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
-    else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
-    // Reuses the RSVP state the badge above already resolved, so a game the
-    // viewer is in says so and one they have not joined names the thing they
-    // came to do.
-    const gameAction = (myRsvp && myRsvp.status === 'confirmed') ? 'See who else is in'
-      : (myRsvp && myRsvp.status === 'waitlist') ? 'See your spot'
-      : 'Open to RSVP';
-    return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <div style="flex:1;">
-          <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
-          <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
-          <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||6} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
-        </div>
-        ${badge}
-      </div>
-      ${evcardAction(gameAction)}
-    </div>`;
-  }).join('');
   cont.innerHTML = h;
+}
+
+// Your games: the player is the host, has a confirmed or waitlist RSVP, or is named in the
+// game's include list. Never anything about distance.
+function isMyGame(inv, myKey){
+  if(!inv || !myKey) return false;
+  if(isLoggedInHost(inv)) return true;
+  const r = (inv.rsvps || {})[myKey];
+  if(r && (r.status === 'confirmed' || r.status === 'waitlist')) return true;
+  const inc = (inv.eligibility && inv.eligibility.includeList) || [];
+  return inc.some(n => Identity.nameKey(n) === myKey);
+}
+
+// No open games near the player yet: an invitation to start the first one. city is the
+// player's area city ("your area" with Near me and no area).
+function openGamesEmptyHTML(city){
+  const c = escapeHTML(city || 'your area');
+  return '<div class="card pk-empty"><h3>No games in ' + c + ' yet. Start the first one.</h3>'
+    + '<p>Post a game or a quick poll and share the link with your crew. Every city on CourtSense started with one player. Want to help grow it in ' + c + '? Email <a href="mailto:mark@courtsense.app">mark@courtsense.app</a>.</p>'
+    + '<button class="btn btn-p btn-w" onclick="if(typeof startNewInvite===\'function\') startNewInvite()">Post a Pickup Game</button>'
+    + '<button class="btn btn-g btn-w" onclick="if(typeof startPollPlan===\'function\') startPollPlan()">Create a Pickup Poll</button></div>';
+}
+
+// One game card in Your games or Open games.
+function inviteCardHTML(i, myKey){
+  const rsvps = i.rsvps || {};
+  const confirmed = Object.values(rsvps).filter(r => r.status==='confirmed');
+  const waitlist = Object.values(rsvps).filter(r => r.status==='waitlist');
+  const myRsvp = myKey ? rsvps[myKey] : null;
+  const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
+  const dateStr = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  let badge = '';
+  if(myRsvp && myRsvp.status==='confirmed') badge = '<span style="background:#d1fae5;color:#065f46;font-family:\'Bebas Neue\';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">YOU\'RE IN</span>';
+  else if(myRsvp && myRsvp.status==='waitlist') badge = `<span style="background:#fef3c7;color:#92400e;font-family:'Bebas Neue';font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:4px;">WAITLIST #${myRsvp.position||'?'}</span>`;
+  // Reuses the RSVP state the badge above already resolved, so a game the
+  // viewer is in says so and one they have not joined names the thing they
+  // came to do.
+  const gameAction = (myRsvp && myRsvp.status === 'confirmed') ? 'See who else is in'
+    : (myRsvp && myRsvp.status === 'waitlist') ? 'See your spot'
+    : 'Open to RSVP';
+  return `<div class="evcard" onclick="openInviteDetail('${escapeHTML(i.id).replace(/'/g,"\\'")}')">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div class="evname">${escapeHTML(i.name||'Pickup')}</div>
+        <div class="evmeta">${dateStr} · ${fmtTime(i.startTime)}${i.endTime?' to '+fmtTime(i.endTime):''}${i.location?' · '+escapeHTML(i.location):''}${courtLabel(i) ? ' · '+courtLabel(i) : ''}${window.csCourtPage ? csCourtPage.distLabel(i) : ''}</div>
+        <div class="evmeta" style="margin-top:2px;">${confirmed.length}/${i.slots||6} confirmed${waitlist.length?' · '+waitlist.length+' waitlist':''}</div>
+      </div>
+      ${badge}
+    </div>
+    ${evcardAction(gameAction)}
+  </div>`;
 }
 
 
@@ -8296,7 +8323,10 @@ function onLocPreset(){
   other.style.display = (sel.value === '__other__') ? '' : 'none';
   syncCourtsMax();
   rebuildCourtPicker();
+  syncIvCity();
 }
+// The City field under the game's location: shown for Other text and saved places only.
+function syncIvCity(){ if(window.csCourtPage) csCourtPage.syncCity('iv-city', csCourtPage.needsCity($('iv-loc'))); }
 
 // ---- Optional court selection + soft "in use" coordination signal ----
 // Pure client-side: reads games already loaded in D.invites. Never blocks creation.
@@ -8456,6 +8486,7 @@ function startNewInvite(){
       $('iv-start').value = '09:00';
       $('iv-end').value = '11:00';
       // No location until the host picks one; their saved places load in behind it.
+      if(window.csCourtPage) csCourtPage.resetCity('iv-city', '');
       fillLocSelect('iv-loc', '');
       loadPlaces();
       $('iv-desc').value = '';
@@ -8512,6 +8543,8 @@ function startEditInvite(id){
       // with the existing value prefilled so a custom or legacy location (e.g. "Tom
       // Brown Court 4") is preserved on edit. A game with no location starts on "Pick a
       // location". The saved places arrive after and keep the same value selected.
+      // The City field starts on the game's recorded area when there is one.
+      if(window.csCourtPage) csCourtPage.resetCity('iv-city', csCourtPage.gameAreaKey(id));
       fillLocSelect('iv-loc', i.location || '');
       loadPlaces();
       $('iv-desc').value = i.description || '';
@@ -8949,6 +8982,10 @@ async function saveInvite(){
   // A location is required, 150 characters at most (the Other box stops there too).
   const locProblem = window.csPollPlanKit.locProblem(base.location);
   if(locProblem){ toast(locProblem); return; }
+  // Which area the game is in: a preset park or a listed court says; Other text and saved
+  // places need the City field. Required, checked before anything is written.
+  const gameArea = window.csCourtPage ? csCourtPage.areaForSelect($('iv-loc'), 'iv-city') : { area: null, err: '' };
+  if(gameArea.err){ toast(gameArea.err); return; }
   if(!validateMinSlots()){ toast('Minimum slots cannot exceed maximum slots'); return; }
   const tierCheck = validateWideningTiers();
   if(!tierCheck.ok){ toast(tierCheck.msg); return; }
@@ -9047,10 +9084,17 @@ async function saveInvite(){
         );
         warnIfAnyNotEmailed(_promoNotifies, 'Promoted, but no one was emailed.');
         rememberPlace(merged.location);
+        // Where the game is now (fire and forget, after the save landed).
+        if(window.csCourtPage) csCourtPage.sendGameArea([_id], gameArea.area, base.courtId);
       }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
       toast('Saved. Promoted '+promoted.length+' from the waitlist');
     } else {
-      fbSet('invites/'+_id, merged).then(ok => { if(ok) rememberPlace(merged.location); });
+      fbSet('invites/'+_id, merged).then(ok => {
+        if(!ok) return;
+        rememberPlace(merged.location);
+        // Where the game is now (fire and forget, after the save landed).
+        if(window.csCourtPage) csCourtPage.sendGameArea([_id], gameArea.area, base.courtId);
+      });
       toast('Saved');
     }
     showView('invite-detail');
@@ -9062,6 +9106,7 @@ async function saveInvite(){
   const stepDays = recFreq === 'biweekly' ? 14 : 7;
   const startDate = new Date(base.date+'T12:00:00');
   const updates = {};
+  const writtenIds = [];
   let firstId = null;
   // The host is always in (create path only): each occurrence seats the host confirmed
   // in the first spot, in the same write as the game, so the host counts toward slots
@@ -9116,6 +9161,7 @@ async function saveInvite(){
     // so drop it explicitly rather than let occurrence 1's instant ride along.
     if(occStartMs === null) delete rec.startMs;
     updates['tally_kotb_pickup/invites/'+id] = rec;
+    writtenIds.push(id);
   }
   try {
     await db.ref().update(updates);
@@ -9126,6 +9172,10 @@ async function saveInvite(){
     if(typeof window !== 'undefined' && window.csCourtPage) window.csCourtPage.notePosted(firstId, base.location, window.csCourtPage.promptSource($('iv-loc')));
     activeInvite = firstId;
     showView('invite-detail');
+    // Where the games are, for Open games near other players: every id just written (a
+    // whole repeating series, 60 to a call). Fire and forget: never awaited, and a failure
+    // never touches the games already posted.
+    if(window.csCourtPage) csCourtPage.sendGameArea(writtenIds, gameArea.area, base.courtId);
     // EMAIL-ON-CREATE (new invite only; the edit branch returned earlier). Notify the
     // host-checked initial circle (inviteIncSelected) via the worker.
     // Fire-and-forget so it never blocks the UI; the worker resolves each player's
@@ -10626,10 +10676,13 @@ window.csPollPlanKit=(function(){
       mode:x.mode, recipients:(x.recipients||[]).slice(),
       audience:x.audience==='open'?'open':'invited', games:x.games==='perDay'?'perDay':'one' };
     if(x.locationMode==='fixed') b.location=String(x.location||'').trim();
+    // The pickup area (Open games): the poll's for one location, each option's when voted.
+    if(x.locationMode==='fixed'&&typeof x.areaKey==='string'&&x.areaKey) b.areaKey=x.areaKey;
     b.options=(x.options||[]).map(function(o){
       var r={ date:o.date, startTime:o.startTime };
       if(o.endTime) r.endTime=o.endTime;
       if(x.locationMode==='voted') r.location=String(o.location||'').trim();
+      if(x.locationMode==='voted'&&typeof o.areaKey==='string'&&o.areaKey) r.areaKey=o.areaKey;
       return r;
     });
     if(x.ratingMin!=null) b.ratingMin=x.ratingMin;
@@ -11102,7 +11155,8 @@ window.csCourtKit=(function(){
   function courtsPath(areaKey){ return '/pickup/courts?area='+encodeURIComponent(areaKey); }
   function areasList(res){
     var a=res&&res.j&&res.j.ok&&Array.isArray(res.j.areas)?res.j.areas:[];
-    return a.filter(validArea).map(function(x){ return {areaKey:x.areaKey,city:x.city,state:x.state}; });
+    // The city center rides along when the worker sent one (Open games measure from it).
+    return a.filter(validArea).map(function(x){ var o={areaKey:x.areaKey,city:x.city,state:x.state}; if(validCenter(x.center)) o.center={lat:x.center.lat,lng:x.center.lng}; return o; });
   }
   // The listed area matching the player's own city, if any.
   function suggestArea(areas, playerCity){
@@ -11251,7 +11305,107 @@ window.csCourtKit=(function(){
     if(c.status==='pending'){ if(c.mine) return 'none'; return c.confirmed?'report':'ask'; }
     return 'report';
   }
+  // ── Open games: within 30 miles, never more ──
+  // Open games are the games a player may join but is not in, at most OPEN_MILES from
+  // their reference point. The cap is fixed here and nothing widens it.
+  var OPEN_MILES=30, GAME_AREA_MAX=60, INVITE_ID_RE=/^[A-Za-z0-9_-]{1,80}$/;
+  function isNum(v){ return typeof v==='number'&&isFinite(v); }
+  function validCenter(c){ return !!c&&typeof c==='object'&&isNum(c.lat)&&isNum(c.lng)&&Math.abs(c.lat)<=90&&Math.abs(c.lng)<=180; }
+  // The point Open games are measured from: the Near me position when it is on, else the
+  // center of the player's area. Null when there is neither.
+  function refPoint(near, areaCenter){
+    if(near&&isNum(near.lat)&&isNum(near.lon)) return { lat:near.lat, lon:near.lon };
+    if(validCenter(areaCenter)) return { lat:areaCenter.lat, lon:areaCenter.lng };
+    return null;
+  }
+  // Splits the upcoming games (in date order) into Your games and Open games.
+  //   mine: isMine(g), in date order, with no distance rule of any kind.
+  //   open: not mine, isOpenEligible(g), and a game area record from the worker. The
+  //         distance runs from origin to the game's court pin when its court has one,
+  //         else to the record's area center, and must be OPEN_MILES or less. A record
+  //         with no center (and no pin) shows only when its area is the player's own.
+  //         No record: never open. Nearest first, then date.
+  // Never geocodes: a game's place comes only from its record and its listed court.
+  function splitGames(games, o){
+    var mine=[], rows=[], dist={};
+    (games||[]).forEach(function(g, i){
+      if(!g) return;
+      if(o.isMine(g)){ mine.push(g); return; }
+      if(!o.isOpenEligible(g)) return;
+      var rec=o.records&&typeof o.records==='object'?o.records[g.id]:null;
+      if(!rec||typeof rec!=='object'||typeof rec.areaKey!=='string') return;
+      var c=o.resolve?o.resolve(g):null;
+      var to=c&&isNum(c.lat)&&isNum(c.lon)?{ lat:c.lat, lon:c.lon }:validCenter(rec.center)?{ lat:rec.center.lat, lon:rec.center.lng }:null;
+      var d=null;
+      if(to){
+        if(!o.origin) return;
+        d=miles(o.origin, to);
+        if(!(d<=OPEN_MILES)) return;
+      } else if(!(o.areaKey&&rec.areaKey===o.areaKey)) return;
+      rows.push({ g:g, i:i, d:d });
+      if(d!=null) dist[g.id]=d;
+    });
+    rows.sort(function(a, b){
+      var an=a.d==null, bn=b.d==null;
+      if(an!==bn) return an?1:-1;
+      if(!an&&a.d!==b.d) return a.d-b.d;
+      return a.i-b.i;
+    });
+    return { mine:mine, open:rows.map(function(r){ return r.g; }), dist:dist };
+  }
+  // GET /pickup/game-areas -> { inviteId: { areaKey, courtId?, center } }, well formed rows
+  // only, or null when the worker did not answer.
+  function gameAreasPath(){ return '/pickup/game-areas'; }
+  function gameAreasList(res){
+    var g=res&&res.j&&res.j.ok&&res.j.games&&typeof res.j.games==='object'?res.j.games:null;
+    if(!g) return null;
+    var out={};
+    Object.keys(g).forEach(function(id){
+      var r=g[id];
+      if(!INVITE_ID_RE.test(id)||!r||typeof r!=='object'||typeof r.areaKey!=='string'||!AREA_RE.test(r.areaKey)) return;
+      var v={ areaKey:r.areaKey, center:validCenter(r.center)?{ lat:r.center.lat, lng:r.center.lng }:null };
+      if(typeof r.courtId==='string'&&ID_RE.test(r.courtId)) v.courtId=r.courtId;
+      out[id]=v;
+    });
+    return out;
+  }
+  // GET /pickup/area-center?area=<areaKey>: only ever a well formed area key, never text.
+  function areaCenterPath(areaKey){ return AREA_RE.test(String(areaKey||''))?'/pickup/area-center?area='+encodeURIComponent(areaKey):''; }
+  function areaCenterOf(res){ var c=res&&res.j&&res.j.ok?res.j.center:null; return validCenter(c)?{ lat:c.lat, lng:c.lng }:null; }
+  // POST /pickup/game-area after a post or an edit: every invite id written, in batches of
+  // 60 (a repeating series of more is split, never cut short). None without a session or
+  // an area. city and state go when the area has them (the worker keeps them only when
+  // they spell the area key).
+  function gameAreaReqs(session, ids, a, courtId){
+    if(!session||!a||typeof a.areaKey!=='string'||!AREA_RE.test(a.areaKey)) return [];
+    var list=[];
+    (ids||[]).forEach(function(id){ if(typeof id==='string'&&INVITE_ID_RE.test(id)&&list.indexOf(id)<0) list.push(id); });
+    var out=[];
+    for(var i=0;i<list.length;i+=GAME_AREA_MAX){
+      var b={ sessionToken:session, inviteIds:list.slice(i, i+GAME_AREA_MAX), areaKey:a.areaKey };
+      if(typeof courtId==='string'&&ID_RE.test(courtId)) b.courtId=courtId;
+      if(typeof a.city==='string'&&a.city&&typeof a.state==='string'&&a.state){ b.city=a.city; b.state=a.state; }
+      out.push({ path:'/pickup/game-area', body:b });
+    }
+    return out;
+  }
+  // What a picked location says about its area:
+  //   'none'   nothing picked yet
+  //   'court'  a listed court (it carries its own area)
+  //   'preset' a preset park (Tallahassee)
+  //   'city'   Other text or a saved place: the host must say which city
+  function locKind(value, courtId){
+    var v=String(value||'');
+    if(!v||v==='__none__') return 'none';
+    if(v!=='__other__'&&courtId) return 'court';
+    if(v!=='__other__'&&PARKS.some(function(p){ return p[0]===v; })) return 'preset';
+    return 'city';
+  }
+  function presetArea(){ return { areaKey:PRESET_AREA, city:PRESET_CITY, state:PRESET_STATE }; }
+
   return { STATES:STATES, SURFACES:SURFACES, AREA_KEY:AREA_KEY, SKIP_KEY:SKIP_KEY, PRESET_AREA:PRESET_AREA, norm:norm, slug:slug, titleCity:titleCity,
+    OPEN_MILES:OPEN_MILES, GAME_AREA_MAX:GAME_AREA_MAX, validCenter:validCenter, refPoint:refPoint, splitGames:splitGames, gameAreasPath:gameAreasPath, gameAreasList:gameAreasList,
+    areaCenterPath:areaCenterPath, areaCenterOf:areaCenterOf, gameAreaReqs:gameAreaReqs, locKind:locKind, presetArea:presetArea,
     cityProblem:cityProblem, areaOf:areaOf, validArea:validArea, readArea:readArea, writeArea:writeArea, readFlag:readFlag, writeFlag:writeFlag,
     promptKey:promptKey, areasPath:areasPath, courtsPath:courtsPath, areasList:areasList, suggestArea:suggestArea, cleanCourt:cleanCourt,
     courtsList:courtsList, pickerCourts:pickerCourts, index:index, resolveCourt:resolveCourt, directionsUrl:directionsUrl, miles:miles,
@@ -11299,6 +11453,7 @@ function fillLocSelect(id, value){
   sel.value = r.selected;
   if(other){ other.value = r.otherText; other.style.display = r.selected === '__other__' ? '' : 'none'; }
   syncManageLinks();
+  if(id === 'iv-loc') syncIvCity();
 }
 function syncManageLinks(){
   ['iv-loc-manage', 'pp-loc-manage'].forEach(id => { const b = $(id); if(b) b.style.display = _places.list.length ? '' : 'none'; });
@@ -11309,6 +11464,7 @@ function refreshLocPickers(){
   if($('pp-loc')) $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', ppLocValue('pp-loc'));
   if(ppLocModeValue() === 'voted' && $('pp-l-0')){ ppReadOptions(); ppDrawOptions(); }
   syncManageLinks();
+  if($('pp-loc')) ppSyncCity();
 }
 function setPlaces(list){
   const changed = JSON.stringify(list) !== JSON.stringify(_places.list);
@@ -11361,6 +11517,32 @@ function ppLocValue(id){
 function ppLocChanged(id){
   const o = $(id+'-other'); if(o) o.style.display = $(id).value === '__other__' ? '' : 'none';
   ppReadOptions();
+  ppSyncCity();
+}
+// The poll's City field: shown when its one location, or any voted location, is Other
+// text or a saved place. One city for the poll; listed courts and presets carry their own.
+function ppSyncCity(){
+  if(!window.csCourtPage) return;
+  const voted = ppLocModeValue() === 'voted';
+  const sels = voted ? ppOptions.map((o, i) => $('pp-l-'+i)).filter(Boolean) : [$('pp-loc')].filter(Boolean);
+  csCourtPage.syncCity('pp-city', sels.some(s => csCourtPage.needsCity(s)));
+}
+// The poll's areas, read at Send: the fixed location's, or each voted option's. err when
+// the City field is needed and not filled in.
+function ppAreas(x){
+  if(!window.csCourtPage) return { err: '' };
+  if(x.locationMode === 'fixed'){
+    const r = csCourtPage.areaForSelect($('pp-loc'), 'pp-city');
+    if(r.err) return { err: r.err };
+    if(r.area) x.areaKey = r.area.areaKey;
+    return { err: '' };
+  }
+  for(let i = 0; i < x.options.length; i++){
+    const r = csCourtPage.areaForSelect($('pp-l-'+i), 'pp-city');
+    if(r.err) return { err: r.err };
+    if(r.area) x.options[i].areaKey = r.area.areaKey;
+  }
+  return { err: '' };
 }
 function ppLocModeValue(){ const r = document.querySelector('input[name="pp-locmode"]:checked'); return r ? r.value : 'fixed'; }
 function ppLocMode(){
@@ -11380,6 +11562,7 @@ async function startPollPlan(){
   document.querySelector('input[name="pp-games"][value="one"]').checked = true;
   document.querySelector('input[name="pp-audience"][value="invited"]').checked = true;
   ppAudience();
+  if(window.csCourtPage) csCourtPage.resetCity('pp-city', '');
   $('pp-loc-fixed').innerHTML = ppLocSelectHTML('pp-loc', '');
   $('pp-loc-fixed').style.display = '';
   ppDrawOptions();
@@ -11408,6 +11591,7 @@ function ppDrawOptions(){
     + '</div>').join('');
   $('pp-add-opt').style.display = ppOptions.length >= window.csPollPlanKit.L.OPTIONS_MAX ? 'none' : '';
   ppDrawTimeFlags();
+  ppSyncCity();
 }
 // Wrong-time check: a late start, or the one time on the other side of noon, asks to
 // switch it 12 hours or keep it. Each flagged time needs a choice before Send; Keep is
@@ -11535,6 +11719,10 @@ async function ppSend(){
     ppDrawTimeFlags();
     return;
   }
+  // Where the poll's games will be (a listed court or preset says; Other text and saved
+  // places use the City field, which is then required).
+  const pa = ppAreas(x);
+  if(pa.err){ $('pp-err').textContent = pa.err; return; }
   $('pp-err').textContent = '';
   $('pp-send').disabled = true;
   const res = await K.post(fetch, K.createReq(K.createBody(x, session)));
@@ -11684,7 +11872,8 @@ async function ppConfirm(pollId, optId){
 window.csCourtPage=(function(){
   var CK=window.csCourtKit, K=window.csPollPlanKit;
   var S={ lists:{}, loading:{}, failedAt:{}, areas:null, areasAsked:false, chooser:false, barSig:'', near:{ state:'off', lat:null, lon:null },
-    ui:{}, report:{}, prompt:null, boxFor:null, boxState:'', pin:{}, diff:{}, place:null };
+    ui:{}, report:{}, prompt:null, boxFor:null, boxState:'', pin:{}, diff:{}, place:null,
+    ga:{ list:null, at:0, loading:false }, centers:{}, openDist:{}, city:{} };
   var RETRY_MS=60000;
   function store(){ try { return window.localStorage; } catch(e){ return null; } }
   function esc(s){ return escapeHTML(s); }
@@ -11751,7 +11940,7 @@ window.csCourtPage=(function(){
     var states='<option value="">State</option>'+CK.STATES.map(function(s){ return '<option value="'+s+'">'+s+'</option>'; }).join('');
     return '<div class="card" style="padding:12px;">'
       +'<div style="font-weight:700;margin-bottom:6px;">Where do you play?</div>'
-      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Games at courts in your area show first. You can change this any time.</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">Open games within 30 miles of your area show here. You can change this any time.</div>'
       +'<select class="inp" id="ar-pick" onchange="csCourtPage.pickChanged()">'+opts+'</select>'
       +'<div id="ar-new" style="display:none;margin-top:8px;"><input class="inp" id="ar-city" maxlength="40" placeholder="City"><select class="inp" id="ar-state" style="margin-top:8px;">'+states+'</select></div>'
       +'<div class="fld-err" id="ar-err" style="font-size:12px;color:#b91c1c;margin-top:6px;"></div>'
@@ -11763,7 +11952,7 @@ window.csCourtPage=(function(){
     var a=area(), sig, html;
     var showChooser=S.chooser||(!a&&!CK.readFlag(store(), CK.SKIP_KEY));
     if(showChooser){
-      if(!S.areasAsked){ S.areasAsked=true; CK.get(fetch, CK.areasPath()).then(function(res){ S.areas=CK.areasList(res); S.barSig=''; renderBar(); }); }
+      ensureAreas();
       sig='chooser|'+JSON.stringify(S.areas||[]);
       html=chooserHTML();
     } else if(a){
@@ -11817,9 +12006,142 @@ window.csCourtPage=(function(){
     return CK.orderGames(shown, resolve, a?a.areaKey:null, o);
   }
   function distLabel(inv){
-    var o=origin(); if(!o) return '';
+    var o=origin();
+    // Without Near me, an open game shows its distance from the player's area center.
+    if(!o) return inv&&typeof S.openDist[inv.id]==='number'?' · '+CK.milesLabel(S.openDist[inv.id]):'';
     var c=resolve(inv);
     return c&&typeof c.lat==='number'&&typeof c.lon==='number'?' · '+CK.milesLabel(CK.miles(o, c)):'';
+  }
+
+  // ── Open games: the areas list, area centers, game areas, the split ──
+  // Everything here only reads from the worker. The player's area and the Near me
+  // position stay on the phone: the position is never sent, and the area goes out only as
+  // the key of the area whose courts or center the page needs (as /pickup/courts does).
+  var GAME_AREAS_MS=120000, GAME_AREA_RETRY_MS=4000;
+  function ensureAreas(){
+    if(S.areasAsked) return;
+    S.areasAsked=true;
+    CK.get(fetch, CK.areasPath()).then(function(res){ S.areas=CK.areasList(res); S.barSig=''; renderBar(); redrawCities(); if(typeof view!=='undefined'&&view==='list'&&typeof renderInviteList==='function') renderInviteList(); });
+  }
+  // The center of an area: from the areas list, else asked once per page from
+  // /pickup/area-center. Null until known, and for a place the Census list lacks.
+  function areaCenter(k){
+    if(!k) return null;
+    if(Object.prototype.hasOwnProperty.call(S.centers, k)) return S.centers[k];
+    if(!S.areas){ ensureAreas(); return null; }
+    var hit=S.areas.filter(function(x){ return x.areaKey===k; })[0];
+    if(hit&&hit.center){ S.centers[k]=hit.center; return hit.center; }
+    S.centers[k]=null;
+    var p=CK.areaCenterPath(k);
+    if(p) CK.get(fetch, p).then(function(res){ var c=CK.areaCenterOf(res); if(c){ S.centers[k]=c; refreshList(); } });
+    return null;
+  }
+  // The recorded areas of upcoming games, refreshed every two minutes at most.
+  function gameAreas(){
+    if(!S.ga.loading&&(!S.ga.at||Date.now()-S.ga.at>GAME_AREAS_MS)){
+      S.ga.loading=true;
+      CK.get(fetch, CK.gameAreasPath()).then(function(res){
+        S.ga.loading=false; S.ga.at=Date.now();
+        var l=CK.gameAreasList(res);
+        if(l){ S.ga.list=l; refreshList(); }
+      });
+    }
+    return S.ga.list||{};
+  }
+  function gameAreaKey(id){ var r=S.ga.list&&S.ga.list[id]; return r?r.areaKey:''; }
+  // Called by renderInviteList with the upcoming games in date order. Your games come back
+  // untouched by distance; Open games are capped at 30 miles (csCourtKit.splitGames).
+  // hasRef false (no area and Near me off): no open games, and the page asks for an area.
+  function split(games, isMine, isOpenEligible){
+    var a=area(), near=origin();
+    var hasRef=!!(a||near);
+    if(a&&!listFor(a.areaKey)&&!S.loading[key(a.areaKey)]) load(a.areaKey).then(function(l){ if(l) refreshList(); });
+    var ref=hasRef?CK.refPoint(near, a?areaCenter(a.areaKey):null):null;
+    var r=CK.splitGames(games, { isMine:isMine, isOpenEligible:isOpenEligible, records:hasRef?gameAreas():{}, resolve:resolve, origin:ref, areaKey:a?a.areaKey:null });
+    S.openDist=r.dist;
+    return { mine:r.mine, open:hasRef?r.open:[], hasRef:hasRef, city:a?a.city:'' };
+  }
+
+  // ── The City field: where a game at Other text or a saved place is ──
+  // A preset park is in Tallahassee and a listed court carries its own area, so neither
+  // asks. Other text and saved places must name a city: one from the areas list, or typed
+  // (My city isn't listed), prefilled with the player's area. Required to post or save.
+  function courtArea(cid){ var c=cid?allIndex().byId[cid]:null; return c?{ areaKey:c.areaKey, city:c.city, state:c.state }:null; }
+  function kindOf(sel){ return CK.locKind(sel?sel.value:'', pickedCourtId(sel)); }
+  function needsCity(sel){ var k=kindOf(sel); return k==='city'||(k==='court'&&!courtArea(pickedCourtId(sel))); }
+  function cityChoices(){
+    var list=(S.areas||[]).slice(), my=area();
+    if(my&&!list.some(function(x){ return x.areaKey===my.areaKey; })) list.push({ areaKey:my.areaKey, city:my.city, state:my.state });
+    return list;
+  }
+  function keepCity(p){
+    var st=S.city[p], s=$(p+'-pick'); if(!st||!s) return;
+    st.pick=s.value;
+    var n=$(p+'-name'), t=$(p+'-state');
+    st.name=n?n.value:''; st.state=t?t.value:'';
+  }
+  function drawCity(p){
+    var box=$(p+'-fg'), st=S.city[p]; if(!box||!st) return;
+    var my=area(), list=cityChoices();
+    var pick=st.pick!=null?st.pick:(st.prefer||(my?my.areaKey:''));
+    if(pick&&pick!=='__new__'&&!list.some(function(x){ return x.areaKey===pick; })) pick=my?my.areaKey:'';
+    st.pick=pick;
+    var opts='<option value="">Pick the city</option>'+list.map(function(x){ return '<option value="'+esc(x.areaKey)+'"'+(x.areaKey===pick?' selected':'')+'>'+esc(x.city+', '+x.state)+'</option>'; }).join('')
+      +'<option value="__new__"'+(pick==='__new__'?' selected':'')+'>My city isn\'t listed</option>';
+    var states='<option value="">State</option>'+CK.STATES.map(function(s){ return '<option value="'+s+'"'+(st.state===s?' selected':'')+'>'+s+'</option>'; }).join('');
+    box.innerHTML='<label class="lbl">City</label>'
+      +'<select class="inp" id="'+p+'-pick" onchange="csCourtPage.cityChanged(\''+p+'\')">'+opts+'</select>'
+      +'<div id="'+p+'-new" style="'+(pick==='__new__'?'':'display:none;')+'margin-top:8px;"><input class="inp" id="'+p+'-name" maxlength="40" placeholder="City" value="'+esc(st.name||'')+'"><select class="inp" id="'+p+'-state" style="margin-top:8px;">'+states+'</select></div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">Which city is this in? Players near it see your game.</div>';
+    st.drawn=true;
+  }
+  function cityChanged(p){ keepCity(p); var n=$(p+'-new'); if(n) n.style.display=S.city[p]&&S.city[p].pick==='__new__'?'':'none'; }
+  function redrawCities(){ Object.keys(S.city).forEach(function(p){ if(S.city[p].drawn){ keepCity(p); drawCity(p); } }); }
+  // A fresh form: forget what the field held. prefer: the game's recorded area on an edit.
+  function resetCity(p, prefer){ S.city[p]={ drawn:false, pick:null, name:'', state:'', prefer:prefer||'' }; var b=$(p+'-fg'); if(b){ b.innerHTML=''; b.style.display='none'; } }
+  function syncCity(p, need){
+    var box=$(p+'-fg'); if(!box) return;
+    if(!need){ box.style.display='none'; return; }
+    box.style.display='';
+    if(!S.areas) ensureAreas();
+    if(!S.city[p]) resetCity(p, '');
+    if(!S.city[p].drawn) drawCity(p);
+    box.style.display='';
+  }
+  function readCity(p){
+    keepCity(p);
+    var st=S.city[p]||{}, pick=st.pick;
+    if(!pick) return { area:null, err:'Pick the city for this location.' };
+    if(pick==='__new__'){
+      var cp=CK.cityProblem(st.name||''); if(cp) return { area:null, err:cp };
+      var a=CK.areaOf(st.name, st.state);
+      return a?{ area:a, err:'' }:{ area:null, err:'Pick a state for the city.' };
+    }
+    var hit=cityChoices().filter(function(x){ return x.areaKey===pick; })[0];
+    return hit?{ area:{ areaKey:hit.areaKey, city:hit.city, state:hit.state }, err:'' }:{ area:null, err:'Pick the city for this location.' };
+  }
+  // The area of a picked location: { area, err }. err is set when the City field is
+  // needed and not filled in; nothing may be posted then.
+  function areaForSelect(sel, p){
+    var k=kindOf(sel);
+    if(k==='none') return { area:null, err:'' };
+    if(k==='preset') return { area:CK.presetArea(), err:'' };
+    if(k==='court'){ var ca=courtArea(pickedCourtId(sel)); if(ca) return { area:ca, err:'' }; }
+    return readCity(p);
+  }
+  // After a post or an edit is saved: tell the worker where the games are. Every id
+  // written goes (csCourtKit batches 60 a call). Fire and forget with one retry: nothing
+  // waits on it and a failure never touches the games. Skipped without a session.
+  function sendGameArea(ids, a, courtId){
+    try {
+      CK.gameAreaReqs(session(), ids, a, courtId).forEach(function(rq){
+        var ok=function(res){ if(res&&res.j&&res.j.ok){ S.ga.at=0; return true; } return false; };
+        K.post(fetch, rq).then(function(res){
+          if(ok(res)) return;
+          setTimeout(function(){ K.post(fetch, rq).then(ok, function(){}); }, GAME_AREA_RETRY_MS);
+        }, function(){});
+      });
+    } catch(e){}
   }
 
   // ── Game detail: Directions, Yes people play here, Report ──
@@ -12020,7 +12342,9 @@ window.csCourtPage=(function(){
     openChooser:openChooser, pickChanged:pickChanged, saveArea:saveArea, skipArea:skipArea, nearMe:nearMe, order:order, distLabel:distLabel,
     detailExtras:detailExtras, confirmCourt:confirmCourt, openReport:openReport, sendReport:sendReport, notePosted:notePosted, syncBox:syncBox,
     promptSource:promptSource, ageTick:ageTick, signInToAdd:signInToAdd, placeButton:placeButton, addFromPlace:addFromPlace,
-    addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve };
+    addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve,
+    split:split, gameAreaKey:gameAreaKey, needsCity:needsCity, areaForSelect:areaForSelect, syncCity:syncCity, resetCity:resetCity, cityChanged:cityChanged,
+    sendGameArea:sendGameArea };
 })();
 </script>
 </body>
