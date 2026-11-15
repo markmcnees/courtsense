@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>League Email List &middot; CourtSense Admin</title>
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#1a3a6b;--navy-deep:#0f2347;--gold:#d4a843;--gold-deep:#b8902f;--sand:#f5f0e8;--ink:#1a1a1a;--ink-soft:#555;--white:#fff;--loss:#b3261e;--radius:12px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',-apple-system,sans-serif;font-size:15px;line-height:1.5;color:var(--ink);background:var(--sand);}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 48px;}
+h1{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1.5px;color:var(--navy-deep);}
+.sub{color:var(--ink-soft);margin-bottom:18px;}
+.panel{background:var(--white);border:1px solid rgba(15,35,71,0.10);border-radius:var(--radius);padding:18px 16px;margin-bottom:16px;}
+label.f{display:block;font-weight:600;font-size:13px;color:var(--ink-soft);}
+input,select{display:block;width:100%;max-width:340px;margin-top:4px;font:inherit;padding:9px 10px;border:1px solid rgba(15,35,71,0.25);border-radius:8px;background:var(--white);}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px;}
+button{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;padding:10px 20px;border-radius:24px;border:none;cursor:pointer;}
+.b-gold{background:var(--gold);color:var(--navy-deep);}
+.b-gold:hover{background:var(--gold-deep);}
+.b-gold:disabled{opacity:.6;cursor:default;}
+.b-line{background:transparent;border:2px solid var(--navy);color:var(--navy);}
+.b-link{background:none;color:var(--ink-soft);text-decoration:underline;font-family:'Barlow',sans-serif;font-size:13px;letter-spacing:0;padding:0;}
+.err{color:var(--loss);font-size:14px;margin-top:8px;min-height:1em;}
+.counts{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;}
+.tile{background:var(--sand);border-radius:10px;padding:10px 12px;}
+.tile b{display:block;font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;color:var(--navy-deep);line-height:1;}
+.tile span{font-size:12px;color:var(--ink-soft);}
+.copy-note{font-size:13px;color:var(--ink-soft);margin-left:4px;}
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th{text-align:left;font-size:12px;color:var(--ink-soft);padding:6px;border-bottom:2px solid rgba(15,35,71,0.10);}
+td{padding:7px 6px;border-bottom:1px solid rgba(15,35,71,0.06);vertical-align:top;}
+.cap{display:inline-block;font-size:11px;font-weight:700;background:var(--gold);color:var(--navy-deep);border-radius:10px;padding:1px 8px;margin-left:4px;}
+.foot{margin-top:18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>League Email List</h1>
+  <p class="sub">Who to email about an archived city league season. Blocked, minor, muted, email-off and unusable accounts are already left out, and each address appears once.</p>
+
+  <div class="panel" id="gate">
+    <form id="gate-form">
+      <label class="f">Admin key<input id="key-input" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><button class="b-gold" type="submit" id="key-btn">Open</button></div>
+      <div id="key-err" class="err" role="alert"></div>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <div class="panel">
+      <label class="f">Season<select id="season"></select></label>
+      <div class="row"><button class="b-gold" type="button" id="load-btn">Load list</button></div>
+      <div id="load-err" class="err" role="alert"></div>
+    </div>
+
+    <div id="result" hidden>
+      <div class="panel">
+        <div class="counts" id="counts"></div>
+      </div>
+      <div class="panel">
+        <div class="row" style="margin-top:0;margin-bottom:12px;">
+          <button class="b-gold" type="button" id="copy-btn">Copy all emails</button>
+          <span class="copy-note" id="copy-note" role="status" aria-live="polite">Comma separated, ready for Gmail BCC.</span>
+        </div>
+        <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Divisions</th><th>Team</th></tr></thead><tbody id="list"></tbody></table></div>
+      </div>
+    </div>
+    <div class="foot"><button class="b-link" id="forget-btn" type="button">Forget the admin key on this device</button></div>
+  </div>
+</div>
+
+<script>
+// Admin only. One call to the worker's /admin/league-email-list with the admin key. The
+// key sits in localStorage['courtsenseAdminKey'], the same slot /kpi/, /bd/ and
+// admin-players.html use. Nothing here logs a name or an address.
+(function(){
+  const WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev';
+  const DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
+  const KEY_STORE = 'courtsenseAdminKey';
+  const MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
+  // Same table as the worker's src/league-seasons.ts.
+  const LEAGUE_SEASONS = {
+    'Fall 2026': { kings: 'Fall 2026', queens: 'Fall 2026', comp: 'Fall 2026', rec: 'Fall 2026' },
+    'Summer 2026': { kings: 'Summer Season 2026', queens: 'Summer Season 2026 QOTB', comp: 'summer 2026', rec: 'Summer Season 2026' },
+  };
+  const SKIP_NAMES = { blocked: 'Blocked', minor: 'Minors', unusable: 'Unusable accounts', muted: 'Muted', email_off: 'Email off', no_email: 'No email on file', not_linked: 'KotB not linked' };
+  const $ = id => document.getElementById(id);
+  let KEY = '';
+  let EMAILS = [];
+
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]); }
+  function stored(){ try{ return (localStorage.getItem(KEY_STORE) || '').trim(); }catch(e){ return ''; } }
+  function remember(k){ try{ localStorage.setItem(KEY_STORE, k); }catch(e){} }
+  function forget(){ try{ localStorage.removeItem(KEY_STORE); }catch(e){} KEY = ''; }
+  function seasonOf(div, label){
+    for (const name of Object.keys(LEAGUE_SEASONS)) if (LEAGUE_SEASONS[name][div] === label) return name;
+    return label;
+  }
+
+  function showGate(msg){
+    $('app').hidden = true; $('gate').hidden = false;
+    $('key-err').textContent = msg || '';
+    setTimeout(() => $('key-input').focus(), 0);
+  }
+  async function checkKey(k){
+    let r;
+    try{ r = await fetch(WORKER + '/auth/admin-key-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminKey: k }) }); }
+    catch(e){ return 'net'; }
+    if(r.status === 401) return 'bad';
+    if(r.status === 429) return 'rate';
+    if(r.status !== 200) return 'net';
+    try{ const j = await r.json(); return j && j.ok === true ? 'ok' : 'net'; }catch(e){ return 'net'; }
+  }
+  $('gate-form').addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const typed = ($('key-input').value || '').trim();
+    if(!typed){ $('key-err').textContent = 'Enter the admin key.'; return; }
+    $('key-btn').disabled = true; $('key-err').textContent = '';
+    const result = await checkKey(typed);
+    $('key-btn').disabled = false;
+    if(result !== 'ok'){ $('key-err').textContent = result === 'rate' ? 'Too many attempts. Try again in 15 minutes.' : result === 'bad' ? 'Wrong admin key.' : MSG_NET; return; }
+    remember(typed); KEY = typed; $('key-input').value = '';
+    open();
+  });
+  $('forget-btn').addEventListener('click', function(){ forget(); clearResult(); showGate(''); });
+
+  // Seasons: the known table plus any archive label the public archives hold, newest first.
+  async function seasonNames(){
+    const names = new Set(Object.keys(LEAGUE_SEASONS));
+    const reads = [['tally_kotb/archive', ''], ['tally_4v4/comp/archive', 'comp'], ['tally_4v4/rec/archive', 'rec']];
+    await Promise.all(reads.map(async ([path, div]) => {
+      try{
+        const r = await fetch(DB_URL + '/' + path + '.json?shallow=true');
+        const j = r.ok ? await r.json() : null;
+        Object.keys(j || {}).forEach(label => { names.add(div ? seasonOf(div, label) : (seasonOf('kings', label) !== label ? seasonOf('kings', label) : seasonOf('queens', label))); });
+      }catch(e){}
+    }));
+    const yr = s => { const m = /(\d{4})/.exec(s); return m ? Number(m[1]) : 0; };
+    const part = s => /fall/i.test(s) ? 3 : /summer/i.test(s) ? 2 : /spring/i.test(s) ? 1 : 0;
+    return Array.from(names).sort((a, b) => (yr(b) - yr(a)) || (part(b) - part(a)) || a.localeCompare(b));
+  }
+  async function open(){
+    $('gate').hidden = true; $('app').hidden = false;
+    const names = await seasonNames();
+    $('season').innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('');
+  }
+
+  function clearResult(){ EMAILS = []; $('result').hidden = true; $('list').innerHTML = ''; $('counts').innerHTML = ''; }
+  function tile(n, label){ return '<div class="tile"><b>' + Number(n || 0) + '</b><span>' + esc(label) + '</span></div>'; }
+  function render(j){
+    const c = j.counts || {};
+    const sk = c.skipped || {};
+    $('counts').innerHTML = tile(c.withEmail, 'To email') + tile(c.people, 'People on the rosters') + tile(c.duplicates, 'Merged duplicates')
+      + Object.keys(SKIP_NAMES).map(k => tile(sk[k], SKIP_NAMES[k])).join('');
+    const list = Array.isArray(j.list) ? j.list : [];
+    EMAILS = list.map(r => String(r.email || '')).filter(Boolean);
+    $('list').innerHTML = list.length ? list.map(r => '<tr><td>' + esc(r.name) + (r.captain ? '<span class="cap">Captain</span>' : '') + '</td><td>' + esc(r.email) + '</td><td>'
+      + esc((r.divisions || []).join(', ')) + '</td><td>' + esc(r.team || '') + '</td></tr>').join('')
+      : '<tr><td colspan="4">Nobody to email for this season.</td></tr>';
+    $('copy-btn').disabled = !EMAILS.length;
+    $('copy-note').textContent = 'Comma separated, ready for Gmail BCC.';
+    $('result').hidden = false;
+  }
+  $('load-btn').addEventListener('click', async function(){
+    const b = this; b.disabled = true; $('load-err').textContent = ''; clearResult();
+    let r, j = null;
+    try{ r = await fetch(WORKER + '/admin/league-email-list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminKey: KEY, season: $('season').value }) }); }
+    catch(e){ b.disabled = false; $('load-err').textContent = MSG_NET; return; }
+    try{ j = await r.json(); }catch(e){}
+    b.disabled = false;
+    if(r.status === 401){ forget(); showGate('That admin key no longer works. Enter it again.'); return; }
+    if(r.status !== 200 || !j || !j.ok){ $('load-err').textContent = (j && j.error) || MSG_NET; return; }
+    render(j);
+  });
+  $('copy-btn').addEventListener('click', async function(){
+    const text = EMAILS.join(', ');
+    let ok = false;
+    try{ await navigator.clipboard.writeText(text); ok = true; }catch(e){}
+    $('copy-note').textContent = ok ? 'Copied ' + EMAILS.length + ' address' + (EMAILS.length === 1 ? '' : 'es') + '.' : 'Copy failed. Select the Email column and copy it by hand.';
+  });
+
+  KEY = stored();
+  if(KEY) open(); else showGate('');
+})();
+</script>
+</body>
+</html>

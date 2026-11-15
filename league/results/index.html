@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Past Results &middot; Tallahassee Beach Volleyball</title>
+<meta name="description" content="Final standings for every past Tallahassee city league season: Kings, Queens, 4v4 Competitive and 4v4 Rec.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Tallahassee Beach Volleyball: Past Results">
+<meta property="og:description" content="Final standings for every past Tallahassee city league season.">
+<meta property="og:image" content="https://courtsense.app/og-image.png">
+<meta property="og:url" content="https://courtsense.app/league/results/">
+<meta property="og:site_name" content="CourtSense">
+<link rel="icon" type="image/png" href="/favicon_large.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="/signup-source.js?v=a1f469b3"></script>
+<style>
+:root{
+  --navy:#1a3a6b;
+  --navy-deep:#0f2347;
+  --gold:#d4a843;
+  --gold-deep:#b8902f;
+  --silver:#a9b1bb;
+  --bronze:#c08a5a;
+  --sand:#f5f0e8;
+  --ink:#1a1a1a;
+  --ink-soft:#555;
+  --white:#ffffff;
+  --win:#2a7a3e;
+  --loss:#b3261e;
+  --shadow:0 10px 30px rgba(15,35,71,0.10), 0 4px 8px rgba(15,35,71,0.06);
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{
+  font-family:'Barlow',-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  color:var(--ink);
+  background:var(--sand);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+.hdr{background:rgba(255,255,255,0.96);border-bottom:1px solid rgba(15,35,71,0.08);}
+.hdr-inner{max-width:1100px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.hdr-logo{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.hdr-logo img{height:40px;width:auto;display:block;}
+.hdr-name{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--navy);}
+.hdr-back{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;color:var(--navy);text-decoration:none;white-space:nowrap;}
+.hdr-back:hover{color:var(--gold-deep);}
+
+.hero{background:linear-gradient(150deg,var(--navy-deep) 0%,var(--navy) 100%);color:var(--white);padding:48px 16px 56px;text-align:center;}
+.eyebrow{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--gold);}
+.hero h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(40px,9vw,64px);letter-spacing:2px;line-height:1;margin-top:6px;}
+.hero p{max-width:560px;margin:12px auto 0;color:rgba(255,255,255,0.85);font-size:16px;}
+
+.seasons{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px;}
+.season-btn{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;padding:9px 20px;border-radius:24px;border:1.5px solid rgba(255,255,255,0.5);background:transparent;color:var(--white);cursor:pointer;}
+.season-btn[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--navy-deep);}
+
+main{flex:1;width:100%;max-width:1100px;margin:0 auto;padding:28px 16px 8px;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+.card{background:var(--white);border:1px solid rgba(15,35,71,0.10);border-top:4px solid var(--navy);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.card-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:16px 16px 10px;}
+.card-title{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1.5px;color:var(--navy-deep);line-height:1;}
+.card-meta{font-size:13px;color:var(--ink-soft);white-space:nowrap;}
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:14px;letter-spacing:1px;color:var(--ink-soft);text-align:center;padding:8px 6px;border-bottom:2px solid rgba(15,35,71,0.10);white-space:nowrap;}
+th.nm{text-align:left;}
+td{text-align:center;padding:9px 6px;border-bottom:1px solid rgba(15,35,71,0.06);font-variant-numeric:tabular-nums;}
+td.nm{text-align:left;font-weight:600;}
+tr:last-child td{border-bottom:none;}
+.rk{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-weight:700;font-size:13px;color:var(--ink-soft);}
+.rk.r1{background:var(--gold);color:var(--navy-deep);}
+.rk.r2{background:var(--silver);color:var(--navy-deep);}
+.rk.r3{background:var(--bronze);color:var(--white);}
+.pos{color:var(--win);font-weight:700;}
+.neg{color:var(--loss);font-weight:700;}
+.neu{color:var(--ink-soft);}
+.empty{padding:18px 16px 22px;color:var(--ink-soft);font-size:14px;}
+.note{font-size:13px;color:var(--ink-soft);text-align:center;margin:18px auto 0;max-width:720px;}
+.status{text-align:center;color:var(--ink-soft);padding:40px 0;}
+
+.cta{margin:28px auto 8px;max-width:680px;background:var(--white);border:1px solid rgba(15,35,71,0.10);border-left:4px solid var(--gold);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 20px;text-align:center;}
+.cta h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;color:var(--navy-deep);line-height:1.1;}
+.cta p{color:var(--ink-soft);margin:8px 0 16px;}
+.cta-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;}
+.btn{display:inline-block;font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;padding:12px 26px;border-radius:30px;text-decoration:none;}
+.btn-gold{background:var(--gold);color:var(--navy-deep);}
+.btn-gold:hover{background:var(--gold-deep);}
+.btn-line{border:2px solid var(--navy);color:var(--navy);}
+.btn-line:hover{background:var(--navy);color:var(--white);}
+
+footer{text-align:center;padding:28px 16px;}
+.powered{display:inline-flex;align-items:baseline;gap:6px;text-decoration:none;color:var(--ink-soft);}
+.powered-text{font-size:13px;}
+.powered-mark{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--navy);}
+.powered-tld{font-weight:600;font-size:14px;color:var(--gold);}
+
+@media (max-width:760px){
+  .grid{grid-template-columns:1fr;}
+  .hero{padding:36px 16px 40px;}
+  table{font-size:13px;}
+  th,td{padding:8px 4px;}
+  .hdr-name{font-size:19px;}
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-inner">
+    <a class="hdr-logo" href="/"><img src="/logo.png" alt="CourtSense"><span class="hdr-name">Tallahassee</span></a>
+    <a class="hdr-back" href="/league/tallahassee/">League home</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="eyebrow">Tallahassee City League</div>
+  <h1>Past Results</h1>
+  <p>Final standings for every division, season by season.</p>
+  <div class="seasons" id="seasons" role="group" aria-label="Season"></div>
+</section>
+
+<main>
+  <div class="status" id="status">Loading results...</div>
+  <div class="grid" id="grid"></div>
+  <p class="note" id="note" style="display:none;">Kings and Queens rank by point differential (games played as a sub do not count), then win percentage, then wins. 4v4 ranks by wins, then set differential, then point differential.</p>
+
+  <div class="cta">
+    <h2>Play year-round between seasons</h2>
+    <p>Find pickup games near you and keep playing until the next league starts.</p>
+    <div class="cta-row">
+      <a class="btn btn-gold" href="/pickup/?src=league-results">Find pickup games</a>
+      <a class="btn btn-line" href="/join/?src=league-results">Create your free account</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <a href="/" class="powered"><span class="powered-text">Powered by</span><span class="powered-mark">CourtSense<span class="powered-tld">.app</span></span></a>
+</footer>
+
+<script>
+// Past results for the Tallahassee city league. Reads the world-readable season archives
+// (tally_kotb/archive, tally_4v4/{comp,rec}/archive) and renders final standings.
+// Rendering is a whitelist: player names, team names and the stats in the tables. Captain
+// names, emails, phones, ids, settings and schedules in the archive are never shown.
+
+const DB_URL = 'https://leon-beach-volleyball-default-rtdb.firebaseio.com';
+const DIVS = ['kings', 'queens', 'comp', 'rec'];
+const DIV_NAMES = { kings: 'Kings', queens: 'Queens', comp: '4v4 Competitive', rec: '4v4 Rec' };
+
+// Archive labels differ by division for the same season. Same table as the worker's
+// src/league-seasons.ts. A label not listed here is a season of its own name.
+const LEAGUE_SEASONS = {
+  'Fall 2026': { kings: 'Fall 2026', queens: 'Fall 2026', comp: 'Fall 2026', rec: 'Fall 2026' },
+  'Summer 2026': { kings: 'Summer Season 2026', queens: 'Summer Season 2026 QOTB', comp: 'summer 2026', rec: 'Summer Season 2026' },
+};
+
+function $(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; });
+}
+function isObj(v){ return !!v && typeof v === 'object' && !Array.isArray(v); }
+function vals(v){ return isObj(v) ? Object.keys(v).map(function(k){ return v[k]; }) : (Array.isArray(v) ? v.slice() : []); }
+function signed(v){ return (v > 0 ? '+' : '') + v; }
+function signCls(v){ return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
+
+// The season name a division's archive label belongs to.
+function seasonOf(div, label){
+  const names = Object.keys(LEAGUE_SEASONS);
+  for (let i = 0; i < names.length; i++) {
+    if (LEAGUE_SEASONS[names[i]][div] === label) return names[i];
+  }
+  return label;
+}
+
+// { seasonName: { name, newest, divs: { div: snapshot } } } out of the three archive reads,
+// as a list newest first. newest is the latest archivedAt among its divisions.
+function groupSeasons(kotbArch, compArch, recArch){
+  const out = {};
+  function put(div, label, snap){
+    if (!isObj(snap)) return;
+    const name = seasonOf(div, label);
+    const s = out[name] || (out[name] = { name: name, newest: 0, divs: {} });
+    s.divs[div] = snap;
+    if (typeof snap.archivedAt === 'number' && snap.archivedAt > s.newest) s.newest = snap.archivedAt;
+  }
+  Object.keys(isObj(kotbArch) ? kotbArch : {}).forEach(function(label){
+    const v = kotbArch[label];
+    if (!isObj(v)) return;
+    put('kings', label, v.kings);
+    put('queens', label, v.queens);
+  });
+  Object.keys(isObj(compArch) ? compArch : {}).forEach(function(label){ put('comp', label, compArch[label]); });
+  Object.keys(isObj(recArch) ? recArch : {}).forEach(function(label){ put('rec', label, recArch[label]); });
+  return Object.keys(out).map(function(k){ return out[k]; })
+    .sort(function(a, b){ return (b.newest - a.newest) || a.name.localeCompare(b.name); });
+}
+
+// Kings and Queens. Stats as the live standings count them (kotb-app.js calcStats): a game
+// counts for a player in t1 or t2 unless they were marked a sub in it. Ranked by +/- (points
+// for minus against), then win percentage, then wins, then name A to Z.
+function kotbStandings(snap){
+  const players = vals(snap && snap.players).filter(function(p){ return isObj(p) && typeof p.name === 'string' && p.name.trim(); });
+  const results = vals(snap && snap.results).filter(isObj);
+  const rows = players.map(function(p){
+    let gp = 0, w = 0, l = 0, pf = 0, pa = 0;
+    results.forEach(function(r){
+      const t1 = Array.isArray(r.t1) ? r.t1 : [], t2 = Array.isArray(r.t2) ? r.t2 : [];
+      const in1 = t1.indexOf(p.id) >= 0, in2 = t2.indexOf(p.id) >= 0;
+      if (!in1 && !in2) return;
+      if (Array.isArray(r.subSlots) && r.subSlots.indexOf(p.id) >= 0) return;
+      const ms = Number(in1 ? r.s1 : r.s2) || 0, os = Number(in1 ? r.s2 : r.s1) || 0;
+      gp++; pf += ms; pa += os;
+      if (ms > os) w++; else l++;
+    });
+    return { name: p.name.trim(), gp: gp, w: w, l: l, pct: gp ? w / gp : 0, diff: pf - pa };
+  });
+  rows.sort(function(a, b){
+    return (b.diff - a.diff) || (b.pct - a.pct) || (b.w - a.w) || a.name.localeCompare(b.name);
+  });
+  return rows;
+}
+
+// 4v4, exactly as the live standings rank (4v4/index.html computeStandings): wins, then set
+// differential, then point differential, then team name A to Z. A forfeit is a win or a
+// loss with no sets or points.
+function fourStandings(snap){
+  const teams = vals(snap && snap.teams).filter(function(t){ return isObj(t) && t.id && t.name; });
+  const stats = {};
+  teams.forEach(function(t){ stats[t.id] = { name: String(t.name), w: 0, l: 0, setsW: 0, setsL: 0, ptsFor: 0, ptsAgainst: 0 }; });
+  vals(snap && snap.results).forEach(function(r){
+    if (!isObj(r)) return;
+    const a = stats[r.teamAId], b = stats[r.teamBId];
+    if (!a || !b) return;
+    if (r.isForfeit) {
+      if (r.winnerId === r.teamAId) { a.w++; b.l++; }
+      else if (r.winnerId === r.teamBId) { b.w++; a.l++; }
+      return;
+    }
+    let aSets = 0, bSets = 0, aPts = 0, bPts = 0;
+    vals(r.sets).forEach(function(s){
+      if (!isObj(s) || typeof s.a !== 'number' || typeof s.b !== 'number') return;
+      aPts += s.a; bPts += s.b;
+      if (s.a > s.b) aSets++; else if (s.b > s.a) bSets++;
+    });
+    a.setsW += aSets; a.setsL += bSets; b.setsW += bSets; b.setsL += aSets;
+    a.ptsFor += aPts; a.ptsAgainst += bPts; b.ptsFor += bPts; b.ptsAgainst += aPts;
+    if (r.winnerId === r.teamAId) { a.w++; b.l++; }
+    else if (r.winnerId === r.teamBId) { b.w++; a.l++; }
+  });
+  const rows = Object.keys(stats).map(function(k){
+    const s = stats[k];
+    return { name: s.name, w: s.w, l: s.l, setDiff: s.setsW - s.setsL, ptDiff: s.ptsFor - s.ptsAgainst };
+  });
+  rows.sort(function(x, y){ return (y.w - x.w) || (y.setDiff - x.setDiff) || (y.ptDiff - x.ptDiff) || x.name.localeCompare(y.name); });
+  return rows;
+}
+
+function rankCell(i){
+  const n = i + 1;
+  return '<td><span class="rk' + (n <= 3 ? ' r' + n : '') + '">' + n + '</span></td>';
+}
+
+// One division's card. Only the whitelisted row fields are read here.
+function divisionCard(div, snap){
+  const title = DIV_NAMES[div];
+  if (!isObj(snap)) return '';
+  let head, body, count;
+  if (div === 'kings' || div === 'queens') {
+    const rows = kotbStandings(snap);
+    count = rows.length + ' player' + (rows.length === 1 ? '' : 's');
+    head = '<tr><th>#</th><th class="nm">Player</th><th>GP</th><th>W</th><th>L</th><th>Win%</th><th>+/-</th></tr>';
+    body = rows.map(function(r, i){
+      return '<tr>' + rankCell(i) + '<td class="nm">' + esc(r.name) + '</td><td>' + r.gp + '</td><td>' + r.w + '</td><td>' + r.l + '</td>'
+        + '<td>' + (r.gp ? Math.round(r.pct * 100) + '%' : '&middot;') + '</td>'
+        + '<td class="' + signCls(r.diff) + '">' + (r.gp ? signed(r.diff) : '&middot;') + '</td></tr>';
+    }).join('');
+  } else {
+    const rows = fourStandings(snap);
+    count = rows.length + ' team' + (rows.length === 1 ? '' : 's');
+    head = '<tr><th>#</th><th class="nm">Team</th><th>W</th><th>L</th><th>Set diff</th><th>Pt diff</th></tr>';
+    body = rows.map(function(r, i){
+      return '<tr>' + rankCell(i) + '<td class="nm">' + esc(r.name) + '</td><td>' + r.w + '</td><td>' + r.l + '</td>'
+        + '<td class="' + signCls(r.setDiff) + '">' + signed(r.setDiff) + '</td>'
+        + '<td class="' + signCls(r.ptDiff) + '">' + signed(r.ptDiff) + '</td></tr>';
+    }).join('');
+  }
+  return '<section class="card" aria-label="' + esc(title) + '">'
+    + '<div class="card-head"><h2 class="card-title">' + esc(title) + '</h2><span class="card-meta">' + count + '</span></div>'
+    + (body ? '<div class="tbl-wrap"><table><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>'
+            : '<div class="empty">No results recorded.</div>')
+    + '</section>';
+}
+
+let SEASONS = [];
+let CURRENT = '';
+
+function drawSeasonButtons(){
+  $('seasons').innerHTML = SEASONS.map(function(s){
+    return '<button type="button" class="season-btn" aria-pressed="' + (s.name === CURRENT ? 'true' : 'false') + '" data-season="' + esc(s.name) + '">' + esc(s.name) + '</button>';
+  }).join('');
+}
+function showSeason(name){
+  const s = SEASONS.filter(function(x){ return x.name === name; })[0];
+  if (!s) return;
+  CURRENT = name;
+  drawSeasonButtons();
+  $('grid').innerHTML = DIVS.map(function(div){ return divisionCard(div, s.divs[div]); }).join('');
+  $('note').style.display = '';
+}
+
+async function readPath(path){
+  const url = DB_URL + '/' + path.split('/').map(encodeURIComponent).join('/') + '.json';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('read failed');
+  return res.json();
+}
+
+async function boot(){
+  try {
+    const all = await Promise.all([readPath('tally_kotb/archive'), readPath('tally_4v4/comp/archive'), readPath('tally_4v4/rec/archive')]);
+    SEASONS = groupSeasons(all[0], all[1], all[2]);
+  } catch (e) {
+    $('status').textContent = 'Results could not load. Check your connection and refresh.';
+    return;
+  }
+  if (!SEASONS.length) { $('status').textContent = 'No past seasons yet. Check back after the first season ends.'; return; }
+  $('status').style.display = 'none';
+  showSeason(SEASONS[0].name);
+}
+
+$('seasons').addEventListener('click', function(e){
+  const b = e.target && e.target.closest ? e.target.closest('.season-btn') : null;
+  if (b) showSeason(b.getAttribute('data-season'));
+});
+boot();
+</script>
+</body>
+</html>

@@ -441,6 +441,24 @@ function _childCount(v){ return _childKeys(v).length; }
 // players is verified here as well as weeks and results. That is the one place this
 // differs from the 4v4 verifier, and it differs because KotB clears the roster on
 // close and 4v4 does not, so the roster is data this archive is responsible for.
+// Contact details never go into an archive: archives are world readable, while emails and
+// phones live privately with the worker. Each record keeps its name, id and stats; any
+// field whose name contains "email" or "phone" (any case) is dropped, at any depth.
+const ARCHIVE_CONTACT_RE = /e-?mail|phone/i;
+function archiveSafe(v){
+  if(Array.isArray(v)) return v.map(archiveSafe);
+  if(!v || typeof v !== 'object') return v;
+  const out = {};
+  Object.keys(v).forEach(function(k){ if(!ARCHIVE_CONTACT_RE.test(k)) out[k] = archiveSafe(v[k]); });
+  return out;
+}
+// A map of records (players or teams by id): the ids stay, each record is made archive safe.
+function archiveSafeRecords(recs){
+  const out = {};
+  if(!recs || typeof recs !== 'object') return out;
+  Object.keys(recs).forEach(function(id){ out[id] = archiveSafe(recs[id]); });
+  return out;
+}
 function verifyArchiveSnapshot(back, snap){
   if(!back) return 'the archive came back empty';
   if(back.label !== snap.label) return 'the season name did not match';
@@ -514,7 +532,7 @@ async function doCloseSeason(){
     archivedAt: Date.now(),
     counts: { players: nPlayers, weeks: nWeeks, results: nResults },
     config:  srcConfig,
-    players: srcPlayers,
+    players: archiveSafeRecords(srcPlayers),
     weeks:   srcWeeks,
     results: srcResults
   };
