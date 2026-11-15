@@ -4089,7 +4089,7 @@ function activeEligibleNames(invite, now){
 const NOTIFY_FIELD = {
   invited:'notifyInvited', reminder:'notifyReminder', waitlist:'notifyWaitlist',
   confirmed:'notifyConfirmed', canceled:'notifyCanceled', changed:'notifyChanged',
-  weather:'notifyWeather'
+  weather:'notifyWeather', requests:'notifyRequests'
 };
 function shouldNotify(p, kind, now){
   now = now || Date.now();
@@ -4147,17 +4147,18 @@ function renderInviteList(){
   //   Your games: games the player is in (host, a confirmed or waitlist RSVP, or named in
   //     the include list). No distance rule of any kind; date order. A game they joined
   //     stays here even when it is far away or they fell out of its circle.
-  //   Open games: games they may join (isChatEligible) but are not in, with a recorded
+  //   Open games: games they may join (isChatEligible) or ask to join (isRatingGame) but are not in, with a recorded
   //     area, within 30 miles of Near me or their area's center (csCourtPage.split and
   //     csCourtKit.splitGames), plus open polls (anyone with the link may vote) with a time
   //     within 30 miles, minus polls they organized or answered. Nearest first, then date.
   // Signed out (no identity): a line asking them to sign in, no Your games, and Open games
-  //   for their chosen area: only games open to anyone (isPublicGame), on cards with no
+  //   for their chosen area: only games open to anyone or limited by rating (isPublicGame), on cards with no
   //   player names (signedOutCardHTML), plus every nearby open poll.
   // A direct link to one game or poll opens it wherever it is; these lists never gate that.
   const signedOut = !myKey;
   const isMine = signedOut ? (() => false) : (i => isMyGame(i, myKey));
-  const isOpenEligible = signedOut ? isPublicGame : (i => isChatEligible(i, myKey));
+  // Rating games show to every signed-in player too; one outside the circle requests a spot.
+  const isOpenEligible = signedOut ? isPublicGame : (i => isChatEligible(i, myKey) || isRatingGame(i));
   const skipPolls = signedOut ? {} : ppPollSkip();
   const parts = window.csCourtPage ? csCourtPage.split(upcoming, isMine, isOpenEligible, skipPolls) : { mine: signedOut ? [] : upcoming.filter(isMine), open: [], items: [], hasRef: false, city: '' };
   const yours = parts.mine, openGames = parts.items || (parts.open || []).map(g => ({ kind: 'game', g }));
@@ -4188,12 +4189,175 @@ let _openShowAll = false;
 let _yoursGames = 0;
 function openSeeAll(){ _openShowAll = true; renderInviteList(); }
 
-// A game a signed-out visitor may see in Open games: open to anyone. A rating, group,
-// club or invite circle needs to know who is asking, so those games wait for sign in.
+// A game a signed-out visitor may see in Open games: open to anyone, or limited by rating
+// (its card shows the level, and a visitor signs in to request a spot). A group, club or
+// invite circle needs to know who is asking, so those games stay hidden.
 function isPublicGame(inv){
   if(!inv) return false;
   const e = inv.eligibility || {};
-  return !e.baseMode || e.baseMode === 'open';
+  return !e.baseMode || e.baseMode === 'open' || isRatingGame(inv);
+}
+
+// ─── RATING GAMES AND JOIN REQUESTS ───
+// Levels: a verbatim copy of the worker's src/pickup-levels.ts (LEVEL_BANDS, levelOf,
+// levelLabel). Keep the two in step. The codes match profile.skillLevel.
+const csLevels = (function(){
+  const LEVEL_BANDS = [
+    { code: 'Recreational', label: 'Recreational', from: -Infinity },
+    { code: 'BB', label: 'Beginner (BB)', from: 1300 },
+    { code: 'A', label: 'Intermediate (A)', from: 1500 },
+    { code: 'AA', label: 'Advanced (AA)', from: 1700 },
+    { code: 'Open', label: 'Expert (Open)', from: 1900 },
+  ];
+  function levelOf(rating){
+    let out = 'Recreational';
+    for(const b of LEVEL_BANDS) if(rating >= b.from) out = b.code;
+    return out;
+  }
+  function levelLabel(code){
+    const b = LEVEL_BANDS.find(x => x.code === code);
+    return b ? b.label : '';
+  }
+  return { LEVEL_BANDS, levelOf, levelLabel };
+})();
+// A game limited by rating (a minimum or a range): public, with request-to-join.
+function isRatingGame(inv){
+  const e = (inv && inv.eligibility) || {};
+  return e.baseMode === 'ratingMin' || e.baseMode === 'ratingRange';
+}
+// The level line of a rating game: "Intermediate (A) and up", or "Intermediate (A) to
+// Advanced (AA)" for a range. Never the raw rating number.
+function ratingLevelLine(inv){
+  const e = (inv && inv.eligibility) || {};
+  const lo = csLevels.levelLabel(csLevels.levelOf(+e.ratingMin || 0));
+  if(e.baseMode === 'ratingRange'){
+    const hi = csLevels.levelLabel(csLevels.levelOf(e.ratingMax != null ? +e.ratingMax : 9999));
+    return lo === hi ? lo : lo + ' to ' + hi;
+  }
+  return e.baseMode === 'ratingMin' ? lo + ' and up' : '';
+}
+// True when the signed-in player is in the game's circle right now (the optInInvite gate).
+function jrEligible(i, myKey){
+  return !!myKey && activeEligibleNames(i, Date.now()).some(n => Identity.nameKey(n) === myKey);
+}
+// The worker session for the join request routes, or null.
+function jrSessionToken(){
+  try { return (window.CourtSenseAuth && CourtSenseAuth.getSessionToken) ? CourtSenseAuth.getSessionToken() : null; } catch(e){ return null; }
+}
+// POST to a join request route with the player's session. Resolves to the worker's JSON, or
+// { ok:false, code } on a network error. Never throws.
+async function jrPost(path, payload){
+  try{
+    const res = await fetch(NOTIFY_WORKER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession(payload)) });
+    let j = null; try { j = await res.json(); } catch(e){ j = null; }
+    return j && typeof j === 'object' ? j : { ok: false, code: 'error' };
+  }catch(e){ console.error('join request failed', path, e); return { ok: false, code: 'error' }; }
+}
+// The signed-in player's own request per game (GET /pickup/join-request/mine), loaded once
+// per game per visit. _jrMinor: the worker said this player is a known minor, who cannot
+// ask (the high school link is only visible to the worker).
+const _jr = {};
+const _jrLoading = {};
+const _jrNeedLevel = {};
+let _jrMinor = false;
+function jrRedraw(id){
+  if(typeof view !== 'undefined' && view === 'invite-detail' && activeInvite === id) renderInviteDetail();
+  renderInviteList();
+}
+function jrLoad(id){
+  if(!id || _jr[id] || _jrLoading[id]) return;
+  const t = jrSessionToken(); if(!t) return;
+  _jrLoading[id] = true;
+  fetch(NOTIFY_WORKER + '/pickup/join-request/mine?inviteId=' + encodeURIComponent(id), { headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' })
+    .then(r => r.json())
+    .then(j => {
+      _jr[id] = (j && j.ok) ? { status: j.status || null, rating: j.rating, level: j.level } : { status: null, failed: true };
+      if(j && j.minor) _jrMinor = true;
+      if(j && j.ok) jrRedraw(id);
+    })
+    .catch(() => { _jr[id] = { status: null, failed: true }; })
+    .finally(() => { _jrLoading[id] = false; });
+}
+// The player asks for a spot on the open game. An unrated player sends the level they
+// picked; a rated player's rating goes from the worker.
+async function jrSend(){
+  const id = activeInvite; const i = (D.invites||{})[id]; if(!i) return;
+  const sel = $('jr-level');
+  const level = sel ? sel.value : '';
+  if(sel && !level){ toast('Pick your level of play'); return; }
+  const j = await jrPost('/pickup/join-request', level ? { inviteId: id, level } : { inviteId: id });
+  if(j.ok || j.code === 'already_requested'){ _jr[id] = { status: 'pending', rating: j.rating, level: j.level }; toast('Request sent. The host will let you know.'); }
+  else if(j.code === 'minor'){ _jrMinor = true; }
+  else if(j.code === 'need_level'){ _jrNeedLevel[id] = true; toast('Pick your level of play'); }
+  else if(j.code === 'no_session'){ askSignIn('Sign in to request a spot.', () => openInviteDetail(id)); return; }
+  else toast(j.error || "We couldn't send your request. Try again.");
+  jrRedraw(id);
+}
+async function jrWithdraw(){
+  const id = activeInvite; if(!id) return;
+  const j = await jrPost('/pickup/join-request/withdraw', { inviteId: id });
+  if(j.ok || j.code === 'not_pending'){ _jr[id] = { status: 'withdrawn' }; toast('Request withdrawn'); }
+  else toast(j.error || "We couldn't withdraw your request. Try again.");
+  jrRedraw(id);
+}
+// The five profile levels, for an unrated player's request.
+function jrLevelPicker(){
+  return '<select class="inp" id="jr-level" style="margin-bottom:10px;"><option value="">Your level of play</option>'
+    + csLevels.LEVEL_BANDS.map(b => '<option value="' + b.code + '">' + escapeHTML(b.label) + '</option>').join('') + '</select>';
+}
+// The detail page's action for a signed-in player outside a rating game's circle: Ask the
+// host (a known minor), Request sent with Withdraw, or Request a spot.
+function jrActionHTML(i, myKey){
+  jrLoad(i.id);
+  const s = _jr[i.id];
+  const line = escapeHTML(ratingLevelLine(i));
+  if(_jrMinor) return '<div style="font-weight:700;margin-bottom:6px;">Ask the host for an invite link</div>'
+    + '<div style="font-size:13px;color:var(--gray);line-height:1.5;">This game is for ' + line + ' players. The host can send you an invite link.</div>';
+  if(!s) return '<div style="font-size:13px;color:var(--gray);">Checking your request...</div>';
+  // Declined: the host answered, and the worker will not take another request for this game.
+  if(s.status === 'declined') return '<div style="font-weight:700;margin-bottom:6px;">The host couldn\'t fit you in this time</div>'
+    + '<div style="font-size:13px;color:var(--gray);line-height:1.5;">Thanks for asking. <a href="/pickup/?src=declined-note">Find other open games</a> near you.</div>';
+  if(s.status === 'pending') return '<div style="font-weight:700;margin-bottom:6px;">Request sent</div>'
+    + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">The host will approve or decline, and we\'ll email you either way.</div>'
+    + '<button class="btn btn-g btn-w" onclick="jrWithdraw()">Withdraw</button>';
+  const r = (D.ratings||{})[myKey];
+  const rated = !_jrNeedLevel[i.id] && !!(window.Ratings && Ratings.isRated && Ratings.isRated(r));
+  return '<div style="font-weight:700;margin-bottom:6px;">Request a spot</div>'
+    + '<div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">This game is for ' + line + ' players. '
+    + (rated ? 'Your CS rating goes to the host with your request.' : 'Pick your level of play. It goes to the host with your request.') + '</div>'
+    + (rated ? '' : jrLevelPicker())
+    + '<button class="btn btn-p btn-w" onclick="jrSend()">Request a spot</button>';
+}
+// The host's pending join requests per game (POST /pickup/join-requests), kept two minutes.
+const _jrHost = {};
+const _jrHostLoading = {};
+function jrHostLoad(id, force){
+  if(!id || _jrHostLoading[id]) return;
+  const c = _jrHost[id];
+  if(!force && c && Date.now() - c.at < 2 * 60 * 1000) return;
+  if(!jrSessionToken()) return;
+  _jrHostLoading[id] = true;
+  jrPost('/pickup/join-requests', { inviteId: id }).then(j => {
+    const before = c ? JSON.stringify(c.list) : '';
+    _jrHost[id] = { list: (j && j.ok && Array.isArray(j.requests)) ? j.requests : [], at: Date.now() };
+    if(JSON.stringify(_jrHost[id].list) !== before) jrRedraw(id);
+  }).finally(() => { _jrHostLoading[id] = false; });
+}
+function jrHostList(id){ return (_jrHost[id] && _jrHost[id].list) || []; }
+// What the host sees of one request: the rating when the player is rated, else the level
+// they reported. Never contact details (the worker sends none).
+function jrSkillLine(r){
+  return typeof r.rating === 'number'
+    ? 'CS rating ' + r.rating + ' · ' + csLevels.levelLabel(csLevels.levelOf(r.rating))
+    : csLevels.levelLabel(r.level) + ' (self-reported)';
+}
+async function jrAnswer(accountId, answer){
+  const id = activeInvite; if(!id) return;
+  const j = await jrPost('/pickup/join-request/answer', { inviteId: id, accountId, answer });
+  if(j.ok){
+    toast(answer === 'approve' ? (j.seat === 'waitlist' ? 'Approved, on the waitlist. We let them know.' : 'Approved. We let them know.') : 'Declined. We let them know.');
+  } else toast(j.error || "We couldn't save that. Try again.");
+  jrHostLoad(id, true);
 }
 
 // The day and time of a game, "Tue, Nov 17 · 6:00 PM to 8:00 PM".
@@ -4212,25 +4376,39 @@ function gamePlaceLine(i){
 function gameFilled(i){ return Object.values(i.rsvps || {}).filter(r => r && r.status === 'confirmed').length; }
 const WEEKLY_TAG = '<span class="tag-weekly">Weekly</span>';
 // One open game card. signedOut: Sign in to join (no player names, as always); signed in:
-// Join, which opens the game to take a spot.
+// Join, which opens the game to take a spot. A rating game also shows its level line, and
+// a player outside its circle sees Request a spot, Request sent, or (a known minor) Ask the
+// host for an invite link. Every button opens the game, where the request is made.
 function openGameCardHTML(i, signedOut){
   const id = escapeHTML(i.id).replace(/'/g,"\\'");
-  const btn = signedOut
-    ? '<button type="button" class="btn-join" onclick="csSignInToJoin(\'' + id + '\')">Sign in to join</button>'
-    : '<button type="button" class="btn-join" onclick="openInviteDetail(\'' + id + '\')">Join</button>';
+  const rating = isRatingGame(i);
+  const open = (label) => '<button type="button" class="btn-join" onclick="openInviteDetail(\'' + id + '\')">' + label + '</button>';
+  let btn;
+  if(signedOut) btn = rating
+    ? '<button type="button" class="btn-join" onclick="csSignInToJoin(\'' + id + '\', true)">Sign in to request a spot</button>'
+    : '<button type="button" class="btn-join" onclick="csSignInToJoin(\'' + id + '\')">Sign in to join</button>';
+  else if(!rating || jrEligible(i, gameplayKey())) btn = open('Join');
+  else {
+    jrLoad(i.id);
+    const s = _jr[i.id];
+    btn = _jrMinor ? '<span class="gplace">Ask the host for an invite link</span>'
+      : s && s.status === 'declined' ? '<span class="gplace">The host couldn\'t fit you in this time</span>'
+      : open(s && s.status === 'pending' ? 'Request sent' : 'Request a spot');
+  }
   return '<div class="gcard' + (signedOut ? ' pk-out' : '') + '">'
     + '<div class="gcard-top"><div><div class="gname">' + escapeHTML(i.name||'Pickup') + '</div>'
     + '<div class="gwhen">' + gameWhenLine(i) + '</div>'
-    + '<div class="gplace">' + gamePlaceLine(i) + '</div></div>'
+    + '<div class="gplace">' + gamePlaceLine(i) + '</div>'
+    + (rating ? '<div class="gplace glevel">' + escapeHTML(ratingLevelLine(i)) + '</div>' : '') + '</div>'
     + (i.recurringGroupId ? WEEKLY_TAG : '') + '</div>'
     + '<div class="gcard-foot"><span class="gspots">' + gameFilled(i) + ' of ' + (i.slots||6) + ' spots filled</span>' + btn + '</div></div>';
 }
 function signedOutCardHTML(i){ return openGameCardHTML(i, true); }
 // Sign in to join: the sign-in box, then this game's page on /pickup/ once signed in
 // (askSignIn runs it from onLogin, for a new account too).
-function csSignInToJoin(id){
+function csSignInToJoin(id, request){
   if(!id || !(D.invites||{})[id]) return;
-  askSignIn('Sign in to join this game.', () => openInviteDetail(id));
+  askSignIn(request ? 'Sign in to request a spot.' : 'Sign in to join this game.', () => openInviteDetail(id));
 }
 
 // The times a home poll card shows: the two with the most votes (ties by start), in start
@@ -4290,7 +4468,15 @@ function yourGameCardHTML(i, myKey){
   const dt = new Date(i.date+'T'+(i.startTime||'00:00')+':00');
   const when = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + ' ' + fmtTime(i.startTime);
   const line = [when, i.location ? escapeHTML(i.location) : '', gameFilled(i) + ' of ' + (i.slots||6)].filter(Boolean).join(' · ');
-  return '<div class="ycard"><div class="ycard-tx"><div class="ylabel">' + escapeHTML(yourGameLabel(i, myKey)) + (i.recurringGroupId ? ' ' + WEEKLY_TAG : '') + '</div>'
+  // A hosted game: how many requests are waiting (join requests on a rating game, plus any
+  // older guest requests still on the game).
+  let pending = '';
+  if(isLoggedInHost(i)){
+    if(isRatingGame(i)) jrHostLoad(i.id);
+    const n = (isRatingGame(i) ? jrHostList(i.id).length : 0) + Object.values(i.guestRequests || {}).filter(r => r && r.status === 'pending').length;
+    if(n) pending = ' · ' + n + ' request' + (n === 1 ? '' : 's');
+  }
+  return '<div class="ycard"><div class="ycard-tx"><div class="ylabel">' + escapeHTML(yourGameLabel(i, myKey) + pending) + (i.recurringGroupId ? ' ' + WEEKLY_TAG : '') + '</div>'
     + '<div class="yname">' + escapeHTML(i.name||'Pickup') + '</div><div class="yline">' + line + '</div></div>'
     + '<button type="button" class="btn-manage" onclick="openInviteDetail(\'' + id + '\')">Open</button></div>';
 }
@@ -7566,9 +7752,9 @@ function renderPartnerDetail(i){
 // every remaining need. A post now carries several needs, so wanting one of them
 // is the only statement that makes sense. See offers and asks below.
 //
-// requestSpot / approveGuestRequest / declineGuestRequest are NOT touched: those
-// serve the pickup-game guest door, which is genuinely whole-event and still
-// works exactly as before.
+// approveGuestRequest / declineGuestRequest are NOT touched: those serve the older
+// pickup-game guest requests, which are genuinely whole-event (the guest door that
+// wrote them, requestSpot, is retired).
 // ── PER-NEED OFFERS AND ASKS ──────────────────────────────────────────────
 // Two nodes, deliberately separate, both keyed by DAY then by the player:
 //   invites/{id}/offers/{day}/{nameKey}  a viewer volunteering for that need
@@ -9772,6 +9958,9 @@ function renderInviteDetail(){
   const waitlist = Object.entries(rsvps).filter(([k,r]) => r.status==='waitlist').sort((a,b)=>(a[1].position||0)-(b[1].position||0));
   const declined = Object.values(rsvps).filter(r => r.status==='declined');
   const guestReqs = Object.entries(i.guestRequests || {}).filter(([id,r]) => r && r.status === 'pending').sort((a,b)=>(a[1].requestedAt||0)-(b[1].requestedAt||0));
+  // Join requests on a hosted rating game, from the worker (jrHostLoad).
+  if(isRatingGame(i) && isLoggedInHost(i)) jrHostLoad(i.id);
+  const joinReqs = (isRatingGame(i) && isLoggedInHost(i)) ? jrHostList(i.id) : [];
   const myRsvp = myKey ? rsvps[myKey] : null;
   const slotsLeft = Math.max(0, (i.slots||6) - confirmed.length);
   const now = Date.now();
@@ -9784,8 +9973,7 @@ function renderInviteDetail(){
   const eligibility = i.eligibility || {};
   const eligDesc = (() => {
     let label;
-    if(eligibility.baseMode === 'ratingMin') label = `Rating ${eligibility.ratingMin}+`;
-    else if(eligibility.baseMode === 'ratingRange') label = `Rating ${eligibility.ratingMin} to ${eligibility.ratingMax}`;
+    if(isRatingGame(i)) label = escapeHTML(ratingLevelLine(i));
     else if(eligibility.baseMode === 'group'){
       const g = (D.groups||{})[eligibility.groupId];
       label = 'Group: '+(g ? g.name : 'unknown');
@@ -9802,11 +9990,14 @@ function renderInviteDetail(){
     actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">This pickup has passed.</div>';
   } else if(!isAuthed){
     // Logged-out deep-link visitor (no real CourtSenseAuth session, even if a stale
-    // local Identity is present). Three states:
-    //   1. _claimFormNow (Door 2): the ORIGINAL instant-claim form, unchanged.
-    //   2. an existing pending guest request stashed for this game: a waiting card.
-    //   3. otherwise: the two-door choice (Request a spot / Register and grab).
-    // guestRequests live in a SEPARATE node and are NEVER counted toward slots.
+    // local Identity is present). States:
+    //   1. _claimFormNow (Door 2): the ORIGINAL instant-claim form, unchanged (never on a
+    //      rating game, whose circle the instant claim would skip).
+    //   2. an older pending guest request stashed for this game: a waiting card.
+    //   3. a rating game: Sign in to request a spot (requests need an account).
+    //   4. otherwise: Sign in to join, or Register and grab a spot.
+    // The name-only guest request (Door 1, which wrote guestRequests on the invite) is
+    // retired; older guest requests still show to the host until handled.
     const _origClaimForm = `<div style="font-weight:700;margin-bottom:10px;">Claim your spot</div>
       <input class="inp" id="claim-first" placeholder="First name" autocomplete="given-name" style="margin-bottom:8px;">
       <input class="inp" id="claim-last" placeholder="Last name" autocomplete="family-name" style="margin-bottom:8px;">
@@ -9815,18 +10006,18 @@ function renderInviteDetail(){
     let existingReqId = null;
     try { existingReqId = localStorage.getItem('cs_guestreq_'+activeInvite); } catch(e){ existingReqId = null; }
     const pendingReq = existingReqId && i.guestRequests && i.guestRequests[existingReqId] && i.guestRequests[existingReqId].status === 'pending';
-    if(_claimFormNow){
+    const _sid = escapeHTML(i.id).replace(/'/g,"\\'");
+    if(_claimFormNow && !isRatingGame(i)){
       actionHTML = _origClaimForm;
     } else if(pendingReq){
       actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request sent</div>
       <div style="font-size:13px;color:var(--gray);line-height:1.5;">The host will review your request. If they approve you, your game will show up under "Your games" on this device, and we'll email you if you added an address. Want to see your games on any device? Create a free account.</div>`;
-    } else {
+    } else if(isRatingGame(i)){
       actionHTML = `<div style="font-weight:700;margin-bottom:6px;">Request a spot</div>
-      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">Type your name and wait for the host to approve you.</div>
-      <input class="inp" id="req-first" placeholder="First name" autocomplete="given-name" style="margin-bottom:8px;">
-      <input class="inp" id="req-last" placeholder="Last name" autocomplete="family-name" style="margin-bottom:8px;">
-      <input class="inp" id="req-email" type="email" placeholder="Email (optional)" autocomplete="email" inputmode="email" autocapitalize="none" style="margin-bottom:10px;">
-      <button class="btn btn-p btn-w" onclick="requestSpot()">Request a Spot</button>
+      <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:10px;">This game is for ${escapeHTML(ratingLevelLine(i))} players. Sign in or create a free account, then ask the host for a spot.</div>
+      <button class="btn btn-p btn-w" onclick="csSignInToJoin('${_sid}', true)">Sign in to request a spot</button>`;
+    } else {
+      actionHTML = `<button class="btn btn-p btn-w" onclick="csSignInToJoin('${_sid}')">Sign in to join</button>
       <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--gray);font-size:12px;">
         <span style="flex:1;height:1px;background:var(--sand-border);"></span>or<span style="flex:1;height:1px;background:var(--sand-border);"></span>
       </div>
@@ -9843,6 +10034,9 @@ function renderInviteDetail(){
   } else {
     if(deadlinePassed){
       actionHTML = '<div style="background:var(--gray-lighter);color:var(--gray);border-radius:10px;padding:12px;text-align:center;font-weight:700;">RSVP deadline has passed.</div>';
+    } else if(isRatingGame(i) && !isLoggedInHost(i) && !jrEligible(i, myKey)){
+      // Outside a rating game's circle: ask the host (jrActionHTML).
+      actionHTML = jrActionHTML(i, myKey);
     } else {
       const label = slotsLeft > 0 ? `Opt In (${slotsLeft} slot${slotsLeft===1?'':'s'} left)` : 'Join Waitlist';
       actionHTML = `<button class="btn btn-p btn-w" onclick="optInInvite()">${label}</button>`;
@@ -9903,8 +10097,16 @@ function renderInviteDetail(){
     <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)+ratingBadge(r.name, r.accountId)).join(', ')}</div>
   </div>` : ''}
 
-  ${(isLoggedInHost(i) && guestReqs.length) ? `<div class="card">
-    <div class="ctitle"><span class="bar"></span>Requests (${guestReqs.length})</div>
+  ${(isLoggedInHost(i) && (guestReqs.length || joinReqs.length)) ? `<div class="card">
+    <div class="ctitle"><span class="bar"></span>Requests (${guestReqs.length + joinReqs.length})</div>
+    ${joinReqs.map(r=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
+      <div style="flex:1;">
+        <div style="font-weight:600;">${escapeHTML(r.display||'A player')}</div>
+        <div style="font-size:12px;color:var(--gray);">${escapeHTML(jrSkillLine(r))}</div>
+      </div>
+      <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="jrAnswer('${escapeHTML(r.accountId).replace(/'/g,"\\'")}','approve')">Approve</button>
+      <button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="jrAnswer('${escapeHTML(r.accountId).replace(/'/g,"\\'")}','decline')">Decline</button>
+    </div>`).join('')}
     ${guestReqs.map(([id,r])=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <div style="flex:1;">
         <div style="font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</div>
@@ -10482,58 +10684,10 @@ function tryResumeJoin(){
   renderInviteDetail();
 }
 
-// Door 1: name-only "request a spot". Writes a PENDING guest request to a SEPARATE
-// guestRequests node on the invite (never an rsvps entry, so it never counts toward
-// the confirmed/waitlist/slot totals). Email is optional. Mirrors claimSpot's front
-// half (guards + name validation) but takes no slot and sends no email from here.
-function requestSpot(){
-  const i = (D.invites||{})[activeInvite]; if(!i){ toast('Pickup not found'); return; }
-  if(i.status === 'cancelled'){ toast('Pickup is cancelled'); return; }
-  if(i.rsvpDeadline && i.rsvpDeadline < Date.now()){ toast('RSVP deadline passed'); return; }
-
-  const first = (($('req-first') && $('req-first').value) || '').trim();
-  const last  = (($('req-last')  && $('req-last').value)  || '').trim();
-  const email = (($('req-email') && $('req-email').value) || '').trim();
-  if(!first || !last){ toast('Add your first and last name'); return; }
-  if(email && !/^\S+@\S+\.\S+$/.test(email)){ toast('Add a valid email or leave it blank'); return; }
-
-  const reqId = gi('greq');
-  const requestedAt = Date.now();
-  const record = { name: first + ' ' + last, email: email || null, requestedAt, status: 'pending', guest: true };
-
-  // Optimistic local + mirror (same pattern as claimSpot, but on guestRequests).
-  if(!D.invites[activeInvite].guestRequests) D.invites[activeInvite].guestRequests = {};
-  D.invites[activeInvite].guestRequests[reqId] = record;
-  pendInviteOverride(activeInvite, inv => {
-    if(!inv.guestRequests) inv.guestRequests = {};
-    inv.guestRequests[reqId] = record;
-  });
-
-  fbSet('invites/'+activeInvite+'/guestRequests/'+reqId, record);
-  try { localStorage.setItem('cs_guestreq_'+activeInvite, reqId); } catch(e){}
-
-  // Set a local Identity keyed to the requester's name (the SAME key host approval
-  // will write the rsvps entry under: nameKey(first + ' ' + last)). This lets an
-  // approved accountless requester see their confirmed game in "Your games" on this
-  // browser after approval. It does NOT authenticate them (isAuthed stays false, so
-  // the guest doors still show on the deep link), and it does NOT surface a still-
-  // pending request in the list (the list reads rsvps, not guestRequests).
-  if(window.Identity && Identity.setCurrent){
-    Identity.setCurrent(first + ' ' + last, Identity.nameKey(first + ' ' + last));
-  }
-
-  // Notify the host by email (mirrors the claim-notify call in claimSpot). The worker
-  // resolves the host email SERVER-SIDE from the invite's hostId; we send no host email
-  // or host id from the client. A failure never undoes the request, which already
-  // succeeded above, but it is now reported rather than swallowed: the guest used to be
-  // told the request was sent while the host had in fact never been told anything.
-  const _hostNotify = notifyWorker('/pickup/request-notify',
-    { inviteId: activeInvite, reqId: reqId, guestName: first+' '+last, guestEmail: email || '' });
-
-  renderInviteDetail();
-  toast('Request sent ✓');
-  warnIfNotEmailed(_hostNotify, 'Request saved, but the host was not emailed.');
-}
+// The name-only guest request (Door 1, requestSpot) is retired: it wrote the requester's
+// name and email into guestRequests on the world-readable invite. Signed-out visitors sign
+// in instead, and rating games take requests through the worker (jrSend). Older guest
+// requests still show to the host (approveGuestRequest, declineGuestRequest).
 
 // Decline one participant's RSVP on the active game by their rsvps map key, then
 // renumber and promote exactly as self-drop does. Shared by self-drop and

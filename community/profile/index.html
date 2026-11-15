@@ -290,6 +290,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       <label class="toggle"><input type="checkbox" id="f-notify-canceled"><span class="tlbl">Game canceled <span class="soon-tag">coming soon</span></span></label>
       <label class="toggle"><input type="checkbox" id="f-notify-changed"><span class="tlbl">Game details changed <span class="soon-tag">coming soon</span></span></label>
       <label class="toggle"><input type="checkbox" id="f-notify-weather"><span class="tlbl">Weather heads-up for a game I'm in or hosting</span></label>
+      <label class="toggle"><input type="checkbox" id="f-notify-requests"><span class="tlbl">Request emails: spot requests on games I host, and the answer to mine</span></label>
     </div>
     <div class="fg" style="margin-top:14px;">
       <label class="lbl" for="f-mute">Mute notifications until</label>
@@ -689,7 +690,8 @@ const NOTIFY_FIELDS = [
   ['notifyConfirmed', 'f-notify-confirmed'],
   ['notifyCanceled',  'f-notify-canceled'],
   ['notifyChanged',   'f-notify-changed'],
-  ['notifyWeather',   'f-notify-weather']
+  ['notifyWeather',   'f-notify-weather'],
+  ['notifyRequests',  'f-notify-requests']
 ];
 
 function fillNotifications(p){
