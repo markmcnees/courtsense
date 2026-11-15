@@ -136,17 +136,23 @@ html,body{width:100%;min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:
 /* ── Weekly game: a mode of Post a Pickup Game (#view-invite-setup.wk) ── */
 #view-invite-setup:not(.wk) .wk-only{display:none!important;}
 #view-invite-setup.wk .wk-hide{display:none!important;}
-#view-invite-setup.wk:not(.wk-open) .wk-more{display:none!important;}
-#view-invite-setup.wk.on{display:flex;flex-direction:column;}
-#view-invite-setup.wk > button:first-child{order:0;align-self:flex-start;}
-#view-invite-setup.wk #iv-card-basic{order:1;} #view-invite-setup.wk #iv-card-rec{order:2;} #view-invite-setup.wk #iv-card-elig{order:3;}
-#view-invite-setup.wk #iv-wk-more{order:4;margin:0 0 12px;text-align:left;} #view-invite-setup.wk #iv-card-type{order:5;} #view-invite-setup.wk #iv-card-opts{order:6;}
-#view-invite-setup.wk #iv-card-widen{order:7;} #view-invite-setup.wk #iv-save-btn{order:8;}
 .wk-days{display:flex;gap:6px;flex-wrap:wrap;}
 .wk-day{min-width:44px;min-height:44px;border-radius:12px;border:1.5px solid var(--gray-light);background:#fff;font-family:'Barlow';font-weight:700;font-size:14px;color:var(--primary);cursor:pointer;}
 .wk-day.on{background:var(--primary);border-color:var(--primary);color:#fff;}
 .wk-freq,.wk-who{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:15px;}
 .wk-freq label,.wk-who label{display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer;}
+/* The post form's four cards: sub-sections, hints, Who can play, invite chips, the deadline line. */
+.iv-head{margin:4px 2px 12px;}
+.iv-sub{margin-top:16px;padding-top:14px;border-top:1px solid var(--sand-border);}
+.iv-subh{font-weight:800;font-size:15px;color:var(--primary);margin-bottom:6px;}
+.iv-hint{font-size:12px;color:var(--gray);margin-top:6px;line-height:1.4;}
+.wk-who.iv-who{flex-direction:column;gap:0;margin-top:2px;}
+.iv-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.iv-chips:empty{display:none;}
+.iv-chip{display:inline-flex;align-items:center;gap:2px;background:var(--light);color:var(--primary);font-size:13px;font-weight:700;border-radius:14px;padding:2px 2px 2px 10px;}
+.iv-chip button{border:none;background:none;color:var(--primary);font-size:18px;line-height:1;min-width:32px;min-height:32px;cursor:pointer;}
+.iv-dl-line{font-size:14px;color:var(--ink);display:flex;align-items:center;flex-wrap:wrap;gap:4px;}
+.iv-link{border:none;background:none;color:#0081AB;font-family:'Barlow';font-weight:700;font-size:14px;padding:0 4px;min-height:44px;cursor:pointer;}
 /* ── The pickup home (redesign) ── */
 .home-h{font-family:'Bebas Neue';font-weight:400;font-size:28px;letter-spacing:.5px;color:var(--primary);margin:18px 2px 10px;}
 .start-cta{margin:6px 0 4px;}
@@ -487,24 +493,24 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div id="tournament-list"></div>
   </div>
 
-  <!-- INVITE SETUP VIEW -->
+  <!-- INVITE SETUP VIEW: one form for a single game and for a weekly game (the .wk mode), in
+       four labeled cards, all in plain view: When and where, The game, Who can play, Invite
+       players. Weekly-only fields carry wk-only, single-game-only fields wk-hide. -->
   <div class="pane" id="view-invite-setup">
     <button class="btn btn-g btn-sm" style="margin-bottom:10px;" onclick="backToList()">← Back</button>
+    <h2 class="home-h iv-head" id="iv-su-title">Post a Pickup Game</h2>
+
     <div class="card" id="iv-card-basic">
-      <div class="ctitle"><span class="bar"></span><span id="iv-su-title">Post a Pickup Game</span></div>
-      <div class="fg">
-        <label class="lbl">Event Name<span class="wk-only" style="font-weight:400;"> (optional)</span></label>
-        <input class="inp" id="iv-name" placeholder="Saturday Pickup">
-      </div>
+      <div class="ctitle"><span class="bar"></span>When and where</div>
       <div class="fg wk-hide">
         <label class="lbl">Date</label>
         <input class="inp" id="iv-date" type="date">
       </div>
-      <!-- Weekly game: the day of the week picks the first date (wkFirstDate), and every
-           week or every other week sets the repeat. -->
+      <!-- Weekly game: one or more days of the week, every week or every other week (all the
+           days together), from the Starts date. wkApplyDate puts the first game in iv-date. -->
       <div class="fg wk-only" id="iv-wk-days-fg">
         <label class="lbl">Every</label>
-        <div class="wk-days" id="iv-wk-days" role="group" aria-label="Day of the week">
+        <div class="wk-days" id="iv-wk-days" role="group" aria-label="Days of the week">
           <button type="button" class="wk-day" data-wd="1" aria-pressed="false" onclick="wkPickDay(1)">Mon</button>
           <button type="button" class="wk-day" data-wd="2" aria-pressed="false" onclick="wkPickDay(2)">Tue</button>
           <button type="button" class="wk-day" data-wd="3" aria-pressed="false" onclick="wkPickDay(3)">Wed</button>
@@ -513,10 +519,15 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <button type="button" class="wk-day" data-wd="6" aria-pressed="false" onclick="wkPickDay(6)">Sat</button>
           <button type="button" class="wk-day" data-wd="0" aria-pressed="false" onclick="wkPickDay(0)">Sun</button>
         </div>
+        <div class="iv-hint">Pick one day or several. They share the time below.</div>
         <div class="wk-freq">
           <label><input type="radio" name="iv-wk-freq" id="iv-wk-freq-weekly" value="weekly" checked onchange="wkFreq('weekly')"> Every week</label>
           <label><input type="radio" name="iv-wk-freq" id="iv-wk-freq-biweekly" value="biweekly" onchange="wkFreq('biweekly')"> Every other week</label>
         </div>
+      </div>
+      <div class="fg wk-only" id="iv-wk-start-fg">
+        <label class="lbl" for="iv-wk-start">Starts</label>
+        <input class="inp" id="iv-wk-start" type="date" onchange="wkStartPicked()">
         <div class="evmeta" id="iv-wk-first" style="margin-top:6px;"></div>
       </div>
       <div class="row2">
@@ -536,19 +547,77 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <button type="button" class="pl-manage" id="iv-loc-manage" style="display:none;" onclick="openPlaces()">Manage places</button>
       </div>
       <div class="fg" id="iv-city-fg" style="display:none;"></div>
-      <div class="fg wk-more" id="iv-court-fg" style="display:none;">
+      <div class="fg" id="iv-court-fg" style="display:none;">
         <label class="lbl">Court (optional)</label>
         <select class="inp" id="iv-court" onchange="onCourtPick()"></select>
         <div id="iv-court-hint" style="font-size:11px;color:var(--gray);margin-top:4px;"></div>
       </div>
-      <div class="fg wk-more">
+      <div class="fg">
         <label class="lbl">Court numbers</label>
         <input class="inp" id="iv-courts" type="text" value="1" placeholder="1" maxlength="40" oninput="onCourtsInput()">
         <div id="iv-courts-hint" style="font-size:11px;color:var(--gray);margin-top:4px;min-height:14px;">Which courts you are on, not how many. Comma separated, for example 3, 4.</div>
       </div>
-      <div class="fg wk-more">
-        <label class="lbl">Notes (optional)</label>
-        <textarea class="inp" id="iv-desc" rows="3" placeholder="Bring water and sunscreen"></textarea>
+      <!-- Repeat (a single game) or How long (a weekly game). -->
+      <div class="iv-sub" id="iv-card-rec">
+        <div class="iv-subh"><span class="wk-hide">Repeat</span><span class="wk-only">How long</span></div>
+        <label class="wk-hide" style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
+          <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
+          <span style="font-size:14px;font-weight:600;">Repeat this event</span>
+        </label>
+        <div id="iv-rec-fields" style="display:none;margin-top:10px;">
+          <div class="row2">
+            <div class="wk-hide">
+              <label class="lbl">Frequency</label>
+              <select class="inp" id="iv-rec-freq" onchange="updateSeriesPreview()">
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Biweekly</option>
+              </select>
+            </div>
+            <div>
+              <label class="lbl">Ends</label>
+              <select class="inp" id="iv-rec-ends" onchange="toggleRecurring()">
+                <option value="count">After a number of games</option>
+                <option value="date">On a date</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg" id="iv-rec-count-fg" style="margin-top:10px;">
+            <label class="lbl"><span class="wk-hide">Number of games</span><span class="wk-only">Number of weeks</span></label>
+            <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4" oninput="updateSeriesPreview()">
+          </div>
+          <div class="fg" id="iv-rec-end-fg" style="margin-top:10px;display:none;">
+            <label class="lbl">Last game on or before</label>
+            <input class="inp" id="iv-rec-end" type="date" oninput="updateSeriesPreview()" onchange="updateSeriesPreview()">
+          </div>
+          <div class="evmeta" id="iv-rec-preview" style="margin-top:8px;font-weight:600;color:var(--primary);"></div>
+          <div class="evmeta wk-only" id="iv-wk-remind" style="margin-top:4px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="iv-card-type">
+      <div class="ctitle"><span class="bar"></span>The game</div>
+      <div class="fg">
+        <label class="lbl">Event Name<span class="wk-only" style="font-weight:400;"> (optional)</span></label>
+        <input class="inp" id="iv-name" placeholder="Saturday Pickup">
+      </div>
+      <div class="row2">
+        <div>
+          <label class="lbl">Format</label>
+          <select class="inp" id="iv-game-format" onchange="syncGameType();updateSitHint()">
+            <option value="2s">2s (doubles)</option>
+            <option value="3s">3s (triples)</option>
+            <option value="4s">4s</option>
+            <option value="combo">Combo</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Vibe</label>
+          <select class="inp" id="iv-game-vibe" onchange="syncGameType()">
+            <option value="fun">Fun</option>
+            <option value="competitive">Competitive</option>
+          </select>
+        </div>
       </div>
       <div class="row2">
         <div>
@@ -562,119 +631,73 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <div id="iv-min-slots-err" style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px;min-height:14px;"></div>
         </div>
       </div>
-      <div class="fg wk-more">
-        <label class="lbl">RSVP Deadline</label>
-        <input class="inp" id="iv-deadline" type="datetime-local">
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
+      <div class="fg">
+        <label class="lbl">Notes (optional)</label>
+        <textarea class="inp" id="iv-desc" rows="3" placeholder="Bring water and sunscreen"></textarea>
       </div>
     </div>
 
-    <div class="card wk-more" id="iv-card-type">
-      <div class="ctitle"><span class="bar"></span>Game Type</div>
-      <div class="row2">
-        <div>
-          <label class="lbl">Vibe</label>
-          <select class="inp" id="iv-game-vibe" onchange="syncGameType()">
-            <option value="fun">Fun</option>
-            <option value="competitive">Competitive</option>
-          </select>
-        </div>
-        <div>
-          <label class="lbl">Format</label>
-          <select class="inp" id="iv-game-format" onchange="syncGameType();updateSitHint()">
-            <option value="2s">2s (doubles)</option>
-            <option value="3s">3s (triples)</option>
-            <option value="4s">4s</option>
-            <option value="combo">Combo</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" id="iv-card-rec">
-      <div class="ctitle"><span class="bar"></span><span class="wk-hide">Recurring</span><span class="wk-only">How long</span></div>
-      <label class="wk-hide" style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;">
-        <input type="checkbox" id="iv-rec" style="width:18px;height:18px;" onchange="toggleRecurring()">
-        <span style="font-size:14px;font-weight:600;">Repeat this event</span>
-      </label>
-      <div id="iv-rec-fields" style="display:none;margin-top:10px;">
-        <div class="row2">
-          <div class="wk-hide">
-            <label class="lbl">Frequency</label>
-            <select class="inp" id="iv-rec-freq" onchange="updateSeriesPreview()">
-              <option value="weekly">Weekly</option>
-              <option value="biweekly">Biweekly</option>
-            </select>
-          </div>
-          <div>
-            <label class="lbl">Ends</label>
-            <select class="inp" id="iv-rec-ends" onchange="toggleRecurring()">
-              <option value="count">After a number of games</option>
-              <option value="date">On a date</option>
-            </select>
-          </div>
-        </div>
-        <div class="fg" id="iv-rec-count-fg" style="margin-top:10px;">
-          <label class="lbl">Number of games</label>
-          <input class="inp" id="iv-rec-count" type="number" min="2" max="20" value="4" oninput="updateSeriesPreview()">
-        </div>
-        <div class="fg" id="iv-rec-end-fg" style="margin-top:10px;display:none;">
-          <label class="lbl">Last game on or before</label>
-          <input class="inp" id="iv-rec-end" type="date" oninput="updateSeriesPreview()" onchange="updateSeriesPreview()">
-        </div>
-        <div class="evmeta" id="iv-rec-preview" style="margin-top:8px;font-weight:600;color:var(--primary);"></div>
-        <div class="evmeta wk-only" id="iv-wk-remind" style="margin-top:4px;"></div>
-      </div>
-    </div>
-
+    <!-- Who can play: the radios set the hidden iv-elig-mode select, which stays the one
+         source every reader uses (getCurrentEligibilitySpec, wkWho, the checks). Rating range
+         shows only on a game that already has one, so it stays editable. -->
     <div class="card" id="iv-card-elig">
-      <div class="ctitle"><span class="bar"></span><span class="wk-hide">Eligibility</span><span class="wk-only">Who can join</span></div>
-      <div class="fg wk-only wk-who">
-        <label><input type="radio" name="iv-wk-who" id="iv-wk-who-open" value="open" checked onchange="wkWho('open')"> Anyone nearby</label>
-        <label><input type="radio" name="iv-wk-who" id="iv-wk-who-group" value="group" onchange="wkWho('group')"> My group only</label>
-        <div class="evmeta" id="iv-wk-group-note" style="margin-top:6px;"></div>
+      <div class="ctitle"><span class="bar"></span>Who can play</div>
+      <select class="inp" id="iv-elig-mode" hidden onchange="renderEligibilityFields()">
+        <option value="open">Open to all</option>
+        <option value="ratingMin">Rating minimum</option>
+        <option value="ratingRange">Rating range</option>
+        <option value="group">Specific group</option>
+        <option value="inviteOnly">Initial invites</option>
+      </select>
+      <div class="fg wk-who iv-who" role="radiogroup" aria-label="Who can play">
+        <label><input type="radio" name="iv-who" id="iv-wk-who-open" value="open" checked onchange="wkWho('open')"> Anyone nearby</label>
+        <label><input type="radio" name="iv-who" id="iv-wk-who-group" value="group" onchange="wkWho('group')"> My group only</label>
+        <label><input type="radio" name="iv-who" id="iv-who-level" value="ratingMin" onchange="wkWho('ratingMin')"> Minimum level</label>
+        <label class="wk-hide"><input type="radio" name="iv-who" id="iv-who-invite" value="inviteOnly" onchange="wkWho('inviteOnly')"> Only players I invite</label>
+        <label id="iv-who-range-l" style="display:none;"><input type="radio" name="iv-who" id="iv-who-range" value="ratingRange" onchange="wkWho('ratingRange')"> Rating range</label>
       </div>
-      <div class="fg wk-more">
-        <label class="lbl">Who's invited?</label>
-        <select class="inp" id="iv-elig-mode" onchange="renderEligibilityFields()">
-          <option value="open">Open to all</option>
-          <option value="ratingMin">Rating minimum</option>
-          <option value="ratingRange">Rating range</option>
-          <option value="group">Specific group</option>
-          <option value="inviteOnly">Initial invites</option>
-        </select>
-      </div>
+      <div class="evmeta" id="iv-wk-group-note" style="margin-top:6px;"></div>
       <div id="iv-elig-fields"></div>
-
-      <div class="fg wk-more" style="margin-top:14px;">
-        <label class="lbl">Invite</label>
-        <div style="display:flex;gap:8px;margin-bottom:6px;">
-          <input class="inp" id="iv-inc-search" placeholder="Search players..." oninput="renderInclude()" style="flex:1;">
-        </div>
-        <div id="iv-inc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Checked players will be emailed an invite. Turn on phone alerts and text alerts in your <a href="/community/profile/" style="color:inherit;font-weight:700;text-decoration:underline;">Profile settings</a>.</div>
-      </div>
-
-      <div class="fg wk-more" style="margin-top:14px;">
-        <label class="lbl">Do not include in widening if applicable.</label>
-        <div style="display:flex;gap:8px;margin-bottom:6px;">
-          <input class="inp" id="iv-exc-search" placeholder="Search players..." oninput="renderExclude()" style="flex:1;">
-        </div>
-        <div id="iv-exc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
-      </div>
-
-      <div class="wk-more" id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
+      <div id="iv-elig-preview" style="margin-top:14px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:12px;color:var(--primary);font-weight:600;"></div>
     </div>
 
-    <div class="card wk-hide" id="iv-card-widen">
-      <div class="ctitle"><span class="bar"></span>Widening Schedule</div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The primary circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it.</div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">These are your first invites. Add a widening tier below to automatically open the game to more players if it doesn't fill.</div>
-      <div id="iv-tiers-list"></div>
-      <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
+    <div class="card" id="iv-card-invite">
+      <div class="ctitle"><span class="bar"></span>Invite players</div>
+      <div class="fg">
+        <label class="lbl" for="iv-inc-search">Invite</label>
+        <input class="inp" id="iv-inc-search" placeholder="Type a name to invite" autocomplete="off" oninput="renderInclude()">
+        <div class="iv-chips" id="iv-inc-chips"></div>
+        <div id="iv-inc-list" style="display:none;max-height:200px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);margin-top:6px;"></div>
+        <div style="font-size:11px;color:var(--gray);margin-top:6px;">Players you pick are emailed an invite. Turn on phone alerts and text alerts in your <a href="/community/profile/" style="color:inherit;font-weight:700;text-decoration:underline;">Profile settings</a>.</div>
+      </div>
+      <!-- The sign-up deadline: one line, opened in place by Change. -->
+      <div class="fg" id="iv-dl-fg">
+        <div class="iv-dl-line"><span id="iv-dl-text">Sign-ups close 2 hours before start.</span> <button type="button" class="iv-link" id="iv-dl-change" onclick="ivDeadlineOpen()">Change</button></div>
+        <div id="iv-dl-edit" style="display:none;margin-top:8px;">
+          <label class="lbl" for="iv-deadline">Sign-ups close</label>
+          <input class="inp" id="iv-deadline" type="datetime-local" onchange="ivDeadlineText()">
+          <div style="font-size:11px;color:var(--gray);margin-top:4px;">Default: 2 hours before start.</div>
+        </div>
+      </div>
+      <!-- A single game only: who to leave out, and widening, if the game doesn't fill. -->
+      <div class="iv-sub wk-hide" id="iv-card-widen">
+        <div class="iv-subh">If the game doesn't fill</div>
+        <div class="fg">
+          <label class="lbl">Do not include in widening if applicable.</label>
+          <div style="display:flex;gap:8px;margin-bottom:6px;">
+            <input class="inp" id="iv-exc-search" placeholder="Type a name to leave out" autocomplete="off" oninput="renderExclude()" style="flex:1;">
+          </div>
+          <div id="iv-exc-list" style="display:none;max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
+        </div>
+        <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it.</div>
+        <div id="iv-tiers-list"></div>
+        <button type="button" class="btn btn-g btn-sm" onclick="addWideningTier()" style="margin-top:4px;">+ Add widening tier</button>
+      </div>
     </div>
 
-    <div class="card wk-more" id="iv-card-opts">
+    <!-- Auto-cancel stays hidden until it works ("Nothing cancels automatically yet"). The
+         field stays so a saved choice round-trips on edit. -->
+    <div class="card" id="iv-card-opts" style="display:none;" aria-hidden="true">
       <div class="ctitle"><span class="bar"></span>Game Options</div>
       <div class="fg">
         <label class="lbl">Auto-cancel if minimum not met</label>
@@ -687,11 +710,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <option value="720">12 hours before start</option>
           <option value="1440">24 hours before start</option>
         </select>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Saved for a later phase. Nothing cancels automatically yet.</div>
       </div>
     </div>
 
-    <button type="button" class="pl-manage wk-only" id="iv-wk-more" onclick="wkToggleMore()">More options (description, courts, game type, invite list, skill range, sign-up deadline, auto-cancel)</button>
     <button class="btn btn-p btn-w" id="iv-save-btn" onclick="ivSubmit()">Post Game</button>
   </div>
 
@@ -3151,6 +3172,38 @@ function ratingBadge(nameOrKey, accountId){
     : ' <span class="rbadge unrated">Unrated</span>';
 }
 
+// ── LEVEL TAG (the host's player pickers) ──────────────────────────────
+// A level name, never a rating number, beside each name in Invite, Leave out and Add a
+// player. Rated (Ratings.isRated): the level from the shared bands (csLevels). Otherwise
+// "Unrated", plus the level the player picked on their profile (profile.skillLevel) when
+// there is one. The rating record is found by account id first (the profiles cache is keyed
+// by account id, mapped here from each profile's name key), then by the name.
+let _plAcct = null, _plAcctSrc = null;
+function playerAccountForKey(key){
+  const P = window._profilesCache || {};
+  if(_plAcctSrc !== P){
+    _plAcct = {};
+    for(const id in P){
+      const p = P[id]; const nm = p ? nameStr(p) : '';
+      if(!nm || p.blocked) continue;
+      const k = Identity.nameKey(nm);
+      if(!(k in _plAcct)) _plAcct[k] = id;
+    }
+    _plAcctSrc = P;
+  }
+  return _plAcct[key] || null;
+}
+function playerLevelTag(key){
+  const aid = playerAccountForKey(key);
+  const rec = ratingRecordFor(key, aid);
+  if(Ratings.isRated(rec) && Number.isFinite(Number(rec.rating))){
+    return ' <span class="rbadge lvl">' + escapeHTML(csLevels.levelLabel(csLevels.levelOf(Number(rec.rating)))) + '</span>';
+  }
+  const prof = aid ? (window._profilesCache || {})[aid] : null;
+  const own = prof && prof.profile && typeof prof.profile.skillLevel === 'string' ? csLevels.levelLabel(prof.profile.skillLevel) : '';
+  return ' <span class="rbadge unrated">Unrated' + (own ? ' &middot; ' + escapeHTML(own) : '') + '</span>';
+}
+
 function showPlayerRatingDetail(name){
   if(!name) return;
   const k = window.Ratings ? Ratings.nameKey(name) : '';
@@ -3826,6 +3879,13 @@ function courtLabel(i){
   if(!cs.length) return '';
   if(cs.length === 1) return 'Court '+cs[0];
   return 'Courts '+cs.slice(0,-1).join(', ')+' and '+cs[cs.length-1];
+}
+// An instant as a datetime-local value (YYYY-MM-DDTHH:MM) on this device's clock.
+function localDateTimeValue(ms){
+  const d = new Date(ms);
+  if(!Number.isFinite(d.getTime())) return '';
+  const pad = n => String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
 }
 function defaultDeadlineISO(date, startTime){
   if(!date || !startTime) return '';
@@ -8737,6 +8797,7 @@ function wireSetupListeners(){
     $('iv-deadline').value = defaultDeadlineISO($('iv-date').value, $('iv-start').value);
     if(!_userEditedTitle) $('iv-name').value = autoTitle($('iv-date').value);
     rebuildCourtPicker();
+    if(typeof ivDeadlineText === 'function') ivDeadlineText();
     updateSeriesPreview();
   };
   $('iv-date').onchange = onDateOrStart;
@@ -8978,6 +9039,9 @@ function startNewInvite(opts){
       $('iv-rec-freq').value = 'weekly';
       if($('iv-rec-ends')) $('iv-rec-ends').value = 'count';
       if($('iv-rec-end')) $('iv-rec-end').value = '';
+      if($('iv-inc-search')) $('iv-inc-search').value = '';
+      _ivRangeShown = false;
+      ivDeadlineClose();
       setWeeklyMode(weekly);
       toggleRecurring();
       // A weekly game starts open to anyone nearby; a one-off game keeps Initial invites.
@@ -8995,9 +9059,12 @@ function startNewInvite(opts){
         $('iv-su-title').textContent = 'Weekly game';
         if($('iv-wk-who-open')) $('iv-wk-who-open').checked = true;
         if($('iv-wk-freq-weekly')) $('iv-wk-freq-weekly').checked = true;
+        // Starts: no earlier than today; it follows the first game until the host picks one.
+        if($('iv-wk-start')){ $('iv-wk-start').min = today; $('iv-wk-start').value = ''; }
         wkGroupNote();
         wkPickDay(new Date().getDay());
       }
+      ivDeadlineText();
     }, 0);
   });
 }
@@ -9039,7 +9106,8 @@ function startEditInvite(id){
       $('iv-slots').value = i.slots || 6;
       $('iv-min-slots').value = i.minSlots || 4;
       if($('iv-min-slots-err')) $('iv-min-slots-err').textContent = '';
-      $('iv-deadline').value = i.rsvpDeadline ? new Date(i.rsvpDeadline).toISOString().slice(0,16) : defaultDeadlineISO(i.date, i.startTime);
+      // The saved deadline in local time (the field is datetime-local), never UTC.
+      $('iv-deadline').value = i.rsvpDeadline ? localDateTimeValue(i.rsvpDeadline) : defaultDeadlineISO(i.date, i.startTime);
       // A2 edit: reflect the loaded A1 module state into the added controls. All stored
       // cancel-offset values are select presets (or null), so the option matches; a null
       // shows "No auto-cancel".
@@ -9051,6 +9119,10 @@ function startEditInvite(id){
       toggleRecurring();
       const e = i.eligibility || {};
       $('iv-elig-mode').value = e.baseMode || 'open';
+      // A game saved with a rating range keeps that choice on the form, so it stays editable.
+      _ivRangeShown = e.baseMode === 'ratingRange';
+      if($('iv-inc-search')) $('iv-inc-search').value = '';
+      ivDeadlineClose();
       wireSetupListeners();
       rebuildCourtPicker();
       if($('iv-court')) $('iv-court').value = (i.court != null && i.court !== '') ? String(i.court) : '';
@@ -9063,6 +9135,7 @@ function startEditInvite(id){
       renderInclude(); renderExclude();
       updateInvitePreview();
       renderWideningTiers();
+      ivDeadlineText();
     }, 0);
   });
 }
@@ -9072,17 +9145,17 @@ function startEditInvite(id){
 function ivSubmit(){ return weeklyOn() ? wkSubmit() : saveInvite(); }
 
 // ── Weekly game: a mode of Post a Pickup Game ──
-// The same form and element ids, so saveInvite, the series write and every check on it are
-// unchanged. The mode hides the one-off date and the fields a weekly game rarely needs
-// (folded under More options), picks the first date from a day of the week, and offers
-// Anyone nearby or My group only.
-let _wkDay = null, _wkStartHooked = false;
+// The same form and element ids as a single game. The mode swaps the one-off date for one or
+// more days of the week and a Starts date; the first game (iv-date) is the earliest chosen
+// day on or after Starts, and the series is every chosen day, every week or every other week
+// (seriesPlan, wkSeriesPlan). A repeated single game steps from its date exactly as before.
+let _wkDays = new Set(), _wkStartHooked = false, _wkStartEdited = false, _ivRangeShown = false;
 function weeklyOn(){ const p = $('view-invite-setup'); return !!(p && p.classList && p.classList.contains('wk')); }
 function setWeeklyMode(on){
   const p = $('view-invite-setup'); if(!p || !p.classList) return;
   p.classList.toggle('wk', !!on);
-  p.classList.remove('wk-open');
-  _wkDay = null;
+  _wkDays = new Set();
+  _wkStartEdited = false;
   if(on && !_wkStartHooked && $('iv-start') && $('iv-start').addEventListener){
     // A later start time can move today's game to today (or back to next week).
     _wkStartHooked = true;
@@ -9102,11 +9175,41 @@ function wkFirstDate(weekday, startTime, now){
   const d = new Date(wkISO(today)+'T12:00:00'); d.setDate(d.getDate() + delta);
   return wkISO(d);
 }
-function wkPickDay(wd){ _wkDay = wd; wkApplyDate(); }
+// A weekday's first date on or after the Starts date. Starting today (or with no Starts date)
+// keeps wkFirstDate's 2 hour rule; a later Starts date takes that weekday's first date from it.
+function wkFirstOnOrAfter(weekday, startISO, startTime, now){
+  if(!startISO || startISO <= wkISO(new Date(now))) return wkFirstDate(weekday, startTime, now);
+  const d = new Date(startISO+'T12:00:00');
+  if(!Number.isFinite(d.getTime())) return wkFirstDate(weekday, startTime, now);
+  d.setDate(d.getDate() + (weekday - d.getDay() + 7) % 7);
+  return wkISO(d);
+}
+// Each chosen day's first game, in date order.
+function wkFirsts(days, startISO, startTime, now){
+  return [...days].map(wd => wkFirstOnOrAfter(wd, startISO, startTime, now)).sort();
+}
+// The chosen days, Monday first (the order the preview and the email name them in).
+function wkDayList(days){ return [1,2,3,4,5,6,0].filter(d => days.has(d)); }
+// A day chip turns that day on or off.
+function wkPickDay(wd){
+  if(_wkDays.has(wd)) _wkDays.delete(wd); else _wkDays.add(wd);
+  wkApplyDate();
+}
+// Starts: never before today. Once the host picks it, the first game follows it.
+function wkStartPicked(){
+  const el = $('iv-wk-start'); if(!el) return;
+  const today = wkISO(new Date());
+  if(el.value && el.value < today) el.value = today;
+  _wkStartEdited = !!el.value;
+  wkApplyDate();
+}
+function wkStartFloor(){ const el = $('iv-wk-start'); return _wkStartEdited && el ? el.value : ''; }
 function wkApplyDate(){
-  if(_wkDay === null) return;
-  const iso = wkFirstDate(_wkDay, $('iv-start').value, Date.now());
-  $('iv-date').value = iso;
+  if(!_wkDays.size){ wkDrawDays(); updateSeriesPreview(); return; }
+  const firsts = wkFirsts(_wkDays, wkStartFloor(), $('iv-start').value, Date.now());
+  const st = $('iv-wk-start');
+  if(st && !_wkStartEdited) st.value = firsts[0];
+  $('iv-date').value = firsts[0];
   if(typeof $('iv-date').onchange === 'function') $('iv-date').onchange();
   wkDrawDays();
   updateSeriesPreview();
@@ -9114,18 +9217,27 @@ function wkApplyDate(){
 function wkDrawDays(){
   const box = $('iv-wk-days');
   if(box && box.querySelectorAll) box.querySelectorAll('.wk-day').forEach(b => {
-    const on = String(_wkDay) === b.getAttribute('data-wd');
+    const on = _wkDays.has(Number(b.getAttribute('data-wd')));
     b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   const first = $('iv-wk-first');
-  if(first) first.textContent = (_wkDay === null || !$('iv-date').value) ? 'Pick a day.' : 'First game: ' + new Date($('iv-date').value+'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if(first) first.textContent = (!_wkDays.size || !$('iv-date').value) ? 'Pick one or more days.' : 'First game: ' + new Date($('iv-date').value+'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 function wkFreq(v){ $('iv-rec-freq').value = v === 'biweekly' ? 'biweekly' : 'weekly'; updateSeriesPreview(); }
+// Who can play: each radio sets the hidden iv-elig-mode select.
+const WHO_MODES = ['open', 'group', 'ratingMin', 'ratingRange', 'inviteOnly'];
 function wkWho(v){
-  $('iv-elig-mode').value = v === 'group' ? 'group' : 'open';
+  $('iv-elig-mode').value = WHO_MODES.indexOf(v) >= 0 ? v : 'open';
   renderEligibilityFields();
   wkGroupNote();
   updateSeriesPreview();
+}
+// The radios follow the select (a fresh form, an edit, or a radio tap). Rating range shows
+// only on a game saved with one.
+function syncWhoRadios(mode){
+  const ids = { open: 'iv-wk-who-open', group: 'iv-wk-who-group', ratingMin: 'iv-who-level', inviteOnly: 'iv-who-invite', ratingRange: 'iv-who-range' };
+  const rl = $('iv-who-range-l'); if(rl && rl.style) rl.style.display = (mode === 'ratingRange' || _ivRangeShown) ? '' : 'none';
+  Object.keys(ids).forEach(m => { const r = $(ids[m]); if(r) r.checked = m === mode; });
 }
 // The selected group's members, for My group only.
 function wkGroupMembers(){
@@ -9148,15 +9260,32 @@ function wkRemindText(mode, picks, groupCount){
   if(mode === 'open' || !mode) return picks ? 'Players you invite get the invite now. They, and anyone who joins a game, get a reminder 3 days before each later one.' : 'Anyone who joins a game gets a reminder 3 days before each later one.';
   return picks ? 'Players you invite get the invite now and a reminder 3 days before each later game.' : '';
 }
-function wkToggleMore(){
-  const p = $('view-invite-setup'); if(!p || !p.classList) return;
-  p.classList.toggle('wk-open');
-  const b = $('iv-wk-more'); if(b) b.textContent = p.classList.contains('wk-open') ? 'Fewer options' : 'More options (description, courts, game type, invite list, skill range, sign-up deadline, auto-cancel)';
+// The sign-up deadline line: "Sign-ups close 2 hours before start." Change opens the field
+// in place; a date or start change resets it to 2 hours before (wireSetupListeners).
+function deadlineLineText(dl, date, start){
+  const startMs = computeStartMs(date, start);
+  const dlMs = dl ? new Date(dl).getTime() : NaN;
+  if(!Number.isFinite(dlMs) || startMs === null) return 'Sign-ups close 2 hours before start.';
+  const H = 3600000, lead = startMs - dlMs;
+  if(lead > 0 && lead % H === 0 && lead <= 72*H) return 'Sign-ups close ' + (lead/H) + ' hour' + (lead === H ? '' : 's') + ' before start.';
+  return 'Sign-ups close ' + new Date(dlMs).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.';
+}
+function ivDeadlineText(){
+  const el = $('iv-dl-text'); if(!el) return;
+  el.textContent = deadlineLineText($('iv-deadline').value, $('iv-date').value, $('iv-start').value);
+}
+function ivDeadlineOpen(){
+  const e = $('iv-dl-edit'); if(e) e.style.display = '';
+  const b = $('iv-dl-change'); if(b) b.style.display = 'none';
+}
+function ivDeadlineClose(){
+  const e = $('iv-dl-edit'); if(e) e.style.display = 'none';
+  const b = $('iv-dl-change'); if(b) b.style.display = '';
 }
 // Post a weekly game: a day is required; My group only adds the group's members to the
 // invite list (the week-one email and the reminders go to them), then saveInvite.
 function wkSubmit(){
-  if(_wkDay === null){ toast('Pick a day of the week.'); return; }
+  if(!_wkDays.size){ toast('Pick a day of the week.'); return; }
   if($('iv-elig-mode').value === 'group'){
     const m = wkGroupMembers();
     if(!m.length){ toast('Pick a group with players in it.'); return; }
@@ -9201,6 +9330,10 @@ function seriesCountToDate(firstISO, endISO, stepDays){
 function seriesPlan(){
   const stepDays = $('iv-rec-freq').value === 'biweekly' ? 14 : 7;
   const byDate = !!$('iv-rec-ends') && $('iv-rec-ends').value === 'date';
+  // A weekly game: every chosen day, with its own date list (wkSeriesPlan).
+  if(typeof weeklyOn === 'function' && weeklyOn()){
+    return wkSeriesPlan(wkFirsts(_wkDays, wkStartFloor(), $('iv-start').value, Date.now()), wkDayList(_wkDays), stepDays, byDate, $('iv-rec-count').value, ($('iv-rec-end') || {}).value || '');
+  }
   if(byDate){
     const first = $('iv-date').value, end = ($('iv-rec-end') || {}).value || '';
     if(!end) return { count: 0, capped: false, err: 'Pick an end date.', stepDays };
@@ -9208,10 +9341,58 @@ function seriesPlan(){
   }
   return { count: Math.max(2, Math.min(SERIES_MAX, parseInt($('iv-rec-count').value)||4)), capped: false, err: '', stepDays };
 }
+// A weekly game's games: every chosen day, every week or every other week (all the days
+// together), for SERIES_MAX weeks at most and never more than SERIES_ID_MAX games (the most
+// one post writes). Weeks come from "Number of weeks", or from the end date counted from the
+// first game; with an end date, no game falls after it. Dates step from local noon, like
+// seriesDates, so a daylight saving change never moves a game to another day.
+const SERIES_ID_MAX = 60;
+function wkSeriesDates(firsts, stepDays, weeks, endISO){
+  const out = new Set();
+  for(let w=0; w<weeks; w++) for(const f of firsts){
+    const d = new Date(f+'T12:00:00');
+    if(!Number.isFinite(d.getTime())) continue;
+    d.setDate(d.getDate() + w*stepDays);
+    const iso = seriesISO(d);
+    if(!endISO || iso <= endISO) out.add(iso);
+  }
+  return [...out].sort();
+}
+function wkSeriesPlan(firsts, days, stepDays, byDate, countVal, endISO){
+  const none = (err) => ({ count: 0, capped: false, err, stepDays, dates: [], days });
+  if(!firsts.length) return none('Pick a day of the week.');
+  let weeks, capped = false;
+  if(byDate){
+    if(!endISO) return none('Pick an end date.');
+    const r = seriesCountToDate(firsts[0], endISO, stepDays);
+    if(r.err) return none(r.err);
+    weeks = r.count; capped = r.capped;
+  } else {
+    weeks = Math.max(2, Math.min(SERIES_MAX, parseInt(countVal)||4));
+  }
+  let dates = wkSeriesDates(firsts, stepDays, weeks, byDate ? endISO : '');
+  if(dates.length > SERIES_ID_MAX){ dates = dates.slice(0, SERIES_ID_MAX); capped = true; }
+  return { count: dates.length, capped, err: '', stepDays, dates, days };
+}
+const WK_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// "Saturdays and Sundays", or "every other Saturday and Sunday".
+function wkDaysPhrase(days, stepDays){
+  const w = days.map(d => WK_DAY_NAMES[d] + (stepDays === 14 ? '' : 's'));
+  const joined = w.length <= 1 ? (w[0] || '') : w.slice(0, -1).join(', ') + ' and ' + w[w.length-1];
+  return (stepDays === 14 ? 'every other ' : '') + joined;
+}
 // "8 games: Tuesdays, Nov 17 to Jan 5", "8 games: every other Tuesday, ...", or past the cap
 // "20 games, last on Mar 31. A series can have at most 20 games."
 function seriesPreviewText(firstISO, plan){
   if(plan.err) return plan.err;
+  // A weekly game: "10 games: Saturdays and Sundays, Nov 21 to Jan 24".
+  if(Array.isArray(plan.dates)){
+    if(!plan.dates.length) return '';
+    const f = iso => new Date(iso+'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const lastW = plan.dates[plan.dates.length-1];
+    if(plan.capped) return plan.dates.length + ' games, last on ' + f(lastW) + '. A weekly game can run ' + SERIES_MAX + ' weeks and ' + SERIES_ID_MAX + ' games at most.';
+    return plan.dates.length + ' game' + (plan.dates.length === 1 ? '' : 's') + ': ' + wkDaysPhrase(plan.days, plan.stepDays) + ', ' + f(plan.dates[0]) + ' to ' + f(lastW);
+  }
   const dates = seriesDates(firstISO, plan.count, plan.stepDays);
   if(!dates.length) return '';
   const fmt = iso => new Date(iso+'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -9404,7 +9585,8 @@ function renderEligibilityFields(prefill){
   const fields = $('iv-elig-fields');
   let h = '';
   if(mode === 'ratingMin'){
-    h = `<div class="fg"><label class="lbl">Minimum rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1500}" oninput="updateInvitePreview()"></div>`;
+    const cur = (prefill && prefill.ratingMin != null && prefill.ratingMin !== '') ? Number(prefill.ratingMin) : 1500;
+    h = levelPickerHTML(cur);
   } else if(mode === 'ratingRange'){
     h = `<div class="row2">
       <div><label class="lbl">Min rating</label><input class="inp" id="iv-r-min" type="number" min="0" max="3000" value="${(prefill && prefill.ratingMin) || 1400}" oninput="updateInvitePreview()"></div>
@@ -9420,11 +9602,29 @@ function renderEligibilityFields(prefill){
     }
   }
   fields.innerHTML = h;
+  syncWhoRadios(mode);
   updateInvitePreview();
+}
+// Minimum level: the five level names. A level writes its band floor as ratingMin (1300,
+// 1500, 1700, 1900); Recreational means anyone can join, so it posts as open
+// (getCurrentEligibilitySpec). A saved minimum that is not a band floor keeps its own
+// option, so editing the game never moves it.
+function levelPickerHTML(cur){
+  const opts = csLevels.LEVEL_BANDS.map(b => {
+    const v = b.code === 'Recreational' ? 'open' : String(b.from);
+    return '<option value="' + v + '"' + (b.code !== 'Recreational' && b.from === cur ? ' selected' : '') + '>' + escapeHTML(b.label) + '</option>';
+  });
+  const floors = csLevels.LEVEL_BANDS.filter(b => b.code !== 'Recreational').map(b => b.from);
+  if(Number.isFinite(cur) && floors.indexOf(cur) < 0) opts.push('<option value="' + cur + '" selected>Rating ' + cur + ' and up</option>');
+  return '<div class="fg"><label class="lbl" for="iv-r-min">Lowest level that can join</label>'
+    + '<select class="inp" id="iv-r-min" onchange="updateInvitePreview()">' + opts.join('') + '</select>'
+    + '<div class="iv-hint">Players below it can ask you for a spot. Recreational means anyone can join.</div></div>';
 }
 
 function getCurrentEligibilitySpec(){
-  const mode = $('iv-elig-mode').value;
+  let mode = $('iv-elig-mode').value;
+  // Minimum level set to Recreational: anyone can join, so the game is open.
+  if(mode === 'ratingMin' && $('iv-r-min') && $('iv-r-min').value === 'open') mode = 'open';
   const e = { baseMode: mode };
   if(mode === 'ratingMin'){
     e.ratingMin = parseFloat($('iv-r-min')?.value) || 0;
@@ -9446,7 +9646,10 @@ function updateInvitePreview(){
   const eligible = computeEligible(e);
   const count = eligible.length;
   let source;
-  if(e.baseMode === 'ratingMin')        source = ' (rating '+(e.ratingMin||0)+'+)';
+  if(e.baseMode === 'ratingMin'){
+    const band = csLevels.LEVEL_BANDS.find(b => b.code !== 'Recreational' && b.from === e.ratingMin);
+    source = band ? ' ('+band.label+' and up)' : ' (rating '+(e.ratingMin||0)+'+)';
+  }
   else if(e.baseMode === 'ratingRange') source = ' (rating '+(e.ratingMin||0)+' to '+(e.ratingMax||9999)+')';
   else if(e.baseMode === 'group'){
     const g = (D.groups||{})[e.groupId];
@@ -9466,31 +9669,48 @@ function updateInvitePreview(){
   $('iv-elig-preview').textContent = text;
 }
 
+// Invite players: the picked players as chips, and the list only while a name is typed.
+// Each name carries its level (playerLevelTag), never a rating number.
 function renderInclude(){
   const q = ($('iv-inc-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
-  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
-  if(!filtered.length){ $('iv-inc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
-  $('iv-inc-list').innerHTML = filtered.map(name=>{
+  renderIncChips();
+  const list = $('iv-inc-list');
+  if(!q){ list.style.display = 'none'; list.innerHTML = ''; return; }
+  list.style.display = '';
+  const all = Object.entries(allKnownPlayerNames()).sort((a,b)=>a[1].localeCompare(b[1]));
+  const filtered = all.filter(([,n]) => n.toLowerCase().includes(q));
+  if(!filtered.length){ list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  list.innerHTML = filtered.map(([k,name])=>{
     const checked = inviteIncSelected.has(name);
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
-    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;min-height:44px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} onchange="toggleIncMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
-      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${ratingBadge(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${playerLevelTag(k)}</span>
     </label>`;
   }).join('');
 }
+function renderIncChips(){
+  const box = $('iv-inc-chips'); if(!box) return;
+  box.innerHTML = [...inviteIncSelected].sort((a,b)=>a.localeCompare(b)).map(name=>{
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<span class="iv-chip">${escapeHTML(name)}<button type="button" aria-label="Remove ${escapeHTML(name)}" onclick="toggleIncMember('${safe}',false);renderInclude()">&times;</button></span>`;
+  }).join('');
+}
+// Leave out: like Invite, the list shows only while a name is typed.
 function renderExclude(){
   const q = ($('iv-exc-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
-  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
-  if(!filtered.length){ $('iv-exc-list').innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
-  $('iv-exc-list').innerHTML = filtered.map(name=>{
+  const list = $('iv-exc-list');
+  if(!q){ list.style.display = 'none'; list.innerHTML = ''; return; }
+  list.style.display = '';
+  const all = Object.entries(allKnownPlayerNames()).sort((a,b)=>a[1].localeCompare(b[1]));
+  const filtered = all.filter(([,n]) => n.toLowerCase().includes(q));
+  if(!filtered.length){ list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  list.innerHTML = filtered.map(([k,name])=>{
     const checked = inviteExcSelected.has(name);
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'#fee2e2':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
-      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${ratingBadge(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${playerLevelTag(k)}</span>
     </label>`;
   }).join('');
 }
@@ -9501,6 +9721,7 @@ function toggleIncMember(name, isChecked){
   } else {
     inviteIncSelected.delete(decoded);
   }
+  renderIncChips();
   updateInvitePreview();
 }
 function toggleExcMember(name, isChecked){
@@ -9757,8 +9978,14 @@ async function saveInvite(){
   }
 
   const recurringGroupId = recurring ? gi('rg') : null;
-  const occurrences = recurring ? recCount : 1;
+  // A weekly game carries its own date list (every chosen day, every week or every other
+  // week); a repeated single game steps from its date exactly as before.
+  const planDates = recurring && recPlan && Array.isArray(recPlan.dates) ? recPlan.dates : null;
+  const occurrences = planDates ? planDates.length : (recurring ? recCount : 1);
   const stepDays = recFreq === 'biweekly' ? 14 : 7;
+  // Display only, on each game of a weekly game: its days and step, for the invite email's
+  // "Saturdays and Sundays, starting Nov 21" (worker: pickup-series-copy.ts).
+  const seriesShow = planDates ? { seriesDays: recPlan.days.slice(), seriesStepDays: stepDays } : null;
   const startDate = new Date(base.date+'T12:00:00');
   const updates = {};
   const writtenIds = [];
@@ -9785,7 +10012,7 @@ async function saveInvite(){
   const deadlineLead = Number.isFinite(chosenLead) && chosenLead >= 0 ? chosenLead : 2*60*60*1000;
   for(let n=0; n<occurrences; n++){
     const d = new Date(startDate); d.setDate(d.getDate() + n*stepDays);
-    const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const iso = planDates ? planDates[n] : d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const id = gi('inv');
     if(!firstId) firstId = id;
     // Per-occurrence start instant, from THIS occurrence's own date. A recurring game
@@ -9813,6 +10040,7 @@ async function saveInvite(){
       wideningTiers: deepCopy(base.wideningTiers),
       status: 'open',
       recurringGroupId,
+      ...(seriesShow ? { seriesDays: seriesShow.seriesDays.slice(), seriesStepDays: seriesShow.seriesStepDays } : {}),
       createdAt: Date.now(),
       // The host, confirmed in the first spot. Shape matches optInInvite exactly:
       // { name, status, position, respondedAt, accountId }.
@@ -10914,7 +11142,7 @@ function renderHostAddList(){
   box.innerHTML = rows.map(([k,name])=>{
     const safeKey = escapeHTML(k).replace(/'/g,"\\'");
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--sand-border);">
-      <span style="flex:1;font-size:13px;font-weight:500;">${escapeHTML(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:500;">${escapeHTML(name)}${playerLevelTag(k)}</span>
       <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostAddRegistered('${safeKey}')">Add</button>
     </div>`;
   }).join('');
