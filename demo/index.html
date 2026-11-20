@@ -19,10 +19,15 @@
 <meta name="twitter:description" content="An early look at the CourtSense beach volleyball team app, ahead of the 2027 season launch.">
 <meta name="twitter:image" content="https://courtsense.app/og-image.png">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="/signup-source.js?v=a1f469b3"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+.cs-setup-cta{position:fixed;right:20px;bottom:80px;z-index:99996;display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:12px 22px;background:#082A4F;color:#ffffff;font-family:'Barlow',-apple-system,Segoe UI,Roboto,sans-serif;font-weight:700;font-size:16px;text-decoration:none;border-radius:50px;box-shadow:0 4px 16px rgba(0,0,0,0.25);}
+.cs-setup-cta:focus-visible{outline:3px solid #ffffff;outline-offset:3px;}
+</style>
 </head>
 <body>
 <script>
@@ -51,5 +56,19 @@ window.SCHOOL_CONFIG = {
 };
 </script>
 <script src="/app.js?v=1.1.236"></script>
+<script>
+// "Set up your program" goes to the onboarding form at /coach/. app.js replaces the body, so
+// the button is added after it and again whenever the body is redrawn.
+(function(){
+  function add(){
+    if(!document.body || document.getElementById('cs-setup-cta')) return;
+    var a = document.createElement('a');
+    a.id = 'cs-setup-cta'; a.className = 'cs-setup-cta'; a.href = '/coach/'; a.textContent = 'Set up your program';
+    document.body.appendChild(a);
+  }
+  add();
+  try { new MutationObserver(add).observe(document.body, { childList: true }); } catch(e){}
+})();
+</script>
 </body>
 </html>
