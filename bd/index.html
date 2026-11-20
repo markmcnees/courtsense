@@ -127,6 +127,12 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 .camp .prog{font-weight:600;}
 .camp .dry{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:14px;display:grid;gap:4px;}
 .camp select{min-height:44px;}
+.camp textarea{width:100%;min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:13px;}
+.camp h3{margin:8px 0 4px;font-size:16px;}
+.camp .imp-out{display:grid;gap:6px;overflow-x:auto;}
+.imp-table{border-collapse:collapse;font-size:13px;width:100%;}
+.imp-table th,.imp-table td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top;}
+.imp-table tr.flag td{background:var(--errbg);color:var(--err);font-weight:600;}
 .addform{background:var(--card);border:2px solid var(--gold);border-radius:12px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-bottom:12px;}
 .addform .wide,.addform .row{grid-column:1 / -1;}
 .addform .row{display:flex;gap:8px;flex-wrap:wrap;}
@@ -171,6 +177,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
         <button class="b-quiet" id="csv-btn" type="button">Export CSV</button>
         <button class="b-quiet" id="unsub-csv-btn" type="button">Export unsubscribe links</button>
         <button class="b-navy" id="camp-btn" type="button">Email campaign</button>
+        <button class="b-quiet" id="import-btn" type="button">Import contacts</button>
         <span class="note" id="act-note" role="status" aria-live="polite"></span>
       </div>
       <div id="fallback" class="fallback" hidden>
@@ -1099,6 +1106,189 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     const slot = $('add-slot');
     if(slot.firstChild && slot.firstChild.dataset && slot.firstChild.dataset.panel === 'campaign') return;
     campaignPanel();
+  });
+
+  // ── Import contacts ───────────────────────────────────────────────────────
+  // Bulk import of high school coach leads from a CSV (School, City, Class/District, Region,
+  // Head coach, Email, Email source, and an optional Status). The page only parses the file;
+  // the worker (/admin/bd/import) decides every row, 20 rows a request. Import stays locked
+  // until a dry run of this exact file (same SHA-256 of its rows) has finished in this
+  // session, and it sends the same batches the dry run checked. Running it again is safe:
+  // rows already created come back as already on the list.
+  const IMP_COLS = ['School', 'City', 'Class/District', 'Region', 'Head coach', 'Email', 'Email source', 'Status'];
+  const IMP_NEED = ['School', 'Head coach', 'Email'];
+  const IMP_BATCH = 20, IMP_MAX_ROWS = 2000;
+  const IMP_REASONS = { status_skip: 'Status is filled in', no_email: 'No email', bad_email: 'Email does not look right', dup_in_file: 'Repeats an earlier row', exists_same_email: 'Already on the list', email_taken: 'Email used by another contact', id_collision: 'Another address makes the same id', configured_school: 'Configured school', school_already_on_bd: 'School already on the list' };
+  const IMP_FLAGS = { no_name: 'no name', single_name: 'single name', case_fixed: 'capitals fixed', two_coaches: 'two coaches', more_than_two: 'more than two names', shared_last: 'shared last name', last_first: 'written last, first', note_removed: 'note removed' };
+  // CSV text to rows of cells: quoted fields, doubled quotes, commas and line breaks inside quotes.
+  function parseCsv(text){
+    const s = String(text || '').replace(/^﻿/, '');
+    const out = []; let row = [], f = '', q = false;
+    for(let i = 0; i < s.length; i++){
+      const ch = s[i];
+      if(q){
+        if(ch === '"'){ if(s[i + 1] === '"'){ f += '"'; i++; } else q = false; }
+        else f += ch;
+      } else if(ch === '"' && f === ''){ q = true; }
+      else if(ch === ','){ row.push(f); f = ''; }
+      else if(ch === '\n' || ch === '\r'){ if(ch === '\r' && s[i + 1] === '\n') i++; row.push(f); out.push(row); row = []; f = ''; }
+      else f += ch;
+    }
+    if(f !== '' || row.length){ row.push(f); out.push(row); }
+    return out.filter(r => r.some(c => String(c).trim() !== ''));
+  }
+  // Rows as objects with every column ('' when the file has none), or the reason it cannot be read.
+  function csvRows(text){
+    const cells = parseCsv(text);
+    if(!cells.length) return { error: 'Paste a CSV or pick a file.' };
+    const head = cells[0].map(h => String(h).trim().toLowerCase());
+    const at = {};
+    IMP_COLS.forEach(c => { at[c] = head.indexOf(c.toLowerCase()); });
+    const missing = IMP_NEED.filter(c => at[c] === -1);
+    if(missing.length) return { error: 'The first row needs the columns ' + missing.join(', ') + '.' };
+    const rows = cells.slice(1).map(r => { const o = {}; IMP_COLS.forEach(c => { o[c] = at[c] === -1 ? '' : String(r[at[c]] == null ? '' : r[at[c]]).trim(); }); return o; });
+    if(rows.length > IMP_MAX_ROWS) return { error: 'That file has more than ' + IMP_MAX_ROWS + ' rows. Split it and import each part.' };
+    if(!rows.length) return { error: 'The file has a header row but no contacts.' };
+    return { rows };
+  }
+  async function fileKey(rows){
+    const text = JSON.stringify(rows.map(r => IMP_COLS.map(c => r[c])));
+    try{
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }catch(e){ return 'text:' + text; }
+  }
+  function impTable(head, rows){
+    const t = el('table', 'imp-table');
+    const th = el('thead'); const hr = el('tr');
+    head.forEach(h => hr.appendChild(el('th', null, h)));
+    th.appendChild(hr); t.appendChild(th);
+    const tb = el('tbody');
+    rows.forEach(r => { const tr = el('tr', r.flagged ? 'flag' : null); r.cells.forEach(c => tr.appendChild(el('td', null, c))); tb.appendChild(tr); });
+    t.appendChild(tb);
+    return t;
+  }
+  function importPanel(){
+    const slot = $('add-slot');
+    slot.textContent = '';
+    const box = el('section', 'camp');
+    box.dataset.panel = 'import';
+    box.setAttribute('aria-label', 'Import contacts');
+    slot.appendChild(box);
+    const st = { rows: null, key: '', dry: null, busy: false };
+
+    const head = el('div', 'row');
+    const close = el('button', 'b-quiet', 'Close'); close.type = 'button';
+    head.appendChild(el('h2', null, 'Import contacts')); head.appendChild(close);
+    const help = el('div', 'muted', 'High school coaches from a CSV: School, City, Class/District, Region, Head coach, Email, Email source (and Status: rows with a Status are skipped). New contacts land as Contacted. Nothing already on the list is changed.');
+    const file = document.createElement('input'); file.type = 'file'; file.accept = '.csv,text/csv'; file.setAttribute('aria-label', 'CSV file');
+    const text = document.createElement('textarea'); text.setAttribute('aria-label', 'CSV text'); text.dataset.k = 'csv'; text.rows = 6; text.placeholder = 'Or paste the CSV here, header row first.';
+    const info = el('div', 'muted', ''); info.dataset.k = 'rows';
+    const dryBtn = el('button', 'b-navy', 'Dry run'); dryBtn.type = 'button';
+    const impBtn = el('button', 'b-gold', 'Import'); impBtn.type = 'button';
+    const impNote = el('div', 'muted', ''); impNote.dataset.k = 'import-note';
+    const btnRow = el('div', 'row'); btnRow.appendChild(dryBtn); btnRow.appendChild(impBtn); btnRow.appendChild(impNote);
+    const prog = el('div', 'prog', ''); prog.setAttribute('role', 'status'); prog.setAttribute('aria-live', 'polite');
+    const err = el('div', 'errbox', ''); err.hidden = true; err.setAttribute('role', 'alert');
+    const out = el('div', 'imp-out', ''); out.dataset.k = 'imp-out';
+    [head, help, file, text, info, btnRow, prog, err, out].forEach(x => box.appendChild(x));
+    close.addEventListener('click', function(){ if(!st.busy) slot.textContent = ''; });
+
+    function showErr(m){ err.hidden = !m; err.textContent = m || ''; }
+    function setBtns(){
+      const ready = !!st.rows && !!st.dry && st.dry.complete && st.dry.key === st.key;
+      text.disabled = st.busy; file.disabled = st.busy;
+      dryBtn.disabled = st.busy || !st.rows;
+      impBtn.disabled = st.busy || !ready || !st.dry.create;
+      impNote.textContent = !st.rows ? '' : !ready ? 'Run the dry run for this file first.' : !st.dry.create ? 'Nothing new to import.' : '';
+    }
+    async function reread(){
+      st.dry = null; out.textContent = ''; prog.textContent = ''; showErr('');
+      const v = String(text.value || '');
+      if(!v.trim()){ st.rows = null; st.key = ''; info.textContent = ''; setBtns(); return; }
+      const p = csvRows(v);
+      if(p.error){ st.rows = null; st.key = ''; info.textContent = ''; showErr(p.error); setBtns(); return; }
+      st.rows = p.rows;
+      st.key = await fileKey(p.rows);
+      info.textContent = p.rows.length + (p.rows.length === 1 ? ' row' : ' rows') + ', ' + Math.ceil(p.rows.length / IMP_BATCH) + ' batches of up to ' + IMP_BATCH + '.';
+      setBtns();
+    }
+    text.addEventListener('input', function(){ if(!st.busy) return reread(); });
+    file.addEventListener('change', async function(){
+      if(st.busy) return;
+      const f = file.files && file.files[0];
+      if(!f) return;
+      try{ text.value = await f.text(); }catch(e){ showErr('Could not read that file.'); return; }
+      return reread();
+    });
+    function summary(counts){
+      return Object.keys(counts).sort().map(k => (k === 'would_create' ? 'Would create' : k === 'created' ? 'Created' : k === 'failed' ? 'Failed' : (IMP_REASONS[k] || k)) + ' ' + counts[k]).join(', ');
+    }
+    function drawDry(d){
+      out.textContent = '';
+      out.appendChild(el('div', 'dry', 'Dry run of ' + st.rows.length + ' rows. Nothing was written. ' + summary(d.counts) + '.'));
+      const flagged = d.create.filter(r => r.nameFlags && r.nameFlags.length).length;
+      out.appendChild(el('h3', null, 'Would create (' + d.create.length + ')' + (flagged ? ', ' + flagged + ' with names to check' : '')));
+      out.appendChild(impTable(['Row', 'School', 'Greeting', 'First', 'Last', 'Assistant', 'Email', 'Check'], d.create.map(r => ({ flagged: !!(r.nameFlags && r.nameFlags.length), cells: [String(r.fileRow), r.school, 'Hi ' + r.coach + ',', r.firstName, r.lastName, r.assistantName || '', r.email, (r.nameFlags || []).map(f => IMP_FLAGS[f] || f).join(', ')] }))));
+      out.appendChild(el('h3', null, 'Would skip (' + d.skip.length + ')'));
+      out.appendChild(impTable(['Row', 'School', 'Email', 'Reason', 'Detail'], d.skip.map(r => ({ cells: [String(r.fileRow), r.school || '', r.email || '', IMP_REASONS[r.reason] || r.reason, r.rule || ''] }))));
+    }
+    dryBtn.addEventListener('click', async function(){
+      if(st.busy || !st.rows) return;
+      st.busy = true; st.dry = null; setBtns(); showErr(''); out.textContent = '';
+      const key = st.key, rows = st.rows;
+      const d = { key, complete: false, batches: [], create: [], skip: [], counts: {} };
+      let seen = { emails: [], schools: [] };
+      for(let i = 0; i < rows.length; i += IMP_BATCH){
+        const batch = rows.slice(i, i + IMP_BATCH);
+        prog.textContent = 'Checking rows ' + (i + 1) + ' to ' + (i + batch.length) + ' of ' + rows.length + '...';
+        const res = await post('/admin/bd/import', { rows: batch, dryRun: true, seen });
+        if(res.status !== 200 || !res.j || !res.j.ok){ showErr('The dry run stopped. ' + errText(res)); prog.textContent = ''; st.busy = false; setBtns(); return; }
+        d.batches.push({ rows: batch, fileHash: res.j.fileHash });
+        res.j.wouldCreate.forEach(r => d.create.push(Object.assign({ fileRow: i + r.row + 2 }, r)));
+        res.j.wouldSkip.forEach(r => d.skip.push(Object.assign({ fileRow: i + r.row + 2 }, r)));
+        Object.keys(res.j.counts).forEach(k => { d.counts[k] = (d.counts[k] || 0) + res.j.counts[k]; });
+        seen = res.j.carry;
+      }
+      if(key !== st.key){ st.busy = false; setBtns(); return; }
+      d.complete = true;
+      st.dry = d;
+      prog.textContent = 'Dry run done: ' + d.create.length + ' would be created, ' + d.skip.length + ' skipped.';
+      drawDry(d);
+      st.busy = false; setBtns();
+    });
+    impBtn.addEventListener('click', async function(){
+      if(st.busy || !st.dry || !st.dry.complete || st.dry.key !== st.key) return;
+      st.busy = true; setBtns(); showErr('');
+      const d = st.dry;
+      const results = [], counts = {};
+      let seen = { emails: [], schools: [] }, stopped = '';
+      for(let b = 0; b < d.batches.length; b++){
+        const bt = d.batches[b];
+        prog.textContent = 'Importing batch ' + (b + 1) + ' of ' + d.batches.length + '...';
+        const res = await post('/admin/bd/import', { rows: bt.rows, dryRun: false, fileHash: bt.fileHash, seen });
+        if(res.status !== 200 || !res.j || !res.j.ok){ stopped = errText(res); break; }
+        res.j.results.forEach(r => results.push(Object.assign({ fileRow: b * IMP_BATCH + r.row + 2 }, r)));
+        Object.keys(res.j.counts).forEach(k => { counts[k] = (counts[k] || 0) + res.j.counts[k]; });
+        seen = res.j.carry;
+      }
+      out.textContent = '';
+      const created = counts.created || 0, failed = counts.failed || 0;
+      const skipped = results.length - created - failed;
+      out.appendChild(el('div', 'dry', 'Created ' + created + ', skipped ' + skipped + ', failed ' + failed + '.' + (stopped ? ' The import stopped before the end; run it again to finish (rows already created are skipped).' : '')));
+      out.appendChild(impTable(['Row', 'School', 'Email', 'Result', 'Detail'], results.map(r => ({ flagged: r.result === 'failed', cells: [String(r.fileRow), r.school || '', r.email || '', r.result === 'created' ? 'Created' : r.result === 'failed' ? 'Failed' : 'Skipped', r.result === 'skipped' ? (IMP_REASONS[r.reason] || r.reason) : r.result === 'failed' ? 'Could not save. Run the import again.' : (r.path || '')] }))));
+      prog.textContent = 'Import done: created ' + created + ', skipped ' + skipped + ', failed ' + failed + '.';
+      if(stopped) showErr('The import stopped. ' + stopped);
+      st.busy = false; setBtns();
+      if(created) open();
+    });
+    setBtns();
+    return box;
+  }
+  $('import-btn').addEventListener('click', function(){
+    const slot = $('add-slot');
+    if(slot.firstChild && slot.firstChild.dataset && slot.firstChild.dataset.panel === 'import') return;
+    importPanel();
   });
 
   // ── Start ─────────────────────────────────────────────────────────────────
