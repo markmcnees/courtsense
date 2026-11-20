@@ -137,6 +137,10 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 .addform .wide,.addform .row{grid-column:1 / -1;}
 .addform .row{display:flex;gap:8px;flex-wrap:wrap;}
 .empty{color:var(--muted);text-align:center;padding:32px 0;}
+.card .badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--gold);color:#13243A;font-size:12px;font-weight:700;}
+.card .adwhy{font-size:14px;color:var(--muted);margin:6px 0;}
+.card .adrow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px;}
+.card .adrow textarea{min-height:64px;}
 .foot{margin-top:24px;display:flex;justify-content:center;}
 @media (min-width:900px){
   .tools{position:sticky;top:0;z-index:5;}
@@ -212,16 +216,22 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   const CAT_IDS = CATEGORIES.map(c => c[0]);
   const DEFAULT_CAT = 'high_school';
   const TAB_STORE = 'courtsenseBdTab';
+  // Athletic directors live in their own worker node (bd_ads) and their own tab. They are never
+  // in the coach list, its counts, Copy emails for BCC, Export CSV or the unsubscribe export.
+  const AD_TAB = 'ads';
+  const AD_STATUSES = ['Contacted', 'Replied', 'Not now'];
   const SAVE_PAUSE_MS = 1200;
   const MSG_NET = "Can't reach CourtSense right now. Try again in a moment.";
   const $ = id => document.getElementById(id);
 
   let KEY = '';
   let coaches = [];     // { id, category, name, firstName, lastName, role, school, city, county, email, phone, status, nextStep, notes, lastTouch, doNotContact, unsubscribedAt, unsubVia, unsubAgent, unsubUrl, assistantName, assistantEmail, assistantPhone, adName, adEmail, adPhone }
-  let tab = 'All';      // 'All' or a category id
+  let ads = [];         // { id, email, adName, firstName, lastName, schools: [{ name, city }], status, notes, lastTouch, source, srcTag, doNotContact, unsubscribedAt, unsubVia }
+  let adsErr = '';
+  let tab = 'All';      // 'All', a category id, or AD_TAB
   let filter = 'All';   // status
   let query = '';
-  try{ const t = localStorage.getItem(TAB_STORE); if(t === 'All' || CAT_IDS.indexOf(t) !== -1) tab = t; }catch(e){}
+  try{ const t = localStorage.getItem(TAB_STORE); if(t === 'All' || t === AD_TAB || CAT_IDS.indexOf(t) !== -1) tab = t; }catch(e){}
 
   function catOf(c){ return CAT_IDS.indexOf(c.category) !== -1 ? c.category : DEFAULT_CAT; }
   function catName(id){ const c = CATEGORIES.find(x => x[0] === id); return c ? c[1] : 'High school'; }
@@ -283,8 +293,12 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     $('load-err').hidden = true;
     $('list').textContent = '';
     $('list').appendChild(el('div', 'empty', 'Loading contacts...'));
-    const res = await post('/admin/bd/list');
+    const both = await Promise.all([post('/admin/bd/list'), post('/admin/bd/ads/list')]);
+    const res = both[0], ares = both[1];
     if(!KEY) return;
+    const adOk = ares.status === 200 && ares.j && ares.j.ok;
+    ads = adOk ? (ares.j.ads || []) : [];
+    adsErr = adOk ? '' : 'Could not load the athletic directors. ' + errText(ares);
     if(res.status !== 200 || !res.j || !res.j.ok){
       $('list').textContent = '';
       $('load-err').hidden = false;
@@ -311,15 +325,28 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status) ||
       (a.school || a.name || a.email).localeCompare(b.school || b.name || b.email));
   }
+  // The same loose school match the worker uses (case, punctuation and a trailing "High School" ignored).
+  function looseKey(v){ return String(v || '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.,'’]/g, ' ').replace(/\s+/g, ' ').trim().replace(/\s+(high school|high|hs|h s)$/, '').trim(); }
+  function coachAt(school){ const k = looseKey(school); return !!k && coaches.some(c => looseKey(c.school) === k); }
+  function joinSchools(n){ n = n.filter(Boolean); return n.length <= 1 ? (n[0] || '') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; }
+  function adSchoolText(a){ return joinSchools((a.schools || []).map(x => x.name)); }
+  function adMatches(a){
+    if(filter !== 'All' && a.status !== filter) return false;
+    if(!query) return true;
+    const hay = [a.adName, a.firstName, a.lastName, a.email, a.notes, a.source].concat((a.schools || []).map(x => x.name + ' ' + (x.city || ''))).join(' ').toLowerCase();
+    return query.split(/\s+/).every(w => hay.indexOf(w) !== -1);
+  }
+  function visibleAds(){ return ads.filter(adMatches).sort((a, b) => AD_STATUSES.indexOf(a.status) - AD_STATUSES.indexOf(b.status) || adSchoolText(a).localeCompare(adSchoolText(b))); }
   function setTab(t){
     tab = t;
+    if(filter !== 'All' && (t === AD_TAB ? AD_STATUSES : STATUSES).indexOf(filter) === -1) filter = 'All';
     try{ localStorage.setItem(TAB_STORE, t); }catch(e){}
     render();
   }
   function drawTabs(){
     const box = $('tabs'); box.textContent = '';
-    [['All', 'All']].concat(CATEGORIES.map(c => [c[0], c[1]])).forEach(([id, label]) => {
-      const n = id === 'All' ? coaches.length : coaches.filter(c => catOf(c) === id).length;
+    [['All', 'All']].concat(CATEGORIES.map(c => [c[0], c[1]])).concat([[AD_TAB, 'Athletic directors']]).forEach(([id, label]) => {
+      const n = id === AD_TAB ? ads.length : id === 'All' ? coaches.length : coaches.filter(c => catOf(c) === id).length;
       const b = el('button', 'tab', label);
       b.type = 'button';
       b.setAttribute('role', 'tab');
@@ -337,8 +364,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   function drawChips(){
     drawTabs();
     const box = $('chips'); box.textContent = '';
-    const pool = coaches.filter(inTab);
-    ['All'].concat(STATUSES).forEach(s => {
+    const onAds = tab === AD_TAB;
+    const pool = onAds ? ads : coaches.filter(inTab);
+    ['All'].concat(onAds ? AD_STATUSES : STATUSES).forEach(s => {
       const n = s === 'All' ? pool.length : pool.filter(c => c.status === s).length;
       const b = el('button', 'chip', s);
       b.type = 'button';
@@ -352,6 +380,16 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   function render(){
     drawChips();
     const list = $('list'); list.textContent = '';
+    // Coach-only tools are hidden on the Athletic directors tab; Export CSV exports ADs there.
+    const onAds = tab === AD_TAB;
+    $('add-btn').hidden = onAds; $('bcc-btn').hidden = onAds; $('unsub-csv-btn').hidden = onAds;
+    if(onAds){
+      if(adsErr){ const e = el('div', 'errbox', adsErr); e.setAttribute('role', 'alert'); list.appendChild(e); }
+      const rowsA = visibleAds();
+      if(!rowsA.length){ list.appendChild(el('div', 'empty', ads.length ? 'No athletic directors match.' : 'No athletic directors yet. Import an AD list (School, Athletic director, AD email, Source).')); return; }
+      rowsA.forEach(a => list.appendChild(adCard(a)));
+      return;
+    }
     const rows = visible();
     if(!rows.length){ list.appendChild(el('div', 'empty', coaches.length ? 'No contacts match.' : 'No contacts yet. Tap Add contact to start.')); return; }
     rows.forEach(c => list.appendChild(card(c)));
@@ -746,6 +784,65 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     });
   });
 
+  // ── One athletic director ─────────────────────────────────────────────────
+  // Status (Contacted, Replied, Not now) and notes are all that change here. "Coach on /bd/"
+  // shows when a coach lead is at one of the AD's schools: the AD email then leaves that
+  // school out (and skips the AD when none is left).
+  function adCard(a){
+    const box = el('div', 'card');
+    box.dataset.id = a.id; box.dataset.status = a.status; box.dataset.kind = 'ad';
+    const head = el('div', 'chead');
+    head.appendChild(el('span', null, a.adName || fullName(a.firstName, a.lastName) || 'No name yet'));
+    const schools = a.schools || [];
+    head.appendChild(el('span', 'org', schools.map(x => x.name + (x.city ? ' (' + x.city + ')' : '')).join(', ')));
+    const covered = schools.filter(x => coachAt(x.name)).map(x => x.name);
+    if(covered.length){ const b = el('span', 'badge', 'Coach on /bd/'); b.dataset.k = 'coach-badge'; head.appendChild(b); }
+    box.appendChild(head);
+    const meta = el('div', 'adwhy', '');
+    if(a.email){ const m = el('a', null, a.email); m.href = 'mailto:' + a.email; meta.appendChild(m); }
+    meta.appendChild(document.createTextNode((a.lastTouch ? '. Last touch ' + a.lastTouch : '') + (a.source ? '. Source: ' + a.source : '')));
+    box.appendChild(meta);
+    if(covered.length) box.appendChild(el('div', 'adwhy', 'Coach on /bd/ for ' + joinSchools(covered) + '. The AD email ' + (covered.length === schools.length ? 'skips this AD.' : 'leaves ' + (covered.length === 1 ? 'that school' : 'those schools') + ' out.')));
+    if(a.doNotContact) box.appendChild(el('div', 'adwhy', 'Used the unsubscribe link' + (a.unsubscribedAt ? ' on ' + dayOf(a.unsubscribedAt) : '') + '. Stays Not now, and no BD email goes to this address again.'));
+    const status = document.createElement('select');
+    AD_STATUSES.forEach(v => { const o = el('option', null, v); o.value = v; if(v === a.status) o.selected = true; status.appendChild(o); });
+    status.disabled = a.doNotContact === true;
+    const notes = document.createElement('textarea'); notes.value = a.notes || ''; notes.maxLength = 2000;
+    const save = el('button', 'b-gold', 'Save'); save.type = 'button';
+    const msg = el('span', 'note', ''); msg.setAttribute('role', 'status');
+    const row = el('div', 'adrow');
+    row.appendChild(field('Status', '', status, 'status')); row.appendChild(field('Notes', '', notes, 'notes')); row.appendChild(save); row.appendChild(msg);
+    box.appendChild(row);
+    save.addEventListener('click', async function(){
+      save.disabled = true; msg.textContent = '';
+      const res = await post('/admin/bd/ads/save', { ad: { id: a.id, status: status.value, notes: notes.value } });
+      save.disabled = false;
+      if(res.status === 200 && res.j && res.j.ok && res.j.ad){
+        const i = ads.findIndex(x => x.id === a.id);
+        if(i !== -1) ads[i] = res.j.ad;
+        a = res.j.ad; box.dataset.status = a.status;
+        msg.textContent = 'Saved.';
+        drawChips();
+      } else msg.textContent = errText(res, 'Not saved. Try again.');
+    });
+    return box;
+  }
+  function exportAds(){
+    const rows = visibleAds();
+    if(!rows.length){ note('Nothing to export in this view.'); return; }
+    const head = ['First name', 'Last name', 'AD name', 'AD email', 'Schools', 'Cities', 'Status', 'Notes', 'Last touch', 'Source', 'Unsubscribed'];
+    const cells = a => [a.firstName, a.lastName, a.adName, a.email, (a.schools || []).map(x => x.name).join('; '), (a.schools || []).map(x => x.city || '').join('; '), a.status, a.notes, a.lastTouch, a.source, a.doNotContact ? 'yes' : ''];
+    const csv = [head.join(',')].concat(rows.map(a => cells(a).map(csvCell).join(','))).join('\r\n') + '\r\n';
+    const name = 'business-development-athletic-directors' + (filter === 'All' ? '' : '-' + filter.toLowerCase().replace(/[^a-z0-9]+/g, '-')) + '-' + today() + '.csv';
+    try{
+      const url = URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8' }));
+      const l = document.createElement('a');
+      l.href = url; l.download = name; document.body.appendChild(l); l.click(); l.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      note('Exported ' + rows.length + (rows.length === 1 ? ' athletic director' : ' athletic directors') + '.');
+    }catch(e){ showFallback('Download did not start. Copy the CSV below.', csv); }
+  }
+
   // ── Copy emails for BCC, Export CSV ───────────────────────────────────────
   let noteTimer = 0;
   function note(msg){
@@ -783,6 +880,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   $('csv-btn').addEventListener('click', function(){
+    if(tab === AD_TAB){ exportAds(); return; }
     const rows = visible();
     if(!rows.length){ note('Nothing to export in this view.'); return; }
     // The six staff columns follow the head coach's Email and Phone.
@@ -808,6 +906,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   $('unsub-csv-btn').addEventListener('click', async function(){
     const btn = $('unsub-csv-btn');
     btn.disabled = true;
+    if(tab === AD_TAB) return; // coaches only
     const res = await post('/admin/bd/unsub-links');
     btn.disabled = false;
     if(res.status !== 200 || !res.j || !res.j.ok || typeof res.j.csv !== 'string'){
@@ -835,14 +934,16 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   // The worker decides who gets an email and checks each lead again right before its send;
   // this panel only shows it, previews it, and drives the send in batches of 5 (the worker
   // spaces sends 2 per second; the page waits between batches).
-  // Two campaigns: outreach-2027-v2 (active, three steps) and outreach-2027-v1 (history,
+  // outreach-2027-ad (athletic directors, two steps, day 0 and day 7) works like v2 but sends
+  // one AD per request (the worker's subrequest budget); a batch of 5 is five requests.
+  // Two coach campaigns: outreach-2027-v2 (active, three steps) and outreach-2027-v1 (history,
   // read-only: its recipients and skipped list and Preview, no sending). A v2 step sends only
   // after its dry run (/admin/bd/campaign/dryrun) has been shown in this session, and it
   // goes to the leads that dry run listed for today.
   const CAMP_BATCH = 5, CAMP_PAUSE_MS = 600;
-  const CAMP_V1 = 'outreach-2027-v1', CAMP_V2 = 'outreach-2027-v2';
-  const STEP_DAY = { 1: 0, 2: 4, 3: 10 };
-  const REASONS = { not_now: 'Not now', unsubscribed: 'Unsubscribed', no_email: 'No email', already_sent: 'Already sent', stuck: 'Stuck mid-send (check Resend before anything else)', status_changed: 'Status changed', in_progress: 'Another send has it', gone: 'Deleted', cap_reached: 'Daily cap reached', send_failed: 'Resend refused it', busy: 'Busy, try again', network: 'No answer from CourtSense', not_sent: 'Not sent (the run stopped)', not_hs: 'Not a high school', got_v1: 'Got outreach-2027-v1', configured_school: 'Configured school', no_school: 'No school name', not_contacted: 'Status is not Contacted', signed_up: 'Signed up with the v2 link', not_due: 'Not due yet', no_step1: 'Step 1 not sent', no_step2: 'Step 2 not sent' };
+  const CAMP_V1 = 'outreach-2027-v1', CAMP_V2 = 'outreach-2027-v2', CAMP_AD = 'outreach-2027-ad';
+  const STEP_DAYS = { 'outreach-2027-v2': { 1: 0, 2: 4, 3: 10 }, 'outreach-2027-ad': { 1: 0, 2: 7 } };
+  const REASONS = { not_now: 'Not now', unsubscribed: 'Unsubscribed', no_email: 'No email', already_sent: 'Already sent', stuck: 'Stuck mid-send (check Resend before anything else)', status_changed: 'Status changed', in_progress: 'Another send has it', gone: 'Deleted', cap_reached: 'Daily cap reached', send_failed: 'Resend refused it', busy: 'Busy, try again', network: 'No answer from CourtSense', not_sent: 'Not sent (the run stopped)', not_hs: 'Not a high school', got_v1: 'Got outreach-2027-v1', configured_school: 'Configured school', no_school: 'No school name', not_contacted: 'Status is not Contacted', signed_up: 'Signed up with the v2 link', not_due: 'Not due yet', no_step1: 'Step 1 not sent', no_step2: 'Step 2 not sent', is_ad: 'Address is an athletic director', unsubscribed_elsewhere: 'Unsubscribed from another BD email', is_coach_lead: 'Address is on a coach lead', school_has_coach: 'School has a coach on /bd/', emailed_elsewhere: 'Already emailed by a coach campaign', domain_cap: 'Email domain at its daily cap (5)' };
   function campDay(ms){ return typeof ms === 'number' ? dayOf(new Date(ms).toISOString()) : ''; }
   function lastLine(r){ return r.lastCampaign ? 'Last campaign ' + campDay(r.lastCampaign.at) + ' (' + r.lastCampaign.campaignId + ')' : 'No campaign yet'; }
   function campaignPanel(){
@@ -853,7 +954,11 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     box.setAttribute('aria-label', 'Email campaign');
     slot.appendChild(box);
     const st = { campaign: CAMP_V2, step: 1, statuses: ['Contacted'], data: null, plan: null, dryKey: '', results: null, busy: false };
-    const v2 = () => st.campaign === CAMP_V2;
+    // v2() is true for both active campaigns (v2 and the AD campaign); isAd() for the AD one.
+    const v2 = () => st.campaign !== CAMP_V1;
+    const isAd = () => st.campaign === CAMP_AD;
+    const stepDay = n => (STEP_DAYS[st.campaign] || {})[n];
+    const nSteps = () => isAd() ? 2 : 3;
     const key = () => st.campaign + '|' + st.step;
 
     const head = el('div', 'row');
@@ -861,9 +966,14 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     const close = el('button', 'b-quiet', 'Close'); close.type = 'button';
     head.appendChild(title); head.appendChild(close);
     const campPick = document.createElement('select'); campPick.setAttribute('aria-label', 'Campaign'); campPick.dataset.k = 'campaign';
-    [[CAMP_V2, CAMP_V2 + ' (active)'], [CAMP_V1, CAMP_V1 + ' (history, read-only)']].forEach(function(p){ const o = el('option', null, p[1]); o.value = p[0]; campPick.appendChild(o); });
+    [[CAMP_V2, CAMP_V2 + ' (active)'], [CAMP_AD, CAMP_AD + ' (athletic directors)'], [CAMP_V1, CAMP_V1 + ' (history, read-only)']].forEach(function(p){ const o = el('option', null, p[1]); o.value = p[0]; campPick.appendChild(o); });
     const stepPick = document.createElement('select'); stepPick.setAttribute('aria-label', 'Step'); stepPick.dataset.k = 'step';
-    [1, 2, 3].forEach(n => { const o = el('option', null, 'Step ' + n + ' of 3 (day ' + STEP_DAY[n] + ')'); o.value = String(n); stepPick.appendChild(o); });
+    function fillSteps(){
+      stepPick.textContent = '';
+      for(let n = 1; n <= nSteps(); n++){ const o = el('option', null, 'Step ' + n + ' of ' + nSteps() + ' (day ' + stepDay(n) + ')'); o.value = String(n); if(n === st.step) o.selected = true; stepPick.appendChild(o); }
+      stepPick.value = String(st.step);
+    }
+    fillSteps();
     const dryBtn = el('button', 'b-navy', 'Dry run'); dryBtn.type = 'button';
     const pickRow = el('div', 'row'); pickRow.appendChild(campPick); pickRow.appendChild(stepPick); pickRow.appendChild(dryBtn);
     const subj = el('div', 'subj', '');
@@ -915,7 +1025,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     function fillPick(rows){
       const keep = pick.value;
       pick.textContent = '';
-      rows.forEach(r => { const o = el('option', null, (r.name || r.coach || r.email || 'Contact') + (r.school ? ' (' + r.school + ')' : '')); o.value = r.id; pick.appendChild(o); });
+      rows.forEach(r => { const o = el('option', null, (r.name || r.coach || r.ad || r.email || 'Contact') + (r.school ? ' (' + r.school + ')' : '')); o.value = r.id; pick.appendChild(o); });
       if(keep && Array.from(pick.children).some(o => o.value === keep)) pick.value = keep;
       pvBtn.disabled = !pick.children.length;
     }
@@ -947,23 +1057,24 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     function line(t){ return el('div', null, t); }
     function drawPlan(){
       const p = st.plan, c = p.caps;
-      subj.textContent = 'Step ' + p.campaign.step + ' of 3: ' + p.campaign.subject;
+      subj.textContent = 'Step ' + p.campaign.step + ' of ' + (p.campaign.steps || 3) + ': ' + p.campaign.subject;
       warn.hidden = p.postalAddressSet;
       warn.textContent = p.postalAddressSet ? '' : 'No mailing address is set (BD_POSTAL_ADDRESS), so sending is locked. Preview and Send test to Mark still work.';
-      today.textContent = 'Today ' + p.date + ': v2 ' + c.v2.used + ' of ' + c.v2.cap + ' (' + c.v2.remaining + ' left), every campaign ' + c.shared.used + ' of ' + c.shared.cap + ' (' + c.shared.remaining + ' left)';
+      const mine = c.ad || c.v2;
+      today.textContent = 'Today ' + p.date + ': ' + (c.ad ? 'AD ' : 'v2 ') + mine.used + ' of ' + mine.cap + ' (' + mine.remaining + ' left)' + (c.domainCap ? ', at most ' + c.domainCap + ' per email domain' : '') + ', every campaign ' + c.shared.used + ' of ' + c.shared.cap + ' (' + c.shared.remaining + ' left)';
       counts.textContent = p.wouldSend.length + ' would send, ' + p.sendableToday + ' today in ' + p.batches + (p.batches === 1 ? ' batch' : ' batches') + ' of ' + p.batchSize + ', ' + p.skipped.length + ' skipped';
       report.hidden = false;
       report.textContent = '';
-      report.appendChild(line('Dry run ' + p.campaign.id + ', step ' + p.campaign.step + ' (day ' + STEP_DAY[p.campaign.step] + '), ' + p.date + ' ET. Nothing was written.'));
+      report.appendChild(line('Dry run ' + p.campaign.id + ', step ' + p.campaign.step + ' (day ' + stepDay(p.campaign.step) + '), ' + p.date + ' ET. Nothing was written.'));
       const sk = Object.keys(p.skippedCounts).sort().map(k => (REASONS[k] || k) + ' ' + p.skippedCounts[k]).join(', ');
       if(sk) report.appendChild(line('Skipped by reason: ' + sk));
-      report.appendChild(line('A real send would write: ' + (p.sendableToday ? 'bd_campaigns/' + p.campaign.id + '/sent/{lead}/' + p.campaign.step + ' and bd_coaches/{lead} for each lead sent, plus ' + p.writePaths.join(' and ') : 'nothing today')));
+      report.appendChild(line('A real send would write: ' + (p.sendableToday ? 'bd_campaigns/' + p.campaign.id + '/sent/{' + (isAd() ? 'AD' : 'lead') + '}/' + p.campaign.step + ' and ' + (isAd() ? 'bd_ads/{AD}' : 'bd_coaches/{lead}') + ' for each one sent, plus ' + p.writePaths.join(' and ') : 'nothing today')));
       recSum.textContent = 'Would send (' + p.wouldSend.length + ')';
       recList.textContent = '';
-      p.wouldSend.forEach(r => recList.appendChild(el('li', null, r.school + ', ' + r.coach + '. ' + r.srcTag + '. Due ' + r.due + (r.retry ? '. Last try failed' : '') + (r.overCapToday ? '. Over today\'s cap' : ''))));
+      p.wouldSend.forEach(r => recList.appendChild(el('li', null, r.school + ', ' + (r.coach || r.ad) + (r.domain ? ' (' + r.domain + ')' : '') + '. ' + r.srcTag + '. Due ' + r.due + (r.retry ? '. Last try failed' : '') + (r.overCapToday ? '. Over today\'s cap' : ''))));
       skSum.textContent = 'Skipped (' + p.skipped.length + ')';
       skList.textContent = '';
-      p.skipped.forEach(r => skList.appendChild(el('li', null, (r.school || 'No school') + ', ' + r.coach + ': ' + (REASONS[r.reason] || r.reason) + '. ' + r.rule)));
+      p.skipped.forEach(r => skList.appendChild(el('li', null, (r.school || 'No school') + ', ' + (r.coach || r.ad) + ': ' + (REASONS[r.reason] || r.reason) + '. ' + r.rule)));
       fillPick(p.wouldSend.concat(p.skipped));
     }
     function clearView(){
@@ -995,7 +1106,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       if(!keepErr) showErr('');
       dryBtn.disabled = true;
       const want = key();
-      const res = await post('/admin/bd/campaign/dryrun', { campaignId: CAMP_V2, step: st.step });
+      const res = await post('/admin/bd/campaign/dryrun', { campaignId: st.campaign, step: st.step });
       dryBtn.disabled = false;
       if(want !== key()) return;
       if(res.status !== 200 || !res.j || !res.j.ok){ showErr('Could not run the dry run. ' + errText(res)); return; }
@@ -1006,21 +1117,22 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     }
     campPick.addEventListener('change', function(){
       if(st.busy){ campPick.value = st.campaign; return; }
-      st.campaign = campPick.value === CAMP_V1 ? CAMP_V1 : CAMP_V2;
+      st.campaign = campPick.value === CAMP_V1 ? CAMP_V1 : campPick.value === CAMP_AD ? CAMP_AD : CAMP_V2;
+      st.step = 1; fillSteps();
       clearView(); drawMode();
       if(!v2()) load();
     });
     stepPick.addEventListener('change', function(){
       if(st.busy){ stepPick.value = String(st.step); return; }
       const n = parseInt(stepPick.value, 10);
-      st.step = n === 2 || n === 3 ? n : 1;
+      st.step = n >= 1 && n <= nSteps() ? n : 1;
       clearView(); drawMode();
     });
     dryBtn.addEventListener('click', function(){ if(!st.busy && v2()) return dryRun(); });
     pvBtn.addEventListener('click', async function(){
       if(!pick.value) return;
       pvBtn.disabled = true; showErr('');
-      const res = await post('/admin/bd/campaign/preview', v2() ? { campaignId: CAMP_V2, step: st.step, id: pick.value } : { id: pick.value });
+      const res = await post('/admin/bd/campaign/preview', v2() ? { campaignId: st.campaign, step: st.step, id: pick.value } : { id: pick.value });
       pvBtn.disabled = false;
       if(res.status !== 200 || !res.j || !res.j.ok){ showErr('Could not preview. ' + errText(res)); return; }
       pvMeta.hidden = false;
@@ -1031,7 +1143,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     testBtn.addEventListener('click', async function(){
       if(!v2()) return;
       testBtn.disabled = true; showErr('');
-      const res = await post('/admin/bd/campaign/test', { campaignId: CAMP_V2, step: st.step, id: pick.value || '' });
+      const res = await post('/admin/bd/campaign/test', { campaignId: st.campaign, step: st.step, id: pick.value || '' });
       testBtn.disabled = false;
       if(res.status === 200 && res.j && res.j.ok) note('Test sent to ' + res.j.to + '. Nothing was logged.');
       else showErr('Test not sent. ' + errText(res));
@@ -1039,14 +1151,16 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
 
     async function run(ids){
       if(!v2()) return;
-      const step = st.step;
+      const step = st.step, campaignId = st.campaign;
+      // The AD campaign takes one AD per request; v2 takes a batch of 5.
+      const per = st.plan && st.plan.perRequest ? st.plan.perRequest : CAMP_BATCH;
       st.busy = true; setSend(); retryBtn.hidden = true; failList.textContent = ''; showErr('');
       const all = [];
       let stop = '';
-      for(let i = 0; i < ids.length && !stop; i += CAMP_BATCH){
-        const batch = ids.slice(i, i + CAMP_BATCH);
+      for(let i = 0; i < ids.length && !stop; i += per){
+        const batch = ids.slice(i, i + per);
         prog.textContent = 'Sending ' + Math.min(i + batch.length, ids.length) + ' of ' + ids.length + '...';
-        const res = await post('/admin/bd/campaign/send', { campaignId: CAMP_V2, step, ids: batch });
+        const res = await post('/admin/bd/campaign/send', { campaignId, step, ids: batch });
         if(res.status === 200 && res.j && res.j.ok){
           res.j.results.forEach(r => all.push(r));
           if(res.j.capReached) stop = 'cap';
@@ -1056,14 +1170,14 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
           stop = errText(res);
           batch.forEach(id => all.push({ id, result: 'failed', reason: (res.j && res.j.code) || 'busy' }));
         }
-        if(i + CAMP_BATCH < ids.length && !stop) await new Promise(r => setTimeout(r, CAMP_PAUSE_MS));
+        if(i + per < ids.length && !stop) await new Promise(r => setTimeout(r, CAMP_PAUSE_MS));
       }
       ids.forEach(id => { if(!all.some(r => r.id === id)) all.push({ id, result: stop === 'cap' ? 'cap_reached' : 'not_sent' }); });
       const sent = all.filter(r => r.result === 'sent').length;
       const failed = all.filter(r => r.result === 'failed' || r.result === 'stuck');
       const skipped = all.length - sent - failed.length;
       const rows = st.plan ? st.plan.wouldSend.concat(st.plan.skipped) : [];
-      const label = id => { const r = rows.find(x => x.id === id); return r ? (r.school + ', ' + r.coach) : 'A contact'; };
+      const label = id => { const r = rows.find(x => x.id === id); return r ? (r.school + ', ' + (r.coach || r.ad)) : 'A contact'; };
       const fails = all.filter(r => r.result !== 'sent').map(r => label(r.id) + ': ' + (r.result === 'stuck' ? REASONS.stuck : (REASONS[r.reason] || REASONS[r.result] || r.result)));
       st.results = all;
       const retry = all.filter(r => r.result === 'failed').map(r => r.id);
@@ -1085,7 +1199,7 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       if(!n) return;
       const row = el('div', 'confirm');
       row.dataset.confirm = 'send';
-      row.appendChild(el('span', null, 'Send step ' + st.step + ' of 3 ("' + st.plan.campaign.subject + '") to ' + n + (n === 1 ? ' coach' : ' coaches') + ' now? This cannot be undone.'));
+      row.appendChild(el('span', null, 'Send step ' + st.step + ' of ' + nSteps() + ' ("' + st.plan.campaign.subject + '") to ' + n + (isAd() ? (n === 1 ? ' athletic director' : ' athletic directors') : (n === 1 ? ' coach' : ' coaches')) + ' now? This cannot be undone.'));
       const yes = el('button', 'b-gold', 'Send ' + n); yes.type = 'button';
       const no = el('button', 'b-quiet', 'Cancel'); no.type = 'button';
       row.appendChild(yes); row.appendChild(no);
@@ -1115,10 +1229,17 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
   // until a dry run of this exact file (same SHA-256 of its rows) has finished in this
   // session, and it sends the same batches the dry run checked. Running it again is safe:
   // rows already created come back as already on the list.
+  // The header picks the list: the coach header posts to /admin/bd/import (bd_coaches); the AD
+  // header (School, Athletic director, AD email, Source, optional City) posts to
+  // /admin/bd/ads/import (bd_ads); anything else, or a header with both, is refused. AD rows of
+  // one address stay together in one batch, so they make one record listing their schools.
   const IMP_COLS = ['School', 'City', 'Class/District', 'Region', 'Head coach', 'Email', 'Email source', 'Status'];
   const IMP_NEED = ['School', 'Head coach', 'Email'];
   const IMP_BATCH = 20, IMP_MAX_ROWS = 2000;
   const IMP_REASONS = { status_skip: 'Status is filled in', no_email: 'No email', bad_email: 'Email does not look right', dup_in_file: 'Repeats an earlier row', exists_same_email: 'Already on the list', email_taken: 'Email used by another contact', id_collision: 'Another address makes the same id', configured_school: 'Configured school', school_already_on_bd: 'School already on the list' };
+  const AD_COLS = ['School', 'City', 'Athletic director', 'AD email', 'Source'];
+  const AD_NEED = ['School', 'Athletic director', 'AD email', 'Source'];
+  const AD_IMP_REASONS = { no_email: 'No email', bad_email: 'Email does not look right', no_school: 'No school', dup_in_file: 'Repeats an earlier row', ad_exists: 'Already on the AD list', is_coach_lead: 'Address is on a coach lead', school_has_coach: 'School has a coach on /bd/', configured_school: 'Configured school', suppressed: 'Unsubscribed from a BD email' };
   const IMP_FLAGS = { no_name: 'no name', single_name: 'single name', case_fixed: 'capitals fixed', two_coaches: 'two coaches', more_than_two: 'more than two names', shared_last: 'shared last name', last_first: 'written last, first', note_removed: 'note removed' };
   // CSV text to rows of cells: quoted fields, doubled quotes, commas and line breaks inside quotes.
   function parseCsv(text){
@@ -1142,21 +1263,46 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     const cells = parseCsv(text);
     if(!cells.length) return { error: 'Paste a CSV or pick a file.' };
     const head = cells[0].map(h => String(h).trim().toLowerCase());
+    const has = c => head.indexOf(c.toLowerCase()) !== -1;
+    const isAdList = AD_NEED.every(has), isCoachList = IMP_NEED.every(has);
+    if(isAdList && isCoachList) return { error: 'The first row has both the coach columns and the AD columns. Use one file per list.' };
+    if(!isAdList && !isCoachList){
+      const missing = IMP_NEED.filter(c => !has(c));
+      return { error: 'The first row needs the columns ' + missing.join(', ') + ' (a coach list), or School, Athletic director, AD email, Source (an AD list).' };
+    }
+    const mode = isAdList ? 'ad' : 'coach', COLS = mode === 'ad' ? AD_COLS : IMP_COLS;
     const at = {};
-    IMP_COLS.forEach(c => { at[c] = head.indexOf(c.toLowerCase()); });
-    const missing = IMP_NEED.filter(c => at[c] === -1);
-    if(missing.length) return { error: 'The first row needs the columns ' + missing.join(', ') + '.' };
-    const rows = cells.slice(1).map(r => { const o = {}; IMP_COLS.forEach(c => { o[c] = at[c] === -1 ? '' : String(r[at[c]] == null ? '' : r[at[c]]).trim(); }); return o; });
+    COLS.forEach(c => { at[c] = head.indexOf(c.toLowerCase()); });
+    const rows = cells.slice(1).map(r => { const o = {}; COLS.forEach(c => { o[c] = at[c] === -1 ? '' : String(r[at[c]] == null ? '' : r[at[c]]).trim(); }); return o; });
     if(rows.length > IMP_MAX_ROWS) return { error: 'That file has more than ' + IMP_MAX_ROWS + ' rows. Split it and import each part.' };
     if(!rows.length) return { error: 'The file has a header row but no contacts.' };
-    return { rows };
+    return { rows, mode };
   }
-  async function fileKey(rows){
-    const text = JSON.stringify(rows.map(r => IMP_COLS.map(c => r[c])));
+  async function fileKey(rows, mode){
+    const text = (mode === 'ad' ? 'ad|' : '') + JSON.stringify(rows.map(r => (mode === 'ad' ? AD_COLS : IMP_COLS).map(c => r[c])));
     try{
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
     }catch(e){ return 'text:' + text; }
+  }
+  // The batches a file is sent in, with each row's line in the file. Coach lists go 20 rows at
+  // a time in file order. AD lists keep the rows of one address together (in the order they
+  // first appear), so a batch can hold fewer than 20.
+  function batchesOf(rows, mode){
+    const out = [];
+    if(mode !== 'ad'){
+      for(let i = 0; i < rows.length; i += IMP_BATCH) out.push({ rows: rows.slice(i, i + IMP_BATCH), fileRows: rows.slice(i, i + IMP_BATCH).map((r, j) => i + j + 2) });
+      return out;
+    }
+    const groups = [], at = {};
+    rows.forEach((r, i) => { const k = String(r['AD email'] || '').trim().toLowerCase(); const g = k && at[k] !== undefined ? groups[at[k]] : null; if(g) g.push(i); else { if(k) at[k] = groups.length; groups.push([i]); } });
+    let cur = { rows: [], fileRows: [] };
+    groups.forEach(g => {
+      if(cur.rows.length && cur.rows.length + g.length > IMP_BATCH){ out.push(cur); cur = { rows: [], fileRows: [] }; }
+      g.forEach(i => { if(cur.rows.length === IMP_BATCH){ out.push(cur); cur = { rows: [], fileRows: [] }; } cur.rows.push(rows[i]); cur.fileRows.push(i + 2); });
+    });
+    if(cur.rows.length) out.push(cur);
+    return out;
   }
   function impTable(head, rows){
     const t = el('table', 'imp-table');
@@ -1175,12 +1321,14 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
     box.dataset.panel = 'import';
     box.setAttribute('aria-label', 'Import contacts');
     slot.appendChild(box);
-    const st = { rows: null, key: '', dry: null, busy: false };
+    const st = { rows: null, mode: 'coach', key: '', dry: null, busy: false };
+    const route = () => st.mode === 'ad' ? '/admin/bd/ads/import' : '/admin/bd/import';
+    const reasons = () => st.mode === 'ad' ? AD_IMP_REASONS : IMP_REASONS;
 
     const head = el('div', 'row');
     const close = el('button', 'b-quiet', 'Close'); close.type = 'button';
     head.appendChild(el('h2', null, 'Import contacts')); head.appendChild(close);
-    const help = el('div', 'muted', 'High school coaches from a CSV: School, City, Class/District, Region, Head coach, Email, Email source (and Status: rows with a Status are skipped). New contacts land as Contacted. Nothing already on the list is changed.');
+    const help = el('div', 'muted', 'A CSV of high school coaches (School, City, Class/District, Region, Head coach, Email, Email source, and Status: rows with a Status are skipped), or of athletic directors (School, Athletic director, AD email, Source, and an optional City). The header row decides which list it goes to. New contacts land as Contacted. Nothing already on either list is changed.');
     const file = document.createElement('input'); file.type = 'file'; file.accept = '.csv,text/csv'; file.setAttribute('aria-label', 'CSV file');
     const text = document.createElement('textarea'); text.setAttribute('aria-label', 'CSV text'); text.dataset.k = 'csv'; text.rows = 6; text.placeholder = 'Or paste the CSV here, header row first.';
     const info = el('div', 'muted', ''); info.dataset.k = 'rows';
@@ -1208,9 +1356,9 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       if(!v.trim()){ st.rows = null; st.key = ''; info.textContent = ''; setBtns(); return; }
       const p = csvRows(v);
       if(p.error){ st.rows = null; st.key = ''; info.textContent = ''; showErr(p.error); setBtns(); return; }
-      st.rows = p.rows;
-      st.key = await fileKey(p.rows);
-      info.textContent = p.rows.length + (p.rows.length === 1 ? ' row' : ' rows') + ', ' + Math.ceil(p.rows.length / IMP_BATCH) + ' batches of up to ' + IMP_BATCH + '.';
+      st.rows = p.rows; st.mode = p.mode;
+      st.key = await fileKey(p.rows, p.mode);
+      info.textContent = (p.mode === 'ad' ? 'Athletic director list. ' : '') + p.rows.length + (p.rows.length === 1 ? ' row' : ' rows') + ', ' + batchesOf(p.rows, p.mode).length + ' batches of up to ' + IMP_BATCH + '.';
       setBtns();
     }
     text.addEventListener('input', function(){ if(!st.busy) return reread(); });
@@ -1222,12 +1370,20 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       return reread();
     });
     function summary(counts){
-      return Object.keys(counts).sort().map(k => (k === 'would_create' ? 'Would create' : k === 'created' ? 'Created' : k === 'failed' ? 'Failed' : (IMP_REASONS[k] || k)) + ' ' + counts[k]).join(', ');
+      return Object.keys(counts).sort().map(k => (k === 'would_create' ? 'Would create' : k === 'would_join' ? 'Would join a record' : k === 'created' ? 'Created' : k === 'joined' ? 'Joined' : k === 'failed' ? 'Failed' : (reasons()[k] || k)) + ' ' + counts[k]).join(', ');
     }
     function drawDry(d){
       out.textContent = '';
       out.appendChild(el('div', 'dry', 'Dry run of ' + st.rows.length + ' rows. Nothing was written. ' + summary(d.counts) + '.'));
       const flagged = d.create.filter(r => r.nameFlags && r.nameFlags.length).length;
+      if(st.mode === 'ad'){
+        const records = d.create.filter(r => !r.joined).length;
+        out.appendChild(el('h3', null, 'Would create (' + records + (records === 1 ? ' athletic director' : ' athletic directors') + ', ' + d.create.length + ' rows)' + (flagged ? ', ' + flagged + ' with names to check' : '')));
+        out.appendChild(impTable(['Row', 'School', 'Greeting', 'First', 'Last', 'Email', 'Record', 'Check'], d.create.map(r => ({ flagged: !!(r.nameFlags && r.nameFlags.length), cells: [String(r.fileRow), r.school, (r.ad || 'Hi there') + ',', r.firstName, r.lastName, r.email, r.joined ? 'Joins the record above (same address)' : 'New AD', (r.nameFlags || []).map(f => IMP_FLAGS[f] || f).join(', ')] }))));
+        out.appendChild(el('h3', null, 'Would skip (' + d.skip.length + ')'));
+        out.appendChild(impTable(['Row', 'School', 'Email', 'Reason', 'Detail'], d.skip.map(r => ({ cells: [String(r.fileRow), r.school || '', r.email || '', AD_IMP_REASONS[r.reason] || r.reason, r.rule || ''] }))));
+        return;
+      }
       out.appendChild(el('h3', null, 'Would create (' + d.create.length + ')' + (flagged ? ', ' + flagged + ' with names to check' : '')));
       out.appendChild(impTable(['Row', 'School', 'Greeting', 'First', 'Last', 'Assistant', 'Email', 'Check'], d.create.map(r => ({ flagged: !!(r.nameFlags && r.nameFlags.length), cells: [String(r.fileRow), r.school, 'Hi ' + r.coach + ',', r.firstName, r.lastName, r.assistantName || '', r.email, (r.nameFlags || []).map(f => IMP_FLAGS[f] || f).join(', ')] }))));
       out.appendChild(el('h3', null, 'Would skip (' + d.skip.length + ')'));
@@ -1238,15 +1394,17 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       st.busy = true; st.dry = null; setBtns(); showErr(''); out.textContent = '';
       const key = st.key, rows = st.rows;
       const d = { key, complete: false, batches: [], create: [], skip: [], counts: {} };
-      let seen = { emails: [], schools: [] };
-      for(let i = 0; i < rows.length; i += IMP_BATCH){
-        const batch = rows.slice(i, i + IMP_BATCH);
-        prog.textContent = 'Checking rows ' + (i + 1) + ' to ' + (i + batch.length) + ' of ' + rows.length + '...';
-        const res = await post('/admin/bd/import', { rows: batch, dryRun: true, seen });
+      let seen = { emails: [], schools: [] }, done = 0;
+      const plan = batchesOf(rows, st.mode);
+      for(let b = 0; b < plan.length; b++){
+        const batch = plan[b].rows, fileRows = plan[b].fileRows;
+        prog.textContent = 'Checking rows ' + (done + 1) + ' to ' + (done + batch.length) + ' of ' + rows.length + '...';
+        done += batch.length;
+        const res = await post(route(), { rows: batch, dryRun: true, seen });
         if(res.status !== 200 || !res.j || !res.j.ok){ showErr('The dry run stopped. ' + errText(res)); prog.textContent = ''; st.busy = false; setBtns(); return; }
-        d.batches.push({ rows: batch, fileHash: res.j.fileHash });
-        res.j.wouldCreate.forEach(r => d.create.push(Object.assign({ fileRow: i + r.row + 2 }, r)));
-        res.j.wouldSkip.forEach(r => d.skip.push(Object.assign({ fileRow: i + r.row + 2 }, r)));
+        d.batches.push({ rows: batch, fileRows, fileHash: res.j.fileHash });
+        res.j.wouldCreate.forEach(r => d.create.push(Object.assign({ fileRow: fileRows[r.row] }, r)));
+        res.j.wouldSkip.forEach(r => d.skip.push(Object.assign({ fileRow: fileRows[r.row] }, r)));
         Object.keys(res.j.counts).forEach(k => { d.counts[k] = (d.counts[k] || 0) + res.j.counts[k]; });
         seen = res.j.carry;
       }
@@ -1266,17 +1424,17 @@ input[aria-invalid="true"]{border-color:var(--err);border-width:2px;}
       for(let b = 0; b < d.batches.length; b++){
         const bt = d.batches[b];
         prog.textContent = 'Importing batch ' + (b + 1) + ' of ' + d.batches.length + '...';
-        const res = await post('/admin/bd/import', { rows: bt.rows, dryRun: false, fileHash: bt.fileHash, seen });
+        const res = await post(route(), { rows: bt.rows, dryRun: false, fileHash: bt.fileHash, seen });
         if(res.status !== 200 || !res.j || !res.j.ok){ stopped = errText(res); break; }
-        res.j.results.forEach(r => results.push(Object.assign({ fileRow: b * IMP_BATCH + r.row + 2 }, r)));
+        res.j.results.forEach(r => results.push(Object.assign({ fileRow: bt.fileRows[r.row] }, r)));
         Object.keys(res.j.counts).forEach(k => { counts[k] = (counts[k] || 0) + res.j.counts[k]; });
         seen = res.j.carry;
       }
       out.textContent = '';
-      const created = counts.created || 0, failed = counts.failed || 0;
-      const skipped = results.length - created - failed;
-      out.appendChild(el('div', 'dry', 'Created ' + created + ', skipped ' + skipped + ', failed ' + failed + '.' + (stopped ? ' The import stopped before the end; run it again to finish (rows already created are skipped).' : '')));
-      out.appendChild(impTable(['Row', 'School', 'Email', 'Result', 'Detail'], results.map(r => ({ flagged: r.result === 'failed', cells: [String(r.fileRow), r.school || '', r.email || '', r.result === 'created' ? 'Created' : r.result === 'failed' ? 'Failed' : 'Skipped', r.result === 'skipped' ? (IMP_REASONS[r.reason] || r.reason) : r.result === 'failed' ? 'Could not save. Run the import again.' : (r.path || '')] }))));
+      const created = counts.created || 0, failed = counts.failed || 0, joined = counts.joined || 0;
+      const skipped = results.length - created - joined - failed;
+      out.appendChild(el('div', 'dry', 'Created ' + created + (joined ? ', joined ' + joined : '') + ', skipped ' + skipped + ', failed ' + failed + '.' + (stopped ? ' The import stopped before the end; run it again to finish (rows already created are skipped).' : '')));
+      out.appendChild(impTable(['Row', 'School', 'Email', 'Result', 'Detail'], results.map(r => ({ flagged: r.result === 'failed', cells: [String(r.fileRow), r.school || '', r.email || '', r.result === 'created' ? 'Created' : r.result === 'joined' ? 'Joined' : r.result === 'failed' ? 'Failed' : 'Skipped', r.result === 'skipped' ? (reasons()[r.reason] || r.reason) : r.result === 'failed' ? 'Could not save. Run the import again.' : (r.path || '')] }))));
       prog.textContent = 'Import done: created ' + created + ', skipped ' + skipped + ', failed ' + failed + '.';
       if(stopped) showErr('The import stopped. ' + stopped);
       st.busy = false; setBtns();
