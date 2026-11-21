@@ -198,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.236';
+const APP_VERSION='1.1.238';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3951,7 +3951,7 @@ function hsShortLabel(s){ s=String(s==null?'':s); return s.indexOf('&')>=0?s.spl
 // config listener. If the pass or the profile call fails, the page keeps the whole-school
 // listeners exactly as before, so a player never sees a blank screen. Signing out puts the
 // whole-school listeners back for the sign-in screen.
-var _hsPL={ on:false, subs:[], pid:'', sw:null, opp:null, notesRef:null, notesDate:'', renderT:0, ranks:null, teammates:null, reason:'', refreshT:0, visBound:false };
+var _hsPL={ on:false, subs:[], pid:'', sw:null, opp:null, notesRef:null, notesDate:'', renderT:0, ranks:null, teammates:null, reason:'', refreshT:0, visBound:false, roster:null, own:null };
 // ===== READS WITH A PASS (HS data lockdown L3 prep) =====
 // At a live high school the browser reads school nodes only once it holds a pass, so the database
 // can later refuse every read without one. Signed out: no school listener at all (the sign-in
@@ -4140,7 +4140,22 @@ function _hsApplyProfile(pid,j){
   profilesData=pd;
   _hsPL.ranks=(j.ranks&&typeof j.ranks==='object')?j.ranks:null;   // no ranks: switch 5 is off, the card hides
   _hsPL.teammates=Array.isArray(j.teammates)?j.teammates:null;
+  if(Array.isArray(j.roster)) _hsPL.roster=j.roster;
+  _hsPLRosterApply();
   hsRenderRanks();
+}
+// The team list (read lock, 2026-11-15): a player reads only their own roster record, so the
+// teammates come from the profile answer (name, jersey, class year, pair seed, active only) and
+// the player's own record from its own listener on top.
+function _hsPLRosterApply(){
+  if(!_hsPL.on&&!_hsPL.pid) return;
+  var pid=_hsPL.pid, own=_hsPL.own;
+  var list=(_hsPL.roster||[]).filter(function(e){ return e&&typeof e.id==='string'; }).map(function(e){ return Object.assign({},e); });
+  if(own&&typeof own==='object'){
+    var i=list.findIndex(function(e){ return e.id===pid; }), mine=Object.assign({},i>=0?list[i]:{},own,{ id:pid });
+    if(i>=0) list[i]=mine; else list.push(mine);
+  }
+  if(_hsPL.roster||own){ D.players=list; _rosterLoaded=true; }
 }
 var HS_RANK_LABELS={ avgSkill:'Average skill', serving:'Serving', passing:'Passing', setting:'Setting', hitting:'Hitting', blocking:'Blocking', defense:'Defense',
   courtSense:'Court sense', communication:'Communication', starDrill:'Star drill', approachJump:'Approach jump', blockJump:'Block jump', standingReach:'Standing reach', height:'Height' };
@@ -4221,8 +4236,9 @@ function _hsPLConfig(c){
   var p=(c&&c.privacy)||{};
   D.parentShowSkills=!!(c&&c.parentShowSkills===true);
   D.fansSeeSets=p.fansSeeSets!==false;
-  D.playersSeeScouting=p.playersSeeScouting!==false;
-  D.scoutsFullNames=p.scoutsFullNames!==false;
+  // Since 2026-11-15 scouting and full scouting names are off unless a coach turned them on.
+  D.playersSeeScouting=p.playersSeeScouting===true;
+  D.scoutsFullNames=p.scoutsFullNames===true;
   D.playersSeeRank=p.playersSeeRank!==false;
   var sw={ s1:D.playersSeeScouting, s2:p.teammatesSeeSkills===true, s5:D.playersSeeRank }, prev=_hsPL.sw;
   _hsPL.sw=sw;
@@ -4252,7 +4268,6 @@ function _hsPLAttach(){
   var R=DB_ROOT, pid=_hsPL.pid;
   var list=function(v){ return v?Object.values(v):[]; };
   var S={
-    players:function(v){ D.players=list(v); _rosterLoaded=true; },
     matches:function(v){ D.matches=list(v); }, planned:function(v){ D.planned=list(v); },
     gamedays:function(v){ D.gamedays=list(v); }, scrimmages:function(v){ D.scrimmages=list(v); },
     schedule:function(v){ D.schedule=list(v); }, duals:function(v){ D.duals=list(v); },
@@ -4261,6 +4276,8 @@ function _hsPLAttach(){
   D.tierRequests={}; D.chat={}; D.practiceTournaments={};
   Object.keys(S).forEach(function(k){ _hsPLOn(R+'/'+k,function(s){ S[k](s.val()); _hsPLRender(); }); });
   _hsPLOn(R+'/config',function(s){ _hsPLConfig(s.val()||{}); });
+  // Only this player's own roster record; teammates come from the profile answer.
+  _hsPLOn(R+'/players/'+pid,function(s){ _hsPL.own=s.val()||null; _hsPLRosterApply(); _hsPLRender(); });
   _hsPLOn(R+'/goals/'+pid,function(s){ D.goals={}; D.goals[pid]=s.val()||{}; _hsPLRender(); });
   _hsPLOn(SC.dbRoots.profiles+'/quizScores/'+pid,function(s){ D.quizScores={}; D.quizScores[pid]=s.val()||{}; _hsPLRender(); });
   _hsPLOn(R+'/broadcasts',function(s){ D.broadcasts=s.val()||{}; if(typeof renderPlayerBroadcasts==='function') renderPlayerBroadcasts(); });
@@ -4277,7 +4294,7 @@ function hsPlayerSplitStart(){
   return hsPlayerProfileFetch().then(function(j){
     if(!j){ _hsPL.reason='profile'; return false; }
     if(currentRole!=='player'||currentPlayerId!==pid||_hsPL.on) return false;
-    _hsPL.on=true; _hsPL.pid=pid; _hsPL.reason=''; _hsPL.sw=null;
+    _hsPL.on=true; _hsPL.pid=pid; _hsPL.reason=''; _hsPL.sw=null; _hsPL.roster=null; _hsPL.own=_hsPlayerRec&&_hsPlayerRec.id===pid?_hsPlayerRec:null;
     _hsApplyProfile(pid,j);
     schoolListenOff();
     _hsPLAttach();
@@ -4305,7 +4322,7 @@ function hsPlayerSplitSoon(){
 function hsPlayerSplitStop(){
   if(!_hsPL.on) return;
   _hsPL.subs.slice().forEach(_hsPLOff);
-  _hsPL.on=false; _hsPL.pid=''; _hsPL.sw=null; _hsPL.opp=null; _hsPL.notesRef=null; _hsPL.notesDate=''; _hsPL.ranks=null; _hsPL.teammates=null;
+  _hsPL.on=false; _hsPL.pid=''; _hsPL.sw=null; _hsPL.opp=null; _hsPL.notesRef=null; _hsPL.notesDate=''; _hsPL.ranks=null; _hsPL.teammates=null; _hsPL.roster=null; _hsPL.own=null;
   if(_hsPL.refreshT){ clearInterval(_hsPL.refreshT); _hsPL.refreshT=0; }
   hsRenderRanks();
   // L3: signing out leaves no school listener (the sign-in screen needs none).
@@ -4322,8 +4339,36 @@ var HS_PRIV_ROWS=[
   ['fansSeeSets','Fans see set scores','Your fan page shows set-by-set scores for each court, with each player\'s kills, aces and blocks. Errors are never shown. Fans only ever see first name, last initial and jersey.'],
   ['scoutsFullNames','Save opponents\' full names in scouting','Off: new scouting saves keep first name and last initial. You\'ll be asked whether to shorten names already saved. Shortening can\'t be undone.']
 ];
-var HS_PRIV_DEFAULTS={ playersSeeScouting:true, teammatesSeeSkills:false, playersSeeRank:true, fansSeeSets:true, scoutsFullNames:true };
+// 2026-11-15: scouting hidden from players and full scouting names off by default (a missing
+// setting means off), matching the worker's SWITCH_DEFAULTS and the read lock rules.
+var HS_PRIV_DEFAULTS={ playersSeeScouting:false, teammatesSeeSkills:false, playersSeeRank:true, fansSeeSets:true, scoutsFullNames:false };
 var _hsPriv={ sw:null, history:[], busy:false, demo:null };
+// ===== SCOUTING DEFAULT NOTE (2026-11-15) =====
+// A coach at a live high school sees this once, while scouting is hidden from their players,
+// until they tap Got it (remembered per school on this device). No storage: never shown, so it
+// can never nag. A separate element from the red save bar, so neither hides the other.
+var HS_SCOUT_NOTE_TEXT='Scouting is now hidden from players by default. You can turn it back on in Settings.';
+var HS_SCOUT_NOTE_KEY='cs_scout_default_note_v1:';
+function hsScoutNoteMaybe(){
+  if(!HS_ACCOUNT_SIGNIN||currentRole!=='coach'||D.playersSeeScouting!==false) return false;
+  if(typeof document==='undefined'||!document.createElement||!document.body) return false;
+  try{ if(localStorage.getItem(HS_SCOUT_NOTE_KEY+DB_ROOT)) return false; }catch(e){ return false; }
+  if(document.getElementById('hs-scout-note')) return true;
+  var el=document.createElement('div');
+  el.id='hs-scout-note';
+  if(el.setAttribute) el.setAttribute('role','status');
+  el.style.cssText='position:fixed;left:8px;right:8px;top:56px;z-index:9400;max-width:640px;margin:0 auto;background:#1f2a44;color:#fff;border-radius:10px;padding:12px 14px;'
+    +'box-shadow:0 4px 16px rgba(0,0,0,.3);font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;';
+  el.innerHTML='<div style="flex:1;min-width:180px;font-weight:600;">'+csEsc(HS_SCOUT_NOTE_TEXT)+'</div>'
+    +'<button type="button" onclick="hsScoutNoteDismiss()" style="min-height:44px;padding:8px 16px;border-radius:8px;font-size:15px;font-weight:700;border:2px solid #fff;background:transparent;color:#fff;cursor:pointer;">Got it</button>';
+  document.body.appendChild(el);
+  return true;
+}
+function hsScoutNoteDismiss(){
+  try{ localStorage.setItem(HS_SCOUT_NOTE_KEY+DB_ROOT,String(Date.now())); }catch(e){}
+  var el=document.getElementById('hs-scout-note');
+  if(el&&el.parentNode) el.parentNode.removeChild(el);
+}
 function hsPrivacyOn(){ return !!HS_ACCOUNT_SIGNIN||(!!SC.demoMode&&!SC.tiersEnabled); }
 function _hsPrivStatus(t){ var el=document.getElementById('hs-priv-status'); if(el) el.textContent=t||''; }
 function hsPrivacyRender(){
@@ -4397,7 +4442,7 @@ function hsPrivacyToggle(name,el){
 // ("Jane S.", record key jane_s, the same shape the trim writes). Turning it back on saves full
 // names for new scans only; names already shortened stay short. Live high schools and the HS
 // demo only; the club never has the switch.
-function _hsPrivApply4(){ if(_hsPriv.sw) D.scoutsFullNames=_hsPriv.sw.scoutsFullNames!==false; }
+function _hsPrivApply4(){ if(_hsPriv.sw) D.scoutsFullNames=_hsPriv.sw.scoutsFullNames===true; }
 function hsScoutsShort(){ return D.scoutsFullNames===false&&hsPrivacyOn(); }
 function hsScoutName(n){ n=String(n==null?'':n).trim(); return hsScoutsShort()?hsShortName(n):n; }
 function hsScoutKey(n){ var k=String(n==null?'':n).toLowerCase().replace(/[^a-z0-9]+/g,'_'); return hsScoutsShort()?k.replace(/^_+|_+$/g,''):k; }
@@ -4639,8 +4684,12 @@ function listenData(){if(!db||_schoolListening)return;
     D.tierRequests=v.tier_requests||{};
     D.parentShowSkills=!!(v.config&&v.config.parentShowSkills===true);
     D.fansSeeSets=!(v.config&&v.config.privacy&&v.config.privacy.fansSeeSets===false); // fan page fallback (switch 3)
-    D.playersSeeScouting=!(v.config&&v.config.privacy&&v.config.privacy.playersSeeScouting===false); // switch 1
-    D.scoutsFullNames=!(v.config&&v.config.privacy&&v.config.privacy.scoutsFullNames===false); // switch 4
+    // Switches 1 and 4: at a live high school off unless a coach turned them on (2026-11-15);
+    // anywhere else (the club, the demos) the old reading, on unless turned off.
+    var _pv=(v.config&&v.config.privacy)||{};
+    D.playersSeeScouting=HS_ACCOUNT_SIGNIN?_pv.playersSeeScouting===true:_pv.playersSeeScouting!==false; // switch 1
+    D.scoutsFullNames=HS_ACCOUNT_SIGNIN?_pv.scoutsFullNames===true:_pv.scoutsFullNames!==false; // switch 4
+    if(typeof hsScoutNoteMaybe==='function') hsScoutNoteMaybe();
     if(typeof hsParentSkillsSync==='function')hsParentSkillsSync();
     D.chat=v.chat||{};
     // Kings Night results (club). Already in this snapshot; mapped for the season leaderboard.
@@ -6933,6 +6982,7 @@ async function playerLoginEmail(){
   }
   // Verified. Resolve the club roster record by matching accountId to the account id.
   const accountId=j.player&&j.player.id;
+  if(typeof ppNoteOwnTraits==='function')ppNoteOwnTraits(j.player); // own gender, from the worker
   let rec=accountId?D.players.find(p=>p.accountId===accountId):null;
   // A live high school opens a player only when the account matches exactly one active
   // roster record, the same rule as the device sign-in.
@@ -7096,7 +7146,9 @@ async function _leonAuthConfirmed(auth){
     const r=await fetch(AUTH_WORKER+'/auth/player-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:s.token})});
     if(!r.ok)return false;
     const j=await r.json().catch(()=>null);
-    return !!(j&&j.ok===true&&j.player&&j.player.id===rec.accountId);
+    const okS=!!(j&&j.ok===true&&j.player&&j.player.id===rec.accountId);
+    if(okS&&typeof ppNoteOwnTraits==='function')ppNoteOwnTraits(j.player); // own gender, from the worker
+    return okS;
   }catch(e){ return false; }
 }
 async function autoLogin(){
@@ -7278,6 +7330,7 @@ async function clubAccountSession(){
   }catch(e){return null;}
   const aid=j&&j.ok===true&&j.player&&j.player.id;
   if(!aid)return null;
+  if(typeof ppNoteOwnTraits==='function')ppNoteOwnTraits(j.player); // own gender, from the worker
   let recs;
   if(HS_ACCOUNT_SIGNIN){
     // L3 prep: from the pass, never a roster read while signed out.
@@ -20934,9 +20987,37 @@ function csRankWarm(rerender){
 //     circle ('club' = account carries memberships[orgId]; 'open' = any known non-blocked account),
 //     with includeList adding and excludeList removing by nameKey (exclude never overrides the
 //     host/rsvp union, matching isChatEligible)
-//   - division gate from the member's own account gender (profile.gender): men's hides from 'F',
-//     women's from 'M', coed shows to all, unknown or unspecified sees every division; host exempt
+//   - division gate from the member's own gender: men's hides from 'F', women's from 'M', coed
+//     shows to all, unknown or unspecified sees every division; host exempt. Since 2026-11-15 the
+//     account gender is private: it comes from the member's own signed-in session
+//     (/auth/contact-status, already loaded for the text alert card), else their own club roster
+//     record, else the old public value until it moves.
 var _ppPartnerCache=null; // { ts, invites, players }; 60s TTL so tab flips do not re-read
+// The signed-in member's own gender and age answer from the worker's sign-in or session restore
+// answer (/auth/verify, /auth/player-session: the owner's own traits, private record first, the
+// same ones auth.js applyOwnTraits merges). { acct, gender } or null. Never anyone else's.
+var _ppSessionTraits=null;
+function ppNoteOwnTraits(player){
+  if(!player||typeof player.id!=='string'||!player.id){ return; }
+  var g=player.profile&&player.profile.gender;
+  _ppSessionTraits={ acct:player.id, gender:(g==='M'||g==='F'||g==='unspecified')?g:'' };
+}
+// The signed-in member's own gender, 'M' | 'F' | null: their session's answer first (the sign-in
+// answer above, then /auth/contact-status), then their own club roster record, then the legacy
+// public account value as a fallback only. Never anyone else's.
+function ppOwnGender(acct,rosterRec){
+  var me=(typeof tnMyAccountId==='function')?tnMyAccountId():'';
+  var st=(_ppSessionTraits&&me&&_ppSessionTraits.acct===me)?_ppSessionTraits.gender:'';
+  if(st==='M'||st==='F') return st;
+  if(st==='unspecified') return null;
+  var mine=(typeof _ppSms!=='undefined'&&_ppSms&&_ppSms.data&&_ppSms.data.ok===true&&_ppSms.acct===me)?_ppSms.data.gender:'';
+  if(mine==='M'||mine==='F') return mine;
+  if(mine==='unspecified') return null;
+  var r=rosterRec&&rosterRec.gender;
+  if(r==='M'||r==='F') return r;
+  var g=acct&&acct.profile&&acct.profile.gender;
+  return (g==='M'||g==='F')?g:null;
+}
 // Same nameKey convention as pickup's Identity.nameKey and auth.js's snake-case account keys.
 function ppNameKey(name){ return String(name||'').toLowerCase().trim().replace(/[.#$/[\]]/g,'').replace(/\s+/g,'_'); }
 function ppDivisionLabel(d){ return d==='mens'?"Men's":d==='womens'?"Women's":'Coed'; }
@@ -21003,8 +21084,7 @@ function renderMemberPartnerPosts(){
   // Mirror of pickup's gameplayKey for a logged-in account: nameKey field, else nameKey of the
   // display name, else the account id itself.
   var myKey=myAcct.nameKey||ppNameKey(ppNameStr(myAcct))||accountId;
-  var myGender=myAcct.profile&&myAcct.profile.gender;
-  if(myGender!=='M'&&myGender!=='F') myGender=null;
+  var myGender=ppOwnGender(myAcct,meP);
   var myBlocked=!!myAcct.blocked;
   var today=td();
 
