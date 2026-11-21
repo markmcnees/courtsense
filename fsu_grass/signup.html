@@ -473,7 +473,9 @@
 // Then attaches an fsu_grass membership, writes a club roster record (status
 // 'prospect') and a club profile record, all in one atomic multi-path write.
 // Existing accounts are never duplicated and gain only the membership, phone,
-// and profile/gender; no other field changes. The unclaimed branch saves no phone.
+// and gender (phone and gender in the private record, through /auth/contact); no other
+// field changes. The unclaimed branch saves no phone and no account gender (it has no
+// password for /auth/contact); its club roster record still carries the gender.
 const FB_CFG = {
   apiKey: "AIzaSyC8Ue06XPvGXo1XTloewPvDRBWtK5tDAj8",
   authDomain: "leon-beach-volleyball.firebaseapp.com",
@@ -696,7 +698,8 @@ function csSeedFromTruVolley(v){
 // Build the shared write payload. accountKey is the CourtSense account key (new:
 // the createPlayer key; existing: the looked-up playerId). A new member lands on the
 // club roster (grass_club_matches/players) with status 'prospect' for exec review at
-// tryouts. Only the membership, phone, and profile/gender touch the account record.
+// tryouts. Only the membership touches the public account record; the phone and gender go
+// to the private record through /auth/contact (saveContactPrivate) once this write lands.
 function buildClubWrites(accountKey){
   const clubId = genPlayerId();
   const now = Date.now();
@@ -710,8 +713,9 @@ function buildClubWrites(accountKey){
   const truvolley = isFinite(tvNum) ? tvNum : (truvolleyRaw || null); // profile: number or raw string or null
   const truVolleyNum = isFinite(tvNum) ? tvNum : null;                // prospect: strict 0-10 number or null
   const seed = truVolleyNum != null ? csSeedFromTruVolley(truVolleyNum) : null;
-  // Gender vocabulary: the account stores 'M' | 'F' | 'unspecified' at
-  // profile.gender. The club roster record stores 'M' | 'F' | null, because the
+  // Gender vocabulary: the account stores 'M' | 'F' | 'unspecified' in its private record
+  // (saveContactPrivate, never the public account record since 2026-11-15). The club roster
+  // record stores 'M' | 'F' | null, because the
   // app.js Grass Club gender filter compares p.gender against 'M'/'F' literally;
   // null (prefer not to say) simply never matches a gender sub-filter.
   const genderAcct = val('gender');                                          // 'M' | 'F' | 'unspecified'
@@ -778,10 +782,9 @@ function buildClubWrites(accountKey){
   // The cell phone used to be written here, on the world-readable account record.
   // It now goes to the private node through /auth/contact once this write lands.
   // The smsConsent trio stays on the membership above as the non-PII signal.
-  // Deep-path leaf write: sets only profile/gender, never clobbers profile
-  // siblings (skillLevel). Runs on all three branches so an existing account
-  // gains gender from this submission too.
-  updates[ROSTER_PATH + '/' + accountKey + '/profile/gender'] = genderAcct || 'unspecified';
+  // The account's gender is no longer written here: it is private now and goes through
+  // /auth/contact with the phone (saveContactPrivate), on all three branches, so an existing
+  // account gains gender from this submission too.
   updates[CLUB_ROOT + '/players/' + clubId] = rosterRecord;
   updates[CLUB_PROFILES + '/players/' + clubId] = profileRecord;
   updates[CLUB_PASSWORDS + '/' + clubId + '/emailPrefs'] = emailPrefs;
@@ -952,7 +955,9 @@ async function saveContactPrivate(accountKey, email, pw){
     emergencyPhone: val('ecphone'),
     smsConsent: smsOptedIn(),
     smsConsentVersion: SMS_CONSENT_VERSION,
-    smsConsentSource: SLUG + '_signup'
+    smsConsentSource: SLUG + '_signup',
+    // The account's gender, private only ('M' | 'F' | 'unspecified').
+    gender: val('gender') || 'unspecified'
   };
   if(payload.smsConsent) payload.adultConfirmed = true;
   try {

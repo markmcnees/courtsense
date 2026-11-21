@@ -756,8 +756,13 @@ function fillFromProfile(profile){
   // Only the three documented values are ever shown back. Anything else on the
   // record reads as unset rather than being offered as a choice the app does not
   // know, which keeps the vocabulary to exactly 'M' | 'F' | 'unspecified'.
+  // Gender: a value still on the public profile from before the 2026-11-15 move fills in only
+  // until the private answer arrives with the text alert status (loadSmsStatus).
   const g = profile.gender;
-  $('f-gender').value      = (g === 'M' || g === 'F' || g === 'unspecified') ? g : '';
+  if(!genderLoaded){
+    $('f-gender').value    = (g === 'M' || g === 'F' || g === 'unspecified') ? g : '';
+    genderAtLoad = $('f-gender').value;
+  }
   $('f-avp').value         = profile.avpNumber || '';
   $('f-skill').value       = profile.skillLevel || '';
   $('f-zip').value         = profile.zipCode || '';
@@ -785,6 +790,10 @@ function fillFromProfile(profile){
 const PHYSICAL_FIELDS = ['height', 'reach', 'blockJumpTouch', 'approachJumpTouch'];
 const PHYSICAL_INPUTS = { height: 'f-height', reach: 'f-reach', blockJumpTouch: 'f-block', approachJumpTouch: 'f-approach' };
 let physLoaded = false;   // the private copy answered, so a save may write it
+// Gender is private since 2026-11-15: it loads from /auth/contact-status and saves through
+// /auth/contact with the session, never on the public profile. genderLoaded: the worker
+// answered with it, so a save may write it; genderAtLoad: what the form showed then.
+let genderLoaded = false, genderAtLoad = '';
 function readPhysical(){
   const out = { sharePhysical: !!$('f-share-phys').checked };
   PHYSICAL_FIELDS.forEach(k => { out[k] = ($(PHYSICAL_INPUTS[k]).value || '').trim(); });
@@ -811,16 +820,25 @@ function physSignedOut(){
 }
 // Resolves true when there was nothing to save or the worker saved it. Values never
 // reach the console; a refusal shows the worker's own message.
-async function savePhysical(physical){
+async function savePhysical(physical, genderPick){
   const token = (CourtSenseAuth.isVerified && CourtSenseAuth.isVerified()) ? CourtSenseAuth.getSessionToken() : null;
   if(!physLoaded || !token){
-    const typed = PHYSICAL_FIELDS.some(k => physical[k]) || physical.sharePhysical;
-    if(typed){ physSignedOut(); toast('Profile saved. Sign out and back in to save height and reach.'); return false; }
+    const typed = PHYSICAL_FIELDS.some(k => physical[k]) || physical.sharePhysical || (genderPick || '') !== genderAtLoad;
+    if(typed){ physSignedOut(); toast('Profile saved. Sign out and back in to save gender, height and reach.'); return false; }
     return true;
   }
   try {
     const res = await smsPost('/auth/contact', Object.assign({ rosterPath: ROSTER_PATH, accountId: currentPid, sessionToken: token }, physical));
-    if(res.j.ok === true) return true;
+    if(res.j.ok === true){
+      if(Object.prototype.hasOwnProperty.call(physical, 'gender')){
+        genderAtLoad = physical.gender || '';
+        // Saved privately: take any copy still on the public profile off it (own record only).
+        db.ref(ROSTER_PATH + '/' + currentPid + '/profile/gender').remove().catch(function(){});
+        const cp = CourtSenseAuth.currentPlayer ? CourtSenseAuth.currentPlayer() : null;
+        if(cp){ cp.profile = Object.assign({}, cp.profile || {}); if(physical.gender) cp.profile.gender = physical.gender; else delete cp.profile.gender; }
+      }
+      return true;
+    }
     console.error('physical save rejected', res.status, res.j.code || '', res.j.field || '');
     if(res.status === 401) physSignedOut();
     const msg = res.j.error || 'Could not save height and reach. Try again.';
@@ -916,6 +934,9 @@ function doSave(e){
   if(!currentPid){ errEl.textContent = 'Not signed in.'; return false; }
 
   const profile = readForm();
+  // Gender never goes on the public profile (private record, through savePhysical).
+  const genderPick = profile.gender;
+  delete profile.gender;
   if(profile.zipCode && !/^[0-9]{5}$/.test(profile.zipCode)){
     errEl.textContent = 'Zip code must be 5 digits.';
     $('f-zip').classList.add('invalid');
@@ -993,7 +1014,7 @@ function doSave(e){
       return db.ref(ROSTER_PATH+'/'+currentPid).update({ displayName: nameUpdate, name: nameUpdate })
         .then(() => { currentDisplayName = nameUpdate; $('who-name').textContent = nameUpdate; });
     })
-    .then(() => savePhysical(physical))
+    .then(() => savePhysical(genderLoaded ? Object.assign({}, physical, { gender: genderPick || null }) : physical, genderPick))
     .then(physOk => {
       submitVolleyballLifeRequest(vb);
       if(physOk) toast('Profile saved');
@@ -1684,6 +1705,14 @@ async function loadSmsStatus(){
     // without them yet leaves the fields read only rather than dropping a save.
     if(res.j.physical) fillPhysical(res.j.physical);
     else { physLoaded = false; physStatus('Saving height and reach is almost ready. Check back soon.'); }
+    // The player's own gender, private record first (the worker falls back to an old public
+    // value until it moves). A worker without it leaves gender read from the public profile.
+    // Gender never touches physLoaded: that belongs to the physical fields above.
+    if(typeof res.j.gender === 'string'){
+      const g = res.j.gender;
+      $('f-gender').value = (g === 'M' || g === 'F' || g === 'unspecified') ? g : '';
+      genderLoaded = true; genderAtLoad = $('f-gender').value;
+    }
     fillClubInvites(res.j);
     smsRenderStatus(res.j);
   } catch(e){

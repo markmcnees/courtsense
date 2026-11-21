@@ -13,8 +13,10 @@
  *     'password_changed' row is queued in tally_kotb_pickup/email_queue.
  *   CourtSenseAuth.createPlayer({ email, password, displayName, city, skillLevel, gender, keepSignedIn, tenant })
  *     -> Promise<{ok:true, playerKey} | {ok:false, error}>
- *     gender is optional: 'M' | 'F' | 'unspecified'. When present it is stored
- *     at profile.gender; absent or unrecognized values are dropped, never fatal.
+ *     gender is optional: 'M' | 'F' | 'unspecified'. When present the worker stores it
+ *     in the private account record (never the public one, since 2026-11-15); the
+ *     in-memory session copy carries it at profile.gender. Absent or unrecognized
+ *     values are dropped, never fatal.
  *     tenant is optional: { slug, name } identifying the club or school this
  *     signup came through (slug is the courtsense_school_configs key). When
  *     present it rides along in the welcome email payload so the worker can
@@ -289,6 +291,18 @@
     return { success: true, player: _currentPlayer, playerId: res.player.id, session: sessionFrom(res) };
   }
 
+  // The owner's own gender and age answer. Since 2026-11-15 both live only in the private
+  // account record; the worker returns them to the owner's own sign-in and session restore,
+  // never on the public record, so the in-memory player takes them from that answer. A worker
+  // answer without them leaves whatever the public record still had (before the move).
+  function applyOwnTraits(target, fromWorker){
+    if(!target || !fromWorker) return;
+    const g = fromWorker.profile && fromWorker.profile.gender;
+    if(g === 'M' || g === 'F' || g === 'unspecified'){ target.profile = Object.assign({}, target.profile || {}, { gender: g }); }
+    const a = fromWorker.adult;
+    if(a && typeof a === 'object' && typeof a.value === 'boolean') target.adult = { value: a.value, at: a.at };
+  }
+
   // The worker session fields from a sign-in response, or null when absent (an older
   // worker, or a mint that failed server side).
   function sessionFrom(res){
@@ -509,6 +523,7 @@
         if(chk.result === 'ok' && chk.player && chk.player.id === parsed.playerId){
           _sessionToken = parsed.sessionToken;
           _verified = true;
+          applyOwnTraits(_currentPlayer, chk.player);
         } else if(chk.result === 'rejected' || chk.result === 'ok'){
           dropSessionToken();
         }
@@ -719,6 +734,8 @@
     persistSession(res.playerId, o.keepSignedIn !== false, email, sessionFrom(res));
     const dn = (String(o.firstName || '').trim() + ' ' + String(o.lastName || '').trim()).trim();
     _currentPlayer = { id: res.playerId, displayName: dn, name: dn, profileIncomplete: true };
+    // The age answer just given, for this session only (it is stored privately by the worker).
+    if(o.adult === true || o.adult === false) _currentPlayer.adult = { value: o.adult, at: Date.now() };
     // The gameplay key (pickup RSVPs, ratings) the worker stored, so this first session
     // keys by it and not by the display name. Older workers send none: nothing changes.
     if(typeof res.nameKey === 'string' && res.nameKey) _currentPlayer.nameKey = res.nameKey;

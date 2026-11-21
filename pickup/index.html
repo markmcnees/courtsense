@@ -4642,11 +4642,13 @@ function homeSignIn(create){
 // confirmed-slot math means "partner found" when the poster accepts someone.
 
 
-// The viewer's own gender from their logged-in account record (profile.gender,
-// 'M' | 'F' | 'unspecified'). Used ONLY to hide divisions the viewer cannot
-// enter: men's posts hide from 'F', women's posts hide from 'M', coed shows to
-// everyone. Unknown or unspecified gender sees every division, since
-// ineligibility cannot be determined. Never written, never shown.
+// The viewer's own gender from their signed-in session (profile.gender on the session's
+// player record, 'M' | 'F' | 'unspecified'). Since 2026-11-15 gender lives only in the
+// private account record: the worker returns the player's own answer to their own sign-in
+// and session restore (auth.js), and it is saved through /auth/contact. Used ONLY to hide
+// divisions the viewer cannot enter: men's posts hide from 'F', women's posts hide from
+// 'M', coed shows to everyone. Unknown or unspecified gender sees every division, since
+// ineligibility cannot be determined. Never shown.
 function viewerGender(){
   const p = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const g = p && p.profile && p.profile.gender;
@@ -4663,9 +4665,12 @@ function viewerGenderRaw(){
   const g = p && p.profile && p.profile.gender;
   return (g === 'M' || g === 'F' || g === 'unspecified') ? g : null;
 }
-// The same raw answer for somebody who is NOT the viewer, off the public
-// profiles cache. Mirrors how divisionAllowsViewer2 resolves a candidate.
+// The same raw answer for a pool row. The viewer's own row reads their session; anyone
+// else's is off the public profiles cache, which no longer carries gender once the
+// 2026-11-15 move has run (unknown, so nothing is narrowed by it). Mirrors how
+// divisionAllowsViewer2 resolves a candidate.
 function accountGenderRaw(accountId, name){
+  if(isViewerAccount(accountId, name)) return viewerGenderRaw();
   const cache = window._profilesCache || {};
   let p = (accountId && cache[accountId]) || null;
   if(!p && name){
@@ -4674,6 +4679,13 @@ function accountGenderRaw(accountId, name){
   }
   const g = p && p.profile && p.profile.gender;
   return (g === 'M' || g === 'F' || g === 'unspecified') ? g : null;
+}
+// Whether a pool row's account is the signed-in viewer (by account id, else by name key).
+function isViewerAccount(accountId, name){
+  const mine = (typeof currentAccountId === 'function') ? currentAccountId() : null;
+  if(mine && accountId) return accountId === mine;
+  const me = window.Identity ? Identity.getCurrent() : null;
+  return !accountId && !!name && !!me && !!me.name && Identity.nameKey(name) === Identity.nameKey(me.name);
 }
 function divisionAllowsViewer(div){
   // Juniors first, and unconditionally: no gender, known or unknown, opens one.
@@ -7246,9 +7258,9 @@ async function joinTournamentPool(){
     if(!acct){ toast('Log in again to save that'); return; }
     const chosen = trnGenderPick;
     const restore = _trnApplyGenderLocally(acct, me && me.name, chosen);
-    // update(), never set(): players/{id}/profile holds a dozen other fields and
-    // set() would replace the node with this one key. See fbUpdate.
-    const saved = await fbUpdate('players/' + acct + '/profile', { gender: chosen });
+    // Private record only, through the worker with the player's own session (2026-11-15):
+    // never the public profile.
+    const saved = await saveOwnGender(acct, chosen);
     if(saved !== true){
       restore();
       toast('Could not save that. Nothing was posted.');
@@ -7298,6 +7310,18 @@ async function joinTournamentPool(){
   toast('Added to the pool');
 }
 
+// The signed-in player's gender, saved to their private record through /auth/contact with
+// their session. true on success, false otherwise. Never throws, never logs the value.
+async function saveOwnGender(accountId, value){
+  const tok = jrSessionToken();
+  if(!tok || !accountId) return false;
+  try{
+    const r = await fetch(NOTIFY_WORKER + '/auth/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rosterPath: 'tally_kotb_pickup/players', accountId: accountId, sessionToken: tok, gender: value }) });
+    const j = await r.json().catch(function(){ return null; });
+    return !!(j && j.ok === true);
+  }catch(e){ return false; }
+}
 // Make a just-chosen gender visible to every narrowing path IMMEDIATELY, without
 // waiting on the 30 second profiles cache window in ensureProfilesLoaded. Three
 // places read a gender and all three are updated here:
@@ -8642,6 +8666,12 @@ function divisionAllowsViewer2(div, accountId, name){
   // reason: this early return used to let every juniors category through.
   if(trnIsJuniorCategory(div)) return false;
   if(div !== 'mens' && div !== 'womens') return true;
+  // The viewer's own row: their session's answer (gender is private since 2026-11-15).
+  if(isViewerAccount(accountId, name)){
+    const vg = viewerGender();
+    if(vg !== 'M' && vg !== 'F') return true;
+    return div === 'mens' ? vg !== 'F' : vg !== 'M';
+  }
   const cache = window._profilesCache || {};
   let p = (accountId && cache[accountId]) || null;
   if(!p && name){
