@@ -3727,6 +3727,8 @@ function labelsRedraw(){
     if(on('groups-modal')) renderGroupsList();
     if(on('group-editor-modal')) renderGroupMembers();
     if(view === 'invite-setup') updateInvitePreview();
+    if(view === 'tournament-detail') renderTournamentDetail();
+    if(view === 'list' && typeof renderNeedsYou === 'function') renderNeedsYou();
     if(view === 'poll-setup' && $('pp-recips')) ppDrawRecipients();
     if($('pp-notify-list') && $('pp-notify-list').innerHTML) ppRenderNotifyList();
     if($('gc-list')) renderGameChatMessages();
@@ -6484,12 +6486,12 @@ function renderTournamentDetail(){
     + '</div>'
     + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Registration and info \u2197</a></div>' : "")
     + (t.organizer ? '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Organized by ' + escapeHTML(t.organizer) + '</div>' : "")
-    + '<div style="font-size:12px;color:var(--gray);margin-top:4px;">Listed by ' + escapeHTML(t.createdByName || "Anonymous") + '</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin-top:4px;">Listed by ' + escapeHTML(shownName(t.createdByName || "Anonymous", t.createdBy)) + '</div>'
     // Corrected-by is a second line, never a replacement for the first. Shown only
     // once an edit has happened, and only when it was somebody OTHER than the
     // lister, so the ordinary case of a lister fixing their own typo stays quiet.
     + ((t.updatedByName && t.updatedByName !== t.createdByName)
-        ? '<div style="font-size:12px;color:var(--gray);margin-top:2px;">Corrected by ' + escapeHTML(t.updatedByName) + '</div>' : "")
+        ? '<div style="font-size:12px;color:var(--gray);margin-top:2px;">Corrected by ' + escapeHTML(shownName(t.updatedByName, t.updatedBy)) + '</div>' : "")
     // Login is the whole gate, matching trnSetDivReg and the divisions footer:
     // the directory is shared and a wrong listing should be fixable by whoever
     // notices. Full width and 44px, the same secondary treatment the Back button
@@ -6992,7 +6994,7 @@ function trnPostOnlyRowHTML(p, myKey, noteHTML){
         // The player's one action is the gold button; their own post gets a quiet
         // link and the You badge instead (partner-contact.js pb- styles).
         return '<div class="pb-card pb-player' + (mine ? ' pb-mine' : '') + '">'
-          + '<div class="pb-main"><div class="pb-name">' + (mine ? 'Your post<span class="pb-badge pb-badge-you">You</span>' : escapeHTML(p.hostName || 'A player') + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName)) + badge + '</div>'
+          + '<div class="pb-main"><div class="pb-name">' + (mine ? 'Your post<span class="pb-badge pb-badge-you">You</span>' : escapeHTML(shownName(p.hostName || 'A player', p.hostId)) + ratingBadge(p.hostName, p.hostId) + clubBadge(p.hostId, p.hostName)) + badge + '</div>'
           +   '<div class="pb-sub">' + escapeHTML(partnerNeedSummary(p)) + (mine ? ' \u00b7 Visible to ' + escapeHTML(partnerVisLabel(p.eligibility)) : '') + '</div>'
           +   noteHTML(p)
           + '</div>'
@@ -7079,7 +7081,7 @@ function renderNeedsYou(){
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
     +   '<div style="flex:1;">'
     +     '<div class="evname">' + escapeHTML(a.post.name || 'Tournament') + '</div>'
-    +     '<div class="evmeta">' + escapeHTML(a.post.hostName || 'Someone') + ' asked you to play '
+    +     '<div class="evmeta">' + escapeHTML(shownName(a.post.hostName || 'Someone', a.post.hostId)) + ' asked you to play '
     +       escapeHTML(a.days.map(d => dayShort(d)).join(' and ')) + '</div>'
     +   '</div>'
     +   pill('#fef3c7', '#92400e', 'ANSWER')
@@ -7885,14 +7887,14 @@ function renderPartnerDetail(i){
 
     // Viewer. Being asked comes first: it is addressed to them and wants an answer.
     if(mineAsk){
-      body += '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-top:6px;font-size:13px;font-weight:700;">' + escapeHTML(i.hostName || 'The poster') + ' asked you to play ' + escapeHTML(recLabel(mineAsk) || 'this one') + '.</div>'
+      body += '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-top:6px;font-size:13px;font-weight:700;">' + escapeHTML(shownName(i.hostName || 'The poster', i.hostId)) + ' asked you to play ' + escapeHTML(recLabel(mineAsk) || 'this one') + '.</div>'
         + '<div style="display:flex;gap:8px;margin-top:6px;">'
         + '<button class="btn btn-p btn-sm" style="padding:4px 12px;min-height:0;" onclick="acceptAsk(\'' + dk + '\')">Accept</button>'
         + '<button class="btn btn-g btn-sm" style="padding:4px 12px;min-height:0;" onclick="declineAsk(\'' + dk + '\')">Decline</button>'
         + '</div>'
         + (pickIsOpen(n.day, 'ask', null) ? pickRow(n, mineAsk, 'ask', null) : '');
     } else if(mineOffer){
-      body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent' + (recLabel(mineOffer) ? ' for ' + escapeHTML(recLabel(mineOffer)) : '') + '. ' + escapeHTML(i.hostName || 'The poster') + ' will review it.</div>'
+      body += '<div style="font-size:13px;color:#92400e;margin-top:6px;">Offer sent' + (recLabel(mineOffer) ? ' for ' + escapeHTML(recLabel(mineOffer)) : '') + '. ' + escapeHTML(shownName(i.hostName || 'The poster', i.hostId)) + ' will review it.</div>'
         + '<button class="btn btn-g btn-sm" style="margin-top:6px;padding:4px 12px;min-height:0;" onclick="withdrawOffer(\'' + dk + '\')">Withdraw offer</button>';
     } else if(past){
       body += '<div style="font-size:12px;color:var(--gray);margin-top:6px;">This day has been played.</div>';
@@ -7960,7 +7962,7 @@ function renderPartnerDetail(i){
     + (partnerAllNeeds(i).some(needHasCoed) ? COED_UNRATED_NOTE : '')
     + (url ? '<div style="margin:8px 0;"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:700;font-size:13px;">Tournament registration and info ↗</a></div>' : '')
     + (i.description ? '<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:6px;padding:10px 12px;background:var(--sand);border-radius:8px;">' + escapeHTML(i.description) + '</div>' : '')
-    + '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Posted by ' + escapeHTML(i.hostName || 'Anonymous') + clubBadge(i.hostId, i.hostName) + ' · Visible to ' + escapeHTML(partnerVisLabel(i.eligibility)) + '</div>'
+    + '<div style="font-size:12px;color:var(--gray);margin-top:10px;">Posted by ' + escapeHTML(shownName(i.hostName || 'Anonymous', i.hostId)) + clubBadge(i.hostId, i.hostName) + ' · Visible to ' + escapeHTML(partnerVisLabel(i.eligibility)) + '</div>'
     + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
     +   '<button class="btn btn-g btn-sm" onclick="shareJoinLink(\'' + escapeHTML(i.id).replace(/'/g,"\\'") + '\')">Share this post</button>'
     + '</div>'
@@ -10802,7 +10804,7 @@ function renderInviteDetail(){
     </div>
     ${i.description?`<div style="font-size:14px;color:var(--black);line-height:1.5;margin-top:10px;padding:10px 12px;background:var(--sand);border-radius:8px;">${escapeHTML(i.description)}</div>`:''}
     <div style="font-size:12px;color:var(--gray);margin-top:10px;">
-      ${eligDesc} · Hosted by ${escapeHTML(i.hostName||'Anonymous')}${i.rsvpDeadline?' · RSVP by '+fmtDateTime(i.rsvpDeadline):''}
+      ${eligDesc} · Hosted by ${escapeHTML(shownName(i.hostName||'Anonymous', i.hostId))}${i.rsvpDeadline?' · RSVP by '+fmtDateTime(i.rsvpDeadline):''}
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-p btn-sm" onclick="openInvitedModal()">Who's invited</button>
