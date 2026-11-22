@@ -692,6 +692,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
           <div style="display:flex;gap:8px;margin-bottom:6px;">
             <input class="inp" id="iv-exc-search" placeholder="Type a name to leave out" autocomplete="off" oninput="renderExclude()" style="flex:1;">
           </div>
+          <div class="iv-chips" id="iv-exc-chips"></div>
           <div id="iv-exc-list" style="display:none;max-height:160px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);"></div>
         </div>
         <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5;">Optionally widen who can RSVP as the start approaches. The circle above applies until a tier activates. Tiers are skill based, and each must activate closer to start (fewer hours before) than the one above it.</div>
@@ -3754,6 +3755,10 @@ let activeInvite = null;
 let inviteEditId = null;
 let inviteIncSelected = new Set();
 let inviteExcSelected = new Set();
+// Leave out by account (eligibility.excludeAccountIds): account id -> the name it was picked
+// under ('' until known). Saved beside the names, so a minor shown as "First L." is really
+// left out; the names alone (excludeList) still work for every older game.
+let inviteExcIds = new Map();
 
 // Partner-post notify picker state. Deliberately NOT inviteIncSelected: the game
 // creator and the partner creator can be open in the same session and must never
@@ -4057,8 +4062,22 @@ function computeEligible(e){
   (e.includeList||[]).forEach(n => {
     if(!names.some(x => Identity.nameKey(x)===Identity.nameKey(n))) names.push(n);
   });
-  // excludeList overrides down
+  // excludeList overrides down, and so does excludeAccountIds: each left-out account's own
+  // name here, and the viewer's own names when the viewer is the one left out. A minor saved
+  // as "First L." matches no one by name, so the account is what leaves them out; an adult
+  // with the same short name is not touched.
   const excSet = new Set((e.excludeList||[]).map(n => Identity.nameKey(n)));
+  const exIds = Array.isArray(e.excludeAccountIds) ? e.excludeAccountIds : [];
+  if(exIds.length){
+    const cache = window._profilesCache || {};
+    exIds.forEach(aid => { const p = cache[aid]; if(p && nameStr(p)) excSet.add(Identity.nameKey(nameStr(p))); });
+    const me = typeof currentAccountId === 'function' ? currentAccountId() : null;
+    if(me && exIds.indexOf(me) >= 0){
+      const idn = window.Identity && Identity.getCurrent ? Identity.getCurrent() : null;
+      const auth = window.CourtSenseAuth && CourtSenseAuth.currentPlayer ? CourtSenseAuth.currentPlayer() : null;
+      [idn && idn.name, auth && auth.displayName, auth && auth.name].forEach(n => { if(n) excSet.add(Identity.nameKey(n)); });
+    }
+  }
   names = names.filter(n => !excSet.has(Identity.nameKey(n)));
   return names.sort((a,b) => a.localeCompare(b));
 }
@@ -9086,6 +9105,7 @@ function startNewInvite(opts){
   inviteEditId = null;
   inviteIncSelected = new Set();
   inviteExcSelected = new Set();
+  inviteExcIds = new Map();
   // A1 data-model fields reset to defaults for a fresh form (no A1 UI yet).
   inviteGameType = { vibe: 'fun', format: '2s' };
   inviteWideningTiers = [];
@@ -9156,6 +9176,9 @@ function startEditInvite(id){
   _editScope = null;
   inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
   inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
+  inviteExcIds = new Map(((i.eligibility && i.eligibility.excludeAccountIds) || []).filter(a => typeof a === 'string' && a).map(a => [a, '']));
+  // The names behind saved ids come from the worker's Leave out list, so a chip can take both off.
+  if(inviteExcIds.size) inviteCandidates([id], null, 'exclude');
   // A1 data-model fields: load from the existing record into module state so they
   // round-trip on save. Deep-copy the nested ones so editing never mutates the
   // live D.invites copy. Defaults applied for older records that lack them.
@@ -9717,6 +9740,7 @@ function getCurrentEligibilitySpec(){
   }
   e.includeList = [...inviteIncSelected];
   e.excludeList = [...inviteExcSelected];
+  e.excludeAccountIds = [...inviteExcIds.keys()];
   return e;
 }
 
@@ -9782,19 +9806,34 @@ function renderIncChips(){
   }).join('');
 }
 // Leave out: like Invite, the list shows only while a name is typed.
+// Leave out: the worker's list (purpose 'exclude': everyone, already invited or in included,
+// known minors as "First L." only) while a name is typed, never the page's own names. The
+// saved names show as chips, including any the list does not carry (an older game's names),
+// so each one stays visible and removable. Matching stays by name key (computeEligible).
+function renderExcChips(){
+  const box = $('iv-exc-chips'); if(!box) return;
+  box.innerHTML = [...inviteExcSelected].sort((a,b)=>a.localeCompare(b)).map(name=>{
+    const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    return `<span class="iv-chip">${escapeHTML(name)}<button type="button" aria-label="Remove ${escapeHTML(name)}" onclick="toggleExcMember('${safe}',false);renderExclude()">&times;</button></span>`;
+  }).join('');
+}
 function renderExclude(){
   const q = ($('iv-exc-search').value||'').toLowerCase().trim();
+  renderExcChips();
   const list = $('iv-exc-list');
   if(!q){ list.style.display = 'none'; list.innerHTML = ''; return; }
   list.style.display = '';
-  const all = Object.entries(allKnownPlayerNames()).sort((a,b)=>a[1].localeCompare(b[1]));
+  const c = inviteCandidates(inviteEditId ? [inviteEditId] : [], () => { if((($('iv-exc-search') || {}).value || '').trim()) renderExclude(); }, 'exclude');
+  if(c.pending || !c.list){ list.innerHTML = candStateHTML(c); return; }
+  const all = c.list.map(p => [Identity.nameKey(p.name), p.name, p.playerId || '']);
   const filtered = all.filter(([,n]) => n.toLowerCase().includes(q));
   if(!filtered.length){ list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
-  list.innerHTML = filtered.map(([k,name])=>{
-    const checked = inviteExcSelected.has(name);
+  list.innerHTML = filtered.map(([k,name,aid])=>{
+    const checked = aid ? inviteExcIds.has(aid) : inviteExcSelected.has(name);
     const safe = escapeHTML(name).replace(/'/g,"&#39;");
+    const safeId = escapeHTML(aid).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'#fee2e2':'transparent'};">
-      <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleExcMember('${safe}',this.checked,'${safeId}')" style="width:16px;height:16px;flex-shrink:0;">
       <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${playerLevelTag(k)}</span>
     </label>`;
   }).join('');
@@ -9809,9 +9848,30 @@ function toggleIncMember(name, isChecked){
   renderIncChips();
   updateInvitePreview();
 }
-function toggleExcMember(name, isChecked){
-  const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
-  if(isChecked) inviteExcSelected.add(decoded); else inviteExcSelected.delete(decoded);
+// The name an id was left out under: as picked, else from the worker's Leave out list.
+function excNameOf(aid){
+  if(inviteExcIds.get(aid)) return inviteExcIds.get(aid);
+  for(const k in _candCache){
+    const c = _candCache[k];
+    if(k.indexOf('exclude:') !== 0 || !c || !Array.isArray(c.list)) continue;
+    const p = c.list.find(x => x.playerId === aid);
+    if(p) return p.name;
+  }
+  return '';
+}
+function toggleExcMember(name, isChecked, accountId){
+  const dec = s => String(s || '').replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
+  const decoded = dec(name), aid = dec(accountId);
+  if(isChecked){
+    inviteExcSelected.add(decoded);
+    if(aid) inviteExcIds.set(aid, decoded);
+  } else {
+    inviteExcSelected.delete(decoded);
+    if(aid) inviteExcIds.delete(aid);
+    // A chip knows only the name: every id left out under that name goes too.
+    [...inviteExcIds.keys()].forEach(k => { if(excNameOf(k) === decoded) inviteExcIds.delete(k); });
+  }
+  renderExcChips();
   updateInvitePreview();
 }
 
@@ -10103,7 +10163,7 @@ async function saveInvite(){
 let _editScope = null; // null until the host answers; then 'one' or 'later'
 const EDIT_FIELDS = ['name','date','startTime','endTime','location','courtId','court','courts','description','minSlots','rsvpDeadline','startMs','gameType','wideningTiers','cancelDeadlineOffsetMins'];
 const EDIT_PLACE = ['location','courtId','court','courts'];
-const ELIG_FIELDS = ['baseMode','ratingMin','ratingMax','groupId','includeList','excludeList'];
+const ELIG_FIELDS = ['baseMode','ratingMin','ratingMax','groupId','includeList','excludeList','excludeAccountIds'];
 function sameVal(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
 // Slots for one game: never below its confirmed players. A raise promotes the top of the
 // waitlist into the freed seats, renumbering like declineRsvp so positions stay in order.
@@ -10138,8 +10198,12 @@ function editSlots(gid, g, newSlots, put, hold){
 }
 // The exact writes for a save, worked out from the cached games and the form (base). Pure:
 // nothing is written here. Returns { updates, ids, noticeIds, what, promo, err }.
-function editPlan(invites, id, base, scope, now){
+function editPlan(invites, id, base, scope, now, opts){
   const P = 'tally_kotb_pickup/invites/';
+  // A name field left blank means automatic titles: this game takes its own date's title,
+  // and on "This and all later games" each later game takes its own.
+  const autoName = !!(opts && opts.autoName);
+  if(autoName) base = Object.assign({}, base, { name: autoTitle(base.date) });
   const cur = invites[id] || {};
   const updates = {};
   const put = (gid, field, v) => { updates[P + gid + '/' + field] = (v === undefined ? null : v); };
@@ -10161,7 +10225,9 @@ function editPlan(invites, id, base, scope, now){
   };
   // This game: every field that changed.
   EDIT_FIELDS.forEach(f => { if(!sameVal(cur[f], base[f])) put(id, f, base[f]); });
-  ELIG_FIELDS.forEach(f => { if(!sameVal(ce[f], be[f])) put(id, 'eligibility/' + f, be[f]); });
+  // An empty list and no list are the same (older games have none of excludeAccountIds).
+  const noEmpty = v => (Array.isArray(v) && !v.length) ? null : v;
+  ELIG_FIELDS.forEach(f => { if(!sameVal(noEmpty(ce[f]), noEmpty(be[f]))) put(id, 'eligibility/' + f, be[f]); });
   const promo = {};
   // One game refuses slots below its players; the whole series holds each game instead.
   const mine = editSlots(id, cur, base.slots, put, scope === 'later');
@@ -10173,7 +10239,7 @@ function editPlan(invites, id, base, scope, now){
   if(scope === 'later'){
     const lead = (typeof base.rsvpDeadline === 'number' && typeof base.startMs === 'number' && base.startMs - base.rsvpDeadline >= 0) ? base.startMs - base.rsvpDeadline : 2*60*60*1000;
     // A name the host typed: changed, and not this date's automatic title.
-    const typedName = ch.name && base.name !== autoTitle(base.date);
+    const typedName = !autoName && ch.name && base.name !== autoTitle(base.date);
     for(const gid of laterSeriesIds(invites, cur)){
       if(gid === id) continue;
       const g = invites[gid];
@@ -10191,6 +10257,7 @@ function editPlan(invites, id, base, scope, now){
       if(ch.vibe) set('gameType/vibe', gt(g).vibe, gt(base).vibe);
       if(ch.format) set('gameType/format', gt(g).format, gt(base).format);
       if(typedName) set('name', g.name, base.name);
+      else if(autoName) set('name', g.name, autoTitle(g.date));
       if(ch.desc) set('description', g.description, base.description);
       if(ch.slots){
         const r = editSlots(gid, g, base.slots, put, true);
@@ -10201,7 +10268,7 @@ function editPlan(invites, id, base, scope, now){
       // later game keeps names only it has.
       const ge = g.eligibility || {};
       ['baseMode','ratingMin','ratingMax','groupId'].forEach(f => { if(!sameVal(ce[f], be[f])) set('eligibility/' + f, ge[f], be[f]); });
-      ['includeList','excludeList'].forEach(f => {
+      ['includeList','excludeList','excludeAccountIds'].forEach(f => {
         const was = Array.isArray(ce[f]) ? ce[f] : [], now2 = Array.isArray(be[f]) ? be[f] : [];
         if(sameVal(was, now2)) return;
         const added = now2.filter(n => was.indexOf(n) < 0), removed = was.filter(n => now2.indexOf(n) < 0);
@@ -10244,7 +10311,8 @@ async function saveInviteEdit(base, gameArea){
   }
   const scope = inSeries ? _editScope : 'one';
   _editScope = null;
-  const plan = editPlan(invites, id, base, scope, Date.now());
+  const nameEl = $('iv-name');
+  const plan = editPlan(invites, id, base, scope, Date.now(), { autoName: !!nameEl && !String(nameEl.value || '').trim() });
   if(plan.err){ toast(plan.err); return; }
   const paths = Object.keys(plan.updates);
   inviteEditId = null;
@@ -10297,9 +10365,11 @@ const CAND_TTL_MS = 60000, CAND_RETRY_MS = 15000;
 const SEARCH_DOWN = 'Player search is unavailable right now';
 let _candCache = {};  // game ids joined -> { at, list, err, errAt, pending }
 let _candIds = {};    // name key -> account id, from every list the worker returned
-function candKey(ids){ return (ids && ids.length) ? ids.join(',') : '_new'; }
-function inviteCandidates(ids, onReady){
-  const k = candKey(ids);
+// purpose: 'invite' (the default), 'seat' (Add a player) or 'exclude' (Leave out, whose
+// entries carry a name only, known minors as "First L.").
+function candKey(ids, purpose){ return (purpose && purpose !== 'invite' ? purpose + ':' : '') + ((ids && ids.length) ? ids.join(',') : '_new'); }
+function inviteCandidates(ids, onReady, purpose){
+  const k = candKey(ids, purpose);
   const c = _candCache[k];
   // Every box waiting on a list that is still loading redraws when it arrives.
   if(c && c.pending){ if(onReady && c.waiters.indexOf(onReady) < 0) c.waiters.push(onReady); return c; }
@@ -10310,12 +10380,13 @@ function inviteCandidates(ids, onReady){
   (async () => {
     let list = null;
     try {
-      const res = await fetch(NOTIFY_WORKER + '/pickup/invite-candidates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession(ids && ids.length ? { inviteIds: ids.slice() } : {})) });
+      const res = await fetch(NOTIFY_WORKER + '/pickup/invite-candidates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession(Object.assign(ids && ids.length ? { inviteIds: ids.slice() } : {}, purpose && purpose !== 'invite' ? { purpose } : {}))) });
       const j = await res.json();
-      if(res.ok && j && j.ok === true && Array.isArray(j.players)) list = j.players.filter(p => p && typeof p.playerId === 'string' && typeof p.name === 'string' && p.name);
+      const needId = purpose !== 'exclude';
+      if(res.ok && j && j.ok === true && Array.isArray(j.players)) list = j.players.filter(p => p && typeof p.name === 'string' && p.name && (needId ? typeof p.playerId === 'string' : true));
     } catch(e){ list = null; }
     ent.pending = false;
-    if(list){ ent.list = list; ent.at = Date.now(); list.forEach(p => { _candIds[Identity.nameKey(p.name)] = p.playerId; }); }
+    if(list){ ent.list = list; ent.at = Date.now(); list.forEach(p => { if(typeof p.playerId === 'string') _candIds[Identity.nameKey(p.name)] = p.playerId; }); }
     else { ent.err = true; ent.errAt = Date.now(); }
     const ws = ent.waiters; ent.waiters = [];
     ws.forEach(f => { try { f(); } catch(e){ console.warn('invite list redraw failed', e); } });
@@ -11468,21 +11539,25 @@ function approveGuestRequest(reqId){
 // already holds a non-declined rsvps entry on this game, and filters by the search
 // box. No-ops when the card is absent (non-host render), so it is safe to call
 // unconditionally after renderInviteDetail and on every search keystroke.
+// Add a player: the worker's list (purpose 'seat': account players not already in, never a
+// known minor), never the page's own names. When the worker cannot answer, the box says so.
 function renderHostAddList(){
   const box = $('hostadd-list'); if(!box) return;
   const i = (D.invites||{})[activeInvite]; if(!i) return;
   const rsvps = i.rsvps || {};
   const q = (($('hostadd-search') && $('hostadd-search').value) || '').toLowerCase().trim();
-  const rows = Object.entries(allKnownPlayerNames())
+  const c = inviteCandidates([activeInvite], () => renderHostAddList(), 'seat');
+  if(c.pending || !c.list){ box.innerHTML = candStateHTML(c); return; }
+  const rows = c.list.map(p => [Identity.nameKey(p.name), p.name, p.playerId])
     .filter(([k]) => { const r = rsvps[k]; return !(r && r.status !== 'declined'); })
     .filter(([,n]) => !q || n.toLowerCase().includes(q))
     .sort((a,b) => a[1].localeCompare(b[1]));
   if(!rows.length){ box.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No players match.</p>'; return; }
-  box.innerHTML = rows.map(([k,name])=>{
-    const safeKey = escapeHTML(k).replace(/'/g,"\\'");
+  box.innerHTML = rows.map(([k,name,aid])=>{
+    const safeId = escapeHTML(aid).replace(/'/g,"\\'");
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--sand-border);">
       <span style="flex:1;font-size:13px;font-weight:500;">${escapeHTML(name)}${playerLevelTag(k)}</span>
-      <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostAddRegistered('${safeKey}')">Add</button>
+      <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostAddRegistered('${safeId}')">Add</button>
     </div>`;
   }).join('');
 }
@@ -11556,19 +11631,13 @@ function hostAddToGame(rsvpName, rsvpKey, accountId){
   if(_addNotify) warnIfNotEmailed(_addNotify, 'Added, but ' + rsvpName + ' was not emailed.');
 }
 
-// Host-only: add a registered player picked from the list. Resolves the display name
-// and (synchronously, no worker call) an accountId from the profiles cache, then hands
-// off to hostAddToGame. Clears the search and repaints the list.
-function hostAddRegistered(nameKey){
-  const displayName = allKnownPlayerNames()[nameKey];
-  if(!displayName){ toast('Player not found'); return; }
-  // Resolve accountId from the profiles cache if this name matches a profile; else null.
-  let accountId = null;
-  const profs = window._profilesCache || {};
-  for(const p of Object.values(profs)){
-    if(p && Identity.nameKey(nameStr(p)) === nameKey){ accountId = p.playerId || p.id || null; break; }
-  }
-  hostAddToGame(displayName, nameKey, accountId);
+// Host-only: add a registered player picked from the worker's list, with the account id the
+// worker gave (never guessed from the name). Clears the search and repaints the list.
+function hostAddRegistered(accountId){
+  const c = _candCache[candKey([activeInvite], 'seat')];
+  const p = c && Array.isArray(c.list) ? c.list.find(x => x.playerId === accountId) : null;
+  if(!p){ toast('Player not found'); return; }
+  hostAddToGame(p.name, Identity.nameKey(p.name), p.playerId);
   const s = $('hostadd-search'); if(s) s.value = '';
   renderHostAddList();
 }
