@@ -1155,6 +1155,30 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
   </div>
 </div>
 
+<!-- Just this game, or this and all later games (Save changes, Invite players). -->
+<div class="overlay" id="scope-modal">
+  <div class="modal">
+    <div class="mtitle"><span id="scope-title">Save changes</span><button class="mclose" onclick="closeModal('scope-modal')">✕</button></div>
+    <div id="scope-text" style="font-size:13px;color:var(--gray);margin-bottom:12px;line-height:1.5;"></div>
+    <button type="button" class="btn btn-g btn-w" id="scope-one">Just this game</button>
+    <button type="button" class="btn btn-p btn-w" style="margin-top:8px;" id="scope-later">This and all later games</button>
+  </div>
+</div>
+
+<!-- Invite players to a posted game (host only). -->
+<div class="overlay" id="invmore-modal">
+  <div class="modal">
+    <div class="mtitle"><span>Invite players</span><button class="mclose" onclick="closeModal('invmore-modal')">✕</button></div>
+    <label class="lbl" for="invmore-search">Invite</label>
+    <input class="inp" id="invmore-search" placeholder="Type a name to invite" autocomplete="off" oninput="renderInviteMore()">
+    <div class="iv-chips" id="invmore-chips"></div>
+    <div id="invmore-list" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--sand-border);border-radius:8px;background:var(--sand);margin-top:6px;"></div>
+    <div id="invmore-msg" style="font-size:12px;color:var(--gray);margin-top:6px;"></div>
+    <div style="font-size:11px;color:var(--gray);margin-top:6px;">Each player you pick gets one email with an I'm in button. Up to 10 at a time.</div>
+    <button type="button" class="btn btn-p btn-w" style="margin-top:12px;" onclick="sendInviteMore()">Send invites</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <div id="dbg-panel" style="display:none;position:fixed;top:60px;right:6px;width:300px;max-width:calc(100vw - 12px);max-height:50vh;overflow-y:auto;background:rgba(15,23,42,.92);color:#bae6fd;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;padding:6px 8px;border-radius:8px;z-index:9998;white-space:pre-wrap;line-height:1.4;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4);">
@@ -9129,6 +9153,7 @@ function startEditInvite(id){
   const i = (D.invites||{})[id]; if(!i) return;
   if(!isLoggedInHost(i)){ toast('Only the host can edit this game'); return; }
   inviteEditId = id;
+  _editScope = null;
   inviteIncSelected = new Set(i.eligibility && i.eligibility.includeList || []);
   inviteExcSelected = new Set(i.eligibility && i.eligibility.excludeList || []);
   // A1 data-model fields: load from the existing record into module state so they
@@ -9726,14 +9751,18 @@ function updateInvitePreview(){
 }
 
 // Invite players: the picked players as chips, and the list only while a name is typed.
-// Each name carries its level (playerLevelTag), never a rating number.
+// Each name carries its level (playerLevelTag), never a rating number. The names are the
+// worker's list (inviteCandidates), never the page's own.
 function renderInclude(){
   const q = ($('iv-inc-search').value||'').toLowerCase().trim();
   renderIncChips();
   const list = $('iv-inc-list');
   if(!q){ list.style.display = 'none'; list.innerHTML = ''; return; }
   list.style.display = '';
-  const all = Object.entries(allKnownPlayerNames()).sort((a,b)=>a[1].localeCompare(b[1]));
+  // The worker's list (inviteCandidates): for this game on an edit, any account on a new game.
+  const c = inviteCandidates(inviteEditId ? [inviteEditId] : [], () => { if((($('iv-inc-search') || {}).value || '').trim()) renderInclude(); });
+  if(c.pending || !c.list){ list.innerHTML = candStateHTML(c); return; }
+  const all = c.list.map(p => [Identity.nameKey(p.name), p.name]);
   const filtered = all.filter(([,n]) => n.toLowerCase().includes(q));
   if(!filtered.length){ list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
   list.innerHTML = filtered.map(([k,name])=>{
@@ -9949,89 +9978,8 @@ async function saveInvite(){
   const recFreq   = $('iv-rec-freq').value;
   const recCount  = recPlan ? recPlan.count : Math.max(2, Math.min(20, parseInt($('iv-rec-count').value)||4));
 
-  if(inviteEditId){
-    const _id = inviteEditId;
-    // Update existing record (only this occurrence)
-    const existing = (D.invites||{})[_id] || {};
-    const merged = {
-      ...existing,
-      ...base,
-      id: _id,
-      status: existing.status || 'open',
-      updatedAt: Date.now()
-    };
-    // Cap-raise auto-promotion: if the new slot count frees seats, promote the
-    // lowest-position waitlisters into them (one per freed seat), renumbering like
-    // declineRsvp so positions stay consistent. Drop-out promotion lives in declineRsvp
-    // and is untouched. This runs ONLY here in the explicit save handler, never in a
-    // render or the data listener, so each promotion notifies exactly once.
-    const _rsvps = {};
-    Object.entries(existing.rsvps || {}).forEach(([k,r])=>{ _rsvps[k] = { ...r }; });
-    const newSlots = merged.slots || 6;
-    const confirmedEntries = Object.entries(_rsvps)
-      .filter(([k,r])=>r.status==='confirmed')
-      .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-    let freed = newSlots - confirmedEntries.length;
-    const promoted = []; // only players flipped in THIS save; drives the fire-once notify
-    if(freed > 0){
-      // Renumber existing confirmed 1..C, then fill freed seats from the top of the waitlist.
-      confirmedEntries.forEach(([k,r],idx)=>{ _rsvps[k].position = idx+1; });
-      const waitEntries = Object.entries(_rsvps)
-        .filter(([k,r])=>r.status==='waitlist')
-        .sort((a,b)=>(a[1].position||0)-(b[1].position||0));
-      let nextPos = confirmedEntries.length + 1;
-      for(let n=0; n<waitEntries.length && freed>0; n++, freed--){
-        const key = waitEntries[n][0];
-        _rsvps[key].status = 'confirmed';
-        _rsvps[key].position = nextPos++;
-        promoted.push({ name: _rsvps[key].name, key: key, accountId: _rsvps[key].accountId || null });
-      }
-      if(promoted.length){
-        // Renumber the remaining waitlist 1..M so stored positions match displayed order.
-        Object.entries(_rsvps)
-          .filter(([k,r])=>r.status==='waitlist')
-          .sort((a,b)=>(a[1].position||0)-(b[1].position||0))
-          .forEach(([k,r],idx)=>{ _rsvps[k].position = idx+1; });
-        merged.rsvps = _rsvps; // promotions ride in the same record write as the new slots
-      }
-    }
-    activeInvite = _id;
-    inviteEditId = null;
-    if(promoted.length && db){
-      // Persist the slots change + promotions atomically, then fire ONE waitlist_promotion
-      // notify per newly promoted player (mirrors declineRsvp's persist-then-notify, fire-once).
-      const updates = {}; updates['tally_kotb_pickup/invites/'+_id] = merged;
-      db.ref().update(updates).then(()=>{
-        // The promotions are already committed above. These emails are separate and
-        // a failure here never un-promotes anyone.
-        const _promoNotifies = promoted.map(p=>
-          notifyWorker('/auth/notify', withNotifySession({ type: 'waitlist_promotion', data: {
-            playerId: p.accountId || undefined,
-            playerKey: p.key || undefined,
-            playerName: p.name,
-            inviteId: _id,
-            name: merged.name, date: merged.date, startTime: merged.startTime, slots: merged.slots,
-            rsvpDeadline: merged.rsvpDeadline, hostName: merged.hostName, location: merged.location
-          } }))
-        );
-        warnIfAnyNotEmailed(_promoNotifies, 'Promoted, but no one was emailed.');
-        rememberPlace(merged.location);
-        // Where the game is now (fire and forget, after the save landed).
-        if(window.csCourtPage) csCourtPage.sendGameArea([_id], gameArea.area, base.courtId);
-      }).catch(err=>{ console.error(err); toast("Couldn't save changes"); });
-      toast('Saved. Promoted '+promoted.length+' from the waitlist');
-    } else {
-      fbSet('invites/'+_id, merged).then(ok => {
-        if(!ok) return;
-        rememberPlace(merged.location);
-        // Where the game is now (fire and forget, after the save landed).
-        if(window.csCourtPage) csCourtPage.sendGameArea([_id], gameArea.area, base.courtId);
-      });
-      toast('Saved');
-    }
-    showView('invite-detail');
-    return;
-  }
+  // Editing a posted game: only the changed fields, at their own paths (saveInviteEdit).
+  if(inviteEditId) return saveInviteEdit(base, gameArea);
 
   const recurringGroupId = recurring ? gi('rg') : null;
   // A weekly game carries its own date list (every chosen day, every week or every other
@@ -10135,6 +10083,339 @@ async function saveInvite(){
     console.error(err);
     toast("Couldn't schedule");
   }
+}
+
+// ── EDITING A POSTED GAME ──
+// Save Changes writes only the fields that changed, each at its own child path
+// (invites/{id}/name, invites/{id}/startMs, ...) in one multi-path update. It never writes a
+// whole record, the rsvps node, status, recurringGroupId, guestRequests, joinRequests or
+// createdAt, so an RSVP that lands while the form is open is never lost. The one RSVP write
+// is the status and position of each player a slot raise promotes off the waitlist, at that
+// player's own child paths. Slots never go below the players already confirmed: one game
+// refuses the save; "This and all later games" keeps each game at max(new slots, its
+// confirmed players) and says how many it held.
+// A game in a weekly series asks first: just this game, or this and all later games
+// (laterSeriesIds). Later games take the start and end time (each game's start and sign-up
+// close recomputed on its own date; no game's date ever changes), the place and court, the
+// format and vibe, the slots, the description, who can play (new sign-ups only; everyone
+// already in stays), and a name the host typed. A game left on its automatic title keeps its
+// own. Minimum slots, widening tiers and auto-cancel stay on the one game.
+let _editScope = null; // null until the host answers; then 'one' or 'later'
+const EDIT_FIELDS = ['name','date','startTime','endTime','location','courtId','court','courts','description','minSlots','rsvpDeadline','startMs','gameType','wideningTiers','cancelDeadlineOffsetMins'];
+const EDIT_PLACE = ['location','courtId','court','courts'];
+const ELIG_FIELDS = ['baseMode','ratingMin','ratingMax','groupId','includeList','excludeList'];
+function sameVal(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+// Slots for one game: never below its confirmed players. A raise promotes the top of the
+// waitlist into the freed seats, renumbering like declineRsvp so positions stay in order.
+// Writes go through put. Too low: with hold, the game keeps its confirmed count ({ held });
+// without, { floor } and nothing is written. Else the promoted.
+function editSlots(gid, g, newSlots, put, hold){
+  const rs = (g && g.rsvps) || {};
+  const byPos = (a, b) => (a[1].position || 0) - (b[1].position || 0);
+  const confirmed = Object.entries(rs).filter(([k, r]) => r && r.status === 'confirmed').sort(byPos);
+  let held = false;
+  if(newSlots < confirmed.length){
+    if(!hold) return { floor: confirmed.length, held: false, promoted: [] };
+    newSlots = confirmed.length;
+    held = true;
+  }
+  if(!sameVal(g && g.slots, newSlots)) put(gid, 'slots', newSlots);
+  let freed = newSlots - confirmed.length;
+  const waiting = Object.entries(rs).filter(([k, r]) => r && r.status === 'waitlist').sort(byPos);
+  const promoted = [];
+  if(freed <= 0 || !waiting.length) return { floor: 0, held, promoted };
+  const pos = (k, p) => { if(rs[k].position !== p) put(gid, 'rsvps/' + k + '/position', p); };
+  confirmed.forEach(([k], idx) => pos(k, idx + 1));
+  let next = confirmed.length + 1, w = 0;
+  for(; w < waiting.length && freed > 0; w++, freed--){
+    const k = waiting[w][0];
+    put(gid, 'rsvps/' + k + '/status', 'confirmed');
+    put(gid, 'rsvps/' + k + '/position', next++);
+    promoted.push({ name: rs[k].name, key: k, accountId: rs[k].accountId || null });
+  }
+  waiting.slice(w).forEach(([k], idx) => pos(k, idx + 1));
+  return { floor: 0, held, promoted };
+}
+// The exact writes for a save, worked out from the cached games and the form (base). Pure:
+// nothing is written here. Returns { updates, ids, noticeIds, what, promo, err }.
+function editPlan(invites, id, base, scope, now){
+  const P = 'tally_kotb_pickup/invites/';
+  const cur = invites[id] || {};
+  const updates = {};
+  const put = (gid, field, v) => { updates[P + gid + '/' + field] = (v === undefined ? null : v); };
+  const ce = cur.eligibility || {}, be = base.eligibility || {};
+  const gt = (x) => (x && x.gameType) || {};
+  // What the host changed. An older game with no end time or no courts array is not a change
+  // by itself: the form fills those in (11:00, court 1), so they count only when the game had one.
+  const courtsOf = (x) => { const c = gameCourts(x).slice().sort((a, b) => a - b); return c.length ? c : [1]; };
+  const ch = {
+    time: !sameVal(cur.startTime, base.startTime) || (!!cur.endTime && !sameVal(cur.endTime, base.endTime)),
+    date: !sameVal(cur.date, base.date),
+    deadline: !sameVal(cur.rsvpDeadline, base.rsvpDeadline),
+    place: !sameVal(cur.location, base.location) || !sameVal(courtsOf(cur), courtsOf(base)),
+    name: !sameVal(cur.name, base.name),
+    vibe: !sameVal(gt(cur).vibe, gt(base).vibe),
+    format: !sameVal(gt(cur).format, gt(base).format),
+    slots: !sameVal(cur.slots, base.slots),
+    desc: !sameVal(cur.description, base.description)
+  };
+  // This game: every field that changed.
+  EDIT_FIELDS.forEach(f => { if(!sameVal(cur[f], base[f])) put(id, f, base[f]); });
+  ELIG_FIELDS.forEach(f => { if(!sameVal(ce[f], be[f])) put(id, 'eligibility/' + f, be[f]); });
+  const promo = {};
+  // One game refuses slots below its players; the whole series holds each game instead.
+  const mine = editSlots(id, cur, base.slots, put, scope === 'later');
+  if(mine.floor) return { err: mine.floor + ' players are already in. Slots can\'t go below ' + mine.floor + '.' };
+  if(mine.promoted.length) promo[id] = mine.promoted;
+  let held = mine.held ? 1 : 0;
+  const ids = [id];
+  const noticeIds = (ch.time || ch.date || ch.place) ? [id] : [];
+  if(scope === 'later'){
+    const lead = (typeof base.rsvpDeadline === 'number' && typeof base.startMs === 'number' && base.startMs - base.rsvpDeadline >= 0) ? base.startMs - base.rsvpDeadline : 2*60*60*1000;
+    // A name the host typed: changed, and not this date's automatic title.
+    const typedName = ch.name && base.name !== autoTitle(base.date);
+    for(const gid of laterSeriesIds(invites, cur)){
+      if(gid === id) continue;
+      const g = invites[gid];
+      if(!g) continue;
+      const before = Object.keys(updates).length;
+      let told = false;
+      const set = (f, cv, v) => { if(!sameVal(cv, v)){ put(gid, f, v); return true; } return false; };
+      if(ch.time || ch.deadline){
+        if(set('startTime', g.startTime, base.startTime)) told = true;
+        if(set('endTime', g.endTime, base.endTime)) told = true;
+        const sm = computeStartMs(g.date, base.startTime); // this game's own date
+        if(sm !== null){ set('startMs', g.startMs, sm); set('rsvpDeadline', g.rsvpDeadline, sm - lead); }
+      }
+      if(ch.place) EDIT_PLACE.forEach(f => { if(set(f, g[f], base[f])) told = true; });
+      if(ch.vibe) set('gameType/vibe', gt(g).vibe, gt(base).vibe);
+      if(ch.format) set('gameType/format', gt(g).format, gt(base).format);
+      if(typedName) set('name', g.name, base.name);
+      if(ch.desc) set('description', g.description, base.description);
+      if(ch.slots){
+        const r = editSlots(gid, g, base.slots, put, true);
+        if(r.held) held++;
+        if(r.promoted.length) promo[gid] = r.promoted;
+      }
+      // Who can play: the settings the host changed, and the names added or removed. Each
+      // later game keeps names only it has.
+      const ge = g.eligibility || {};
+      ['baseMode','ratingMin','ratingMax','groupId'].forEach(f => { if(!sameVal(ce[f], be[f])) set('eligibility/' + f, ge[f], be[f]); });
+      ['includeList','excludeList'].forEach(f => {
+        const was = Array.isArray(ce[f]) ? ce[f] : [], now2 = Array.isArray(be[f]) ? be[f] : [];
+        if(sameVal(was, now2)) return;
+        const added = now2.filter(n => was.indexOf(n) < 0), removed = was.filter(n => now2.indexOf(n) < 0);
+        const own = Array.isArray(ge[f]) ? ge[f] : [];
+        const next = own.filter(n => removed.indexOf(n) < 0);
+        added.forEach(n => { if(next.indexOf(n) < 0) next.push(n); });
+        set('eligibility/' + f, own, next);
+      });
+      if(Object.keys(updates).length > before) ids.push(gid);
+      if(told) noticeIds.push(gid);
+    }
+  }
+  if(Object.keys(updates).length) ids.forEach(gid => put(gid, 'updatedAt', now));
+  const timeish = ch.time || ch.date;
+  const what = timeish && ch.place ? 'both' : timeish ? 'time' : 'place';
+  return { updates, ids, noticeIds, what, promo, held, err: '' };
+}
+// "Just this game" or "This and all later games", for an edit or an invite. Closing it does
+// nothing.
+function openScopeModal(title, text, oneLabel, onOne, laterLabel, onLater){
+  if($('scope-title')) $('scope-title').textContent = title;
+  if($('scope-text')) $('scope-text').textContent = text;
+  const one = $('scope-one'), later = $('scope-later');
+  if(one){ one.textContent = oneLabel; one.onclick = () => { closeModal('scope-modal'); onOne(); }; }
+  if(later){ later.textContent = laterLabel; later.onclick = () => { closeModal('scope-modal'); onLater(); }; }
+  $('scope-modal').classList.add('on');
+}
+async function saveInviteEdit(base, gameArea){
+  const id = inviteEditId;
+  const invites = D.invites || {};
+  const cur = invites[id];
+  if(!cur){ toast('Pickup not found'); return; }
+  const later = laterSeriesIds(invites, cur);
+  const inSeries = later.length > 1;
+  if(inSeries && !_editScope){
+    openScopeModal('Save changes', 'This game is part of a weekly series. Date changes apply to this game only.',
+      'Just this game', () => { _editScope = 'one'; saveInvite(); },
+      'This and all later games', () => { _editScope = 'later'; saveInvite(); });
+    return;
+  }
+  const scope = inSeries ? _editScope : 'one';
+  _editScope = null;
+  const plan = editPlan(invites, id, base, scope, Date.now());
+  if(plan.err){ toast(plan.err); return; }
+  const paths = Object.keys(plan.updates);
+  inviteEditId = null;
+  activeInvite = id;
+  if(!paths.length){ toast('No changes'); showView('invite-detail'); return; }
+  console.log('[pickup edit] ' + paths.length + ' writes', JSON.parse(JSON.stringify(plan.updates)));
+  try { await db.ref().update(plan.updates); }
+  catch(err){ console.error(err); toast("Couldn't save changes"); return; }
+  // Promotions are committed. Each emails once; a failure never un-promotes anyone.
+  const notes = [];
+  Object.keys(plan.promo).forEach(gid => plan.promo[gid].forEach(p => notes.push(
+    notifyWorker('/auth/notify', withNotifySession({ type: 'waitlist_promotion', data: {
+      playerId: p.accountId || undefined, playerKey: p.key || undefined, playerName: p.name, inviteId: gid,
+      name: base.name, date: (invites[gid] || {}).date, startTime: base.startTime, slots: base.slots,
+      hostName: cur.hostName, location: base.location
+    } }))
+  )));
+  warnIfAnyNotEmailed(notes, 'Promoted, but no one was emailed.');
+  const n = plan.ids.length;
+  toast((n > 1 ? 'Updated ' + n + ' games' : 'Saved') + (notes.length ? '. Promoted ' + notes.length + ' from the waitlist' : '')
+    + (plan.held ? '. Kept ' + plan.held + ' game' + (plan.held === 1 ? '' : 's') + ' at their current player count.' : ''));
+  rememberPlace(base.location);
+  if(window.csCourtPage) csCourtPage.sendGameArea(plan.ids, gameArea.area, base.courtId);
+  if(plan.noticeIds.length) sendChangeNotice(plan.noticeIds, plan.what);
+  showView('invite-detail');
+}
+// A new start time or place: the worker emails the confirmed players once, from the records.
+function sendChangeNotice(ids, what){
+  notifyWorkerCode('/pickup/series-changed', withNotifySession({ inviteIds: ids, what })).then(function(code){
+    if(code === 'ok') return;
+    if(code === 'no_session'){
+      inviteEmailNotice('Saved. Sign in again to tell your players about the change.', 'Sign in and send', function(){
+        askSignIn('Sign in again so your players hear about the change.', function(){ sendChangeNotice(ids, what); });
+      });
+      return;
+    }
+    toast('Saved, but your players were not emailed about the change.');
+  });
+}
+
+// ── WHO A HOST CAN INVITE (the worker's list) ──
+// The Invite box on the post and edit form and the Invite players picker search only the
+// names the worker returns (POST /pickup/invite-candidates, with the host's session):
+// account players by their public display name, never a known minor, never the host, and
+// never anyone already invited or in on the game. There is no fallback to the page's own
+// name list: when the call fails, the box says "Player search is unavailable right now".
+// One list per game (or per new game) for a minute; a failure is tried again after 15
+// seconds, so typing never floods the worker.
+const CAND_TTL_MS = 60000, CAND_RETRY_MS = 15000;
+const SEARCH_DOWN = 'Player search is unavailable right now';
+let _candCache = {};  // game ids joined -> { at, list, err, errAt, pending }
+let _candIds = {};    // name key -> account id, from every list the worker returned
+function candKey(ids){ return (ids && ids.length) ? ids.join(',') : '_new'; }
+function inviteCandidates(ids, onReady){
+  const k = candKey(ids);
+  const c = _candCache[k];
+  // Every box waiting on a list that is still loading redraws when it arrives.
+  if(c && c.pending){ if(onReady && c.waiters.indexOf(onReady) < 0) c.waiters.push(onReady); return c; }
+  if(c && c.list && Date.now() - c.at < CAND_TTL_MS) return c;
+  if(c && c.err && Date.now() - c.errAt < CAND_RETRY_MS) return c;
+  const ent = { at: 0, list: null, err: false, errAt: 0, pending: true, waiters: onReady ? [onReady] : [] };
+  _candCache[k] = ent;
+  (async () => {
+    let list = null;
+    try {
+      const res = await fetch(NOTIFY_WORKER + '/pickup/invite-candidates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession(ids && ids.length ? { inviteIds: ids.slice() } : {})) });
+      const j = await res.json();
+      if(res.ok && j && j.ok === true && Array.isArray(j.players)) list = j.players.filter(p => p && typeof p.playerId === 'string' && typeof p.name === 'string' && p.name);
+    } catch(e){ list = null; }
+    ent.pending = false;
+    if(list){ ent.list = list; ent.at = Date.now(); list.forEach(p => { _candIds[Identity.nameKey(p.name)] = p.playerId; }); }
+    else { ent.err = true; ent.errAt = Date.now(); }
+    const ws = ent.waiters; ent.waiters = [];
+    ws.forEach(f => { try { f(); } catch(e){ console.warn('invite list redraw failed', e); } });
+  })();
+  return ent;
+}
+// The lines a name list shows while it loads or when it cannot.
+function candStateHTML(c){
+  const t = c.pending ? 'Loading players...' : SEARCH_DOWN;
+  return '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">' + t + '</p>';
+}
+
+// ── INVITE PLAYERS AFTER POSTING ──
+// Host only, from the game screen. The names come from the worker's list for this game
+// (inviteCandidates). A weekly game asks: this game, or this and all later games. The worker
+// refuses known minors again on send; any refused pick shows one line, "Some players
+// couldn't be invited.", never who or why. It adds the names to each game's invite list and
+// sends one email per player.
+let _invMore = new Map(); // account id -> name
+const INVITE_MORE_MAX = 10;
+const INVITE_REFUSED = "Some players couldn't be invited.";
+function openInviteMore(){
+  const i = (D.invites || {})[activeInvite];
+  if(!isLoggedInHost(i)){ toast('Only the host can invite players'); return; }
+  _invMore = new Map();
+  if($('invmore-search')) $('invmore-search').value = '';
+  if($('invmore-msg')) $('invmore-msg').textContent = '';
+  inviteCandidates([activeInvite]);
+  renderInviteMore();
+  $('invmore-modal').classList.add('on');
+}
+function renderInviteMore(){
+  const i = (D.invites || {})[activeInvite];
+  const box = $('invmore-chips');
+  if(box) box.innerHTML = [..._invMore.entries()].map(([aid, name]) => '<span class="iv-chip">' + escapeHTML(name)
+    + '<button type="button" aria-label="Remove ' + escapeHTML(name) + '" onclick="toggleInviteMore(\'' + escapeHTML(aid).replace(/'/g, '&#39;') + '\',false)">&times;</button></span>').join('');
+  const list = $('invmore-list');
+  if(!list || !i) return;
+  const q = (($('invmore-search') || {}).value || '').toLowerCase().trim();
+  if(!q){ list.style.display = 'none'; list.innerHTML = ''; return; }
+  list.style.display = '';
+  const c = inviteCandidates([activeInvite], () => { if((($('invmore-search') || {}).value || '').trim()) renderInviteMore(); });
+  if(c.pending || !c.list){ list.innerHTML = candStateHTML(c); return; }
+  const rows = c.list.filter(p => p.name.toLowerCase().includes(q));
+  if(!rows.length){ list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:8px;">No matches.</p>'; return; }
+  list.innerHTML = rows.map(p => {
+    const on = _invMore.has(p.playerId);
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;min-height:44px;cursor:pointer;border-bottom:1px solid var(--sand-border);">'
+      + '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleInviteMore(\'' + escapeHTML(p.playerId).replace(/'/g, '&#39;') + '\',this.checked,\'' + escapeHTML(p.name).replace(/'/g, '&#39;') + '\')" style="width:16px;height:16px;flex-shrink:0;">'
+      + '<span style="flex:1;font-size:13px;font-weight:' + (on ? '700' : '500') + ';">' + escapeHTML(p.name) + playerLevelTag(Identity.nameKey(p.name)) + '</span></label>';
+  }).join('');
+}
+// The worker call for this feature: { status, j }. Never throws.
+async function inviteMoreCall(body){
+  try {
+    const res = await fetch(NOTIFY_WORKER + '/pickup/invite-more', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession(body)) });
+    let j = {}; try { j = await res.json(); } catch(e){ j = {}; }
+    return { status: res.status, j: j || {} };
+  } catch(e){ return { status: 0, j: {} }; }
+}
+function toggleInviteMore(aid, on, name){
+  const decode = s => String(s || '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+  aid = decode(aid); name = decode(name);
+  if(!on){ _invMore.delete(aid); renderInviteMore(); return; }
+  if(_invMore.size >= INVITE_MORE_MAX){ toast('Up to ' + INVITE_MORE_MAX + ' players at a time'); renderInviteMore(); return; }
+  _invMore.set(aid, name);
+  if($('invmore-search')) $('invmore-search').value = '';
+  renderInviteMore();
+}
+function sendInviteMore(){
+  const i = (D.invites || {})[activeInvite];
+  if(!isLoggedInHost(i)){ toast('Only the host can invite players'); return; }
+  if(!_invMore.size){ toast('Pick a player to invite'); return; }
+  const ids = laterSeriesIds(D.invites || {}, i);
+  if(ids.length > 1){
+    openScopeModal('Invite players', 'This game is part of a weekly series.',
+      'This game', () => doInviteMore([activeInvite]),
+      'This and all later games', () => doInviteMore(ids));
+    return;
+  }
+  doInviteMore([activeInvite]);
+}
+let _invMoreBusy = false;
+async function doInviteMore(ids){
+  if(_invMoreBusy) return;
+  _invMoreBusy = true;
+  const players = [..._invMore.keys()].map(playerId => ({ playerId }));
+  let r;
+  try { r = await inviteMoreCall({ inviteIds: ids, players }); } finally { _invMoreBusy = false; }
+  const j = r.j || {};
+  if(j.code === 'no_session'){ askSignIn('Sign in again to invite players.', function(){ doInviteMore(ids); }); return; }
+  if(j.code === 'minor'){ toast(INVITE_REFUSED); return; }
+  if(r.status !== 200 || j.ok !== true){ toast(j.error || "Couldn't send the invites. Try again."); return; }
+  const n = Number(j.added) || 0;
+  const games = Number(j.games) || ids.length;
+  const refused = (Array.isArray(j.skipped) ? j.skipped : []).some(x => x && (x.reason === 'minor' || x.reason === 'not_usable' || x.reason === 'host'));
+  closeModal('invmore-modal');
+  _invMore = new Map();
+  delete _candCache[candKey([activeInvite])];
+  toast((n ? 'Invited ' + n + ' player' + (n === 1 ? '' : 's') + (games > 1 ? ' to ' + games + ' games' : '') + '.' : 'No one new to invite.') + (refused ? ' ' + INVITE_REFUSED : ''));
 }
 
 // DETAIL + RSVP
@@ -10423,6 +10704,7 @@ function renderInviteDetail(){
       <button class="btn btn-g" style="flex:1;min-width:120px;" onclick="startEditInvite('${escapeHTML(activeInvite).replace(/'/g,"\\'")}')">Edit</button>
       ${isCancelled ? '' : '<button class="btn btn-d" style="flex:1;min-width:120px;" onclick="cancelInvite()">Cancel Event</button>'}
     </div>
+    ${(!isCancelled && i.postType !== 'partner') ? '<button class="btn btn-p btn-w" style="margin-top:8px;" onclick="openInviteMore()">Invite players</button>' : ''}
     ${!isCancelled && laterSeriesIds(D.invites || {}, i).length > 1 ? '<button class="btn btn-d btn-w" style="margin-top:8px;" onclick="cancelLaterGames()">Cancel this and all later games</button>' : ''}
   </div>` : ''}`;
 
@@ -10697,6 +10979,7 @@ function currentAccountId(){
 // cannot resolve to a private email). Never returns null so the worker can decide.
 function resolveAccountId(name){
   const k = Identity.nameKey(name);
+  if(typeof _candIds === 'object' && _candIds[k]) return _candIds[k];
   const cache = window._profilesCache || {};
   for(const id in cache){
     const p = cache[id];
