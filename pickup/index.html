@@ -3642,6 +3642,97 @@ function viewArchive(id){
 let groupEditId = null;
 let groupEditMembers = new Set();
 
+// ── MINOR-SAFE NAMES (POST /pickup/display-labels) ──
+// Every list of OTHER players' names on this page shows each name through shownName: the
+// worker's label, "First L." for a known minor (the page has no age data since the read lock).
+// Display only: matching, eligibility, name keys and stored data never change. The names on
+// screen go in one batched call and the labels are kept for a minute. Until the worker
+// answers, when the call fails or times out, and for a signed-out viewer, every name shows
+// as "First L." (never a full name without the check). A player always sees their own name
+// in full.
+const LABEL_TTL_MS = 60000, LABEL_RETRY_MS = 15000, LABEL_TIMEOUT_MS = 8000, LABEL_BATCH_MAX = 500;
+let _labels = {};            // 'i:' + account id, or 'k:' + name key -> { label, at }
+let _labelQueue = new Map(); // the same slots -> { id, key, name }, waiting for the next call
+let _labelBusy = false, _labelFailedAt = 0, _labelTimer = null;
+function csShortName(n){
+  const w = String(n || '').trim().split(/\s+/).filter(Boolean);
+  return w.length < 2 ? (w[0] || '') : w[0] + ' ' + w[w.length - 1].charAt(0).toUpperCase() + '.';
+}
+function labelSlot(name, accountId){ return accountId ? 'i:' + accountId : 'k:' + Identity.nameKey(name); }
+function labelSession(){
+  try { return (window.CourtSenseAuth && CourtSenseAuth.getSessionToken) ? (CourtSenseAuth.getSessionToken() || null) : null; } catch(e){ return null; }
+}
+// The signed-in viewer's own name, by account id or by their gameplay or Identity name key.
+function isOwnName(name, accountId){
+  const me = currentAccountId();
+  if(!me) return false;
+  if(accountId) return accountId === me;
+  const k = Identity.nameKey(name);
+  const gk = typeof gameplayKey === 'function' ? gameplayKey() : null;
+  if(gk && k === gk) return true;
+  const idn = window.Identity && Identity.getCurrent ? Identity.getCurrent() : null;
+  return !!(idn && idn.name && Identity.nameKey(idn.name) === k);
+}
+function shownName(name, accountId){
+  name = String(name == null ? '' : name);
+  if(!name.trim()) return name;
+  if(isOwnName(name, accountId)) return name;
+  const slot = labelSlot(name, accountId);
+  const hit = _labels[slot];
+  if(hit && Date.now() - hit.at < LABEL_TTL_MS) return hit.label;
+  queueLabel(slot, name, accountId);
+  return csShortName(name);
+}
+function queueLabel(slot, name, accountId){
+  if(!labelSession()) return; // signed out: "First L." for everyone, no call
+  if(_labelQueue.has(slot)) return;
+  _labelQueue.set(slot, { ...(accountId ? { id: accountId } : {}), key: Identity.nameKey(name), name });
+  if(!_labelTimer) _labelTimer = setTimeout(flushLabels, 0);
+}
+async function flushLabels(){
+  _labelTimer = null;
+  if(_labelBusy || !_labelQueue.size) return;
+  const wait = _labelFailedAt ? LABEL_RETRY_MS - (Date.now() - _labelFailedAt) : 0;
+  if(wait > 0){ _labelTimer = setTimeout(flushLabels, wait); return; }
+  const batch = [..._labelQueue.entries()].slice(0, LABEL_BATCH_MAX);
+  batch.forEach(([k]) => _labelQueue.delete(k));
+  _labelBusy = true;
+  let labels = null;
+  try {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const tm = ctl ? setTimeout(() => ctl.abort(), LABEL_TIMEOUT_MS) : null;
+    const res = await fetch(NOTIFY_WORKER + '/pickup/display-labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNotifySession({ items: batch.map(([, v]) => v) })), ...(ctl ? { signal: ctl.signal } : {}) });
+    if(tm) clearTimeout(tm);
+    const j = await res.json();
+    if(res.ok && j && j.ok === true && Array.isArray(j.labels) && j.labels.length === batch.length) labels = j.labels;
+  } catch(e){ labels = null; }
+  _labelBusy = false;
+  if(labels){
+    _labelFailedAt = 0;
+    const now = Date.now();
+    batch.forEach(([k, v], idx) => { _labels[k] = { label: (typeof labels[idx] === 'string' && labels[idx]) ? labels[idx] : csShortName(v.name), at: now }; });
+    labelsRedraw();
+  } else {
+    // Every name stays "First L." until a later call succeeds (the next screen asks again).
+    _labelFailedAt = Date.now();
+  }
+  if(_labelQueue.size && !_labelTimer) _labelTimer = setTimeout(flushLabels, 0);
+}
+// Redraw what is on screen once labels arrive.
+function labelsRedraw(){
+  const on = id => { const m = $(id); return !!(m && m.classList && m.classList.contains('on')); };
+  try {
+    if(view === 'invite-detail' && activeInvite && (D.invites || {})[activeInvite]) renderInviteDetail();
+    if(on('invited-modal')) openInvitedModal();
+    if(on('groups-modal')) renderGroupsList();
+    if(on('group-editor-modal')) renderGroupMembers();
+    if(view === 'invite-setup') updateInvitePreview();
+    if(view === 'poll-setup' && $('pp-recips')) ppDrawRecipients();
+    if($('pp-notify-list') && $('pp-notify-list').innerHTML) ppRenderNotifyList();
+    if($('gc-list')) renderGameChatMessages();
+  } catch(e){ console.warn('label redraw failed', e); }
+}
+
 function openGroupsModal(){
   renderGroupsList();
   $('groups-modal').classList.add('on');
@@ -3656,8 +3747,8 @@ function renderGroupsList(){
   }
   $('groups-list').innerHTML = groups.map(g=>{
     const memberCount = (g.members||[]).length;
-    const memberPreview = (g.members||[]).slice(0,8).map(escapeHTML).join(', ') + (memberCount>8 ? ', +'+(memberCount-8)+' more' : '');
-    const creator = g.createdBy ? ' · created by '+escapeHTML(g.createdBy) : '';
+    const memberPreview = (g.members||[]).slice(0,8).map(n => escapeHTML(shownName(n))).join(', ') + (memberCount>8 ? ', +'+(memberCount-8)+' more' : '');
+    const creator = g.createdBy ? ' · created by '+escapeHTML(shownName(g.createdBy)) : '';
     return `<div style="border:1px solid var(--sand-border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--sand);">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
         <div style="flex:1;">
@@ -3693,27 +3784,44 @@ function openGroupEditor(id){
   setTimeout(()=>$('ge-name').focus(), 50);
 }
 
+// The member search: the worker's list with Add a player's rules (purpose 'seat': account
+// players, never a known minor), never the page's own names. Saved members stay listed
+// (stored by name, unchanged) and show through shownName, so a minor already in a group
+// shows as "First L.". The search matches what is shown, never a hidden full name.
 function renderGroupMembers(){
   const q = ($('ge-search').value||'').toLowerCase().trim();
-  const allRated = Object.values(allKnownPlayerNames()).sort((a,b)=>a.localeCompare(b));
-  // Include any currently-selected names that aren't in the roster (defensive)
-  groupEditMembers.forEach(m=>{ if(!allRated.includes(m)) allRated.push(m); });
-  const filtered = allRated.filter(n => !q || n.toLowerCase().includes(q));
   $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
-  if(!filtered.length){
-    $('ge-members').innerHTML = '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No players match.</p>';
+  const c = inviteCandidates([], () => { const m = $('group-editor-modal'); if(m && m.classList.contains('on')) renderGroupMembers(); }, 'seat');
+  const saved = [...groupEditMembers];
+  const savedKeys = new Set(saved.map(n => Identity.nameKey(n)));
+  const fromList = (c.list || []).map(p => p.name).filter(n => !savedKeys.has(Identity.nameKey(n)));
+  const rows = saved.concat(fromList)
+    .map(n => [n, shownName(n)])
+    .filter(([, shown]) => !q || shown.toLowerCase().includes(q))
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const state = (c.pending || !c.list) ? candStateHTML(c) : '';
+  // Rows are ticked by position, so a saved minor's stored full name is never written into the markup.
+  _geRows = rows.map(([name]) => name);
+  if(!rows.length){
+    $('ge-members').innerHTML = state || '<p style="color:var(--gray);font-size:13px;text-align:center;padding:14px;">No players match.</p>';
     return;
   }
-  $('ge-members').innerHTML = filtered.map(name=>{
+  $('ge-members').innerHTML = state + rows.map(([name, shown], idx)=>{
     const checked = groupEditMembers.has(name);
-    const safe = escapeHTML(name).replace(/'/g,"&#39;");
     return `<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);background:${checked?'var(--light)':'transparent'};">
-      <input type="checkbox" ${checked?'checked':''} onchange="toggleGroupMember('${safe}',this.checked)" style="width:18px;height:18px;flex-shrink:0;">
-      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(name)}${ratingBadge(name)}</span>
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleGroupMemberAt(${idx},this.checked)" style="width:18px;height:18px;flex-shrink:0;">
+      <span style="flex:1;font-weight:${checked?'700':'600'};font-size:14px;">${escapeHTML(shown)}${ratingBadge(name)}</span>
     </label>`;
   }).join('');
 }
 
+let _geRows = [];
+function toggleGroupMemberAt(idx, isChecked){
+  const name = _geRows[idx];
+  if(typeof name !== 'string') return;
+  if(isChecked) groupEditMembers.add(name); else groupEditMembers.delete(name);
+  $('ge-mcount').textContent = '('+groupEditMembers.size+' selected)';
+}
 function toggleGroupMember(name, isChecked){
   // Decode HTML entities that escapeHTML adds back
   const decoded = name.replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"');
@@ -4367,12 +4475,10 @@ async function jrPost(path, payload){
   }catch(e){ console.error('join request failed', path, e); return { ok: false, code: 'error' }; }
 }
 // The signed-in player's own request per game (GET /pickup/join-request/mine), loaded once
-// per game per visit. _jrMinor: the worker said this player is a known minor, who cannot
-// ask (the high school link is only visible to the worker).
+// per game per visit. A known minor asks like anyone else (the host sees them as "First L.").
 const _jr = {};
 const _jrLoading = {};
 const _jrNeedLevel = {};
-let _jrMinor = false;
 function jrRedraw(id){
   if(typeof view !== 'undefined' && view === 'invite-detail' && activeInvite === id) renderInviteDetail();
   renderInviteList();
@@ -4385,7 +4491,6 @@ function jrLoad(id){
     .then(r => r.json())
     .then(j => {
       _jr[id] = (j && j.ok) ? { status: j.status || null, rating: j.rating, level: j.level } : { status: null, failed: true };
-      if(j && j.minor) _jrMinor = true;
       if(j && j.ok) jrRedraw(id);
     })
     .catch(() => { _jr[id] = { status: null, failed: true }; })
@@ -4400,7 +4505,6 @@ async function jrSend(){
   if(sel && !level){ toast('Pick your level of play'); return; }
   const j = await jrPost('/pickup/join-request', level ? { inviteId: id, level } : { inviteId: id });
   if(j.ok || j.code === 'already_requested'){ _jr[id] = { status: 'pending', rating: j.rating, level: j.level }; toast('Request sent. The host will let you know.'); }
-  else if(j.code === 'minor'){ _jrMinor = true; }
   else if(j.code === 'need_level'){ _jrNeedLevel[id] = true; toast('Pick your level of play'); }
   else if(j.code === 'no_session'){ askSignIn('Sign in to request a spot.', () => openInviteDetail(id)); return; }
   else toast(j.error || "We couldn't send your request. Try again.");
@@ -4424,8 +4528,6 @@ function jrActionHTML(i, myKey){
   jrLoad(i.id);
   const s = _jr[i.id];
   const line = escapeHTML(ratingLevelLine(i));
-  if(_jrMinor) return '<div style="font-weight:700;margin-bottom:6px;">Ask the host for an invite link</div>'
-    + '<div style="font-size:13px;color:var(--gray);line-height:1.5;">This game is for ' + line + ' players. The host can send you an invite link.</div>';
   if(!s) return '<div style="font-size:13px;color:var(--gray);">Checking your request...</div>';
   // Declined: the host answered, and the worker will not take another request for this game.
   if(s.status === 'declined') return '<div style="font-weight:700;margin-bottom:6px;">The host couldn\'t fit you in this time</div>'
@@ -4504,8 +4606,7 @@ function openGameCardHTML(i, signedOut){
   else {
     jrLoad(i.id);
     const s = _jr[i.id];
-    btn = _jrMinor ? '<span class="gplace">Ask the host for an invite link</span>'
-      : s && s.status === 'declined' ? '<span class="gplace">The host couldn\'t fit you in this time</span>'
+    btn = s && s.status === 'declined' ? '<span class="gplace">The host couldn\'t fit you in this time</span>'
       : open(s && s.status === 'pending' ? 'Request sent' : 'Request a spot');
   }
   return '<div class="gcard' + (signedOut ? ' pk-out' : '') + '">'
@@ -5083,7 +5184,8 @@ function ppRenderNotifyList(){
   const all = computeEligible(ppCurrentEligibilitySpec())
     .filter(n => Identity.nameKey(n) !== (gameplayKey() || ''));
   const q = partnerNotifyFilter;
-  const filtered = all.filter(n => !q || n.toLowerCase().includes(q));
+  // The search matches the shown name (shownName), never a hidden full name.
+  const filtered = all.filter(n => !q || shownName(n).toLowerCase().includes(q));
 
   if(!all.length){
     list.innerHTML = '<p style="color:var(--gray);font-size:12px;text-align:center;padding:10px;">No club members loaded yet.</p>';
@@ -5100,7 +5202,7 @@ function ppRenderNotifyList(){
     const locked = !checked && atCap;
     return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--sand-border);${locked?'opacity:.45;':''}background:${checked?'var(--light)':'transparent'};">
       <input type="checkbox" ${checked?'checked':''} ${locked?'disabled':''} onchange="ppToggleNotifyMember('${safe}',this.checked)" style="width:16px;height:16px;flex-shrink:0;">
-      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(name)}${ratingBadge(name)}</span>
+      <span style="flex:1;font-size:13px;font-weight:${checked?'700':'500'};">${escapeHTML(shownName(name))}${ratingBadge(name)}</span>
     </label>`;
   }).join('');
 }
@@ -9765,7 +9867,7 @@ function updateInvitePreview(){
   let text = count+' player'+(count===1?'':'s')+' eligible'+source;
   if(count){
     const PREVIEW_N = 3;
-    const head = eligible.slice(0, PREVIEW_N).join(', ');
+    const head = eligible.slice(0, PREVIEW_N).map(n => shownName(n)).join(', ');
     const rest = count - PREVIEW_N;
     text += ': '+head+(rest>0 ? ', and '+rest+' other'+(rest===1?'':'s')+'.' : '.');
   } else {
@@ -10714,7 +10816,7 @@ function renderInviteDetail(){
     <div class="ctitle"><span class="bar"></span>Confirmed (${confirmed.length}/${i.slots||6})</div>
     ${confirmed.length ? confirmed.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk">${idx+1}</span>
-      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(shownName(r.name, r.accountId))}${ratingBadge(r.name, r.accountId)}</span>
       ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('') : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No one confirmed yet.</p>'}
   </div>
@@ -10723,14 +10825,14 @@ function renderInviteDetail(){
     <div class="ctitle"><span class="bar"></span>Waitlist (${waitlist.length})</div>
     ${waitlist.map(([key,r],idx)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <span class="rnk" style="color:var(--gray);">#${idx+1}</span>
-      <span style="flex:1;font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</span>
+      <span style="flex:1;font-weight:600;">${escapeHTML(shownName(r.name, r.accountId))}${ratingBadge(r.name, r.accountId)}</span>
       ${(isLoggedInHost(i) && key !== myKey) ? `<button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="hostDropParticipant('${escapeHTML(key).replace(/'/g,"\\'")}')">Remove</button>` : ''}
     </div>`).join('')}
   </div>` : ''}
 
   ${declined.length ? `<div class="card" style="opacity:.7;">
     <div class="ctitle"><span class="bar"></span>Dropped (${declined.length})</div>
-    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(r.name)+ratingBadge(r.name, r.accountId)).join(', ')}</div>
+    <div style="font-size:13px;color:var(--gray);">${declined.map(r=>escapeHTML(shownName(r.name, r.accountId))+ratingBadge(r.name, r.accountId)).join(', ')}</div>
   </div>` : ''}
 
   ${(isLoggedInHost(i) && (guestReqs.length || joinReqs.length)) ? `<div class="card">
@@ -10745,8 +10847,7 @@ function renderInviteDetail(){
     </div>`).join('')}
     ${guestReqs.map(([id,r])=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--sand-border);">
       <div style="flex:1;">
-        <div style="font-weight:600;">${escapeHTML(r.name)}${ratingBadge(r.name, r.accountId)}</div>
-        ${r.email ? `<div style="font-size:12px;color:var(--gray);">${escapeHTML(r.email)}</div>` : ''}
+        <div style="font-weight:600;">${escapeHTML(shownName(r.name, r.accountId))}${ratingBadge(r.name, r.accountId)}</div>
       </div>
       <button class="btn btn-p btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="approveGuestRequest('${escapeHTML(id).replace(/'/g,"\\'")}')">Approve</button>
       <button class="btn btn-d btn-sm" style="padding:4px 10px;min-height:0;font-size:11px;" onclick="declineGuestRequest('${escapeHTML(id).replace(/'/g,"\\'")}')">Decline</button>
@@ -10823,7 +10924,7 @@ function openInvitedModal(){
   if($('invited-title')) $('invited-title').textContent = 'Eligible players (' + eligible.length + ')';
 
   let body = eligible.length
-    ? eligible.map(n => '<div style="padding:7px 0;border-bottom:1px solid var(--sand-border);font-weight:600;font-size:14px;">' + escapeHTML(n) + '</div>').join('')
+    ? eligible.map(n => '<div style="padding:7px 0;border-bottom:1px solid var(--sand-border);font-weight:600;font-size:14px;">' + escapeHTML(shownName(n)) + '</div>').join('')
     : '<p style="color:var(--gray);font-size:13px;padding:8px 0;">No eligible players yet.</p>';
 
   // Next circle: only for games with a not-yet-active widening tier. Find the
@@ -10960,7 +11061,7 @@ function renderGameChatMessages(){
       : '';
     return '<div style="padding:8px 0;border-bottom:1px solid var(--sand-border);">'
       + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">'
-      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(m.authorName || 'Player') + ratingBadge(m.authorKey || m.authorName) + '</span>'
+      +   '<span style="font-weight:700;color:var(--primary);font-size:14px;word-break:break-word;">' + escapeHTML(shownName(m.authorName || 'Player')) + ratingBadge(m.authorKey || m.authorName) + '</span>'
       +   '<span style="font-size:11px;color:var(--gray);white-space:nowrap;">' + escapeHTML(fmtDateTime(m.createdAt)) + '</span>'
       + '</div>'
       + '<div style="font-size:14px;color:var(--black);white-space:pre-wrap;word-break:break-word;margin-top:2px;">' + escapeHTML(m.text || '') + '</div>'
@@ -13125,7 +13226,10 @@ function ppRemoveOption(i){
 }
 function ppNum(id){ const v = ($(id).value||'').trim(); if(v === '') return null; const n = Number(v); return isFinite(n) ? n : NaN; }
 function ppShown(){
-  return window.csPollPlanKit.filterPool(ppPool, { q: $('pp-search').value, min: ppNum('pp-rmin'), max: ppNum('pp-rmax') });
+  // The search matches the shown name (shownName), never a hidden full name.
+  const q = String($('pp-search').value || '').toLowerCase().trim();
+  return window.csPollPlanKit.filterPool(ppPool, { q: '', min: ppNum('pp-rmin'), max: ppNum('pp-rmax') })
+    .filter(p => !q || (' ' + shownName(p.name, p.id).toLowerCase()).indexOf(' ' + q) >= 0);
 }
 function ppDrawRecipients(){
   const shown = ppShown();
@@ -13133,7 +13237,7 @@ function ppDrawRecipients(){
   $('pp-recips').innerHTML = shown.length ? shown.map(p => {
     const on = ppSelected.indexOf(p.id) >= 0;
     return '<label class="pp-row"><input type="checkbox" '+(on?'checked':'')+(!on && ppSelected.length >= cap ? ' disabled' : '')
-      + ' onchange="ppToggle(\''+p.id+'\',this.checked)"><span class="pp-name">'+escapeHTML(p.name)+'</span><span class="pp-rt">'+(p.rating==null?'Unrated':p.rating)+'</span></label>';
+      + ' onchange="ppToggle(\''+p.id+'\',this.checked)"><span class="pp-name">'+escapeHTML(shownName(p.name, p.id))+'</span><span class="pp-rt">'+(p.rating==null?'Unrated':p.rating)+'</span></label>';
   }).join('') : '<div class="pp-row" style="cursor:default;color:var(--gray);">No players match.</div>';
   $('pp-count').textContent = ppSelected.length + ' selected (max ' + cap + ')';
 }
