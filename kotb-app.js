@@ -42,7 +42,8 @@ function scoreKey(idx,side,wid,round){
 let D = {
   kings:  {config:{}, players:{}, weeks:{}, results:{}},
   queens: {config:{}, players:{}, weeks:{}, results:{}},
-  ratings: {}
+  ratings: {},
+  courtPlan: null
 };
 
 // ─── HELPERS ───
@@ -228,6 +229,8 @@ function parseCourts(raw){
 // 1, 2, 3 and keeps working untouched. Nothing is migrated on read or write.
 function configCourts(cfg){
   const raw = (cfg || {}).courts;
+  // 'none' is written by the court split when this side has no court at all.
+  if(raw === 'none') return [];
   if(Array.isArray(raw)){
     const a = parseCourts(raw);
     return a.length ? a : DEFAULT_COURTS.slice();
@@ -247,6 +250,120 @@ function courtsPhrase(nums){
   if(!a.length) return '';
   if(a.length === 1) return String(a[0]);
   return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+}
+
+// ─── COURT SPLIT BETWEEN KINGS AND QUEENS ───
+// Both sides share the same sand. The league enters every court number once and the app
+// splits them fairly from the active rosters. Pure helpers, no reads or writes.
+
+// One side's night on c courts: sit share per round, rounds for 6 games each, sitters per
+// round. A side under 4 players cannot play at all and is left out of the comparison.
+function _ksSideNight(n,c){
+  if(n<4) return {playable:false,courts:0,sitShare:0,rounds:0,sitters:0};
+  if(c<1) return {playable:true,courts:0,sitShare:1,rounds:Infinity,sitters:n};
+  const S=n-4*c;
+  return {playable:true,courts:c,sitShare:S/n,rounds:S===0?6:Math.ceil(n*6/(4*c)),sitters:S};
+}
+// The fair split. Each side is capped at one court per 4 players. Lowest worst sit share
+// wins; then the shorter night for the slower side; then fewer sitters in total; then, on
+// an exact tie, the side that did not win the last tie (Queens when there is none).
+// Queens get the lowest court numbers, Kings the next ones, never overlapping.
+function _ksCourtSplit(total,K,Q,lastTieWinner){
+  const nums=parseCourts(total).slice().sort((a,b)=>a-b),N=nums.length;
+  K=Math.max(0,Math.floor(K)||0);Q=Math.max(0,Math.floor(Q)||0);
+  const capK=Math.floor(K/4),capQ=Math.floor(Q/4);
+  const prefer=lastTieWinner==='queens'?'kings':'queens';
+  const worse=(a,b)=>{
+    if(Math.abs(a[0]-b[0])>1e-9) return a[0]-b[0];
+    if(a[1]!==b[1]) return a[1]<b[1]?-1:1;
+    return a[2]-b[2];
+  };
+  let best=null,tie=false;
+  for(let k=0;k<=Math.min(N,capK);k++){
+    for(let q=0;q<=Math.min(N-k,capQ);q++){
+      const sk=_ksSideNight(K,k),sq=_ksSideNight(Q,q);
+      const key=[Math.max(sk.sitShare,sq.sitShare),Math.max(sk.rounds,sq.rounds),sk.sitters+sq.sitters];
+      const d=best?worse(key,best.key):-1;
+      if(d<0){best={k,q,key};tie=false;}
+      else if(d===0){
+        tie=true;
+        if(prefer==='queens'?q>best.q:k>best.k) best={k,q,key};
+      }
+    }
+  }
+  const queens=nums.slice(0,best.q),kings=nums.slice(best.q,best.q+best.k);
+  let prop=null;
+  if(N>=2&&K>=4&&Q>=4){
+    const pk=Math.max(1,Math.min(N-1,Math.round(N*K/(K+Q))));
+    prop={kings:pk,queens:N-pk};
+  }
+  return {
+    courts:nums,kings,queens,unused:nums.slice(best.q+best.k),
+    tie,tieWinner:tie?prefer:null,
+    tooFew:K>=4&&Q>=4&&(best.k===0||best.q===0),
+    stats:{kings:_ksSideNight(K,best.k),queens:_ksSideNight(Q,best.q)},
+    prop
+  };
+}
+// Checks an admin's split. Returns '' when it is fine, else what is wrong.
+function _ksCourtCheck(total,kings,queens,K,Q){
+  const all=parseCourts(total),k=parseCourts(kings),q=parseCourts(queens);
+  if(!all.length) return "Enter the league's court numbers first.";
+  const off=k.concat(q).filter(x=>all.indexOf(x)<0);
+  if(off.length) return "Court "+off[0]+" is not one of the league's courts.";
+  const both=k.filter(x=>q.indexOf(x)>=0);
+  if(both.length) return 'Court '+both[0]+' is on both sides.';
+  if(k.length>Math.floor(K/4)) return 'Kings have '+K+' active players, enough for '+Math.floor(K/4)+' court'+(Math.floor(K/4)===1?'':'s')+'.';
+  if(q.length>Math.floor(Q/4)) return 'Queens have '+Q+' active players, enough for '+Math.floor(Q/4)+' court'+(Math.floor(Q/4)===1?'':'s')+'.';
+  const need=(K>=4?1:0)+(Q>=4?1:0);
+  if(all.length>=need){
+    if(K>=4&&!k.length) return 'Kings need at least one court.';
+    if(Q>=4&&!q.length) return 'Queens need at least one court.';
+  }
+  return '';
+}
+// What to show and whether to apply on its own. stored is tally_kotb/court_plan, with
+// kings and queens holding the split in force. Auto applies the fair split only while no
+// schedule exists on either side; after that it only suggests. Manual is never changed.
+function _ksCourtPlan(stored,K,Q,hasSchedule){
+  const st=stored||{};
+  const courts=parseCourts(st.courts||[]);
+  if(!courts.length) return {ready:false};
+  const fair=_ksCourtSplit(courts,K,Q,st.lastTieWinner);
+  const mode=st.mode==='manual'?'manual':'auto';
+  const current={kings:parseCourts(st.kings||[]),queens:parseCourts(st.queens||[])};
+  const same=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
+  const differs=!same(fair.kings,current.kings)||!same(fair.queens,current.queens);
+  const autoApply=mode==='auto'&&!hasSchedule&&!fair.tooFew&&differs;
+  return {ready:true,mode,fair,current,differs,autoApply};
+}
+// The one multi-path update that puts a split in force: the plan and both sides' court
+// lists land together or not at all.
+function _ksCourtPlanUpdates(prev,kings,queens,mode,K,Q,tieWinner){
+  const p=prev||{};
+  const plan={
+    courts:parseCourts(p.courts||[]),mode:mode==='manual'?'manual':'auto',
+    kings:parseCourts(kings),queens:parseCourts(queens),
+    basis:{kings:K,queens:Q},
+    lastTieWinner:p.lastTieWinner||null,tieWinner:tieWinner||null,
+    setAt:Date.now(),setBy:'pin'
+  };
+  const u={};
+  u['court_plan']=plan;
+  // Firebase cannot hold an empty list, and a missing one reads back as the default
+  // courts, so a side with no courts is stored as 'none', which configCourts reads as [].
+  u['kings/config/courts']=plan.kings.length?plan.kings:'none';
+  u['queens/config/courts']=plan.queens.length?plan.queens:'none';
+  return u;
+}
+// What Close & Archive changes in the plan: the next season starts on the fair split
+// (mode back to auto), the league's courts stay, and this season's tie winner becomes
+// lastTieWinner so the next exact tie goes the other way. Null when there is no plan.
+function _ksCourtPlanArchiveUpdates(plan){
+  if(!plan) return null;
+  const u={'court_plan/mode':'auto'};
+  if(plan.tieWinner){u['court_plan/lastTieWinner']=plan.tieWinner;u['court_plan/tieWinner']=null;}
+  return u;
 }
 // Firebase write failure reporting. set() and remove() return a promise that
 // rejects on a rules denial or a lost connection. Discarding it made a failed
@@ -605,6 +722,11 @@ async function doCloseSeason(){
       winScore: srcConfig.winScore || 15
     });
     if(!cfgOk) failed.push('settings');
+    const _cpu=_ksCourtPlanArchiveUpdates(D.courtPlan);
+    if(_cpu){
+      const cpOk=await fbUpdate(_cpu);
+      if(!cpOk) failed.push('court plan');
+    }
 
     if(failed.length){
       alert('The ' + sideLabel + ' season was archived and verified as "' + label + '".\n\n'
@@ -706,12 +828,14 @@ function initFB(){
         }
         D[s].results = sv.results||{};
       });
+      D.courtPlan = v.court_plan||null;
       // Skip the full re-render when only unmapped nodes (e.g. <side>/messages) changed.
       // Fingerprint the MAPPED children AFTER mapping + the _pendingRoundsUpdate patch so
       // the optimistic-rounds render is never masked. First fire: _mainFP is null -> renders.
       const fp = JSON.stringify([
         D.kings.config,  D.kings.players,  D.kings.weeks,  D.kings.results,
-        D.queens.config, D.queens.players, D.queens.weeks, D.queens.results
+        D.queens.config, D.queens.players, D.queens.weeks, D.queens.results,
+        D.courtPlan
       ]);
       if(fp === _mainFP) return;
       _mainFP = fp;
@@ -1156,7 +1280,14 @@ function saveSeasonCfg(){
     courts:parseCourts($('cfg-courts').value),
     winScore:parseInt($('cfg-score').value)||15
   };
-  if(!cfg.courts.length){toast('Enter at least one court number, e.g. 4 or 1, 2, 3');return;}
+  // Once the league's courts are set in the Courts card, Override and Apply are the only
+  // writers of courts. The box is read-only, and this save keeps the stored list as is.
+  const _leagueCourts=_cpLeagueCourtsSet();
+  if(_leagueCourts){
+    const cur=(D[SIDE].config||{}).courts;
+    if(cur!=null) cfg.courts=cur; else delete cfg.courts;
+  }
+  else if(!cfg.courts.length){toast('Enter at least one court number, e.g. 4 or 1, 2, 3');return;}
   if(!cfg.startDate){toast('Pick a start date');return;}
   const skipText=$('cfg-skips')?$('cfg-skips').value.trim():'';
   const skipDates=skipText?skipText.split('\n').map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)):[];
@@ -1184,8 +1315,124 @@ function renderPlannerCfg(){
   // which in the new field would read as court 3 only. Null guarded because this
   // line is unconditional, unlike the c.X checks around it.
   const _cc=$('cfg-courts'); if(_cc)_cc.value=configCourts(c).join(', ');
+  const _lc=_cpLeagueCourtsSet();
+  if(_cc) _cc.readOnly=_lc;
+  const _cn=$('cfg-courts-note'); if(_cn) _cn.style.display=_lc?'block':'none';
   if(c.winScore)$('cfg-score').value=c.winScore;
   if(c.skipDates&&c.skipDates.length){const el=$('cfg-skips');if(el)el.value=c.skipDates.join('\n');}
+  renderCourtPlan();
+}
+// ─── COURTS (both sides) ───
+// The Courts block at the top of Season Config. Only rendered inside the Admin tab,
+// which already needs the league or master PIN, so every write here is an admin's.
+function _cpLeagueCourtsSet(){return !!(D.courtPlan&&parseCourts(D.courtPlan.courts||[]).length);}
+function _cpActive(side){return Object.values((D[side]&&D[side].players)||{}).filter(p=>p&&p.name&&p.active!==false).length;}
+function _cpHasSchedule(){
+  return ['kings','queens'].some(s=>Object.values((D[s]&&D[s].weeks)||{}).some(w=>w&&w.rounds&&(Array.isArray(w.rounds)?w.rounds.length:Object.keys(w.rounds).length)));
+}
+// The plan with the split in force filled in. Before the first apply the plan holds no
+// split, so each side's own court list stands in for it.
+function _cpStored(){
+  const p=D.courtPlan||{};
+  return Object.assign({},p,{
+    kings:p.setAt?(p.kings||[]):configCourts(D.kings.config),
+    queens:p.setAt?(p.queens||[]):configCourts(D.queens.config)
+  });
+}
+function fbUpdate(u){
+  if(!db) return Promise.resolve(false);
+  return db.ref(DB_ROOT).update(u).then(function(){ return true; })
+    .catch(function(err){ _fbWriteFailed('save','court plan',err); return false; });
+}
+let _cpBusy=false,_cpOverride=false;
+function _cpWrite(kings,queens,mode,tieWinner,msg){
+  if(_cpBusy) return Promise.resolve(false);
+  _cpBusy=true;
+  const u=_ksCourtPlanUpdates(D.courtPlan,kings,queens,mode,_cpActive('kings'),_cpActive('queens'),tieWinner);
+  return fbUpdate(u).then(ok=>{ if(ok&&msg) toast(msg); return ok; }).finally(()=>{ _cpBusy=false; });
+}
+// Auto mode puts the fair split in force by itself, but only while neither side has a
+// schedule. Returns true when it wrote.
+function _cpMaybeAuto(){
+  const r=_ksCourtPlan(_cpStored(),_cpActive('kings'),_cpActive('queens'),_cpHasSchedule());
+  if(!r.ready||!r.autoApply||_cpBusy) return false;
+  _cpWrite(r.fair.kings,r.fair.queens,'auto',r.fair.tieWinner,'Courts split fairly from the rosters');
+  return true;
+}
+function cpSaveCourts(){
+  const nums=parseCourts($('cp-courts').value).sort((a,b)=>a-b);
+  if(!nums.length){toast('Enter the court numbers, e.g. 1, 2, 3, 4');return;}
+  const p=D.courtPlan||{};
+  const u={'court_plan/courts':nums};
+  if(!p.mode) u['court_plan/mode']='auto';
+  fbUpdate(u).then(ok=>{ if(ok) toast('Courts saved'); });
+}
+function cpApplyFair(){
+  const r=_ksCourtPlan(_cpStored(),_cpActive('kings'),_cpActive('queens'),_cpHasSchedule());
+  if(!r.ready) return;
+  if(r.fair.tooFew){toast('Not enough courts for both sides. Use Override.');return;}
+  if(_cpHasSchedule()&&!confirm('A schedule already exists.\n\nThe new split applies to both sides for nights generated from now on. Weeks already scheduled, locked or scored keep their courts until they are regenerated.\n\nApply it?')) return;
+  _cpWrite(r.fair.kings,r.fair.queens,'auto',r.fair.tieWinner,'Fair split applied');
+  _cpOverride=false;
+}
+function cpToggleOverride(){_cpOverride=!_cpOverride;renderCourtPlan();}
+function cpSaveOverride(){
+  const st=_cpStored(),K=_cpActive('kings'),Q=_cpActive('queens');
+  const q=parseCourts($('cp-oq').value),k=parseCourts($('cp-ok').value);
+  const err=_ksCourtCheck(st.courts||[],k,q,K,Q);
+  if(err){toast(err);return;}
+  if(_cpHasSchedule()&&!confirm('A schedule already exists.\n\nThis split applies to both sides for nights generated from now on. Weeks already scheduled, locked or scored keep their courts.\n\nSave it?')) return;
+  _cpWrite(k,q,'manual',null,'Override saved. It stays until you tap Use the fair split.');
+  _cpOverride=false;
+}
+function renderCourtPlan(){
+  const el=$('cp-body'); if(!el) return;
+  const inp=$('cp-courts');
+  const p=D.courtPlan||{};
+  if(inp&&document.activeElement!==inp) inp.value=parseCourts(p.courts||[]).join(', ');
+  const K=_cpActive('kings'),Q=_cpActive('queens'),sched=_cpHasSchedule();
+  const r=_ksCourtPlan(_cpStored(),K,Q,sched);
+  if(!r.ready){
+    el.innerHTML='<div style="font-size:13px;color:var(--gray);line-height:1.5;">Enter every court number the league plays on, for both sides. The app then splits them fairly between Kings and Queens from the active rosters.</div>';
+    return;
+  }
+  if(_cpMaybeAuto()) return;
+  const pct=x=>Math.round(x*100)+'%';
+  const list=a=>a.length?a.join(', '):'none';
+  const row=(label,n,courts)=>{
+    const s=_ksSideNight(n,courts.length);
+    const detail=!s.playable?'needs 4 players to play':!courts.length?'no court':pct(s.sitShare)+' sit each round, '+s.rounds+' rounds a night';
+    return '<tr><td style="padding:4px 6px;font-weight:700;">'+label+'</td><td style="padding:4px 6px;">'+n+' players</td><td style="padding:4px 6px;">Courts '+esc(list(courts))+'</td><td style="padding:4px 6px;color:var(--gray);">'+detail+'</td></tr>';
+  };
+  const f=r.fair,cur=r.current;
+  let h='<div style="font-size:12px;font-weight:700;color:var(--gray);margin:4px 0;">'
+    +(r.mode==='manual'?'OVERRIDE IN FORCE (kept until you tap Use the fair split)':'AUTO (fair split from active rosters)')+'</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:13px;">'+row('Queens',Q,cur.queens)+row('Kings',K,cur.kings)+'</table>';
+  if(r.differs&&!f.tooFew){
+    h+='<div style="font-size:13px;margin-top:10px;font-weight:700;">Fair split for these rosters</div>';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;">'+row('Queens',Q,f.queens)+row('Kings',K,f.kings)+'</table>';
+  }
+  if(f.prop&&(f.prop.kings!==f.kings.length||f.prop.queens!==f.queens.length)){
+    h+='<div style="font-size:12px;color:var(--gray);margin-top:6px;">By registrations alone it would be Queens '+f.prop.queens+', Kings '+f.prop.kings+'. The fair split evens out how often players sit instead.</div>';
+  }
+  const warn=[];
+  if(f.tooFew) warn.push('Not enough courts for both sides: with '+f.courts.length+' court'+(f.courts.length===1?'':'s')+' one side cannot play. Add a court or set an override.');
+  if(f.unused.length&&!f.tooFew) warn.push('Court'+(f.unused.length===1?' ':'s ')+f.unused.join(', ')+(f.unused.length===1?' is':' are')+' not needed: each side gets at most one court per 4 players.');
+  if(K>0&&K<4) warn.push('Kings have '+K+' active player'+(K===1?'':'s')+'; 4 are needed to play.');
+  if(Q>0&&Q<4) warn.push('Queens have '+Q+' active player'+(Q===1?'':'s')+'; 4 are needed to play.');
+  if(warn.length) h+='<div style="background:#fef3c7;border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px;line-height:1.5;">'+warn.map(esc).join('<br>')+'</div>';
+  if(sched) h+='<div style="font-size:12px;color:var(--gray);margin-top:8px;line-height:1.5;">A schedule exists, so the split no longer changes on its own. A change applies to both sides for nights generated after it; locked or scored weeks keep their courts.</div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">';
+  if(r.mode==='manual'&&!f.tooFew) h+='<button class="btn btn-a btn-sm" onclick="cpApplyFair()">Use the fair split</button>';
+  else if(r.differs&&!f.tooFew) h+='<button class="btn btn-a btn-sm" onclick="cpApplyFair()">Apply fair split</button>';
+  h+='<button class="btn btn-g btn-sm" onclick="cpToggleOverride()">'+(_cpOverride?'Cancel override':'Override')+'</button></div>';
+  if(_cpOverride){
+    h+='<div class="row2" style="margin-top:10px;">'
+      +'<div class="fg" style="margin:0;"><label class="lbl">Queens courts</label><input class="inp" type="text" id="cp-oq" maxlength="60" value="'+escAttr(cur.queens.join(', '))+'"></div>'
+      +'<div class="fg" style="margin:0;"><label class="lbl">Kings courts</label><input class="inp" type="text" id="cp-ok" maxlength="60" value="'+escAttr(cur.kings.join(', '))+'"></div></div>'
+      +'<button class="btn btn-a btn-w" style="margin-top:8px;" onclick="cpSaveOverride()">Save override</button>';
+  }
+  el.innerHTML=h;
 }
 
 function fillWeekSels(){

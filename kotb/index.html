@@ -255,6 +255,18 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
     <div class="pane" id="pane-planner">
 
     <div class="card">
+      <div class="ctitle"><span class="bar"></span>Courts (Kings and Queens)</div>
+      <div class="fg" style="margin:0 0 8px;">
+        <label class="lbl">Every court number the league plays on</label>
+        <div style="display:flex;gap:8px;">
+          <input class="inp" type="text" id="cp-courts" placeholder="1, 2, 3, 4" maxlength="60" style="flex:1;">
+          <button class="btn btn-a btn-sm" onclick="cpSaveCourts()">Save</button>
+        </div>
+      </div>
+      <div id="cp-body"></div>
+    </div>
+
+    <div class="card">
       <div class="ctitle"><span class="bar"></span><span style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-right:6px;">STEP 1</span>Season Config</div>
       <div class="row2">
         <div class="fg" style="margin:0;">
@@ -289,6 +301,9 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         Which physical courts this side plays on, not how many. Separate them with commas.
         Kings and Queens share the same sand, so give each side its own numbers: Queens on
         1, 2, 3 and Kings on 4.
+      </div>
+      <div id="cfg-courts-note" style="display:none;font-size:12px;font-weight:700;color:var(--primary);margin:-6px 0 12px;">
+        Use Override in the Courts card to change courts
       </div>
       <div class="fg" style="margin-top:4px;">
         <label class="lbl">Skip Dates (holidays / breaks)</label>
@@ -551,7 +566,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=99dc828d"></script>
+<script src="/kotb-app.js?v=aa6d9a05"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">
