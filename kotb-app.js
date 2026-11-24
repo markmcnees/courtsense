@@ -1612,6 +1612,11 @@ function applyGeneratedRounds(wid,rounds,pool,pCounts,oCounts,TARGET_GAMES,noteM
   return true;
 }
 
+// The AI schedule path is retired: every night, any court count, uses the built in
+// engine, which scripts/check-rotation-fairness.js measures and the AI cannot be.
+// The AI code below is kept but unreachable while this is false, so no schedule build
+// makes a network call.
+const KOTB_AI_SCHEDULE=false;
 async function genNight(skipOverwriteCheck){
   clearAiError();
   const wid=$('week-sel').value;
@@ -1674,7 +1679,9 @@ async function genNight(skipOverwriteCheck){
     }));
   });
 
-  $('week-detail').innerHTML='<div class="ai-load"><div class="spin"></div><div>AI is building tonight\'s rotation...</div></div>';
+  $('week-detail').innerHTML='<div class="ai-load"><div class="spin"></div><div>Building schedule...</div></div>';
+  // Let the spinner paint before the build takes the main thread for a moment.
+  await new Promise(r=>setTimeout(r,30));
 
   // Build short IDs (P1..PN) so the AI doesn't have to track Firebase keys
   const shortId={};   // realId -> shortId
@@ -1702,12 +1709,11 @@ async function genNight(skipOverwriteCheck){
     }
   };
 
-  // Single court nights skip the AI entirely. They need far more rounds, which
-  // pushes generation past the proxy timeout, and the deterministic generator
-  // handles them well.
-  if(courts===1){
+  // The built in engine handles every court count. The AI branch after this only runs
+  // if KOTB_AI_SCHEDULE is turned back on, and even then never for a single court.
+  if(!KOTB_AI_SCHEDULE||courts===1){
     const local=buildLocalNight(pool,courtNums,pCounts,oCounts,TARGET_GAMES,week.weekNum);
-    if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES,'Schedule generated locally (single court).')){
+    if(!local||!applyGeneratedRounds(wid,local,pool,pCounts,oCounts,TARGET_GAMES)){
       aiErr('Could not build a schedule. Check the roster and the court count.');
     }
     return;
@@ -1823,123 +1829,327 @@ Use ONLY the short IDs (P1, P2, P3...) exactly as listed above. CRITICAL: NEVER 
   }
 }
 
-// ─── DETERMINISTIC FULL-SEASON GENERATOR (no AI) ───
-// Builds every non-skipped week's rounds in one pass from the REGISTERED roster only.
-// Even games per night, even season-long sit-outs, partner/opponent variety balanced
-// across the whole season by construction. No absence input, no AI, device-independent.
-// Subs are handled purely at game time on the Score tab and never touch this schedule.
+// ─── ROTATION ENGINE (no AI) ───
+// One night of rounds, used by both the single night button and the full season build.
+// Goals in priority order: partners and opponents even across the season, then even
+// within the night, then rest (nobody plays more than 2 in a row or sits more than 1 in a
+// row, spread out), where the setup allows it. Games per player stay within one, every
+// player gets at least TARGET games, no byes. Subs are ordinary ids here, same as before.
 function _csPv(C,a,b){return (C[a]&&C[a][b])||0;}
 function _csChg(C,a,b,d){if(!C[a])C[a]={};if(!C[b])C[b]={};C[a][b]=(C[a][b]||0)+d;C[b][a]=(C[b][a]||0)+d;}
+// Seeded random numbers, so the same roster and week always build the same night.
+function _ksRng(seed){
+  let a=seed>>>0;
+  return function(){a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};
+}
+// Rest floors for a player who plays g of R rounds: the longest play run and sit run that
+// no spacing can avoid. s sits cut the games into at most s+1 runs, and g games cut the
+// sits into at most g+1 runs.
+function _ksFloors(g,R){
+  const s=R-g;
+  return {play:Math.ceil(g/(s+1)),sit:s>0?Math.ceil(s/(g+1)):0};
+}
 // courtNums is the explicit list of physical court numbers this side plays on, e.g.
 // [4] or [1,2,3]. A legacy integer is still accepted so any older caller keeps working.
-// Pairing and rotation logic below is unchanged; only the number written onto each
-// court object comes from the list now instead of counting from 1.
+// pC and oC hold the season partner and opponent counts so far; tonight is added to them
+// before returning, and sitCount gains tonight's sits, exactly as before.
 function buildSeasonNight(ids,courtNums,pC,oC,sitCount,TARGET,weekIdx){
   const courtList=Array.isArray(courtNums)?parseCourts(courtNums):configCourts({courts:courtNums});
   const n=ids.length,courtsN=Math.min(courtList.length,Math.floor(n/4));
   if(courtsN<1)return null;
-  const slots=courtsN*4,sitPer=n-slots;
-  const totalRounds=sitPer===0?TARGET:Math.ceil(n*TARGET/slots);
-  const gtw={},idx={};ids.forEach((id,i)=>{gtw[id]=0;idx[id]=i;});
-  const rounds=[];
-  for(let r=1;r<=totalRounds;r++){
-    const rotor=(r*5+weekIdx*3);
-    const sorted=ids.slice().sort((a,b)=>(gtw[b]-gtw[a])||((sitCount[a]||0)-(sitCount[b]||0))||(((idx[a]+rotor)%n)-((idx[b]+rotor)%n)));
-    const sitters=sorted.slice(0,sitPer),active=sorted.slice(sitPer);
-    sitters.forEach(id=>sitCount[id]=(sitCount[id]||0)+1);active.forEach(id=>gtw[id]++);
-    const rem=active.slice(),teams=[];
-    while(rem.length){let bi=0,bj=1,bc=Infinity;for(let i=0;i<rem.length;i++)for(let j=i+1;j<rem.length;j++){const c=_csPv(pC,rem[i],rem[j]);if(c<bc){bc=c;bi=i;bj=j;}}teams.push([rem[bi],rem[bj]]);rem.splice(bj,1);rem.splice(bi,1);}
-    const tr=teams.slice(),carr=[];let ci=0;
-    while(tr.length>=2){let bi=0,bj=1,bc=Infinity;for(let i=0;i<tr.length;i++)for(let j=i+1;j<tr.length;j++){let c=0;tr[i].forEach(a=>tr[j].forEach(b=>c+=_csPv(oC,a,b)));if(c<bc){bc=c;bi=i;bj=j;}}carr.push({court:courtList[ci]!=null?courtList[ci]:(ci+1),t1:tr[bi].slice(),t2:tr[bj].slice()});ci++;tr.splice(bj,1);tr.splice(bi,1);}
-    rounds.push({round:r,courts:carr,sitting:sitters.slice()});
-  }
-  const undo=(c,d)=>{_csChg(pC,c.t1[0],c.t1[1],d);_csChg(pC,c.t2[0],c.t2[1],d);c.t1.forEach(a=>c.t2.forEach(b=>_csChg(oC,a,b,d)));};
-  rounds.forEach(rd=>rd.courts.forEach(c=>undo(c,1)));
-  // Cost of one pair. Partners are weighted 3x opponents and a never-paired couple
-  // carries a large flat penalty, because this league scores individuals and the
-  // partner draw moves the standings. Unchanged from the original weighting.
-  const pairCost=(a,b)=>{const p=_csPv(pC,a,b),o=_csPv(oC,a,b);return p*p*3+o*o+(p===0?40:0)+(o===0?15:0);};
-  const activeArr=rd=>{const m=[];rd.courts.forEach((c,ci)=>['t1','t2'].forEach(tk=>c[tk].forEach((id,si)=>m.push({id,ci,tk,si}))));return m;};
+  const A=courtsN*4,S=n-A;
+  const R=S===0?TARGET:Math.ceil(n*TARGET/A);
+  const wk=weekIdx||0;
+  sitCount=sitCount||{};
+  let seed=2166136261;
+  const mix=v=>{seed=Math.imul(seed^v,16777619)>>>0;};
+  mix(n);mix(courtsN);mix(wk+1);ids.forEach(id=>{const s=String(id);for(let i=0;i<s.length;i++)mix(s.charCodeAt(i));});
+  const rng=_ksRng(seed);
+  const NN=n*n,all=[];for(let i=0;i<n;i++)all.push(i);
 
-  // Exchange the players sitting in two slots, keep it only when the season cost drops.
-  //
-  // Cost is evaluated INCREMENTALLY. undo() only ever touches pairs drawn from a single
-  // court's four players, so the only pairs a swap can change are those among the union
-  // of the two courts' members, which is at most 8 players and 28 pairs. Scoring just
-  // those instead of recomputing the full O(n squared) sum makes each candidate constant
-  // work, which is what pays for the much larger candidate set below. The membership set
-  // is the same before and after, since the swap only exchanges two players who are both
-  // already in it, so one set serves both measurements.
-  //
-  // Ids are read live from the courts rather than from a captured slot list, so a list
-  // built before an earlier swap in the same pass is still safe to use.
-  const trySwap=(rd1,A,rd2,B)=>{
-    const c1=rd1.courts[A.ci],c2=rd2.courts[B.ci];
-    const idA=c1[A.tk][A.si],idB=c2[B.tk][B.si];
-    if(idA===idB)return false;
-    const one=(c1===c2);
-    const memb=[];
-    [c1.t1,c1.t2].concat(one?[]:[c2.t1,c2.t2]).forEach(t=>t.forEach(x=>{if(memb.indexOf(x)<0)memb.push(x);}));
-    const sub=()=>{let s=0;for(let i=0;i<memb.length;i++)for(let j=i+1;j<memb.length;j++)s+=pairCost(memb[i],memb[j]);return s;};
-    const before=sub();
-    undo(c1,-1);if(!one)undo(c2,-1);
-    c1[A.tk][A.si]=idB;c2[B.tk][B.si]=idA;
-    undo(c1,1);if(!one)undo(c2,1);
-    if(sub()<before)return true;
-    undo(c1,-1);if(!one)undo(c2,-1);
-    c1[A.tk][A.si]=idA;c2[B.tk][B.si]=idB;
-    undo(c1,1);if(!one)undo(c2,1);
-    return false;
+  // Season history so far, by index.
+  const hP=new Int32Array(NN),hO=new Int32Array(NN);
+  let sumP=0,sumO=0;
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const p=_csPv(pC,ids[i],ids[j]),o=_csPv(oC,ids[i],ids[j]);
+    hP[i*n+j]=hP[j*n+i]=p;hO[i*n+j]=hO[j*n+i]=o;sumP+=p;sumO+=o;
+  }
+  // Bands. The best reachable spread puts every pair on the whole numbers just below
+  // and above the average, so only counts outside that band cost anything. Inside the
+  // band all schedules tie, which is what lets the lower tiers choose between them.
+  const nPairs=n*(n-1)/2,games=R*courtsN;
+  const sLoP=Math.floor((sumP+games*2)/nPairs),sHiP=Math.ceil((sumP+games*2)/nPairs);
+  const sLoO=Math.floor((sumO+games*4)/nPairs),sHiO=Math.ceil((sumO+games*4)/nPairs);
+  const nLoP=Math.floor(games*2/nPairs),nHiP=Math.ceil(games*2/nPairs);
+  const nLoO=Math.floor(games*4/nPairs),nHiO=Math.ceil(games*4/nPairs);
+  const band=(c,lo,hi)=>c<lo?(lo-c)*(lo-c):c>hi?(c-hi)*(c-hi):0;
+
+  // Candidate play patterns: plays[r] is the list of players on court in round r.
+  // 1. The previous sitter choice: most games tonight sit first, then fewest season sits.
+  const candOld=()=>{
+    const gtw=new Array(n).fill(0),sc=ids.map(id=>sitCount[id]||0),out=[];
+    for(let r=1;r<=R;r++){
+      const rotor=r*5+wk*3;
+      const order=all.slice().sort((a,b)=>(gtw[b]-gtw[a])||(sc[a]-sc[b])||(((a+rotor)%n)-((b+rotor)%n)));
+      order.slice(0,S).forEach(i=>sc[i]++);
+      const act=order.slice(S);act.forEach(i=>gtw[i]++);
+      out.push(act);
+    }
+    return out;
+  };
+  // 2 and 3. Rest first rotations. Players go round in a cycle, k at a time, where k is the
+  // smaller of the players on court and the players sitting, so turns come back evenly
+  // spaced. jit 0 keeps the same cycle all night; jit k lets each lap drift by under one
+  // round, which mixes who shares a round while keeping the spacing nearly even. A drift
+  // under k cannot bring a player back inside one chunk, because a lap is at least 2k long.
+  const candSeq=jit=>{
+    if(S===0)return Array.from({length:R},()=>all.slice());
+    const chunkPlay=A<=S,k=chunkPlay?A:S;
+    // The first places in the lap take the extra turn when the night does not divide
+    // evenly, so they go to whoever the season owes it to.
+    const tie=all.map(()=>rng());
+    let lap=all.slice().sort((a,b)=>{const d=(sitCount[ids[a]]||0)-(sitCount[ids[b]]||0);return (chunkPlay?-d:d)||(tie[a]-tie[b]);});
+    const seq=[];
+    while(seq.length<R*k){
+      seq.push(...lap);
+      if(jit){const key=lap.map((x,i)=>i+rng()*jit),pos=lap.map((x,i)=>i).sort((a,b)=>key[a]-key[b]);lap=pos.map(i=>lap[i]);}
+    }
+    const out=[];
+    for(let r=0;r<R;r++){
+      const chunk=seq.slice(r*k,r*k+k);
+      if(new Set(chunk).size<k)return jit?candSeq(0):null;
+      out.push(chunkPlay?chunk:all.filter(i=>chunk.indexOf(i)<0));
+    }
+    return out;
   };
 
-  let moves=1,guard=0;
-  while(moves>0&&guard++<400){
-    moves=0;
-
-    // Pass 1: WITHIN-ROUND play swaps. Exchange two players who are both playing in the
-    // same round, which re-pairs a court. The old loop skipped r1===r2 because a sit swap
-    // inside one round is meaningless, but a PLAY swap inside one round is the move the
-    // starved shapes need: with one sitter the cross-round pass has at most one candidate
-    // per round pair, and with zero sitters it has none at all, leaving the optimiser
-    // completely inert. Every invariant holds for free here, since both players are
-    // already in this round: who sits, games per player, court count and round structure
-    // are all untouched, and only the pairing changes.
-    for(let r=0;r<rounds.length;r++){
-      const slots=activeArr(rounds[r]);
-      for(let i=0;i<slots.length;i++){
-        for(let j=i+1;j<slots.length;j++){
-          const A=slots[i],B=slots[j];
-          if(A.ci===B.ci&&A.tk===B.tk)continue; // same team, a reorder that changes nothing
-          if(trySwap(rounds[r],A,rounds[r],B))moves++;
+  // Score and improve one candidate. Tiers, compared in order:
+  //   cap    : streaks more than one past the setup floor (the hard rest limit)
+  //   guard  : a pair meeting tonight more than one past tonight's band
+  //   season : season pair counts outside the season band, partners 3x, opponents 2x
+  //   night  : tonight's pair counts outside tonight's band, partners weighted 3x
+  //   rest   : streaks past the target (rule or floor, whichever is higher), plus sits
+  //            bunched closer than an even spread
+  const solve=plays=>{
+    const slot=new Int32Array(R*A),play=new Uint8Array(n*R),tP=new Int32Array(NN),tO=new Int32Array(NN);
+    const addCourt=(b,d)=>{
+      const a0=slot[b],a1=slot[b+1],b0=slot[b+2],b1=slot[b+3];
+      tP[a0*n+a1]+=d;tP[a1*n+a0]+=d;tP[b0*n+b1]+=d;tP[b1*n+b0]+=d;
+      tO[a0*n+b0]+=d;tO[b0*n+a0]+=d;tO[a0*n+b1]+=d;tO[b1*n+a0]+=d;
+      tO[a1*n+b0]+=d;tO[b0*n+a1]+=d;tO[a1*n+b1]+=d;tO[b1*n+a1]+=d;
+    };
+    // Greedy first draw: least partnered pairs, then the teams that have met least.
+    for(let r=0;r<R;r++){
+      const rem=plays[r].slice(),teams=[];
+      rem.forEach(i=>{play[i*R+r]=1;});
+      while(rem.length){
+        let bi=0,bj=1,bc=Infinity;
+        for(let i=0;i<rem.length;i++)for(let j=i+1;j<rem.length;j++){const k=rem[i]*n+rem[j],c=hP[k]+tP[k];if(c<bc){bc=c;bi=i;bj=j;}}
+        teams.push([rem[bi],rem[bj]]);rem.splice(bj,1);rem.splice(bi,1);
+      }
+      for(let c=0;c<courtsN;c++){
+        let bi=0,bj=1,bc=Infinity;
+        for(let i=0;i<teams.length;i++)for(let j=i+1;j<teams.length;j++){
+          let s=0;teams[i].forEach(x=>teams[j].forEach(y=>{const k=x*n+y;s+=hO[k]+tO[k];}));
+          if(s<bc){bc=s;bi=i;bj=j;}
         }
+        const b=r*A+c*4;
+        slot[b]=teams[bi][0];slot[b+1]=teams[bi][1];slot[b+2]=teams[bj][0];slot[b+3]=teams[bj][1];
+        teams.splice(bj,1);teams.splice(bi,1);
+        addCourt(b,1);
       }
     }
+    // Rest limits. Cross round swaps never change anyone's game count, so these hold for
+    // the whole search. The hard limit is one past the setup floor (the worst player's
+    // floor), the same for everyone, because per player floors cannot all be met at once.
+    // The soft target is per player: the rule (2 games, 1 sit) or that player's own floor.
+    const pT=new Int32Array(n),pK=new Int32Array(n),sT=new Int32Array(n),sK=new Int32Array(n),ib=new Int32Array(n);
+    let fP=0,fS=0,gMin=R,gMax=0;
+    for(let i=0;i<n;i++){
+      let g=0;for(let r=0;r<R;r++)g+=play[i*R+r];
+      const f=_ksFloors(g,R),s=R-g;
+      fP=Math.max(fP,f.play);fS=Math.max(fS,f.sit);gMin=Math.min(gMin,g);gMax=Math.max(gMax,g);
+      pT[i]=Math.max(2,f.play);sT[i]=Math.max(1,f.sit);
+      ib[i]=s>=2?Math.floor(g/(s+1)):0;
+    }
+    // Someone always sits the first round and someone the last, and that sit uses up one
+    // of their gaps, so the setup floor is at least ceil(games/sits) for them. Likewise a
+    // first round player splits their sits over one gap fewer.
+    if(S>0){fP=Math.max(fP,Math.ceil(gMin/(R-gMin)));fS=Math.max(fS,Math.ceil((R-gMax)/gMax));}
+    for(let i=0;i<n;i++){pK[i]=Math.max(2,fP+1);sK[i]=fS+1;}
+    let oc=0,op=0;
+    const restOf=i=>{
+      let cap=0,pen=0,r=0;const base=i*R;
+      while(r<R){
+        const v=play[base+r];let e=r+1;while(e<R&&play[base+e]===v)e++;
+        const len=e-r;
+        if(v){
+          if(len>pK[i])cap+=len-pK[i];
+          if(len>pT[i])pen+=(len-pT[i])*(len-pT[i]);
+          if(r>0&&e<R&&len<ib[i])pen+=ib[i]-len;
+        }else{
+          if(len>sK[i])cap+=len-sK[i];
+          if(len>sT[i])pen+=(len-sT[i])*(len-sT[i]);
+        }
+        r=e;
+      }
+      oc=cap;op=pen;
+    };
+    const rC=new Int32Array(n),rP=new Int32Array(n);
+    for(let i=0;i<n;i++){restOf(i);rC[i]=oc;rP[i]=op;}
 
-    // Pass 2: CROSS-ROUND sit swaps, the original move, unchanged in what it can do.
-    // A cross-round PLAY swap is not a separate case: moving a player into another round
-    // is only legal when they are absent from it, which means they are sitting there, so
-    // it is exactly this move. Kept because it works well wherever sitters are plentiful.
-    for(let r1=0;r1<rounds.length;r1++)for(let r2=0;r2<rounds.length;r2++){
-      if(r1===r2)continue;
-      const aList=activeArr(rounds[r1]).filter(x=>rounds[r2].sitting.includes(x.id));
-      if(!aList.length)continue;
-      const bList=activeArr(rounds[r2]).filter(x=>rounds[r1].sitting.includes(x.id));
-      if(!bList.length)continue;
-      for(const A of aList){
-        for(const B of bList){
-          const idA=rounds[r1].courts[A.ci][A.tk][A.si],idB=rounds[r2].courts[B.ci][B.tk][B.si];
-          if(idA===idB)continue;
-          // Both must still be playing here and sitting there; an earlier accepted swap
-          // in this pass may have moved one of them.
-          if(!rounds[r2].sitting.includes(idA)||!rounds[r1].sitting.includes(idB))continue;
-          if(trySwap(rounds[r1],A,rounds[r2],B)){
-            rounds[r1].sitting=rounds[r1].sitting.map(x=>x===idB?idA:x);
-            rounds[r2].sitting=rounds[r2].sitting.map(x=>x===idA?idB:x);
-            moves++;
+    // Incremental tier cost. A swap only changes pairs inside the courts it touches, so
+    // only pairs among those players (at most 8 players, 28 pairs) are scored.
+    const memb=new Int32Array(8);let mc=0,cS=0,cN=0,cG=0;
+    const addM=b=>{for(let t=0;t<4;t++){const x=slot[b+t];let f=false;for(let u=0;u<mc;u++)if(memb[u]===x){f=true;break;}if(!f)memb[mc++]=x;}};
+    const tiers=()=>{
+      cS=0;cN=0;cG=0;
+      for(let u=0;u<mc;u++)for(let v=u+1;v<mc;v++){
+        const k=memb[u]*n+memb[v],p=tP[k],o=tO[k];
+        cS+=3*band(hP[k]+p,sLoP,sHiP)+2*band(hO[k]+o,sLoO,sHiO);
+        cN+=3*band(p,nLoP,nHiP)+band(o,nLoO,nHiO);cG+=(p>nHiP+1?p-nHiP-1:0)+(o>nHiO+1?o-nHiO-1:0);
+      }
+    };
+    const pairsR=[];for(let r1=0;r1<R;r1++)for(let r2=r1+1;r2<R;r2++)pairsR.push(r1*R+r2);
+    const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(rng()*(i+1)),t=a[i];a[i]=a[j];a[j]=t;}return a;};
+    // One descent: keep taking improving moves until none is left or the budget is spent.
+    const descend=budget=>{
+      let evals=0,improved=true,pass=0;
+      while(improved&&pass<80&&evals<budget){
+        improved=false;pass++;
+        // Within a round: swap two players on different teams. Who sits is untouched, so
+        // rest cannot change; only the pairing does.
+        for(let r=0;r<R;r++){
+          for(let p=0;p<A;p++)for(let q=p+1;q<A;q++){
+            if((p>>1)===(q>>1))continue;
+            evals++;
+            const b1=r*A+(p&~3),b2=r*A+(q&~3),one=b1===b2;
+            mc=0;addM(b1);if(!one)addM(b2);
+            tiers();const g0=cG,s0=cS,n0=cN;
+            addCourt(b1,-1);if(!one)addCourt(b2,-1);
+            let t=slot[r*A+p];slot[r*A+p]=slot[r*A+q];slot[r*A+q]=t;
+            addCourt(b1,1);if(!one)addCourt(b2,1);
+            tiers();
+            if(cG<g0||(cG===g0&&(cS<s0||(cS===s0&&cN<n0)))){improved=true;continue;}
+            addCourt(b1,-1);if(!one)addCourt(b2,-1);
+            t=slot[r*A+p];slot[r*A+p]=slot[r*A+q];slot[r*A+q]=t;
+            addCourt(b1,1);if(!one)addCourt(b2,1);
+          }
+        }
+        if(S===0)continue;
+        // Across rounds: a plays r1 and sits r2, b the reverse; trade them. This changes who
+        // sits, so it is never allowed to push either player past the hard rest limit.
+        shuffle(pairsR);
+        for(const pr of pairsR){
+          const r1=Math.floor(pr/R),r2=pr%R;
+          for(let p=0;p<A;p++){
+            const a=slot[r1*A+p];if(play[a*R+r2])continue;
+            for(let q=0;q<A;q++){
+              const b=slot[r2*A+q];if(play[b*R+r1])continue;
+              evals++;
+              const c0=rC[a]+rC[b],p0=rP[a]+rP[b];
+              play[a*R+r1]=0;play[a*R+r2]=1;play[b*R+r2]=0;play[b*R+r1]=1;
+              restOf(a);const ca=oc,pa=op;restOf(b);const cb=oc,pb=op;
+              if(ca+cb>c0){play[a*R+r1]=1;play[a*R+r2]=0;play[b*R+r2]=1;play[b*R+r1]=0;continue;}
+              const b1=r1*A+(p&~3),b2=r2*A+(q&~3);
+              mc=0;addM(b1);addM(b2);
+              tiers();const g0=cG,s0=cS,n0=cN;
+              addCourt(b1,-1);addCourt(b2,-1);slot[r1*A+p]=b;slot[r2*A+q]=a;addCourt(b1,1);addCourt(b2,1);
+              tiers();
+              const dc=ca+cb-c0,dg=cG-g0,ds=cS-s0,dn=cN-n0,dp=pa+pb-p0;
+              if(dc<0||(dc===0&&(dg<0||(dg===0&&(ds<0||(ds===0&&(dn<0||(dn===0&&dp<0)))))))){rC[a]=ca;rP[a]=pa;rC[b]=cb;rP[b]=pb;improved=true;break;}
+              addCourt(b1,-1);addCourt(b2,-1);slot[r1*A+p]=a;slot[r2*A+q]=b;addCourt(b1,1);addCourt(b2,1);
+              play[a*R+r1]=1;play[a*R+r2]=0;play[b*R+r2]=1;play[b*R+r1]=0;
+            }
           }
         }
       }
+      return evals;
+    };
+    // Full score, compared tier by tier.
+    const total=()=>{
+      let tc=0,tr=0,ts=0,tn=0,tg=0;
+      for(let i=0;i<n;i++){tc+=rC[i];tr+=rP[i];}
+      for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+        const k=i*n+j,p=tP[k],o=tO[k];
+        ts+=3*band(hP[k]+p,sLoP,sHiP)+2*band(hO[k]+o,sLoO,sHiO);
+        tn+=3*band(p,nLoP,nHiP)+band(o,nLoO,nHiO);tg+=(p>nHiP+1?p-nHiP-1:0)+(o>nHiO+1?o-nHiO-1:0);
+      }
+      return [tc,tg,ts,tn,tr];
+    };
+    // Random moves that ignore the score but never break the hard rest limit. Used to
+    // step off a local optimum before descending again.
+    const kick=m=>{
+      for(let t=0;t<m;t++){
+        if(S>0&&rng()<0.5){
+          const r1=Math.floor(rng()*R),r2=Math.floor(rng()*R);if(r1===r2)continue;
+          const p=Math.floor(rng()*A),q=Math.floor(rng()*A),a=slot[r1*A+p],b=slot[r2*A+q];
+          if(play[a*R+r2]||play[b*R+r1])continue;
+          const c0=rC[a]+rC[b];
+          play[a*R+r1]=0;play[a*R+r2]=1;play[b*R+r2]=0;play[b*R+r1]=1;
+          restOf(a);const ca=oc,pa=op;restOf(b);const cb=oc,pb=op;
+          if(ca+cb>c0){play[a*R+r1]=1;play[a*R+r2]=0;play[b*R+r2]=1;play[b*R+r1]=0;continue;}
+          const b1=r1*A+(p&~3),b2=r2*A+(q&~3);
+          addCourt(b1,-1);addCourt(b2,-1);slot[r1*A+p]=b;slot[r2*A+q]=a;addCourt(b1,1);addCourt(b2,1);
+          rC[a]=ca;rP[a]=pa;rC[b]=cb;rP[b]=pb;
+        }else{
+          const r=Math.floor(rng()*R),p=Math.floor(rng()*A),q=Math.floor(rng()*A);
+          if((p>>1)===(q>>1))continue;
+          const b1=r*A+(p&~3),b2=r*A+(q&~3),one=b1===b2;
+          addCourt(b1,-1);if(!one)addCourt(b2,-1);
+          const x=slot[r*A+p];slot[r*A+p]=slot[r*A+q];slot[r*A+q]=x;
+          addCourt(b1,1);if(!one)addCourt(b2,1);
+        }
+      }
+    };
+    const lexLess=(x,y)=>{for(let t=0;t<5;t++)if(x[t]!==y[t])return x[t]<y[t];return false;};
+    const save=()=>({slot:slot.slice(),play:play.slice(),tP:tP.slice(),tO:tO.slice(),rC:rC.slice(),rP:rP.slice()});
+    const load=v=>{slot.set(v.slot);play.set(v.play);tP.set(v.tP);tO.set(v.tO);rC.set(v.rC);rP.set(v.rP);};
+    // Iterated local search: descend, then kick and descend again, keeping the best.
+    // run() can be called again to keep searching from where it stopped.
+    let bestScore=null,bestState=null;
+    const run=budget=>{
+      let left=budget;
+      if(!bestState){left-=descend(left);bestScore=total();bestState=save();}
+      while(left>0){
+        kick(2+Math.floor(rng()*4));
+        left-=descend(left)+1;
+        const sc=total();
+        if(lexLess(sc,bestScore)){bestScore=sc;bestState=save();}
+        else load(bestState);
+      }
+      load(bestState);
+      return bestScore;
+    };
+    return {run,lexLess,get score(){return bestScore;},slot,play};
+  };
+
+  // Search effort for the night, counted in scored moves so a given night always comes
+  // out the same on any device. Each candidate gets a short run, then the best one gets
+  // the rest. Sized so the slowest setup stays well under a second a night in Node.
+  const NIGHT_EVALS=240000,TRIAL=Math.floor(NIGHT_EVALS/8);
+  let best=null;
+  [candOld(),candSeq(0),candSeq(A<=S?A:S),candSeq(A<=S?A:S)].forEach(plays=>{
+    if(!plays)return;
+    const res=solve(plays);
+    res.run(TRIAL);
+    if(!best||res.lexLess(res.score,best.score))best=res;
+  });
+  best.run(NIGHT_EVALS-4*TRIAL);
+
+  // Write tonight into the season counts and build the saved round shape.
+  const rounds=[];
+  for(let r=0;r<R;r++){
+    const carr=[];
+    for(let c=0;c<courtsN;c++){
+      const b=r*A+c*4,t1=[ids[best.slot[b]],ids[best.slot[b+1]]],t2=[ids[best.slot[b+2]],ids[best.slot[b+3]]];
+      _csChg(pC,t1[0],t1[1],1);_csChg(pC,t2[0],t2[1],1);
+      t1.forEach(x=>t2.forEach(y=>_csChg(oC,x,y,1)));
+      carr.push({court:courtList[c]!=null?courtList[c]:(c+1),t1,t2});
     }
+    const sitting=all.filter(i=>!best.play[i*R+r]).map(i=>ids[i]);
+    sitting.forEach(id=>{sitCount[id]=(sitCount[id]||0)+1;});
+    rounds.push({round:r+1,courts:carr,sitting});
   }
   return {rounds};
 }
@@ -1950,7 +2160,40 @@ function promptGenFullSeason(){
   $('pin-modal').classList.add('on');
 }
 function doGenSeasonAction(){ genFullSeason(); }
-function genFullSeason(){
+// The season build runs the engine once per week. In a Web Worker that work stays off
+// the page thread, so a phone keeps scrolling and the spinner keeps turning. The worker
+// is handed this page's own engine functions as source, so there is one engine.
+// Resolves to an array of week round lists, or null if the roster cannot fill a court.
+function _seasonWorker(pool,courtNums,nWeeks,TARGET){
+  return new Promise((resolve,reject)=>{
+    let w=null,url=null;
+    const stop=()=>{try{if(w)w.terminate();}catch(e){}try{if(url)URL.revokeObjectURL(url);}catch(e){}};
+    try{
+      const src=['const DEFAULT_COURTS='+JSON.stringify(DEFAULT_COURTS)+';',parseCourts,configCourts,_csPv,_csChg,_ksRng,_ksFloors,buildSeasonNight].map(String).join(String.fromCharCode(10))
+        +String.fromCharCode(10)+'onmessage=function(e){var d=e.data,pC={},oC={},sc={},out=[];for(var wi=0;wi<d.n;wi++){var r=buildSeasonNight(d.pool,d.courts,pC,oC,sc,d.target,wi);if(!r){postMessage({ok:true,weeks:null});return;}out.push(r.rounds);}postMessage({ok:true,weeks:out});};';
+      url=URL.createObjectURL(new Blob([src],{type:'text/javascript'}));
+      w=new Worker(url);
+    }catch(e){stop();reject(e);return;}
+    w.onmessage=e=>{stop();if(e.data&&e.data.ok)resolve(e.data.weeks);else reject(new Error('worker'));};
+    w.onerror=e=>{stop();reject(e);};
+    w.postMessage({pool,courts:courtNums,n:nWeeks,target:TARGET});
+  });
+}
+// Fallback when a Worker cannot start: the same loop on the page, yielding between weeks
+// so the page can repaint.
+async function _seasonChunked(pool,courtNums,nWeeks,TARGET){
+  const pC={},oC={},sitCount={},out=[];
+  for(let wi=0;wi<nWeeks;wi++){
+    await new Promise(r=>setTimeout(r,0));
+    const res=buildSeasonNight(pool,courtNums,pC,oC,sitCount,TARGET,wi);
+    if(!res)return null;
+    out.push(res.rounds);
+  }
+  return out;
+}
+let _seasonBuilding=false;
+async function genFullSeason(){
+  if(_seasonBuilding){toast('Still building the season schedule');return;}
   clearAiError();
   const pool=Object.values(D[SIDE].players||{}).filter(p=>p&&p.name&&p.active!==false).map(p=>p.id);
   if(pool.length<4){toast('Need at least 4 active players');return;}
@@ -1976,14 +2219,28 @@ function genFullSeason(){
   if(hasSchedules&&!confirm('This replaces the schedule for all '+weeks.length+' weeks. No results are recorded yet, so nothing is lost. Continue?')) return;
   const courtNums=configCourts(D[SIDE].config||{});
   const TARGET=6;
-  const pC={},oC={},sitCount={};
+  // Pin the side now: the build takes a few seconds and the director could switch sides
+  // meanwhile, and the writes must land on the side that was asked for.
+  const side=SIDE;
+  _seasonBuilding=true;
+  const el=$('week-detail');
+  if(el) el.innerHTML='<div class="ai-load"><div class="spin"></div><div>Building schedule...</div></div>';
+  let all=null;
+  try{
+    try{ all=await _seasonWorker(pool,courtNums,weeks.length,TARGET); }
+    catch(we){ console.warn('[KotB] season worker unavailable, building on the page',we); all=await _seasonChunked(pool,courtNums,weeks.length,TARGET); }
+  }catch(be){ console.error('[KotB] season build failed',be); }
+  finally{ _seasonBuilding=false; }
+  if(!all){toast('Could not build the season. Check the roster and the court count.');loadWeekDetail();return;}
+  // Same guards again before writing: a result or a lock may have arrived during the build.
+  const nowResults=Object.values((D[side]&&D[side].results)||{}).length;
+  const nowLocked=weeks.some(w=>D[side]&&D[side].weeks&&D[side].weeks[w.id]&&D[side].weeks[w.id].locked===true);
+  if(nowResults>0||nowLocked){toast('Season not saved: a result or a lock arrived while it was building');loadWeekDetail();return;}
   let built=0;
   for(let wi=0;wi<weeks.length;wi++){
-    const res=buildSeasonNight(pool,courtNums,pC,oC,sitCount,TARGET,wi);
-    if(!res){toast('Need at least 4 active players for the configured courts');return;}
     const wid=weeks[wi].id;
-    fbSet(SIDE+'/weeks/'+wid+'/rounds',res.rounds);
-    if(D[SIDE]&&D[SIDE].weeks&&D[SIDE].weeks[wid]) D[SIDE].weeks[wid].rounds=res.rounds;
+    fbSet(side+'/weeks/'+wid+'/rounds',all[wi]);
+    if(D[side]&&D[side].weeks&&D[side].weeks[wid]) D[side].weeks[wid].rounds=all[wi];
     built++;
   }
   toast('Full season generated for '+built+' week'+(built===1?'':'s')+' \u2713');
