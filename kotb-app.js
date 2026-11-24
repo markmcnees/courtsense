@@ -1417,7 +1417,7 @@ function renderCourtPlan(){
   }
   const warn=[];
   if(f.tooFew) warn.push('Not enough courts for both sides: with '+f.courts.length+' court'+(f.courts.length===1?'':'s')+' one side cannot play. Add a court or set an override.');
-  if(f.unused.length&&!f.tooFew) warn.push('Court'+(f.unused.length===1?' ':'s ')+f.unused.join(', ')+(f.unused.length===1?' is':' are')+' not needed: each side gets at most one court per 4 players.');
+  if(f.unused.length&&!f.tooFew) warn.push(K===0&&Q===0?'Add players to see the court split.':'Court'+(f.unused.length===1?' ':'s ')+f.unused.join(', ')+(f.unused.length===1?' is':' are')+' not needed: each side gets at most one court per 4 players.');
   if(K>0&&K<4) warn.push('Kings have '+K+' active player'+(K===1?'':'s')+'; 4 are needed to play.');
   if(Q>0&&Q<4) warn.push('Queens have '+Q+' active player'+(Q===1?'':'s')+'; 4 are needed to play.');
   if(warn.length) h+='<div style="background:#fef3c7;border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px;line-height:1.5;">'+warn.map(esc).join('<br>')+'</div>';
@@ -1457,7 +1457,7 @@ function _syncGenWeekBtn(week){
   gb.disabled=locked;
   gb.textContent=locked
     ? '🔒 Week '+(week.weekNum!=null?week.weekNum:'?')+' locked, unlock to regenerate'
-    : '🤖 Regenerate one week (fallback)';
+    : 'Regenerate one week';
   gb.style.opacity=locked?'0.55':'';
   gb.style.cursor=locked?'not-allowed':'';
 }
@@ -1527,7 +1527,7 @@ function loadWeekDetail(){
       h+=`</div>`;
     });
   } else {
-    h+=`<div class="empty"><div class="eico">🤖</div><p class="etxt">No schedule yet. Tap Generate Tonight's Schedule above.</p></div>`;
+    h+=`<div class="empty"><p class="etxt">No schedule yet. An admin can build it in Admin, Step 5.</p></div>`;
   }
   // Clearing is disabled and relabelled on a locked week rather than failing after the
   // tap. The unlock sits directly under it, so the way forward is where the refusal is.
@@ -2698,7 +2698,7 @@ function renderLiveCourts(){
   if(!week){cont.innerHTML=`<div class="empty"><div class="eico">📅</div><p class="etxt">Select a week to load tonight's games.</p></div>`;return;}
   const rounds=week.rounds||[];
   const rd=rounds.find(r=>r.round===liveRound);
-  if(!rd){cont.innerHTML=`<div class="empty"><div class="eico">🤖</div><p class="etxt">No schedule for this week yet.<br>Go to Planner → Generate Tonight's Schedule.</p></div>`;return;}
+  if(!rd){cont.innerHTML=`<div class="empty"><p class="etxt">No schedule for this week yet. An admin can build it in Admin, Step 5.</p></div>`;return;}
 
   const cfg=D[SIDE].config||{};
   const results=Object.values(D[SIDE].results||{});

@@ -299,8 +299,8 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
       </div>
       <div style="font-size:12px;color:var(--gray);margin:-4px 0 12px;line-height:1.5;">
         Which physical courts this side plays on, not how many. Separate them with commas.
-        Kings and Queens share the same sand, so give each side its own numbers: Queens on
-        1, 2, 3 and Kings on 4.
+        Set by the Courts card above: courts are split fairly between Kings and Queens from
+        the active rosters.
       </div>
       <div id="cfg-courts-note" style="display:none;font-size:12px;font-weight:700;color:var(--primary);margin:-6px 0 12px;">
         Use Override in the Courts card to change courts
@@ -389,7 +389,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <button class="btn btn-p btn-sm" onclick="openAbsModal()">Absences / Subs</button>
       </div>
       <button class="btn btn-a btn-w" style="margin-bottom:8px;" onclick="promptGenFullSeason()">🗓️ Generate Full Season</button>
-      <button class="btn btn-g btn-sm" id="gen-week-btn" style="margin-bottom:12px;width:100%;" onclick="promptGenSchedule(false)">🤖 Regenerate one week (fallback)</button>
+      <button class="btn btn-g btn-sm" id="gen-week-btn" style="margin-bottom:12px;width:100%;" onclick="promptGenSchedule(false)">Regenerate one week</button>
       <div id="week-detail"></div>
     </div>
 
@@ -566,7 +566,7 @@ window.LEAGUE_CONFIG = {
   logo:          null
 };
 </script>
-<script src="/kotb-app.js?v=aa6d9a05"></script>
+<script src="/kotb-app.js?v=dcd57e2c"></script>
 
 <!-- EDIT COURT PLAYERS MODAL -->
 <div class="overlay" id="edit-court-modal" onclick="if(event.target===this)closeModal('edit-court-modal')">
