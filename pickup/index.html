@@ -11417,7 +11417,12 @@ function tryResumeJoin(){
         if(!D.invites[activeInvite].rsvps) D.invites[activeInvite].rsvps = {};
         D.invites[activeInvite].rsvps[joinKey] = newRsvp;
         pendInviteOverride(activeInvite, inv => { if(!inv.rsvps) inv.rsvps = {}; inv.rsvps[joinKey] = newRsvp; });
-        fbSet('invites/'+activeInvite+'/rsvps/'+joinKey, newRsvp);
+        const _joinedId = activeInvite;
+        fbSet('invites/'+activeInvite+'/rsvps/'+joinKey, newRsvp).then(ok => {
+          // Same worker record optInInvite makes: weather and minimum-player notices for
+          // this game can reach this player. Fire and forget.
+          if(ok && (status === 'confirmed' || status === 'waitlist')) notifyWorker('/pickup/game/joined', withNotifySession({ inviteId: _joinedId }));
+        });
         toast(status==='confirmed' ? "You're in ✓" : 'On the waitlist');
       }
     }
@@ -11489,6 +11494,7 @@ function declineRsvp(targetKey){
   Object.entries(newRsvps).forEach(([k,r])=>{
     updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+k] = r;
   });
+  const _leftId = activeInvite;
   if(db) db.ref().update(updates).then(()=>{
     if(promotedName){
       // Player-facing waitlist email: send the promoted player's account id (preferred)
@@ -11508,6 +11514,10 @@ function declineRsvp(targetKey){
         promotedName + ' was promoted but not emailed.'
       );
     }
+    // A confirmed spot opened: the worker re-reads the game and, when it fell below its
+    // minimum, tells the players still in and the host (never who dropped). The player's
+    // own session for a Drop Out, the host's for a Remove. Fire and forget.
+    if(wasConfirmed) notifyWorker('/pickup/game/left', withNotifySession({ inviteId: _leftId }));
   }).catch(err=>{ console.error(err); toast("Couldn't save drop-out"); });
 }
 
@@ -11711,7 +11721,13 @@ function hostAddToGame(rsvpName, rsvpKey, accountId){
   const updates = {};
   updates['tally_kotb_pickup/invites/'+activeInvite+'/rsvps/'+rsvpKey] = newRsvp;
   if(isFull) updates['tally_kotb_pickup/invites/'+activeInvite+'/slots'] = newSlots;
-  if(db) db.ref().update(updates).catch(err=>{ console.error(err); toast("Couldn't add player"); });
+  const _addedId = activeInvite;
+  if(db) db.ref().update(updates).then(()=>{
+    // A registered player the host seated: the worker records them for this game's notices
+    // when the host's session matches the game's stored host, never a known minor, and
+    // checks whether the seat brought the game to its minimum. Fire and forget.
+    if(accountId) notifyWorker('/pickup/game/joined', withNotifySession({ inviteId: _addedId, playerId: accountId }));
+  }).catch(err=>{ console.error(err); toast("Couldn't add player"); });
 
   // Notify a REGISTERED added player (one whose account we resolved) by email. Skips
   // entirely when accountId is falsy (an unregistered person has no email on file).
