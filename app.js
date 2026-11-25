@@ -198,7 +198,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.238';
+const APP_VERSION='1.1.239';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -3967,8 +3967,8 @@ function _hsWatch(path,group,fn,err){
   var ref=db.ref(path);
   if(!HS_ACCOUNT_SIGNIN){ ref.on('value',fn,err); return ref; }
   var spec={ path:path, group:group, fn:fn, ref:ref, cancelled:false, tries:0, who:_hsWho() };
-  spec.cb=function(snap){ spec.tries=0; fn(snap); };
-  spec.onErr=function(e){ spec.cancelled=true; spec.tries++; if(err){ try{ err(e); }catch(x){} } _hsReadDenied(); };
+  spec.cb=function(snap){ spec.tries=0; spec.silent=false; fn(snap); };
+  spec.onErr=function(e){ spec.cancelled=true; spec.tries++; if(err){ try{ err(e); }catch(x){} } _hsReadDenied(spec); };
   _hsLs.push(spec);
   ref.on('value',spec.cb,spec.onErr);
   return ref;
@@ -3980,17 +3980,25 @@ function _hsUnwatchRef(ref){
   _hsLs=_hsLs.filter(function(x){ if(x.ref!==ref) return true; try{ x.ref.off('value',x.cb); }catch(e){} return false; });
 }
 // The cancelled listeners, attached again (after a fresh pass). A path refused three times in a
-// row without a single answer is left alone, so a read the rules never allow cannot loop.
+// row without a single answer is left alone, so a read the rules never allow cannot loop. A path
+// held after an intended refusal (_hsReadDenied) stays off too.
 function hsListenReattach(){
   if(currentRole!=='coach'&&currentRole!=='player') return 0;
   var n=0;
   _hsLs.forEach(function(x){
-    if(!x.cancelled||x.tries>=3) return;
+    if(!x.cancelled||x.held||x.tries>=3) return;
     x.cancelled=false; n++;
     try{ x.ref.on('value',x.cb,x.onErr); }catch(e){ x.cancelled=true; }
   });
   if(n&&_hsReadBar){ _hsReadBar=false; csBarHide(); }
+  if(n) _hsSyncDotNow();
   return n;
+}
+// The sync dot from the connection itself. A refused school listener marks the dot offline and the
+// connection listener never fires again while the socket stays up, so after a re-attach the dot is
+// read once here instead of staying red until a reload.
+function _hsSyncDotNow(){
+  try{ db.ref('.info/connected').once('value',function(s){ setSS(s.val()===true); }); }catch(e){}
 }
 // Session end. The database keeps an open listener running after the pass runs out, so the app
 // ends them itself. Pass expired and no fresh one: every school listener is detached at once and
@@ -4002,7 +4010,7 @@ function hsPassLost(){
   if(!HS_ACCOUNT_SIGNIN||(currentRole!=='coach'&&currentRole!=='player')) return 0;
   if(_fbPass.exp>Date.now()) return 0;                       // this tab still holds a pass
   var n=0;
-  _hsLs.forEach(function(x){ if(x.cancelled) return; try{ x.ref.off('value',x.cb); }catch(e){} x.cancelled=true; x.tries=0; n++; });
+  _hsLs.forEach(function(x){ x.held=false; x.silent=false; if(x.cancelled) return; try{ x.ref.off('value',x.cb); }catch(e){} x.cancelled=true; x.tries=0; n++; });
   if(n) _hsSignInBar();
   return n;
 }
@@ -4025,12 +4033,35 @@ var _hsReadBar=false, _hsReadBusy=false;
 function _hsSignInBar(){
   if(!_hsReadBar){ _hsReadBar=true; _hsBar('Please sign in again to see the latest. What is on screen may be out of date.',[['Sign in','hsCoachSigninAgain()'],['Dismiss','csBarHide()']]); }
 }
-function _hsReadDenied(){
+// A refused read. Two cases:
+//   the pass is gone (no Firebase user, or it ran out): "Please sign in again", a fresh pass, and
+//   the cancelled listeners come back once it lands, exactly as before.
+//   the pass is still good: the refusal was intended (scouting turned off while open, say). No bar.
+//   One silent pass refresh, in case this tab's claims are stale (rostered after sign-in); if the
+//   same path is refused again after that, it stays off and nothing is said.
+function _hsReadDenied(spec){
   if(currentRole!=='coach'&&currentRole!=='player') return;   // signed out or a parent: nothing to say
+  if(_fbPassValidNow()){
+    if(spec){ if(spec.silent){ spec.held=true; return; } spec.silent=true; }
+    _hsPassRefreshSilent();
+    return;
+  }
   _hsSignInBar();
   if(_hsReadBusy) return;
   _hsReadBusy=true;
   setTimeout(function(){ _fbPass.key=''; fbPassEnsure().then(function(){ _hsReadBusy=false; },function(){ _hsReadBusy=false; }); },0);
+}
+// The silent refresh keeps the current pass while a new one is fetched, so a second refusal in
+// the meantime is still read as intended. A refused fetch (the session ended) is a lost pass.
+function _hsPassRefreshSilent(){
+  if(_hsReadBusy) return;
+  _hsReadBusy=true;
+  setTimeout(function(){
+    _fbPassQueue(function(){ return _fbPassRun(true); }).then(function(ok){
+      _hsReadBusy=false;
+      if(ok) hsListenReattach(); else hsPassLost();
+    },function(){ _hsReadBusy=false; });
+  },0);
 }
 // A short "Loading your team..." note while the pass and the first data come in.
 function hsLoadingShow(){
@@ -4110,11 +4141,19 @@ async function hsPlayerResolve(token){
   var recs=[];
   for(var i=0;i<pids.length&&i<5;i++){
     var v=null;
-    try{ v=await db.ref(DB_ROOT+'/players/'+pids[i]).once('value').then(function(sn){ return sn.val(); }); }catch(e){ return { code:'error' }; }
+    try{ v=await _hsOwnRecordRead(pids[i]); }catch(e){ return { code:'error' }; }
     if(v&&typeof v==='object'&&v.active!==false) recs.push(Object.assign({},v,{ id:v.id||pids[i] }));
   }
   if(recs.length===1){ _hsPlayerRec=recs[0]; return { pid:recs[0].id, rec:recs[0] }; }
   return { code:recs.length?'many':'none' };
+}
+// The player's own roster record. The first read can go out a moment before the database has
+// taken up the pass Firebase was just signed in with, and be refused; it is tried once more after
+// a short wait, silently. A second refusal is a real failure ("Couldn't load your team").
+const HS_OWN_RETRY_MS=600;
+function _hsOwnRecordRead(pid){
+  var read=function(){ return db.ref(DB_ROOT+'/players/'+pid).once('value').then(function(sn){ return sn.val(); }); };
+  return read().catch(function(){ return new Promise(function(r){ setTimeout(r,HS_OWN_RETRY_MS); }).then(read); });
 }
 function hsPlayerSplitWanted(){ return !!HS_ACCOUNT_SIGNIN&&!SC.demoMode&&!!db&&currentRole==='player'&&!!currentPlayerId; }
 function _hsPLOn(path,fn){ var r=_hsWatch(path,'player',fn,function(){}); _hsPL.subs.push(r); return r; }
