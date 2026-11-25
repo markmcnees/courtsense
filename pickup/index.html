@@ -1463,12 +1463,36 @@ function trnIsMatchable(d){ return !!d && !trnIsJuniorCategory(d.category); }
 // warning about the row it sits next to.
 const JUNIOR_NO_MATCH_NOTE = '<div style="font-size:12px;color:var(--gray);margin-top:6px;line-height:1.5;">CourtSense does not do partner matching for junior divisions.</div>';
 function trnCatLabel(cat){ return TRN_CAT_LABEL[cat] || String(cat||''); }
-function trnLevelLabel(lvl){ return TRN_LEVEL_LABEL[lvl] || String(lvl||''); }
+// ── ALL LEVELS AND CUSTOM DIVISION NAMES ──────────────────────────────────
+// Not every event runs a skill ladder. "all" is one open division for everyone
+// ("Coed, all levels"). Anything else outside TRN_LEVELS is a custom division name
+// the lister typed ("100s", "Over40"), stored in level and shown exactly as typed,
+// never upper-cased. Letters, digits and + only, 1 to 16: no '-' (divIdParts splits
+// category from level at the last hyphen), no '|' (trnSelKey), nothing Firebase
+// refuses in a key. The longest divId this allows is 10+1+6+1+16 = 34, inside the
+// rules' 40. The worker mirrors this in partner-board-core.ts (ALL_LEVEL, divLabel).
+const TRN_ALL_LEVEL = 'all';
+const TRN_CUSTOM_LEVEL_RE = /^[A-Za-z0-9+]{1,16}$/;
+const TRN_CUSTOM_LEVEL_MSG = 'Division names use letters, numbers and + only, up to 16 characters (for example 100s or Over40).';
+const TRN_LEVELED_CATEGORIES = ['mens','womens','coed'];
+// A name that collides with the ladder or with "all" is not custom: pick that cell.
+function trnIsCustomLevel(lvl){
+  const s = String(lvl || '');
+  if(!TRN_CUSTOM_LEVEL_RE.test(s)) return false;
+  const low = s.toLowerCase();
+  return low !== TRN_ALL_LEVEL && TRN_LEVELS.indexOf(low) === -1;
+}
+// Every level a saved adult division may carry.
+function trnLevelOk(lvl){ return TRN_LEVELS.indexOf(lvl) !== -1 || lvl === TRN_ALL_LEVEL || trnIsCustomLevel(lvl); }
+function trnLevelLabel(lvl){
+  if(lvl === TRN_ALL_LEVEL) return 'all levels';
+  return TRN_LEVEL_LABEL[lvl] || String(lvl||'');
+}
 function trnDivLabel(d){
   if(!d) return '';
-  return trnIsAgeCategory(d.category)
-    ? trnCatLabel(d.category)
-    : trnCatLabel(d.category) + ' ' + trnLevelLabel(d.level);
+  if(trnIsAgeCategory(d.category)) return trnCatLabel(d.category);
+  if(d.level === TRN_ALL_LEVEL) return trnCatLabel(d.category) + ', all levels';
+  return trnCatLabel(d.category) + ' ' + trnLevelLabel(d.level);
 }
 function trnFormatLabel(f){ return String(f||'').toUpperCase(); }
 
@@ -1486,7 +1510,13 @@ const TRN_LEVELS_ASC = TRN_LEVELS.slice().reverse();
 // Rank helpers. An unknown value sinks to the end rather than throwing off the
 // whole list, so a legacy record with a level this build never heard of lands
 // last and stays visible.
-function trnLevelRank(lvl){ const i = TRN_LEVELS_ASC.indexOf(String(lvl||'').toLowerCase()); return i === -1 ? TRN_LEVELS_ASC.length : i; }
+// After the ladder: "all", then custom names (ordered by name in trnDivCompare).
+function trnLevelRank(lvl){
+  const s = String(lvl||'');
+  const i = TRN_LEVELS_ASC.indexOf(s.toLowerCase());
+  if(i !== -1) return i;
+  return s === TRN_ALL_LEVEL ? TRN_LEVELS_ASC.length : TRN_LEVELS_ASC.length + 1;
+}
 function trnCatRank(cat){ const i = TRN_CATEGORIES.indexOf(String(cat||'').toLowerCase()); return i === -1 ? TRN_CATEGORIES.length : i; }
 
 // THE division comparator. Every list of divisions anywhere in this app sorts with
@@ -1501,7 +1531,8 @@ function trnDivCompare(a, b){
   a = a || {}; b = b || {};
   return String(a.day || '').localeCompare(String(b.day || ''))
     || (trnCatRank(a.category) - trnCatRank(b.category))
-    || (trnLevelRank(a.level) - trnLevelRank(b.level));
+    || (trnLevelRank(a.level) - trnLevelRank(b.level))
+    || String(a.level || '').localeCompare(String(b.level || ''));
 }
 // Copy-and-sort, so a caller never reorders a caller-owned array in place.
 function trnSortDivs(list){ return (list || []).slice().sort(trnDivCompare); }
@@ -5370,9 +5401,65 @@ function trnCellsForDay(dateISO){
       TRN_LEVELS_ASC.forEach(lvl => {
         cells.push({ id: divIdFor(dateISO, cat, lvl), key: trnSelKey(dateISO, cat, lvl), day: dateISO, category: cat, level: lvl });
       });
+      if(TRN_LEVELED_CATEGORIES.indexOf(cat) !== -1){
+        cells.push({ id: divIdFor(dateISO, cat, TRN_ALL_LEVEL), key: trnSelKey(dateISO, cat, TRN_ALL_LEVEL), day: dateISO, category: cat, level: TRN_ALL_LEVEL });
+        // Custom names on this day and category: every one added in this form or
+        // loaded from the record, ticked or not, so unticking never hides one.
+        [...trnCustomKeys].map(trnSelParts)
+          .filter(p => p.day === dateISO && p.category === cat && trnIsCustomLevel(p.level))
+          .sort((a, b) => a.level.localeCompare(b.level))
+          .forEach(p => cells.push({ id: divIdFor(dateISO, cat, p.level), key: trnSelKey(dateISO, cat, p.level), day: dateISO, category: cat, level: p.level }));
+      }
     }
   });
   return cells;
+}
+
+// Selection keys of the custom division names this form knows about. Reset with
+// the selection on every new or edit form.
+let trnCustomKeys = new Set();
+
+// The "Add a custom division" row: day (only when the event runs more than one),
+// category and a short name. Refuses a bad name with the format, refuses a name
+// that is really a grid cell, and refuses a repeat on the same day and category.
+function trnCustomRowHTML(locked){
+  if(locked || !trnDays.length) return "";
+  const dayPick = trnDays.length > 1
+    ? '<select class="inp" id="trn-custom-day" style="flex:1;min-width:120px;">' + trnDays.map(d => '<option value="' + escapeHTML(d) + '">' + escapeHTML(dayShort(d)) + '</option>').join("") + '</select>'
+    : '';
+  return '<div style="margin:4px 0 12px;border:1px solid var(--sand-border);border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">Add a custom division</div>'
+    + '<div style="font-size:12px;color:var(--gray);line-height:1.5;margin-bottom:6px;">For a division that is not a skill level, like a combined age 100s. Letters, numbers and + only, up to 16.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    +   dayPick
+    +   '<select class="inp" id="trn-custom-cat" style="flex:1;min-width:110px;">' + TRN_LEVELED_CATEGORIES.map(c => '<option value="' + c + '">' + escapeHTML(trnCatLabel(c)) + '</option>').join("") + '</select>'
+    +   '<input class="inp" id="trn-custom-name" maxlength="16" placeholder="e.g. 100s" autocomplete="off" style="flex:1;min-width:110px;">'
+    +   '<button type="button" class="btn btn-g btn-sm" onclick="trnAddCustomDiv()" style="min-height:44px;">Add</button>'
+    + '</div></div>';
+}
+// Pure check behind the Add button. Returns null when the name is good, else the
+// toast. Exposed for the pages check.
+function trnCustomDivProblem(day, category, name){
+  if(!day || TRN_LEVELED_CATEGORIES.indexOf(category) === -1) return "Pick a day and a category";
+  if(!TRN_CUSTOM_LEVEL_RE.test(name)) return TRN_CUSTOM_LEVEL_MSG;
+  const low = name.toLowerCase();
+  if(low === TRN_ALL_LEVEL) return "All levels is already in the grid. Tick it there.";
+  if(TRN_LEVELS.indexOf(low) !== -1) return trnLevelLabel(low) + " is already in the grid. Tick it there.";
+  const clash = [...trnCustomKeys].map(trnSelParts).some(p => p.day === day && p.category === category && String(p.level).toLowerCase() === low);
+  if(clash) return trnCatLabel(category) + " " + name + " is already listed for that day";
+  if(divIdFor(day, category, name).length > 40) return TRN_CUSTOM_LEVEL_MSG;
+  return null;
+}
+function trnAddCustomDiv(){
+  const day = trnDays.length > 1 ? (($("trn-custom-day") && $("trn-custom-day").value) || "") : (trnDays[0] || "");
+  const category = ($("trn-custom-cat") && $("trn-custom-cat").value) || "";
+  const name = (($("trn-custom-name") && $("trn-custom-name").value) || "").trim();
+  const problem = trnCustomDivProblem(day, category, name);
+  if(problem){ toast(problem); return; }
+  const key = trnSelKey(day, category, name);
+  trnCustomKeys.add(key);
+  trnSelectedDivs.add(key);
+  trnRenderGrid();
 }
 
 // The SELECTION key is deliberately index-free: "dayISO|category|level". A divId
@@ -5414,6 +5501,7 @@ function startNewTournament(returnToPartner){
   }
   trnSelectedDivs = new Set();
   trnAdvertisedDivs = new Set();
+  trnCustomKeys = new Set();
   trnRegTimes = {};
   trnRegTimesShown = false;
   trnDays = [];
@@ -5491,12 +5579,14 @@ function startEditTournament(id){
   // reverses it with trnSelParts and re-derives the same divIds.
   trnSelectedDivs = new Set();
   trnAdvertisedDivs = new Set();
+  trnCustomKeys = new Set();
   trnRegTimes = {};
   Object.values(t.divisions || {}).forEach(d => {
     if(!d || !d.day || !d.category) return;
     const level = trnIsAgeCategory(d.category) ? null : (d.level || null);
     const key = trnSelKey(d.day, d.category, level);
     trnSelectedDivs.add(key);
+    if(trnIsCustomLevel(level)) trnCustomKeys.add(key);
     const w = trnRegTimesOf(t, divIdFor(d.day, d.category, level));
     if(w) trnRegTimes[key] = { open: trnMsToEastern(w.opensAt), close: trnMsToEastern(w.closesAt) };
     // trnRegOf collapses absent, unknown and malformed to 'open', so a division
@@ -5545,6 +5635,7 @@ function trnOnDatesChanged(){
     const day = trnDivDayOf(key);
     if(!day || !live.has(day)){ trnSelectedDivs.delete(key); trnAdvertisedDivs.delete(key); delete trnRegTimes[key]; dropped++; }
   });
+  [...trnCustomKeys].forEach(key => { const day = trnDivDayOf(key); if(!day || !live.has(day)) trnCustomKeys.delete(key); });
   if(dropped) toast("Dropped " + dropped + " division" + (dropped===1?"":"s") + " on days no longer in range");
   trnRenderGrid();
 }
@@ -5654,7 +5745,7 @@ function trnRenderGrid(){
       + '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + escapeHTML(trnDayLabel(day)) + (n ? ' <span style="color:var(--gray);font-weight:400;">(' + n + ')</span>' : "") + '</div>'
       + '<div style="border:1px solid var(--sand-border);border-radius:8px;overflow:hidden;">' + rows + '</div>'
       + '</div>';
-  }).join("") + trnRegTimesEditorHTML(locked);
+  }).join("") + trnCustomRowHTML(locked) + trnRegTimesEditorHTML(locked);
 }
 
 // Sign-up times, one row per ticked division, folded under the grid. Optional;
@@ -5752,7 +5843,7 @@ function buildTournamentRecord(){
     if(!p.day || !live.has(p.day)) return;
     if(TRN_CATEGORIES.indexOf(p.category) === -1) return;
     const level = trnIsAgeCategory(p.category) ? null : p.level;
-    if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
+    if(!trnIsAgeCategory(p.category) && !trnLevelOk(level)) return;
     const divId = divIdFor(p.day, p.category, level);
     // Every division carries regStatus explicitly rather than relying on absence
     // to mean open, so a reader never has to know the default. Validated against
@@ -5991,7 +6082,7 @@ function trnDiffDivisions(t){
     if(!p.day || !live.has(p.day)) return;
     if(TRN_CATEGORIES.indexOf(p.category) === -1) return;
     const level = trnIsAgeCategory(p.category) ? null : p.level;
-    if(!trnIsAgeCategory(p.category) && TRN_LEVELS.indexOf(level) === -1) return;
+    if(!trnIsAgeCategory(p.category) && !trnLevelOk(level)) return;
     const divId = divIdFor(p.day, p.category, level);
     const reg = trnAdvertisedDivs.has(key) ? "advertised" : "open";
     wanted[divId] = {
@@ -8141,6 +8232,7 @@ function orList(xs){
 function needDivLabel(n){
   const parts = needDivIds(n).map(divIdParts).filter(Boolean);
   if(!parts.length) return '';
+  if(parts.length === 1) return trnDivLabel(parts[0]);
   const cats = {};
   parts.forEach(p => { cats[p.category] = true; });
   if(Object.keys(cats).length === 1 && parts.every(p => !!p.level)){
