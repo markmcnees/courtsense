@@ -128,8 +128,9 @@ const COACH_LABEL = (SC && SC.coachLabel) ? SC.coachLabel : 'Coach';
 // which stays reserved for the exec sign-in list role and the club voice badge,
 // so the two authority systems can never be confused on screen again.
 const LEADER_LABEL='Club Leader';
-// User-facing sign-off for AI generated plans. Config-driven via SC.coachSignoff, defaulting to Coach Mark so every existing school is unchanged.
-const COACH_SIGNOFF = (SC && SC.coachSignoff) ? SC.coachSignoff : 'Coach Mark';
+// User-facing sign-off for AI generated plans. Config-driven via SC.coachSignoff; a school that
+// has not set its own signs plans "Coach" (2026-11-25).
+const COACH_SIGNOFF = (SC && SC.coachSignoff) ? SC.coachSignoff : 'Coach';
 // School's own name for AI prompts/labels that must not hardcode one school.
 // shortName preferred (e.g. 'Leon', 'Grass Club'), then displayName, then schoolName.
 const SCHOOL_NAME = (SC && (SC.shortName || SC.displayName || SC.schoolName)) || 'the team';
@@ -198,7 +199,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.239';
+const APP_VERSION='1.1.240';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -1722,7 +1723,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Start Time</label><input type="time" class="form-input" id="sched-time" style="padding:8px;font-size:13px;"></div>
         </div>
         <div class="form-row" style="margin-bottom:8px;">
-          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">SW Score</label><input type="number" class="form-input" id="sched-us" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">${SC.abbrev||'Our'} Score</label><input type="number" class="form-input" id="sched-us" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Opp Score</label><input type="number" class="form-input" id="sched-them" placeholder="–" min="0" max="5" style="padding:8px;font-size:13px;"></div>
         </div>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--charcoal);margin:0 0 8px;cursor:pointer;"><input type="checkbox" id="sched-scrimmage" style="width:16px;height:16px;"> Scrimmage</label>
@@ -2105,10 +2106,6 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
     </div>
   </div>
   <div class="card" id="pin-change-card"><div class="card-title"><span class="bar"></span> 🔐 Change ${COACH_LABEL} PIN</div><p style="font-size:12px;color:var(--gray);margin-bottom:10px;">Update the PIN coaches use to access protected features.</p><div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Current PIN</label><input type="password" class="form-input" id="pin-current" placeholder="Current PIN" style="padding:8px;font-size:13px;"></div><div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">New PIN</label><input type="password" class="form-input" id="pin-new" placeholder="New PIN (4 digits)" maxlength="4" inputmode="numeric" style="padding:8px;font-size:13px;"></div></div><button class="btn btn-small" style="background:#082A4F;color:#fff;border:none;" onclick="changeCoachPin()">Update PIN</button><div id="pin-change-status" style="font-size:12px;margin-top:8px;"></div></div></div>`}
-  ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-hslogistics"><div class="card" style="text-align:center;padding:34px 20px;">
-    <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Logistics</div>
-    <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">Logistics is coming to the coach app.</p>
-  </div></div>`}
   ${SC.tiersEnabled?'':`<div class="tab-content" id="tab-communicate">
     <div class="card">
       <div class="card-title"><span class="bar"></span> 💬 Communicate</div>
@@ -2164,8 +2161,11 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
   <div class="tab-content" id="tab-travel"></div>
   <div class="tab-content" id="tab-info"></div>
   ${SC.dbRoots.matches==='grass_club_matches'?'<div class="tab-content" id="tab-tournaments"></div>':''}${DEMO_CLUB?'<div class="tab-content" id="tab-tournaments"></div>':''}`:`<div class="tab-content" id="tab-logistics">
-    <div id="tab-accounting"></div>
-    <div id="tab-travel"></div>
+    <!-- A high school has no dues and no club travel: Logistics is the placeholder only. -->
+    <div id="tab-hslogistics"><div class="card" style="text-align:center;padding:34px 20px;">
+      <div style="font-family:'Bebas Neue';font-size:24px;letter-spacing:1px;color:#082A4F;margin-bottom:8px;">Logistics</div>
+      <p style="font-size:13px;color:var(--gray);line-height:1.6;margin:0;">Logistics is coming to the coach app.</p>
+    </div></div>
   </div>`}
 
   <!-- Build stamp. Sits inside #coach-content but outside every .tab-content, so the
@@ -5504,6 +5504,15 @@ function normTeam(name){
   };
   return aliases[(name||'').toLowerCase().trim()]||name;
 }
+// The teams a coach can update a record for: this school's schedule opponents plus the teams it
+// already has a standings record for, deduped and sorted, never this school itself.
+function standingsTeamOptions(){
+  const seen={};
+  const add=n=>{ const t=normTeam(String(n||'').trim()); if(t&&!_isOwnStanding(t)&&t!==SC.myStandingsKey) seen[t]=true; };
+  (D.schedule||[]).forEach(g=>{ if(g) add(g.opponent); });
+  Object.keys(D.standings||{}).forEach(add);
+  return Object.keys(seen).sort((a,b)=>a.localeCompare(b));
+}
 function renderStandings(){
   // Leon's record from schedule. Scrimmages never count toward a record.
   const games=[...D.schedule.filter(inSeason)].filter(g=>g.type!=='scrimmage');
@@ -5559,10 +5568,11 @@ function renderStandings(){
   if(sel){
     const cur=sel.value;
     sel.innerHTML='';
-    const areaTeams=['Chiles','Lincoln','FSUS','Wakulla','Maclay','Community Christian','Godby','Rickards','St. John Paul II','Mosley','Sneads','South Walton','Gulf Breeze','Bishop Kenny'];
-    areaTeams.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
-    // Add any teams in standings that aren't in the default list
-    Object.keys(D.standings).forEach(t=>{if(!areaTeams.includes(t)&&t!==SC.myStandingsKey){const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);}});
+    // This school's own opponents only: every team on its schedule and every team it already has
+    // a standings record for, deduped and sorted. Never a fixed list of other schools.
+    const teamsList=standingsTeamOptions();
+    teamsList.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
+    if(!teamsList.length){const o=document.createElement('option');o.value='';o.textContent='Add games to your schedule first';sel.appendChild(o);}
     if(cur)sel.value=cur;
   }
   // Show add form for coaches only
@@ -6450,7 +6460,7 @@ function refreshTab(id){
     case'travel':renderTravel();break;
     case'info':renderInfo();break;
     case'tournaments':renderTournaments();break;
-    case'logistics':renderAccounting();renderTravel();break;
+    case'logistics':if(SC.tiersEnabled){renderAccounting();renderTravel();}break; // a high school: the placeholder card only
   }
 }
 
