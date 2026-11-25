@@ -199,7 +199,7 @@ const AUTH_WORKER = 'https://courtsense-email-worker.markmcnees-479.workers.dev'
 // the version of THIS file, not the shell's ?v= cache-buster, so a stale cached
 // app.js still reports its own real version.
 // DO NOT EDIT BY HAND: any manual value is overwritten on the next deploy.
-const APP_VERSION='1.1.240';
+const APP_VERSION='1.1.241';
 
 // ============================================================
 // DEMO FIXTURE (only consumed when SC.demoMode === true)
@@ -1757,7 +1757,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <button class="filter-btn blue active" data-ptype="gameday">Dual</button>
       <button class="filter-btn" data-ptype="exhibition" style="background:var(--white);color:#0e7a4d;border-color:#0e7a4d;">Exhibition</button>
       <button class="filter-btn purple" data-ptype="scrimmage">Scrimmage</button>
-      <button class="filter-btn" data-ptype="queens">Queens</button>
+      <button class="filter-btn" data-ptype="queens">Practice</button>
     </div>`}
     
     <div class="card" style="padding:8px 12px;"><div class="table-wrap">
@@ -1765,9 +1765,9 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
     </div></div>
   </div>
 
-  <!-- ====== QUEENS (SW vs SW) ====== -->
+  <!-- ====== PRACTICE MATCHES (team vs itself; stored as type queens in {school}/matches) ====== -->
   <div class="tab-content" id="tab-queens">
-    <div class="card"><div class="card-title"><span class="bar"></span> Record Queens Match</div>
+    <div class="card"><div class="card-title"><span class="bar"></span> Record Practice Match</div>
       <div class="form-row" style="margin-bottom:14px;">
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Date</label><input type="date" class="form-input" id="q-date"></div>
         <div class="form-group" style="margin-bottom:0;"><label class="form-label">Court</label>
@@ -1799,8 +1799,8 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <div style="margin-top:16px;"><button class="btn btn-primary" id="save-queens">Save Match</button></div>
     </div>
     <div class="card" style="border:2px solid var(--gold);">
-      <div class="card-title gold"><span class="bar" style="background:var(--gold);"></span> 📷 Upload Queens Scoresheet</div>
-      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Photograph a handwritten Queens scoresheet. AI reads all court matchups and set scores then creates the match entries.</p>
+      <div class="card-title gold"><span class="bar" style="background:var(--gold);"></span> 📷 Upload Practice Match Scoresheet</div>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px;">Photograph a handwritten practice match scoresheet. AI reads all court matchups and set scores then creates the match entries.</p>
       <div class="form-group"><label class="form-label" style="font-size:11px;">Match Date</label>
         <input type="date" class="form-input" id="qs-scan-date" style="padding:8px;font-size:13px;"></div>
       <input type="file" id="qs-scan-file" accept="image/*" style="display:none;">
@@ -1808,7 +1808,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
       <div id="qs-scan-preview" style="margin-top:10px;"></div>
       <div id="qs-scan-result" style="margin-top:10px;"></div>
     </div>
-    <div class="card"><div class="card-title"><span class="bar"></span> Queens Match Log</div>
+    <div class="card"><div class="card-title"><span class="bar"></span> Practice Match Log</div>
       <div class="filter-row" id="court-filter-queens">
         <button class="filter-btn active" data-qcourt="all">All</button>
         <button class="filter-btn" data-qcourt="1">Pair 1</button><button class="filter-btn" data-qcourt="2">Pair 2</button>
@@ -1830,7 +1830,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Date</label><input type="date" class="form-input" id="assign-date" style="padding:8px;font-size:13px;"></div>
           <div class="form-group" style="margin-bottom:0;"><label class="form-label" style="font-size:11px;">Type</label>
             <select class="form-select" id="assign-type" style="padding:8px;font-size:13px;">
-              <option value="gameday">Dual</option><option value="scrimmage">Scrimmage</option><option value="queens">Queens</option>
+              <option value="gameday">Dual</option><option value="scrimmage">Scrimmage</option><option value="queens">Practice match</option>
             </select></div>
         </div>
         <div class="form-row" style="margin-bottom:8px;">
@@ -1869,7 +1869,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
           <select class="form-select" id="ai-pair-context" style="padding:8px;font-size:13px;" onchange="document.getElementById('ai-pair-rounds-row').style.display=this.value==='queens'?'block':'none'">
             <option value="gameday">Dual (strongest pairings)</option>
             <option value="scrimmage">Scrimmage (mix it up)</option>
-            <option value="queens">Queens Practice (competitive balance)</option>
+            <option value="queens">Practice match (competitive balance)</option>
           </select></div>
       </div>
       <div class="form-row" style="margin-bottom:10px;">
@@ -2393,7 +2393,7 @@ ${SC.demoMode ? (DEMO_CLUB ? '<div class="demo-banner" id="demo-club-banner">Dem
     <div class="card"><div class="card-title blue"><span class="bar"></span> My Match Results</div>
       <div id="pp-gameday"></div>
     </div>
-    <div class="card"><div class="card-title"><span class="bar"></span> My Queens Matches</div>
+    <div class="card"><div class="card-title"><span class="bar"></span> My Practice Matches</div>
       <div id="pp-queens"></div>
     </div>
     <div class="card"><div class="card-title purple"><span class="bar"></span> My Scrimmage Results</div>
@@ -2588,7 +2588,7 @@ ${HS_ACCOUNT_SIGNIN?'<div class="pv" id="parent-view" style="display:none;"></di
     <!-- Hidden inputs for court assignment scanner -->
     <input type="file" id="ca-file" accept="image/*" capture="environment" style="display:none;">
     <input type="date" id="ca-date" style="display:none;">
-    <select id="ca-type" style="display:none;"><option value="gameday">Dual</option><option value="scrimmage">Scrimmage</option><option value="queens">Queens</option></select>
+    <select id="ca-type" style="display:none;"><option value="gameday">Dual</option><option value="scrimmage">Scrimmage</option><option value="queens">Practice match</option></select>
     <select id="ca-team" style="display:none;"><option value="mine">My Sheet</option><option value="opponent">Opponent's Sheet</option></select>
     <div id="ca-preview" style="display:none;"></div>
     <div id="ca-result" style="margin-top:10px;"></div><div id="school-fans-overlay" style="display:none;position:fixed;inset:0;background:${fanHeaderBg()};z-index:10000;overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -5766,7 +5766,7 @@ function renderPlayers(){
     // Leon high school concepts with no meaning to a club audience. The HS branch keeps them.
     cols=SC.tiersEnabled
       ?[{k:'name',l:'Player'},{k:'qrec',l:'W-L'},{k:'qdiff',l:'+/-'},{k:'gdsets',l:'Sets'},{k:'gddiff',l:'Set +/-'},{k:'diff',l:'Total +/-'}]
-      :[{k:'name',l:'Player'},{k:'court',l:'Pair'},{k:'qrec',l:'Q W-L'},{k:'qdiff',l:'Q +/-'},{k:'gdsets',l:'GD Sets'},{k:'gddiff',l:'GD +/-'},{k:'diff',l:'Total +/-'}];
+      :[{k:'name',l:'Player'},{k:'court',l:'Pair'},{k:'qrec',l:'Practice W-L'},{k:'qdiff',l:'Practice +/-'},{k:'gdsets',l:'GD Sets'},{k:'gddiff',l:'GD +/-'},{k:'diff',l:'Total +/-'}];
   }
   thead.innerHTML=cols.map(c=>`<th data-psort="${c.k}">${c.l} <span class="sort-arrow"></span></th>`).join('');
   thead.querySelectorAll('th[data-psort]').forEach(th=>{th.addEventListener('click',()=>{
@@ -5848,7 +5848,7 @@ function renderQueens(){
   if(qCourtFilter!=='all')matches=matches.filter(m=>m.court===parseInt(qCourtFilter));
   matches.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id.localeCompare(a.id));
   const c=document.getElementById('queens-log');
-  if(!matches.length){c.innerHTML='<div class="empty-state"><div class="emoji">👑</div><p>No Queens matches yet.</p></div>';return;}
+  if(!matches.length){c.innerHTML='<div class="empty-state"><div class="emoji">🏐</div><p>No practice matches yet.</p></div>';return;}
   const grouped={};matches.forEach(m=>{if(!grouped[m.date])grouped[m.date]=[];grouped[m.date].push(m);});
   Object.keys(grouped).forEach(d=>grouped[d].sort((a,b)=>(a.court||0)-(b.court||0)));
   let html='';
@@ -5908,7 +5908,7 @@ function openQueensEdit(id){
   document.getElementById('eq-a1').value=m.team1[0]||'';document.getElementById('eq-a2').value=m.team1[1]||'';
   document.getElementById('eq-b1').value=m.team2[0]||'';document.getElementById('eq-b2').value=m.team2[1]||'';
   document.getElementById('edit-save').onclick=saveQueensEdit;
-  document.querySelector('#edit-modal .modal-title').innerHTML='Edit Queens Match <button class="modal-close" onclick="closeEdit()">✕</button>';
+  document.querySelector('#edit-modal .modal-title').innerHTML='Edit Practice Match <button class="modal-close" onclick="closeEdit()">✕</button>';
   document.getElementById('edit-modal').classList.add('active');
 }
 function saveQueensEdit(){
@@ -6441,7 +6441,7 @@ function refreshTab(id){
   switch(id){
     case'dashboard':renderDash();break;
     case'players':renderPlayers();break;
-    case'queens':renderQueens();break;
+    case'queens':renderQueens();break; // type value queens displays as Practice match
     case'gameday':buildAssignSlots();renderAssignments();break;
     case'duals':if(typeof renderLiveAssignmentList==='function')renderLiveAssignmentList();break;
     case'dualhistory':renderDuals();renderPastLineups();break;
@@ -6598,7 +6598,7 @@ const _elsave_queens=document.getElementById('save-queens');if(_elsave_queens)_e
     matchData.isExhibition=true;
   }
   fbSetResult('matches',matchData.id,matchData);
-  toast(isSplit?'Split exhibition match saved!':'Queens match saved!');
+  toast(isSplit?'Split exhibition match saved!':'Practice match saved!');
   document.getElementById('q-sa').value='';document.getElementById('q-sb').value='';
   ['q-a1','q-a2','q-b1','q-b2','q-s2a1','q-s2a2','q-s2b1','q-s2b2'].forEach(x=>{const el=document.getElementById(x);if(el)el.value='';});
   document.getElementById('q-is-split').checked=false;toggleSplitQ();
@@ -7838,7 +7838,7 @@ function pvChildHtml(s,a){
   h+='<div class="pv-card"><div class="pv-label">'+first+'\'s matches</div>';
   if(!lines.length) h+='<div class="pv-muted">No matches yet this season.</div>';
   lines.forEach(function(m){
-    var label=m.kind==='queens'?'Queens':m.kind==='scrimmage'?'Scrimmage':'Match';
+    var label=m.kind==='queens'?'Practice match':m.kind==='scrimmage'?'Scrimmage':'Match';
     var score=m.kind==='queens'?(pvNum(m.scoreFor)||0)+'-'+(pvNum(m.scoreAgainst)||0)
       :(Array.isArray(m.sets)?m.sets:[]).map(function(x){ return (pvNum(x&&x.us)||0)+'-'+(pvNum(x&&x.them)||0); }).join(', ');
     var res=m.won===true?'<span class="pv-win">W</span>':m.won===false?'<span class="pv-loss">L</span>':'';
@@ -8522,8 +8522,8 @@ function renderPlayerPortal(){
 
   let rHTML='';
   rHTML+='<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin:4px 0 8px;">Match Stats</div>';
-  rHTML+=rankHTML('Queens +/-',qRanks,pid);
-  rHTML+=rankHTML('Queens Win%',qWinRanks,pid,v=>Math.round(v)+'%');
+  rHTML+=rankHTML('Practice +/-',qRanks,pid);
+  rHTML+=rankHTML('Practice Win%',qWinRanks,pid,v=>Math.round(v)+'%');
   rHTML+=rankHTML('Game Day +/-',gdRanks,pid);
   rHTML+=rankHTML('GD Kills',gdKillRanks,pid,v=>''+v);
   rHTML+=rankHTML('GD Aces',gdAceRanks,pid,v=>''+v);
@@ -8695,7 +8695,7 @@ function renderPlayerPortal(){
     });
     document.getElementById('pp-queens').innerHTML=h;
   }else{
-    document.getElementById('pp-queens').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No Queens matches yet</div>';
+    document.getElementById('pp-queens').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No practice matches yet</div>';
   }
 
   // Schedule, standings, goals, assignment for player
@@ -8863,14 +8863,14 @@ function getPlayerDataSummary(pid){
   const ss=extStats(pid,D.scrimmages);
   let summary=`Player: ${p.firstName} ${p.lastName}\n`;
   summary+=`Class: ${p.classYear}, Court: ${p.court} (${CL[p.court]||''})\n`;
-  summary+=`Queens record: ${qs.wins}-${qs.losses}, +/- ${qs.diff}\n`;
+  summary+=`Practice match (team vs itself) record: ${qs.wins}-${qs.losses}, +/- ${qs.diff}\n`;
   if(gs.sets>0)summary+=`Game Day: ${gs.setsWon}-${gs.setsLost} sets, +/- ${gs.diff}, ${gs.k}K ${gs.b}B ${gs.a}A ${gs.se}SE ${gs.re}RE ${gs.he}HE ${gs.de}DE\n`;
   if(ss.sets>0)summary+=`Scrimmage: ${ss.setsWon}-${ss.setsLost} sets, +/- ${ss.diff}\n`;
   // Rankings
   const allP=D.players.filter(x=>x.id);
   const qRanks=allP.map(x=>({id:x.id,val:queensStats(x.id,D.matches).diff,gp:queensStats(x.id,D.matches).gp})).filter(r=>r.gp>0).sort((a,b)=>b.val-a.val);
   const qPos=qRanks.findIndex(r=>r.id===pid);
-  if(qPos>=0)summary+=`Queens +/- rank: ${qPos+1} of ${qRanks.length}\n`;
+  if(qPos>=0)summary+=`Practice match +/- rank: ${qPos+1} of ${qRanks.length}\n`;
   // Skills from profiles data
   const skills=profilesData?.skills?.[pid]||profilesData?.players?.[pid]?.skills||{};
   const skillNames=['serving','passing','setting','hitting','blocking','defense','courtSense','communication'];
@@ -9518,7 +9518,7 @@ function coachRenderRankings(pid){
   const gdAceRanks=allPlayers.map(pl=>{const s=extStats(pl.id,D.gamedays);return{id:pl.id,val:s.a,sets:s.sets};}).filter(r=>r.sets>0).sort((a,b)=>b.val-a.val);
   const totalRanks=allPlayers.map(pl=>{const q=queensStats(pl.id,D.matches),g=extStats(pl.id,D.gamedays),s=extStats(pl.id,D.scrimmages);return{id:pl.id,val:q.diff+g.diff+s.diff,gp:q.gp+g.matches+s.matches};}).filter(r=>r.gp>0).sort((a,b)=>b.val-a.val);
   let h='<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin:4px 0 8px;">Match Stats</div>';
-  h+=rankHTML('Queens +/-',qRanks,pid);h+=rankHTML('Queens Win%',qWinRanks,pid,v=>Math.round(v)+'%');
+  h+=rankHTML('Practice +/-',qRanks,pid);h+=rankHTML('Practice Win%',qWinRanks,pid,v=>Math.round(v)+'%');
   h+=rankHTML('Game Day +/-',gdRanks,pid);h+=rankHTML('GD Kills',gdKillRanks,pid,v=>''+v);h+=rankHTML('GD Aces',gdAceRanks,pid,v=>''+v);h+=rankHTML('Overall +/-',totalRanks,pid);
   // Athleticism
   h+='<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray);margin:16px 0 8px;">Athleticism</div>';
@@ -9808,13 +9808,13 @@ function buildTeamDataForPairings(){
       if(approach)data+=`, Approach Jump: ${approach}`;
     }
     // Match stats
-    if(qs.gp>0)data+=`, Queens: ${qs.wins}-${qs.losses} (${qs.diff>=0?'+':''}${qs.diff})`;
+    if(qs.gp>0)data+=`, Practice matches: ${qs.wins}-${qs.losses} (${qs.diff>=0?'+':''}${qs.diff})`;
     if(gs.sets>0)data+=`, GD: ${gs.setsWon}-${gs.setsLost} sets (${gs.diff>=0?'+':''}${gs.diff}), K:${gs.k} B:${gs.b} A:${gs.a} SE:${gs.se} RE:${gs.re} HE:${gs.he} DE:${gs.de}`;
     if(ss.sets>0)data+=`, Scrim: ${ss.setsWon}-${ss.setsLost} sets`;
     data+='\n';
   });
   // Add pair history from Queens
-  data+='\nPAIR HISTORY (Queens matches, showing who paired together and their combined record):\n';
+  data+='\nPAIR HISTORY (practice matches, team vs itself, showing who paired together and their combined record):\n';
   const pairHist={};
   D.matches.filter(inSeason).forEach(m=>{
     const t1=(m.team1||[]).sort().join('+'),t2=(m.team2||[]).sort().join('+');
@@ -9856,7 +9856,7 @@ async function generateAIPairings(){
   const contextDesc={
     gameday:'This is for a GAME DAY match against an external opponent. Prioritize the strongest possible pairings on each court. Court 1 gets the best pair, Court 2 next best, etc.',
     scrimmage:'This is for a SCRIMMAGE (non-season match). Mix up the pairings a bit to develop players and try new combinations, while still being competitive.',
-    queens:`This is QUEENS PRACTICE, internal ${SCHOOL_NAME} vs ${SCHOOL_NAME}. Generate ${numRounds} round${numRounds>1?'s':''} of matchups. ALL 16 players must be assigned every round, 4 per court (2 vs 2). In each round every player appears exactly once. ${numRounds>1?'Across rounds, vary the pairings so players get new partners and opponents each round, avoid repeating the same pair twice if possible.':''} Make each matchup competitive and balanced.`
+    queens:`This is a PRACTICE MATCH (team vs itself), internal ${SCHOOL_NAME} vs ${SCHOOL_NAME}. Generate ${numRounds} round${numRounds>1?'s':''} of matchups. ALL 16 players must be assigned every round, 4 per court (2 vs 2). In each round every player appears exactly once. ${numRounds>1?'Across rounds, vary the pairings so players get new partners and opponents each round, avoid repeating the same pair twice if possible.':''} Make each matchup competitive and balanced.`
   };
 
   const isQueens=context==='queens';
@@ -9902,11 +9902,11 @@ ${contextDesc[context]}
 
 ${teamData}
 
-${isQueens?`QUEENS RULES:
+${isQueens?`PRACTICE MATCH RULES:
 - Assign ALL 16 players, 4 per court (2 vs 2), no subs
 - Balance each matchup: mix strong with developing players on each side
 - Each player appears exactly once
-- Consider Queens match history to avoid repeated lopsided matchups`:`PAIRING RULES:
+- Consider practice match history to avoid repeated lopsided matchups`:`PAIRING RULES:
 - Each pair needs a hitter and a defender (or at least one versatile player)
 - Left side + right side preference is ideal
 - Consider their actual skills, match history together, and pair level
@@ -10054,7 +10054,7 @@ function exportExcel(){
       // Verticals
       'Standing Reach':bestReach,'Block Jump':bestBlock,'Approach Jump':bestApproach,'Vert Date':vertDate,
       // Match Stats
-      'Queens W':qs.wins,'Queens L':qs.losses,'Queens +/-':qs.diff||'',
+      'Practice W':qs.wins,'Practice L':qs.losses,'Practice +/-':qs.diff||'',
       'GD Sets W':gs.setsWon||'','GD Sets L':gs.setsLost||'','GD +/-':gs.diff||'',
       'GD Kills':gs.k||'','GD Blocks':gs.b||'','GD Aces':gs.a||'','GD Srv Err':gs.se||'','GD Rcv Err':gs.re||'','GD Hit Err':gs.he||'','GD Dig Err':gs.de||'',
       'Scrim Sets W':ss.setsWon||'','Scrim Sets L':ss.setsLost||''
@@ -10068,13 +10068,13 @@ function exportExcel(){
     const t2=(m.team2||[]).map(id=>{const p=gP(id);return p?p.firstName+' '+p.lastName:id;}).join(' & ');
     return{Date:m.date,Court:m.court,'Team A':t1,'Team B':t2,'Score A':m.score1,'Score B':m.score2,Winner:m.score1>m.score2?'Team A':'Team B'};
   });
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qData),'Queens Matches');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qData),'Practice Matches');
 
   // Sheet 3: Queens Player Stats
   const qStats=D.players.map(p=>{const s=queensStats(p.id,_xM,_xOpts);
     return{Player:p.firstName+' '+p.lastName,Court:p.court,Class:p.classYear,W:s.wins,L:s.losses,'Win%':s.gp>0?Math.round(s.pct)+'%':'','+/-':s.diff,GP:s.gp};
   }).filter(r=>r.GP>0).sort((a,b)=>b['+/-']-a['+/-']);
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qStats),'Queens Stats');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qStats),'Practice Stats');
 
   // Sheet 4: Game Day Matches
   const gdData=[];
@@ -11165,7 +11165,7 @@ const _scanFileEl=document.getElementById('scan-file');if(_scanFileEl)_scanFileE
 
     let typeInstructions='';
     if(matchType==='queens'){
-      typeInstructions=`These are Queens matches (${SCHOOL_NAME} vs ${SCHOOL_NAME} practice). Each match has:
+      typeInstructions=`These are practice matches (team vs itself, ${SCHOOL_NAME} vs ${SCHOOL_NAME}). Each match has:
 - Court number (1-8; courts 6-8 are exhibition and may have split pairs noted)
 - Team A: two ${SCHOOL_NAME} players
 - Team B: two ${SCHOOL_NAME} players
@@ -11430,7 +11430,7 @@ function deleteAssignment(id){
 function openAssignEditModal(id){
   const a=D.assignments[id];if(!a)return;
   window._editAssignId=id;
-  const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Queens'};
+  const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Practice match'};
   const tC={gameday:'var(--blue)',scrimmage:'var(--purple)',queens:'var(--red)'};
   const titleEl=document.getElementById('assign-edit-title');
   titleEl.innerHTML=`Edit ${tL[a.type||'gameday']||'Assignment'} · ${fD(a.date)} <button class="modal-close" onclick="closeAssignEditModal()">&#x2715;</button>`;
@@ -11446,7 +11446,7 @@ function openAssignEditModal(id){
       <select class="form-select" id="ae-type" style="padding:8px;font-size:13px;">
         <option value="gameday" ${(a.type||'gameday')==='gameday'?'selected':''}>Dual</option>
         <option value="scrimmage" ${a.type==='scrimmage'?'selected':''}>Scrimmage</option>
-        <option value="queens" ${a.type==='queens'?'selected':''}>Queens</option>
+        <option value="queens" ${a.type==='queens'?'selected':''}>Practice match</option>
       </select></div>
   </div>
   <div class="form-row" style="margin-bottom:10px;">
@@ -12063,7 +12063,7 @@ function renderAssignments(){
   let h='';
   entries.forEach(a=>{
     const isPast=a.date<today;
-    const typeLabel=a.type==='gameday'?'🏐 Dual':a.type==='scrimmage'?'🤝 Scrimmage':'👑 Queens';
+    const typeLabel=a.type==='gameday'?'🏐 Dual':a.type==='scrimmage'?'🤝 Scrimmage':'🏐 Practice match';
     const typeColor=a.type==='gameday'?'var(--blue)':a.type==='scrimmage'?'var(--purple)':'var(--red)';
     h+=`<div style="border-left:4px solid ${typeColor};background:${isPast?'var(--gray-lighter)':'var(--off-white)'};border-radius:8px;padding:12px;margin-bottom:10px;${isPast?'opacity:0.6;':''}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -12191,7 +12191,7 @@ function renderPlayerAssignment(pid){
   // Selected dual persists across chip taps; fall back to the first if the stored one is not today.
   const sel=myDuals.find(a=>a.id===ppSelectedDualId)||myDuals[0];
   ppSelectedDualId=sel.id;
-  const tLabels={gameday:'🏐 Dual',scrimmage:'🤝 Scrimmage',queens:'👑 Queens'};
+  const tLabels={gameday:'🏐 Dual',scrimmage:'🤝 Scrimmage',queens:'🏐 Practice match'};
   const tColors={gameday:'var(--blue)',scrimmage:'var(--purple)',queens:'var(--red)'};
   const typeLabel=tLabels[sel.type||'gameday'];
   const typeColor=tColors[sel.type||'gameday'];
@@ -12271,7 +12271,7 @@ function renderLiveAssignmentList(){
   const today=td();
   const sorted=Object.values(D.assignments||{}).filter(a=>a.courts&&a.courts.length>0&&(a.date||'')>=today).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   if(!sorted.length){el.innerHTML='<div style="color:var(--gray);font-size:13px;padding:8px 0;">No assignments yet. Use the Planner tab to create one.</div>';return;}
-  const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Queens'};
+  const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Practice match'};
   const tC={gameday:'var(--blue)',scrimmage:'var(--purple)',queens:'var(--red)'};
   el.innerHTML=sorted.map(a=>{
     const isToday=a.date===today;
@@ -12859,7 +12859,7 @@ function refreshSingleCourtCard(idx, date, fbNode){
 function renderLiveScoringQueens(assignment, date, container){
   const pairs=(assignment.courts||[]).map((c,i)=>({idx:i,court:c.court,p1:c.p1,p2:c.p2,b1:c.b1||null,b2:c.b2||null}));
   if(!pairs.length){container.innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:16px;">No court assignments found.</div>';return;}
-  let h=`<div style="font-size:12px;color:var(--gray);margin-bottom:10px;padding:8px;background:var(--off-white);border-radius:6px;">👑 Queens mode: each court pair plays an opposing pair. Select Team B for each court and record the final score.</div>`;
+  let h=`<div style="font-size:12px;color:var(--gray);margin-bottom:10px;padding:8px;background:var(--off-white);border-radius:6px;">🏐 Practice match mode: each court pair plays an opposing pair from the team. Select Team B for each court and record the final score.</div>`;
   pairs.forEach((c,idx)=>{
     const p1=gP(c.p1),p2=gP(c.p2);
     const teamALabel=[p1,p2].filter(Boolean).map(p=>p.firstName+' '+p.lastName.charAt(0)+'.').join(' & ')||'TBD';
@@ -12882,7 +12882,7 @@ function renderLiveScoringQueens(assignment, date, container){
       <div class="live-court-header">
         <div><span class="court-badge court-${c.court}" style="font-size:12px;">Court ${c.court}</span>
           <div class="live-pair-name" style="margin-top:4px;">${teamALabel}</div>
-          <div class="live-opp-name">👑 Queens Match</div>
+          <div class="live-opp-name">🏐 Practice Match</div>
         </div>
       </div>
       ${resultHtml}
@@ -12919,7 +12919,7 @@ function renderLiveScoringQueens(assignment, date, container){
           <div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Tap +/− to count stats (optional)</div>
           ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const po=gP(pid2);return lseStatBlock(pid2,po?po.firstName:'P',idx);}).join('')}
         </div>
-        <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
+        <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Practice Match Result</button>
       </div>`:''}
     </div>`;
   });
@@ -12946,7 +12946,7 @@ function refreshSingleQueensCard(idx, date){
   let inner=`<div class="live-court-header">
     <div><span class="court-badge court-${c.court}" style="font-size:12px;">Court ${c.court}</span>
       <div class="live-pair-name" style="margin-top:4px;">${teamALabel}</div>
-      <div class="live-opp-name">👑 Queens Match</div>
+      <div class="live-opp-name">🏐 Practice Match</div>
     </div>
   </div>`;
 
@@ -13000,7 +13000,7 @@ function refreshSingleQueensCard(idx, date){
         <div style="font-size:11px;color:var(--gray);margin-bottom:6px;">Tap +/− to count stats (optional)</div>
         ${[c.p1,c.p2].filter(Boolean).map(pid2=>{const po=gP(pid2);return lseStatBlock(pid2,po?po.firstName:'P',idx);}).join('')}
       </div>
-      <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Queens Result</button>
+      <button class="btn btn-small" style="width:100%;background:var(--red);color:var(--on-red);border:none;" onclick="saveQueensLiveSet(${idx},'${c.p1||''}','${c.p2||''}','${date}',${c.court})">Save Practice Match Result</button>
     </div>`;
   }
 
@@ -13039,7 +13039,7 @@ function generateMatchesFromLineup(assignId){
   const aType=a.type||'gameday';
   const node=aType==='scrimmage'?'scrimmages':'gamedays';
   const matchList=aType==='scrimmage'?D.scrimmages:D.gamedays;
-  if(aType==='queens'){toast('For Queens, use Live Score Entry to record pair matchups');return;}
+  if(aType==='queens'){toast('For practice matches, use Live Score Entry to record pair matchups');return;}
   const courts=a.courts||[];
   if(!courts.length){toast('No courts assigned');return;}
   let created=0;
@@ -25760,7 +25760,7 @@ function renderPlayerLiveScoring(){
     // Show all available assignments
     const allA=Object.values(D.assignments||{}).filter(a=>a.courts&&a.courts.length>0).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
     if(!allA.length){container.innerHTML=`<div style="text-align:center;padding:24px;color:var(--gray);"><div style="font-size:32px;margin-bottom:8px;">📅</div><div style="font-family:'Bebas Neue';font-size:16px;letter-spacing:1px;">No Assignments Yet</div></div>`;return;}
-    const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Queens'};
+    const tL={gameday:'Dual',scrimmage:'Scrimmage',queens:'Practice match'};
     container.innerHTML='<div>'+allA.map(a=>{
       const isToday=a.date===today;
       return`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;border-radius:8px;border:1px solid ${isToday?'var(--blue)':'var(--gray-lighter)'};background:${isToday?'var(--blue-bg)':'var(--white)'};">
@@ -26045,7 +26045,7 @@ function renderPlayerMatches(){
     });
     document.getElementById('pp-queens').innerHTML=h;
   }else{
-    document.getElementById('pp-queens').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No Queens matches yet</div>';
+    document.getElementById('pp-queens').innerHTML='<div style="color:var(--gray);font-size:13px;text-align:center;padding:12px;">No practice matches yet</div>';
   }
 }
 
@@ -26290,7 +26290,7 @@ function saveAIAssignment(btnEl){
   // Show confirmation in the result container
   const container=document.getElementById('ai-pairings-result');
   if(container){
-    const tLabel={gameday:'Dual',scrimmage:'Scrimmage',queens:'Queens'}[type]||type;
+    const tLabel={gameday:'Dual',scrimmage:'Scrimmage',queens:'Practice match'}[type]||type;
     const rndNote=numRounds>1?` (${totalSaved} rounds)`:'';
     container.innerHTML=`<div style="background:var(--green-bg);border:1px solid var(--green);border-radius:10px;padding:16px;text-align:center;">
       <div style="font-family:'Bebas Neue';font-size:18px;letter-spacing:1.5px;color:var(--green);margin-bottom:6px;">✓ ${tLabel} Saved${rndNote}</div>
@@ -26547,7 +26547,7 @@ function renderAthleteCard(pid){
   if(rec){
     var cs=combinedStats(pid,{allSeasons:true}); // player career detail (secondary only)
     var setsLine='Sets '+(cs.gdSets||0)+' · +/- '+((cs.totalDiff>=0?'+':'')+cs.totalDiff);
-    var queensLine=(cs.qGP>0)?('Queens '+cs.qWins+'-'+cs.qLosses):'';
+    var queensLine=(cs.qGP>0)?('Practice W-L '+cs.qWins+'-'+cs.qLosses):'';
     var secondary=esc(setsLine)+(queensLine?' · '+esc(queensLine):'');
     // Individual pair-match record from gamedays. combinedStats does not surface matchesWon/matchesLost, so read extStats directly.
     var indStats=extStats(pid, D.gamedays||[], {allSeasons:true});
@@ -26579,7 +26579,7 @@ function renderAthleteCard(pid){
     var rows=seasons.map(function(S){
       var t=teamDualRec(S);
       var pcs=combinedStats(pid,{season:S});
-      var detail=(pcs.qGP>0?('Q '+pcs.qWins+'-'+pcs.qLosses+'  '):'')+'Sets '+(pcs.gdSets||0);
+      var detail=(pcs.qGP>0?('Practice W-L '+pcs.qWins+'-'+pcs.qLosses+'  '):'')+'Sets '+(pcs.gdSets||0);
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(var(--on-red-rgb),0.15);">'
         +'<div style="'+BN+';font-size:18px;letter-spacing:1px;color:var(--on-red);">'+esc(S)+'</div>'
         +'<div style="text-align:right;">'
@@ -27352,7 +27352,7 @@ function scScanSave(count,date){
       const base64=ev.target.result.split(',')[1];
       const mediaType=file.type||'image/jpeg';
       preview.innerHTML=`<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;border:2px solid var(--gray-lighter);">`;
-      result.innerHTML='<div class="ai-loading"><div class="spinner"></div><div style="margin-top:8px;">AI is reading your Queens scoresheet...</div></div>';
+      result.innerHTML='<div class="ai-loading"><div class="spinner"></div><div style="margin-top:8px;">AI is reading your practice match scoresheet...</div></div>';
       const date=document.getElementById('qs-scan-date').value||td();
       const playerList=D.players.map(p=>p.firstName+' '+p.lastName+' ('+p.id+')').join(', ');
       // Reached only once a usable body is in hand. Before that a throw is an outage.
@@ -27364,7 +27364,7 @@ function scScanSave(count,date){
             model:'claude-sonnet-4-6',max_tokens:2500,
             messages:[{role:'user',content:[
               {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
-              {type:'text',text:`You are reading a handwritten QUEENS (${SCHOOL_NAME} vs ${SCHOOL_NAME} internal) beach volleyball scoresheet.
+              {type:'text',text:`You are reading a handwritten PRACTICE MATCH (team vs itself, ${SCHOOL_NAME} vs ${SCHOOL_NAME} internal) beach volleyball scoresheet.
 PLAYER ROSTER: ${playerList}
 Each court has Team A (2 players) vs Team B (2 players), all ${SCHOOL_NAME} players.
 Return ONLY valid JSON: {"courts":[{"court":1,"team1":["p01","p02"],"team2":["p03","p04"],"score1":21,"score2":15}]}
@@ -27407,12 +27407,12 @@ Return ONLY valid JSON: {"courts":[{"court":1,"team1":["p01","p02"],"team2":["p0
           </div>`;
         });
         h+=`<div style="display:flex;gap:8px;margin-top:10px;">
-          <button class="btn btn-small" style="flex:1;background:var(--gold);color:var(--black);border:none;" onclick="qsScanSave(${parsed.courts.length},'${date}')">✓ Save Queens Results</button>
+          <button class="btn btn-small" style="flex:1;background:var(--gold);color:var(--black);border:none;" onclick="qsScanSave(${parsed.courts.length},'${date}')">✓ Save Practice Match Results</button>
           <button class="btn btn-secondary btn-small" onclick="document.getElementById('qs-scan-result').innerHTML='';document.getElementById('qs-scan-preview').innerHTML='';">✕ Cancel</button>
         </div>`;
         result.innerHTML=h;
         e.target.value='';
-      }catch(err){console.error('Queens scan error:',err);result.innerHTML='<div style="color:var(--loss-red);font-size:13px;">'+(aiReached?'Error reading photo.':'AI service unavailable. Try again in a moment.')+'</div>';}
+      }catch(err){console.error('Practice match scan error:',err);result.innerHTML='<div style="color:var(--loss-red);font-size:13px;">'+(aiReached?'Error reading photo.':'AI service unavailable. Try again in a moment.')+'</div>';}
     };
     reader.readAsDataURL(file);
     e.target.value='';
@@ -27435,7 +27435,7 @@ function qsScanSave(count,date){
     fbSetResult('matches',id,{id,date,court,team1:[a1,a2],team2:[b1,b2],score1:s1,score2:s2});
     saved++;
   }
-  toast('Saved '+saved+' Queens match'+(saved===1?'':'es')+'!');
+  toast('Saved '+saved+' practice match'+(saved===1?'':'es')+'!');
   document.getElementById('qs-scan-result').innerHTML='';
   document.getElementById('qs-scan-preview').innerHTML='';
   renderQueens();
