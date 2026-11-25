@@ -1196,4 +1196,109 @@
     ensureStyles, section, emptyLine, teamCard, playerCard, goldBtn, goldLink, quietBtn, quietLink, badge, divTag, trnTag, tagEl, requestStrip,
     teamsSection, COED_NOTE, teamContactCard, registeredBanner,
   };
+
+  // ── Finding a tournament (search and filters) ───────────────────────────────
+  // Pure helpers over the board payload, shared by /partners/ and, later, the pickup
+  // tournament directory. Everything runs on the player's device: no request is made here,
+  // and a distance origin (the player's position or picked city center) is a plain
+  // argument that never leaves this file. Free text matches name, location and organizer,
+  // case-insensitive, punctuation ignored ("Fudd's" finds "Fudds"). Filters are AND across
+  // kinds and OR within one: a month OR another month, AND a format, AND a division.
+  const F_LADDER = ['b', 'bb', 'a', 'aa', 'aaa', 'open'];
+  const F_LEVEL_LABEL = { open: 'Open', aaa: 'AAA', aa: 'AA', a: 'A', bb: 'BB', b: 'B', all: 'All levels' };
+  const F_CATS = ['mens', 'womens', 'coed'];
+  const F_CAT_LABEL = { mens: "Men's", womens: "Women's", coed: 'Coed' };
+  const F_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const F_MILES = [25, 50, 100, 0];   // 0 is "any distance"
+  const F_MILES_DEFAULT = 50;
+  function fNorm(s){ return String(s == null ? '' : s).toLowerCase().replace(/['’`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
+  function fText(t){ return fNorm([t && t.name, t && t.location, t && t.organizer].filter(Boolean).join(' ')); }
+  function fMatchText(t, q){
+    const words = fNorm(q).split(' ').filter(Boolean);
+    if(!words.length) return true;
+    const hay = fText(t), tight = hay.replace(/ /g, '');
+    return words.every(w => hay.indexOf(w) !== -1 || tight.indexOf(w) !== -1);
+  }
+  // '2027-01-09-mens-100s' as { category, level }; age groups and junk give null.
+  function fDivParts(id){
+    const s = String(id || '');
+    if(!/^\d{4}-\d{2}-\d{2}-/.test(s)) return null;
+    const rest = s.slice(11), cut = rest.lastIndexOf('-');
+    if(cut === -1) return null;
+    const category = rest.slice(0, cut), level = rest.slice(cut + 1);
+    return F_CATS.indexOf(category) === -1 || !level ? null : { category, level };
+  }
+  function fDivs(t){ return ((t && t.divisions) || []).map(d => fDivParts(d && d.div)).filter(Boolean); }
+  // Every month the event runs, as 'YYYY-MM'.
+  function fMonths(t){
+    const a = String((t && t.startDate) || ''), b = String((t && t.endDate) || a);
+    if(!/^\d{4}-\d{2}/.test(a)) return [];
+    const out = [];
+    let y = +a.slice(0, 4), m = +a.slice(5, 7);
+    const ey = /^\d{4}-\d{2}/.test(b) ? +b.slice(0, 4) : y, em = /^\d{4}-\d{2}/.test(b) ? +b.slice(5, 7) : m;
+    for(let k = 0; k < 24 && (y < ey || (y === ey && m <= em)); k++){ out.push(y + '-' + String(m).padStart(2, '0')); m++; if(m > 12){ m = 1; y++; } }
+    return out;
+  }
+  function fMonthLabel(k){ const m = /^(\d{4})-(\d{2})$/.exec(k || ''); return m ? F_MONTHS[+m[2] - 1] + ' ' + m[1] : String(k || ''); }
+  function fLevelLabel(l){ return F_LEVEL_LABEL[l] || String(l || ''); }
+  function fLevelRank(l){ const i = F_LADDER.indexOf(l); return i !== -1 ? i : l === 'all' ? F_LADDER.length : F_LADDER.length + 1; }
+  function fMiles(a, b){
+    const r = d => d * Math.PI / 180;
+    const dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * 3958.8 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function fPoint(p){ return !!p && typeof p.lat === 'number' && typeof p.lng === 'number' && isFinite(p.lat) && isFinite(p.lng); }
+  function fMilesLabel(m){ return (m < 10 ? Math.round(m * 10) / 10 : Math.round(m)) + ' mi'; }
+  // The choices the list offers, from the payload itself.
+  function fChoices(list){
+    const months = {}, formats = {}, surfaces = {}, cats = {}, levels = {};
+    (list || []).forEach(t => {
+      fMonths(t).forEach(k => { months[k] = true; });
+      if(t.format) formats[t.format] = true;
+      if(t.surface) surfaces[t.surface] = true;
+      fDivs(t).forEach(p => { cats[p.category] = true; levels[p.level] = true; });
+    });
+    return {
+      months: Object.keys(months).sort(),
+      formats: ['2v2', '3v3', '4v4'].filter(f => formats[f]),
+      surfaces: ['sand', 'grass'].filter(s => surfaces[s]),
+      cats: F_CATS.filter(c => cats[c]),
+      levels: Object.keys(levels).sort((a, b) => fLevelRank(a) - fLevelRank(b) || a.localeCompare(b)),
+    };
+  }
+  function fHas(arr){ return Array.isArray(arr) && arr.length > 0; }
+  // f: { q, months[], formats[], surfaces[], cats[], levels[], miles }. origin: {lat,lng} or null.
+  // Returns [{ t, d }] where d is miles from the origin (null without one or without a center).
+  // With an origin: nearest first, events with no center after them (date order). Without:
+  // the payload's own order (by date).
+  function fFilter(list, f, origin){
+    f = f || {};
+    const o = fPoint(origin) ? origin : null;
+    const lim = o && typeof f.miles === 'number' && f.miles > 0 ? f.miles : 0;
+    const rows = [];
+    (list || []).forEach((t, i) => {
+      if(!t) return;
+      if(!fMatchText(t, f.q)) return;
+      if(fHas(f.months) && !fMonths(t).some(k => f.months.indexOf(k) !== -1)) return;
+      if(fHas(f.formats) && f.formats.indexOf(t.format) === -1) return;
+      if(fHas(f.surfaces) && f.surfaces.indexOf(t.surface) === -1) return;
+      if(fHas(f.cats) || fHas(f.levels)){
+        const ok = fDivs(t).some(p => (!fHas(f.cats) || f.cats.indexOf(p.category) !== -1) && (!fHas(f.levels) || f.levels.indexOf(p.level) !== -1));
+        if(!ok) return;
+      }
+      const d = o && fPoint(t.center) ? fMiles(o, t.center) : null;
+      if(lim && (d === null || d > lim)) return;
+      rows.push({ t, d, i });
+    });
+    if(o) rows.sort((a, b) => (a.d === null) - (b.d === null) || (a.d !== null && b.d !== null ? a.d - b.d : 0) || a.i - b.i);
+    return rows.map(r => ({ t: r.t, d: r.d }));
+  }
+  function fActive(f){ return !!f && (!!fNorm(f.q) || fHas(f.months) || fHas(f.formats) || fHas(f.surfaces) || fHas(f.cats) || fHas(f.levels)); }
+
+  global.CourtSenseFinder = {
+    norm: fNorm, matchText: fMatchText, divParts: fDivParts, months: fMonths, monthLabel: fMonthLabel, levelLabel: fLevelLabel,
+    catLabel: (c) => F_CAT_LABEL[c] || c, miles: fMiles, milesLabel: fMilesLabel, choices: fChoices, filter: fFilter, active: fActive,
+    MILES: F_MILES, MILES_DEFAULT: F_MILES_DEFAULT,
+  };
 })(window);

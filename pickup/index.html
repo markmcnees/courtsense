@@ -35,7 +35,7 @@
 <script src="/ratings.js?v=58a1af90"></script>
 <script src="/identity.js?v=7bd52ae4"></script>
 <script src="/auth.js?v=72a7b39c"></script>
-<script src="/partner-contact.js?v=11"></script>
+<script src="/partner-contact.js?v=12"></script>
 <!-- Shared site nav. authControl:false because pickup already provides its own
      Log Out button and Profile control, so the nav adds only the three links. -->
 <script>window.COURTSENSE_NAV = { variant: 'full', authControl: false, tournaments: true };</script>
@@ -781,6 +781,7 @@ select.inp{-webkit-appearance:none;appearance:none;background-image:url("data:im
         <input class="inp" id="trn-loc" placeholder="e.g. Jacksonville Beach">
         <input class="inp" id="trn-addr" placeholder="Street address (optional)" style="margin-top:8px;">
       </div>
+      <div class="fg" id="trn-city-fg" style="display:none;"></div>
       <div class="fg">
         <label class="lbl">Registration or Info Link (required)</label>
         <input class="inp" id="trn-url" type="url" placeholder="https://..." required>
@@ -5506,7 +5507,24 @@ function startNewTournament(returnToPartner){
   trnRegTimesShown = false;
   trnDays = [];
   trnRenderGrid();
+  trnCityShow('');
   showView("tournament-setup");
+}
+
+// ── THE TOURNAMENT'S CITY ─────────────────────────────────────────────────
+// Optional. The same city list pickup games use (GET /pickup/courts/areas), stored as
+// areaKey on the tournament; the partner board turns it into the city's center so players
+// can find events near them, measured on their own phone. Nothing defaults to the
+// player's own city, and a saved city outside the list is kept.
+const TRN_CITY_HINT = 'Which city is the tournament in? Players use it to find events near them.';
+function trnCityShow(prefer){
+  if(!(window.csCourtPage && csCourtPage.resetCity && csCourtPage.syncCity)) return;
+  csCourtPage.resetCity('trn-city', prefer || '', { optional: true, hint: TRN_CITY_HINT });
+  csCourtPage.syncCity('trn-city', true);
+}
+// { area, err }: area null when left empty; err when "My city isn't listed" is half filled.
+function trnCityRead(){
+  return (window.csCourtPage && csCourtPage.cityFor) ? csCourtPage.cityFor('trn-city') : { area: null, err: '' };
 }
 
 // ── EDIT MODE CHROME ──────────────────────────────────────────────────────
@@ -5608,6 +5626,7 @@ function startEditTournament(id){
     if($("trn-addr")) $("trn-addr").value = t.locationAddress || "";
     if($("trn-url")) $("trn-url").value = t.eventUrl || "";
     if($("trn-organizer")) $("trn-organizer").value = t.organizer || "";
+    trnCityShow(typeof t.areaKey === "string" ? t.areaKey : "");
     const surf = $("trn-surface");
     if(surf) surf.value = (t.surface === "grass") ? "grass" : "sand";
     const fmt = $("trn-format");
@@ -5855,7 +5874,8 @@ function buildTournamentRecord(){
 
   const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const me = window.Identity ? Identity.getCurrent() : null;
-  return {
+  const city = trnCityRead();
+  const rec = {
     id: gi("trn"),
     name: name,
     startDate: startDate,
@@ -5873,6 +5893,9 @@ function buildTournamentRecord(){
     createdAt: Date.now(),
     status: "open"
   };
+  // Optional: only a picked city is stored.
+  if(city.area && city.area.areaKey) rec.areaKey = city.area.areaKey;
+  return rec;
 }
 
 // ── WHO MAY CHANGE STRUCTURE ──────────────────────────────────────────────
@@ -6044,7 +6067,10 @@ function buildTournamentEditPatch(){
 
   const auth = (window.CourtSenseAuth && CourtSenseAuth.currentPlayer) ? CourtSenseAuth.currentPlayer() : null;
   const me = window.Identity ? Identity.getCurrent() : null;
-  return {
+  // The city: a picked one, or null to clear it. Left out entirely when the picker is not
+  // on this page, so an edit can never clear a city it could not show.
+  const cityPatch = (window.csCourtPage && csCourtPage.cityFor) ? { areaKey: (trnCityRead().area || {}).areaKey || null } : {};
+  return Object.assign(cityPatch, {
     name: name,
     location: location,
     locationAddress: locationAddress,
@@ -6060,7 +6086,7 @@ function buildTournamentEditPatch(){
     // credits the lister.
     updatedBy: (auth && auth.id) || null,
     updatedByName: me ? me.name : ((auth && (auth.displayName || auth.name)) || "Anonymous")
-  };
+  });
 }
 
 // ── WHAT THE GRID CHANGED ─────────────────────────────────────────────────
@@ -6159,6 +6185,7 @@ function trnFindDuplicate(rec){
 
 async function saveTournament(){
   if(!(window.CourtSenseAuth && CourtSenseAuth.currentPlayer && CourtSenseAuth.currentPlayer())){ toast("Log in to add a tournament"); return; }
+  { const c = trnCityRead(); if(c.err){ toast(c.err); return; } }
   if(trnEditId){ return saveTournamentEdit(); }
   const rec = buildTournamentRecord();
   const problem = trnValidate(rec);
@@ -13827,22 +13854,34 @@ window.csCourtPage=(function(){
   function drawCity(p){
     var box=$(p+'-fg'), st=S.city[p]; if(!box||!st) return;
     var my=area(), list=cityChoices();
-    var pick=st.pick!=null?st.pick:(st.prefer||(my?my.areaKey:''));
-    if(pick&&pick!=='__new__'&&!list.some(function(x){ return x.areaKey===pick; })) pick=my?my.areaKey:'';
+    // Optional fields (a tournament's city) never default to the player's own city, and a
+    // saved city that is not in the list is kept as its own option rather than dropped.
+    var fallback=st.optional?'':(my?my.areaKey:'');
+    if(st.optional&&st.prefer&&!list.some(function(x){ return x.areaKey===st.prefer; })) st.extra=cityFromKey(st.prefer);
+    if(st.extra) list=list.concat([st.extra]);
+    var pick=st.pick!=null?st.pick:(st.prefer||fallback);
+    if(pick&&pick!=='__new__'&&!list.some(function(x){ return x.areaKey===pick; })) pick=fallback;
     st.pick=pick;
-    var opts='<option value="">Pick the city</option>'+list.map(function(x){ return '<option value="'+esc(x.areaKey)+'"'+(x.areaKey===pick?' selected':'')+'>'+esc(x.city+', '+x.state)+'</option>'; }).join('')
+    var opts='<option value="">'+(st.optional?'No city (optional)':'Pick the city')+'</option>'+list.map(function(x){ return '<option value="'+esc(x.areaKey)+'"'+(x.areaKey===pick?' selected':'')+'>'+esc(x.city+', '+x.state)+'</option>'; }).join('')
       +'<option value="__new__"'+(pick==='__new__'?' selected':'')+'>My city isn\'t listed</option>';
     var states='<option value="">State</option>'+CK.STATES.map(function(s){ return '<option value="'+s+'"'+(st.state===s?' selected':'')+'>'+s+'</option>'; }).join('');
     box.innerHTML='<label class="lbl">City</label>'
       +'<select class="inp" id="'+p+'-pick" onchange="csCourtPage.cityChanged(\''+p+'\')">'+opts+'</select>'
       +'<div id="'+p+'-new" style="'+(pick==='__new__'?'':'display:none;')+'margin-top:8px;"><input class="inp" id="'+p+'-name" maxlength="40" placeholder="City" value="'+esc(st.name||'')+'"><select class="inp" id="'+p+'-state" style="margin-top:8px;">'+states+'</select></div>'
-      +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">Which city is this in? Players near it see your game.</div>';
+      +'<div style="font-size:12px;color:var(--gray);margin-top:4px;">'+esc(st.hint||'Which city is this in? Players near it see your game.')+'</div>';
     st.drawn=true;
+  }
+  // A saved areaKey ('st-pete-beach-fl') as a choice when the list does not carry it.
+  function cityFromKey(k){
+    var m=/^([a-z0-9-]+)-([a-z]{2})$/.exec(String(k||'')); if(!m) return null;
+    return { areaKey:k, city:CK.titleCity(m[1].replace(/-/g,' ')), state:m[2].toUpperCase() };
   }
   function cityChanged(p){ keepCity(p); var n=$(p+'-new'); if(n) n.style.display=S.city[p]&&S.city[p].pick==='__new__'?'':'none'; }
   function redrawCities(){ Object.keys(S.city).forEach(function(p){ if(S.city[p].drawn){ keepCity(p); drawCity(p); } }); }
   // A fresh form: forget what the field held. prefer: the game's recorded area on an edit.
-  function resetCity(p, prefer){ S.city[p]={ drawn:false, pick:null, name:'', state:'', prefer:prefer||'' }; var b=$(p+'-fg'); if(b){ b.innerHTML=''; b.style.display='none'; } }
+  // opts.optional: an empty pick is allowed and nothing defaults to the player's city;
+  // opts.hint: the line under the field.
+  function resetCity(p, prefer, opts){ var o=opts||{}; S.city[p]={ drawn:false, pick:null, name:'', state:'', prefer:prefer||'', optional:!!o.optional, hint:o.hint||'', extra:null }; var b=$(p+'-fg'); if(b){ b.innerHTML=''; b.style.display='none'; } }
   function syncCity(p, need){
     var box=$(p+'-fg'); if(!box) return;
     if(!need){ box.style.display='none'; return; }
@@ -13861,8 +13900,15 @@ window.csCourtPage=(function(){
       var a=CK.areaOf(st.name, st.state);
       return a?{ area:a, err:'' }:{ area:null, err:'Pick a state for the city.' };
     }
-    var hit=cityChoices().filter(function(x){ return x.areaKey===pick; })[0];
+    var hit=cityChoices().concat(st.extra?[st.extra]:[]).filter(function(x){ return x.areaKey===pick; })[0];
     return hit?{ area:{ areaKey:hit.areaKey, city:hit.city, state:hit.state }, err:'' }:{ area:null, err:'Pick the city for this location.' };
+  }
+  // An optional city field: { area:null, err:'' } when left empty, else readCity.
+  function cityFor(p){
+    var st=S.city[p]; if(!st) return { area:null, err:'' };
+    keepCity(p);
+    if(st.optional&&!st.pick) return { area:null, err:'' };
+    return readCity(p);
   }
   // The area of a picked location: { area, err }. err is set when the City field is
   // needed and not filled in; nothing may be posted then.
@@ -14098,7 +14144,7 @@ window.csCourtPage=(function(){
     detailExtras:detailExtras, confirmCourt:confirmCourt, openReport:openReport, sendReport:sendReport, notePosted:notePosted, syncBox:syncBox,
     promptSource:promptSource, ageTick:ageTick, signInToAdd:signInToAdd, placeButton:placeButton, addFromPlace:addFromPlace,
     addPin:addPin, removePin:removePin, sendAdd:sendAdd, notNow:notNow, detailOpened:detailOpened, resolve:resolve,
-    split:split, gameAreaKey:gameAreaKey, needsCity:needsCity, areaForSelect:areaForSelect, syncCity:syncCity, resetCity:resetCity, cityChanged:cityChanged,
+    split:split, gameAreaKey:gameAreaKey, needsCity:needsCity, areaForSelect:areaForSelect, syncCity:syncCity, resetCity:resetCity, cityChanged:cityChanged, cityFor:cityFor,
     sendGameArea:sendGameArea, pollDistLabel:pollDistLabel, nearTallahassee:nearTallahassee };
 })();
 </script>

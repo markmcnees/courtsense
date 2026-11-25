@@ -104,6 +104,23 @@ details[open] .chev .closed, details:not([open]) .chev .open{display:none;}
 .opts .btn{flex:1;min-width:70px;}
 .opts .btn.sel{background:var(--navy);color:#fff;border-color:var(--navy);}
 .req label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:8px 0 4px;}
+/* Finder: search box, one sideways chip row, one option panel at a time */
+.finder{margin:0 0 16px;}
+.f-search{width:100%;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--white);min-height:44px;}
+.f-chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.f-chips::-webkit-scrollbar{display:none;}
+.f-chip{flex:none;min-height:40px;padding:8px 14px;border-radius:999px;border:1.5px solid var(--navy);background:var(--white);color:var(--navy);font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.f-chip.on{background:var(--navy);color:#fff;}
+.f-panel{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:6px;}
+.f-opts{display:flex;flex-wrap:wrap;gap:8px;}
+.f-opt{min-height:40px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#F7F3EA;font:inherit;font-size:14px;cursor:pointer;color:var(--ink);}
+.f-opt.sel{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700;}
+.f-label{font-size:13px;font-weight:700;color:var(--slate);margin:10px 0 6px;}
+.f-label:first-child{margin-top:0;}
+.f-panel select{width:100%;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:44px;background:var(--white);}
+.f-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--slate);margin-top:8px;}
+.f-clear{background:none;border:none;color:var(--navy);font:inherit;font-size:14px;font-weight:600;text-decoration:underline;cursor:pointer;min-height:44px;padding:0 4px;}
+.t-sub{font-size:13px;color:var(--slate);margin-top:2px;}
 footer{text-align:center;font-size:14px;color:var(--slate);padding:24px 16px 32px;border-top:1px solid var(--line);}
 footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;display:inline-block;min-height:44px;line-height:44px;}
 @media (min-width:600px){h1{font-size:48px;}}
@@ -122,6 +139,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <h1>Find a tournament partner</h1>
   <p class="lead">See who is looking for a team at upcoming events. Sign in free to reach out or post yourself.</p>
   <div id="panel"></div>
+  <div id="finder" class="finder"></div>
   <div id="board"><div class="status">Loading tournaments...</div></div>
 </main>
 
@@ -129,7 +147,7 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
   <a href="/">Home</a><a href="/privacy/">Privacy</a><a href="/sms-terms/">Text Terms</a>
 </footer>
 
-<script src="/partner-contact.js?v=11"></script>
+<script src="/partner-contact.js?v=12"></script>
 <script>
 // Public partner board. Everything shown comes from the worker's sanitized
 // /pickup/partner-board route: short display names, ratings, division labels, team
@@ -409,6 +427,9 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     // Name, then date and place, then the sign-up tag, then the counts.
     s.appendChild(el('div', 't-name', t.name));
     s.appendChild(el('div', 't-meta', dateRange(t.startDate, t.endDate) + (t.location ? ' · ' + t.location : '')));
+    // Who runs it, the surface, and how far it is (measured on this phone only).
+    const sub = [t.organizer, t.surface === 'grass' ? 'Grass' : t.surface === 'sand' ? 'Sand' : '', typeof distOf[t.id] === 'number' ? FD.milesLabel(distOf[t.id]) : ''].filter(Boolean);
+    if(sub.length) s.appendChild(el('div', 't-sub', sub.join(' · ')));
     // Registered for this tournament (any division): one banner to the team page instead of
     // the finder, and no looking counts.
     const reg = me && me.registeredIn && me.registeredIn[t.id];
@@ -820,28 +841,184 @@ footer a{color:var(--navy);font-weight:600;text-decoration:none;margin:0 6px;dis
     return refreshing;
   }
 
-  async function drawBoard(fresh){
-    const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid, fresh) : Promise.resolve([]), fetchBoard('', fresh)]);
-    // Cards keep whether they were open across a redraw.
+  // ── Finder: search and filters over the one board payload, all on this phone ──
+  // Nothing about where the player is ever leaves the device: "Use my location" is read
+  // into memory only and dropped on reload; "Pick your city" uses the city list fetched
+  // whole (/pickup/courts/areas takes no input). Only the filter choices and the picked
+  // city's NAME and key are remembered on the device, never coordinates.
+  const FD = window.CourtSenseFinder;
+  const FKEY = 'cs_partner_filters';
+  const fState = { q: '', months: [], formats: [], surfaces: [], cats: [], levels: [], miles: FD.MILES_DEFAULT, city: null };
+  let fOrigin = null;              // { lat, lng } in memory only
+  let fOriginKind = '';            // 'here' | 'city'
+  let fOpen = '';                  // which chip's panel is open
+  let fAreas = null, fAreasAsked = false, fGeoMsg = '';
+  let lastFeatured = null, lastAll = [], lastTidMiss = false, painted = false;
+  let distOf = {};
+  const arr = (v) => Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 40) : [];
+  (function fRestore(){
+    try {
+      const s = JSON.parse(localStorage.getItem(FKEY) || 'null');
+      if(!s || typeof s !== 'object') return;
+      fState.q = typeof s.q === 'string' ? s.q.slice(0, 80) : '';
+      ['months', 'formats', 'surfaces', 'cats', 'levels'].forEach(k => { fState[k] = arr(s[k]); });
+      if(FD.MILES.indexOf(s.miles) !== -1) fState.miles = s.miles;
+      if(s.city && typeof s.city.areaKey === 'string' && typeof s.city.city === 'string' && typeof s.city.state === 'string') fState.city = { areaKey: s.city.areaKey.slice(0, 64), city: s.city.city.slice(0, 60), state: s.city.state.slice(0, 2) };
+    } catch(e){}
+  })();
+  function fSave(){
+    // The city's name and key only: never a latitude or longitude.
+    const out = { q: fState.q, months: fState.months, formats: fState.formats, surfaces: fState.surfaces, cats: fState.cats, levels: fState.levels, miles: fState.miles,
+      city: fState.city ? { areaKey: fState.city.areaKey, city: fState.city.city, state: fState.city.state } : null };
+    try { localStorage.setItem(FKEY, JSON.stringify(out)); } catch(e){}
+  }
+  // The whole city list, once. The request carries nothing about the player.
+  function fLoadAreas(){
+    if(fAreasAsked) return;
+    fAreasAsked = true;
+    fetch(WORKER + '/pickup/courts/areas').then(r => r.json()).then(j => {
+      fAreas = (j && j.ok && Array.isArray(j.areas) ? j.areas : []).filter(a => a && typeof a.areaKey === 'string' && typeof a.city === 'string' && a.center && typeof a.center.lat === 'number' && typeof a.center.lng === 'number');
+      if(fState.city && fOriginKind !== 'here'){ const hit = fAreas.find(a => a.areaKey === fState.city.areaKey); if(hit){ fOrigin = { lat: hit.center.lat, lng: hit.center.lng }; fOriginKind = 'city'; } }
+      fRender(); paint();
+    }).catch(() => { fAreas = []; fRender(); });
+  }
+  function fUseHere(){
+    fGeoMsg = '';
+    if(!navigator.geolocation){ fGeoMsg = 'This browser cannot share a location. Pick your city instead.'; fRender(); return; }
+    fGeoMsg = 'Finding you...'; fRender();
+    navigator.geolocation.getCurrentPosition(p => {
+      fOrigin = { lat: p.coords.latitude, lng: p.coords.longitude }; fOriginKind = 'here'; fGeoMsg = '';
+      fRender(); paint();
+    }, () => { fGeoMsg = 'Could not get your location. Pick your city instead.'; fRender(); }, { maximumAge: 600000, timeout: 15000 });
+  }
+  function fPickCity(key){
+    const hit = (fAreas || []).find(a => a.areaKey === key);
+    if(!hit){ fState.city = null; if(fOriginKind === 'city'){ fOrigin = null; fOriginKind = ''; } }
+    else { fState.city = { areaKey: hit.areaKey, city: hit.city, state: hit.state }; fOrigin = { lat: hit.center.lat, lng: hit.center.lng }; fOriginKind = 'city'; }
+    fSave(); fRender(); paint();
+  }
+  function fClearNear(){ fOrigin = null; fOriginKind = ''; fState.city = null; fGeoMsg = ''; fSave(); fRender(); paint(); }
+  function fToggle(kind, v){
+    const list = fState[kind], i = list.indexOf(v);
+    if(i === -1) list.push(v); else list.splice(i, 1);
+    fSave(); fRender(); paint();
+  }
+  function fClearAll(){
+    fState.q = ''; ['months', 'formats', 'surfaces', 'cats', 'levels'].forEach(k => { fState[k] = []; });
+    fOpen = ''; fSave();
+    const box = document.getElementById('f-q'); if(box) box.value = '';
+    fRender(); paint();
+  }
+  function fOpt(label, on, onClick){ const b = el('button', 'f-opt' + (on ? ' sel' : ''), label); b.type = 'button'; b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.addEventListener('click', onClick); return b; }
+  function fChip(key, label, n){
+    const b = el('button', 'f-chip' + (n || fOpen === key ? ' on' : ''), label + (n ? ' · ' + n : ''));
+    b.type = 'button'; b.setAttribute('aria-expanded', fOpen === key ? 'true' : 'false');
+    b.addEventListener('click', () => { fOpen = fOpen === key ? '' : key; if(fOpen === 'near') fLoadAreas(); fRender(); });
+    return b;
+  }
+  const FMT_LABEL = { '2v2': '2s', '3v3': '3s', '4v4': '4s' };
+  function fRender(){
+    const host = document.getElementById('finder'); if(!host) return;
+    const keep = document.activeElement && document.activeElement.id === 'f-q';
+    host.textContent = '';
+    const q = el('input', 'f-search'); q.id = 'f-q'; q.type = 'search'; q.placeholder = 'Search tournaments, towns or organizers'; q.value = fState.q;
+    q.setAttribute('aria-label', 'Search tournaments, towns or organizers'); q.maxLength = 80;
+    q.addEventListener('input', () => { fState.q = q.value; fSave(); paint(); });
+    host.appendChild(q);
+    const ch = FD.choices(lastAll.concat(lastFeatured ? [lastFeatured] : []));
+    const row = el('div', 'f-chips');
+    row.appendChild(fChip('when', 'When', fState.months.length));
+    row.appendChild(fChip('format', 'Format', fState.formats.length));
+    row.appendChild(fChip('surface', 'Surface', fState.surfaces.length));
+    row.appendChild(fChip('div', 'Division', fState.cats.length + fState.levels.length));
+    row.appendChild(fChip('near', fOrigin ? (fState.miles ? 'Within ' + fState.miles + ' mi' : 'Near me') : 'Near me', fOrigin ? 1 : 0));
+    host.appendChild(row);
+    if(fOpen){
+      const p = el('div', 'f-panel');
+      const opts = el('div', 'f-opts');
+      if(fOpen === 'when') ch.months.forEach(k => opts.appendChild(fOpt(FD.monthLabel(k), fState.months.indexOf(k) !== -1, () => fToggle('months', k))));
+      if(fOpen === 'format') ch.formats.forEach(f => opts.appendChild(fOpt(FMT_LABEL[f] || f, fState.formats.indexOf(f) !== -1, () => fToggle('formats', f))));
+      if(fOpen === 'surface') ch.surfaces.forEach(s => opts.appendChild(fOpt(s === 'grass' ? 'Grass' : 'Sand', fState.surfaces.indexOf(s) !== -1, () => fToggle('surfaces', s))));
+      if(fOpen === 'div'){
+        p.appendChild(el('div', 'f-label', 'Category'));
+        ch.cats.forEach(c => opts.appendChild(fOpt(FD.catLabel(c), fState.cats.indexOf(c) !== -1, () => fToggle('cats', c))));
+        p.appendChild(opts);
+        p.appendChild(el('div', 'f-label', 'Level'));
+        const lv = el('div', 'f-opts');
+        ch.levels.forEach(l => lv.appendChild(fOpt(FD.levelLabel(l), fState.levels.indexOf(l) !== -1, () => fToggle('levels', l))));
+        p.appendChild(lv);
+      } else if(fOpen === 'near'){
+        p.appendChild(el('div', 'f-label', 'From'));
+        const from = el('div', 'f-opts');
+        from.appendChild(fOpt('Use my location', fOriginKind === 'here', fUseHere));
+        p.appendChild(from);
+        const sel = el('select'); sel.id = 'f-city'; sel.setAttribute('aria-label', 'Pick your city');
+        const o0 = el('option', '', fAreas ? 'Pick your city' : 'Loading cities...'); o0.value = ''; sel.appendChild(o0);
+        (fAreas || []).forEach(a => { const o = el('option', '', a.city + ', ' + a.state); o.value = a.areaKey; if(fOriginKind === 'city' && fState.city && fState.city.areaKey === a.areaKey) o.selected = true; sel.appendChild(o); });
+        sel.addEventListener('change', () => fPickCity(sel.value));
+        const wrap = el('div'); wrap.style.marginTop = '8px'; wrap.appendChild(sel); p.appendChild(wrap);
+        if(fGeoMsg) p.appendChild(el('div', 'f-row', fGeoMsg));
+        p.appendChild(el('div', 'f-label', 'Distance'));
+        const dist = el('div', 'f-opts');
+        FD.MILES.forEach(m => dist.appendChild(fOpt(m ? m + ' mi' : 'Any distance', fState.miles === m, () => { fState.miles = m; fSave(); fRender(); paint(); })));
+        p.appendChild(dist);
+        const r = el('div', 'f-row', fOrigin ? (fOriginKind === 'here' ? 'Measuring from where you are now. Your location stays on this phone.' : 'Measuring from ' + (fState.city ? fState.city.city : 'your city') + '.') : 'Your location stays on this phone.');
+        if(fOrigin){ const c = el('button', 'f-clear', 'Stop measuring'); c.type = 'button'; c.addEventListener('click', fClearNear); r.appendChild(c); }
+        p.appendChild(r);
+      }
+      if(fOpen !== 'div' && fOpen !== 'near') p.appendChild(opts);
+      host.appendChild(p);
+    }
+    if(FD.active(fState)){
+      const r = el('div', 'f-row');
+      const c = el('button', 'f-clear', 'Clear filters'); c.type = 'button'; c.addEventListener('click', fClearAll);
+      r.appendChild(c); host.appendChild(r);
+    }
+    if(keep){ const b = document.getElementById('f-q'); if(b && b.focus) b.focus(); }
+  }
+  // The list, from the last payload: the featured ?t= event first and never filtered, then
+  // everything else through the filters.
+  function paint(){
     const wasOpen = {};
     board.querySelectorAll('details.card').forEach(d => { wasOpen[d.id] = d.open; });
     board.textContent = '';
-    const featured = featuredList[0] || null;
-    if(tid && !featured){
-      board.appendChild(el('div', 'status', 'That event is not on the board any more. Here is everything coming up.'));
-    }
+    const featured = lastFeatured;
+    if(lastTidMiss) board.appendChild(el('div', 'status', 'That event is not on the board any more. Here is everything coming up.'));
+    const others = lastAll.filter(t => !featured || t.id !== featured.id);
+    const rows = FD.filter(others, fState, fOrigin);
+    distOf = {};
+    rows.forEach(r => { if(typeof r.d === 'number') distOf[r.t.id] = r.d; });
+    if(featured && fOrigin && featured.center) distOf[featured.id] = FD.miles(fOrigin, featured.center);
     if(featured) board.appendChild(card(featured, true, true));
-    const rest = all.filter(t => !featured || t.id !== featured.id);
-    if(!featured && !rest.length){
+    if(!featured && !others.length){
       board.appendChild(el('div', 'status', 'No upcoming tournaments are listed yet.'));
       const a = el('div', 'actions');
       a.appendChild(link('btn btn-p', 'Add a tournament', PICKUP + '?view=tournaments'));
       board.appendChild(a);
       return;
     }
-    if(featured && rest.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
-    const openAll = !featured && rest.length <= 3;
-    rest.forEach(t => board.appendChild(card(t, false, ('trn-' + t.id) in wasOpen ? wasOpen['trn-' + t.id] : openAll)));
+    if(featured && others.length) board.appendChild(el('div', 'sec-h', 'More upcoming events'));
+    if(others.length && !rows.length){
+      board.appendChild(el('div', 'status', 'No tournaments match.'));
+      const a = el('div', 'actions');
+      const c = btn('btn-o', 'Clear filters', fClearAll);
+      a.appendChild(c);
+      a.appendChild(link('btn btn-p', 'Add a tournament', PICKUP + '?view=tournaments'));
+      board.appendChild(a);
+      return;
+    }
+    const openAll = !featured && rows.length <= 3;
+    rows.forEach(r => board.appendChild(card(r.t, false, ('trn-' + r.t.id) in wasOpen ? wasOpen['trn-' + r.t.id] : openAll)));
+  }
+
+  async function drawBoard(fresh){
+    const [featuredList, all] = await Promise.all([tid ? fetchBoard(tid, fresh) : Promise.resolve([]), fetchBoard('', fresh)]);
+    lastFeatured = featuredList[0] || null;
+    lastTidMiss = !!(tid && !lastFeatured);
+    lastAll = all;
+    if(!painted){ painted = true; if(fState.city && !fOrigin) fLoadAreas(); }
+    fRender();
+    paint();
     if(askOpen){
       const host = askOpen.holder();
       const d = host && host.closest('details');
