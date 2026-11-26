@@ -13762,11 +13762,13 @@ window.csCourtPage=(function(){
     if(p) CK.get(fetch, p).then(function(res){ var c=CK.areaCenterOf(res); if(c){ S.centers[k]=c; refreshList(); } });
     return null;
   }
-  // The recorded areas of upcoming games, refreshed every two minutes at most.
+  // The recorded areas of upcoming games, refreshed every two minutes at most. Signed in, the
+  // session goes along (Authorization: Bearer) so the worker adds the private games this
+  // player may join; signed out, the call is anonymous and answers public games only.
   function gameAreas(){
     if(!S.ga.loading&&(!S.ga.at||Date.now()-S.ga.at>GAME_AREAS_MS)){
       S.ga.loading=true;
-      CK.get(fetch, CK.gameAreasPath()).then(function(res){
+      CK.get(fetch, CK.gameAreasPath(), session()).then(function(res){
         S.ga.loading=false; S.ga.at=Date.now();
         var l=CK.gameAreasList(res);
         if(l){ S.ga.list=l; refreshList(); }
